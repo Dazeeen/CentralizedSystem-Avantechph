@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block title %}Avantech Portal | Account Locked{% endblock %}
+
+{% block content %}
+<section class="login-section d-flex align-items-center py-5">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-8 col-lg-6">
+                <div class="card border-0 shadow-lg rounded-4">
+                    <div class="card-body p-4 p-md-5 text-center">
+                        <h1 class="h4 fw-bold text-danger mb-3">Too Many Failed Login Attempts</h1>
+                        <p class="text-secondary mb-3">For security, access from your current source has been temporarily locked.</p>
+                        {% if username_hint %}
+                            <p class="small text-secondary mb-4">Attempted account: <strong>{{ username_hint }}</strong></p>
+                        {% endif %}
+                        <p class="mb-4">Wait for the cooldown period or contact your support administrator to unlock access.</p>
+                        <div class="d-flex flex-wrap justify-content-center gap-2">
+                            <a href="{% url 'login' %}" class="btn btn-outline-success">Back to Login</a>
+                            <a href="{% url 'password_reset' %}" class="btn btn-success">Reset Password</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

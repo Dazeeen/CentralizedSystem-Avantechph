@@ -1,0 +1,21 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Delete Item Type{% endblock %}
+{% block page_heading %}Asset Item Types{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Delete Item Type</h2>
+        <p>Are you sure you want to delete <strong>{{ item_type.name }}</strong>?</p>
+        <p class="text-secondary mb-0">Code: {{ item_type.code }} | Prefix: {{ item_type.prefix }}</p>
+        <form method="post" class="mt-4">
+            {% csrf_token %}
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-danger">Delete</button>
+                <a href="{% url 'assets_item_types_list' %}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

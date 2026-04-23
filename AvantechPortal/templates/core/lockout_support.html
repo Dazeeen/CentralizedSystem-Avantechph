@@ -1,0 +1,218 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Lockout Support{% endblock %}
+{% block page_heading %}Lockout Support{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="h5 mb-3">Unlock Account/IP</h2>
+                <p class="text-secondary small">Support users can clear active lockout records here.</p>
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="id_username" class="form-label">Username</label>
+                        {{ form.username }}
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_ip_address" class="form-label">IP Address</label>
+                        {{ form.ip_address }}
+                    </div>
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger small">{{ form.non_field_errors|striptags }}</div>
+                    {% endif %}
+                    <button type="submit" class="btn btn-success">Clear Lockout</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="h5 mb-0">Search Lockout Records</h2>
+                </div>
+                <form method="get" class="row g-2">
+                    <div class="col-sm-9">
+                        <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search by username or IP">
+                    </div>
+                    <div class="col-sm-3 d-grid">
+                        <button type="submit" class="btn btn-outline-success">Search</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-4">
+                <h2 class="h5 mb-3">Current Access Attempts</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Username</th>
+                                <th>IP</th>
+                                <th>Failures</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in attempts %}
+                                <tr>
+                                    <td>{{ item.attempt_time|date:'Y-m-d H:i' }}</td>
+                                    <td>{{ item.username|default:'-' }}</td>
+                                    <td>{{ item.ip_address|default:'-' }}</td>
+                                    <td>{{ item.failures_since_start }}</td>
+                                    <td class="text-end">
+                                        {% if request.user.is_superuser or perms.axes.delete_accessattempt %}
+                                            <form method="post" class="d-inline">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action_type" value="row_unlock">
+                                                <input type="hidden" name="username" value="{{ item.username|default:'' }}">
+                                                <input type="hidden" name="ip_address" value="{{ item.ip_address|default:'' }}">
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-sm btn-outline-success unlock-btn"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#unlockConfirmModal"
+                                                    data-username="{{ item.username|default:'' }}"
+                                                    data-ip="{{ item.ip_address|default:'' }}"
+                                                >
+                                                    Unlock
+                                                </button>
+                                            </form>
+                                        {% else %}
+                                            <span class="text-secondary small">No access</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-secondary">No active access attempts.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="h5 mb-3">Recent Lockout Events</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Username</th>
+                                <th>IP</th>
+                                <th>Locked Out</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in lockouts %}
+                                <tr>
+                                    <td>{{ item.attempt_time|date:'Y-m-d H:i' }}</td>
+                                    <td>{{ item.username|default:'-' }}</td>
+                                    <td>{{ item.ip_address|default:'-' }}</td>
+                                    <td>
+                                        {% if item.locked_out %}
+                                            <span class="badge text-bg-danger">Yes</span>
+                                        {% else %}
+                                            <span class="badge text-bg-secondary">No</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if request.user.is_superuser or perms.axes.delete_accessattempt %}
+                                            <form method="post" class="d-inline">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action_type" value="row_unlock">
+                                                <input type="hidden" name="username" value="{{ item.username|default:'' }}">
+                                                <input type="hidden" name="ip_address" value="{{ item.ip_address|default:'' }}">
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-sm btn-outline-success unlock-btn"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#unlockConfirmModal"
+                                                    data-username="{{ item.username|default:'' }}"
+                                                    data-ip="{{ item.ip_address|default:'' }}"
+                                                >
+                                                    Unlock
+                                                </button>
+                                            </form>
+                                        {% else %}
+                                            <span class="text-secondary small">No access</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-secondary">No lockout events found.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="unlockConfirmModal" tabindex="-1" aria-labelledby="unlockConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h3 class="modal-title h5" id="unlockConfirmModalLabel">Confirm Unlock</h3>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">You are about to clear lockout records for this target:</p>
+                <p class="mb-0 small text-secondary">
+                    Username: <span id="unlockTargetUsername">-</span><br>
+                    IP: <span id="unlockTargetIp">-</span>
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmUnlockBtn">Confirm Unlock</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const modal = document.getElementById('unlockConfirmModal');
+        if (!modal) {
+            return;
+        }
+
+        const usernameTarget = document.getElementById('unlockTargetUsername');
+        const ipTarget = document.getElementById('unlockTargetIp');
+        const confirmBtn = document.getElementById('confirmUnlockBtn');
+        let activeForm = null;
+
+        document.querySelectorAll('.unlock-btn').forEach((button) => {
+            button.addEventListener('click', () => {
+                activeForm = button.closest('form');
+                const username = button.getAttribute('data-username') || '-';
+                const ip = button.getAttribute('data-ip') || '-';
+                usernameTarget.textContent = username || '-';
+                ipTarget.textContent = ip || '-';
+            });
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            if (activeForm) {
+                activeForm.submit();
+            }
+        });
+    })();
+</script>
+{% endblock %}

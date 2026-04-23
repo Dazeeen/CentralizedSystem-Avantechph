@@ -1,0 +1,20 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Delete User{% endblock %}
+{% block page_heading %}Users{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Delete User</h2>
+        <p>Are you sure you want to delete <strong>{{ managed_user.username }}</strong>?</p>
+        <form method="post">
+            {% csrf_token %}
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-danger">Delete</button>
+                <a href="{% url 'users_list' %}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

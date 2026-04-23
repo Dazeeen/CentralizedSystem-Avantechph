@@ -1,0 +1,138 @@
+{% load core_extras %}
+{{ variant_images_map|json_script:'variant-images-data' }}
+<div class="mb-3">
+    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+        <div>
+            <h5 class="mb-1">{{ parent_item.item_code }} - {{ parent_item.item_name }}</h5>
+            <p class="text-muted mb-0">Department: {{ parent_item.department.name }}{% if parent_item.specification %} | Spec: {{ parent_item.specification }}{% endif %}</p>
+        </div>
+        <span class="badge bg-secondary">{{ variants|length }} variant{{ variants|length|pluralize }}</span>
+    </div>
+</div>
+
+{% if has_parent_item_details %}
+    <div class="row g-3 mb-3">
+        {% if parent_item.get_primary_image_url %}
+            <div class="col-md-4">
+                <div class="small text-secondary mb-1">Item Image</div>
+                <button
+                    type="button"
+                    class="btn p-0 border-0 bg-transparent js-parent-image-trigger"
+                    data-image-src="{{ parent_item.get_primary_image_url }}"
+                    data-image-name="{{ parent_item.item_code }} - {{ parent_item.item_name|escape }}"
+                    aria-label="View image for {{ parent_item.item_code }}"
+                >
+                    <img src="{{ parent_item.get_primary_image_url }}" alt="{{ parent_item.item_name }}" class="img-fluid rounded border" style="max-height: 170px; object-fit: cover;">
+                </button>
+            </div>
+        {% endif %}
+        <div class="{% if parent_item.get_primary_image_url %}col-md-8{% else %}col-12{% endif %}">
+            {% if parent_item_specification %}
+                <div class="small text-secondary mb-1">Specification</div>
+                <div class="border rounded p-2 bg-light-subtle {% if parent_item_note %}mb-2{% endif %}" style="white-space: pre-wrap;">{{ parent_item_specification }}</div>
+            {% endif %}
+            {% if parent_item_note %}
+                <div class="small text-secondary mb-1">Note</div>
+                <div class="border rounded p-2 bg-light-subtle" style="min-height: 70px; white-space: pre-wrap;">{{ parent_item_note }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <hr class="my-3 border-secondary-subtle">
+{% endif %}
+
+{% if variants %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle mb-0">
+            <thead>
+                <tr>
+                    <th style="width: 36px;">
+                        <input type="checkbox" class="form-check-input" id="selectAllVariants" aria-label="Select all variants">
+                    </th>
+                    <th>Item ID</th>
+                    <th>Variant Name</th>
+                    <th>Image</th>
+                    <th>Specification</th>
+                    <th>Stock</th>
+                    <th>Current Holder</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for variant in variants %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" class="form-check-input js-variant-checkbox" value="{{ variant.id }}" aria-label="Select {{ variant.item_code }}">
+                        </td>
+                        <td class="fw-semibold">{{ variant.item_code }}</td>
+                        <td>{{ variant.item_name }}</td>
+                        <td>
+                            {% if variant.get_primary_image_url %}
+                                <button
+                                    type="button"
+                                    class="btn p-0 border-0 bg-transparent js-variant-image-trigger"
+                                    data-variant-id="{{ variant.id }}"
+                                    data-image-src="{{ variant.get_primary_image_url }}"
+                                    data-image-name="{{ variant.item_code }} - {{ variant.item_name|escape }}"
+                                    aria-label="View image for {{ variant.item_code }}"
+                                >
+                                    <img src="{{ variant.get_primary_image_url }}" alt="{{ variant.item_name }}" class="rounded border" style="width: 30px; height: 30px; object-fit: cover;">
+                                </button>
+                            {% else %}
+                                <span class="d-inline-flex align-items-center justify-content-center rounded border bg-light text-secondary" style="width: 30px; height: 30px;">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ variant.specification|default:'-' }}</td>
+                        <td>{{ variant.stock_quantity }}</td>
+                        <td>
+                            {% with holders=holders_by_item|get_item:variant.id %}
+                                {% if holders %}
+                                    {{ holders|join:', ' }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            {% endwith %}
+                        </td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Variant actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'assets_item_update' variant.id %}">Edit</a></li>
+                                    <li><a class="dropdown-item text-danger" href="{% url 'assets_item_delete' variant.id %}">Delete</a></li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="variant-bulk-action-bar d-none mt-3" id="variantBulkActionBar">
+        <form method="post" action="{% url 'assets_variants_bulk_delete' parent_item.id %}" id="variantBulkDeleteForm" class="d-flex align-items-center justify-content-center gap-2 flex-wrap">
+            {% csrf_token %}
+            <span class="small fw-semibold" id="variantBulkSelectedLabel">0 selected</span>
+            <button type="submit" class="icon-only-action-btn is-danger" title="Delete selected variants" aria-label="Delete selected variants">
+                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    <path d="M9 7V5.8C9 4.81 9.81 4 10.8 4H13.2C14.19 4 15 4.81 15 5.8V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    <path d="M8 7L8.7 18.2C8.76 19.15 9.55 19.9 10.5 19.9H13.5C14.45 19.9 15.24 19.15 15.3 18.2L16 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    <path d="M13.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                </svg>
+            </button>
+            <button type="button" class="icon-only-action-btn" id="variantBulkClearBtn" title="Clear selection" aria-label="Clear selection">
+                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </form>
+    </div>
+
+    <div class="small text-muted mt-3">
+        Note: Current holder shows users with active approved borrow records for each variant.
+    </div>
+{% endif %}

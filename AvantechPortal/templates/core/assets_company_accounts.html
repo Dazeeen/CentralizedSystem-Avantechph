@@ -1,0 +1,170 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Company Internet Accounts{% endblock %}
+{% block page_heading %}Company Internet Accounts{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h2 class="h4 mb-1">Company Internet Accounts</h2>
+        <p class="text-secondary mb-0">Submit social media, websites, and online company properties. Passwords stay masked until unlocked with your current account password.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'assets_list' %}">Back to Asset Tracker</a>
+        {% if request.user.is_superuser or perms.core.view_assetaccountability %}
+            <a class="btn btn-outline-success" href="{% url 'accountability_list' %}">Open Accountability</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm" id="companyInternetAccounts">
+    <div class="card-body border-bottom bg-light-subtle">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+                <label class="form-label mb-1" for="internet-account-search">Search Account Records</label>
+                <input id="internet-account-search" type="text" name="ia_q" value="{{ internet_account_query }}" class="form-control" placeholder="Platform, login ID, email, holder">
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-outline-success">Filter</button>
+                <a href="{% url 'assets_company_accounts' %}#companyInternetAccounts" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+    <div class="card-body">
+        {% if can_submit_internet_accounts %}
+        <form method="post" action="{% url 'assets_company_account_submit' %}" class="row g-3 mb-4">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}#companyInternetAccounts">
+            <div class="col-12 col-md-6 col-lg-4">
+                <label class="form-label">Platform / Property</label>
+                {{ company_internet_account_form.platform_name }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-4">
+                <label class="form-label">Website URL</label>
+                {{ company_internet_account_form.website_url }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-4">
+                <label class="form-label">Auth Provider</label>
+                {{ company_internet_account_form.auth_provider }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-3">
+                <label class="form-label">Account Identifier</label>
+                {{ company_internet_account_form.account_identifier }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-3">
+                <label class="form-label">Linked Email</label>
+                {{ company_internet_account_form.login_email }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-3">
+                <label class="form-label">Credential Username</label>
+                {{ company_internet_account_form.credential_username }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-3">
+                <label class="form-label">Credential Password</label>
+                {{ company_internet_account_form.credential_password }}
+            </div>
+            <div class="col-12 col-md-6 col-lg-4">
+                <label class="form-label">Manual Holder Name (Optional)</label>
+                {{ company_internet_account_form.holder_name_override }}
+            </div>
+            <div class="col-12 col-lg-8">
+                <label class="form-label">Notes (Optional)</label>
+                {{ company_internet_account_form.notes }}
+            </div>
+            <div class="col-12 d-flex justify-content-end">
+                <button type="submit" class="btn btn-success">Submit Credential Record</button>
+            </div>
+        </form>
+        {% else %}
+        <div class="alert alert-warning mb-4">You do not have permission to submit internet account records.</div>
+        {% endif %}
+
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Platform</th>
+                        <th>Identifier</th>
+                        <th>Auth</th>
+                        <th>Holder</th>
+                        <th>Password</th>
+                        <th style="min-width: 260px;">Unlock / View</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for internet_account in internet_accounts_page %}
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">{{ internet_account.platform_name }}</div>
+                                <div class="small text-secondary">{{ internet_account.website_url|default:'No URL provided' }}</div>
+                            </td>
+                            <td>
+                                <div>{{ internet_account.account_identifier }}</div>
+                                <div class="small text-secondary">{{ internet_account.login_email|default:internet_account.credential_username|default:'-' }}</div>
+                            </td>
+                            <td>{{ internet_account.get_auth_provider_display }}</td>
+                            <td>
+                                <div>{{ internet_account.get_holder_display_name }}</div>
+                                {% if internet_account.submitted_by %}
+                                    <div class="small text-secondary">Submitted by {{ internet_account.submitted_by.get_full_name|default:internet_account.submitted_by.username }}</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% with unlocked_password=unlocked_passwords_map|get_item:internet_account.id %}
+                                    {% if unlocked_password %}
+                                        <div class="fw-semibold text-success">{{ unlocked_password }}</div>
+                                        <div class="small text-secondary">Unlocked in this session</div>
+                                    {% else %}
+                                        <div class="fw-semibold">{{ internet_account.masked_password }}</div>
+                                        <div class="small text-secondary">Masked</div>
+                                    {% endif %}
+                                {% endwith %}
+                            </td>
+                            <td>
+                                <form method="post" action="{% url 'assets_company_account_reveal' internet_account.id %}" class="d-flex flex-column flex-md-row gap-2">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}#companyInternetAccounts">
+                                    <input type="password" name="current_account_password" class="form-control form-control-sm" placeholder="Enter your current account password" autocomplete="current-password" required>
+                                    <button type="submit" class="btn btn-sm btn-outline-success">Unlock</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-secondary">No company internet account records yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if internet_accounts_page.paginator.num_pages > 1 %}
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <small class="text-secondary">Accounts page {{ internet_accounts_page.number }} of {{ internet_accounts_page.paginator.num_pages }}</small>
+                <div class="btn-group" role="group" aria-label="Internet account pagination">
+                    {% if internet_accounts_page.has_previous %}
+                        <a class="btn btn-sm btn-outline-success" href="?ia_q={{ internet_account_query|urlencode }}&account_page={{ internet_accounts_page.previous_page_number }}#companyInternetAccounts">Previous</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                    {% endif %}
+
+                    {% for page_num in internet_accounts_page.paginator.page_range %}
+                        {% if page_num == internet_accounts_page.number %}
+                            <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                        {% else %}
+                            <a class="btn btn-sm btn-outline-success" href="?ia_q={{ internet_account_query|urlencode }}&account_page={{ page_num }}#companyInternetAccounts">{{ page_num }}</a>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if internet_accounts_page.has_next %}
+                        <a class="btn btn-sm btn-outline-success" href="?ia_q={{ internet_account_query|urlencode }}&account_page={{ internet_accounts_page.next_page_number }}#companyInternetAccounts">Next</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | {{ page_title }}{% endblock %}
+{% block page_heading %}Asset Department{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-6 col-lg-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <h2 class="h5 mb-0">{{ page_title }}</h2>
+            </div>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ form.name.id_for_label }}">Department Name</label>
+                        {{ form.name }}
+                        {% if form.name.errors %}
+                            <div class="text-danger small mt-1">{{ form.name.errors|join:', ' }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success">{{ submit_label }}</button>
+                        <a href="{% url cancel_url_name %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

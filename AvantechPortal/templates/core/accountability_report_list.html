@@ -1,0 +1,126 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Accountability Detailed List Report | Avantech Portal{% endblock %}
+{% block page_heading %}Accountability Detailed List Report{% endblock %}
+
+{% block content %}
+<div class="report-doc-wrap">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 report-toolbar print-hide">
+    <div>
+        <h2 class="h4 mb-1">Asset Accountability List Document</h2>
+        <p class="text-secondary mb-0">Scope: {{ report_scope_label }} | Generated: {{ generated_at|date:'Y-m-d H:i' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{% url 'accountability_report_list_csv' %}?month={{ filter_state.month|urlencode }}&start_date={{ filter_state.start_date|urlencode }}&end_date={{ filter_state.end_date|urlencode }}" class="btn btn-outline-success">Download CSV</a>
+        <button type="button" class="btn btn-success" onclick="window.print();">Ready to Print</button>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <span class="d-inline-flex align-items-center justify-content-center rounded-3" style="width:48px;height:48px;background:#e7f6ec;color:#0d4d2a;">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 3L20 8V16L12 21L4 16V8L12 3Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M8.5 13.5L12 7.5L15.5 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <div>
+                    <div class="fw-bold">Avantech Centralized System</div>
+                    <div class="small text-secondary">Asset Accountability Reporting Document</div>
+                </div>
+            </div>
+            <div class="small text-secondary text-end">
+                <div>Document Type: Detailed List</div>
+                <div>Scope: {{ report_scope_label }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Item Code</th>
+                    <th>Item Name</th>
+                    <th>Borrowed By</th>
+                    <th>Quantity</th>
+                    <th>Borrowed Date</th>
+                    <th>Status</th>
+                    <th>Stock Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in list_page %}
+                <tr>
+                    <td>{{ row.item.item_code }}</td>
+                    <td>{{ row.item.item_name }}</td>
+                    <td>{{ row.borrowed_by.get_full_name|default:row.borrowed_by.username|default:'-' }}</td>
+                    <td>{{ row.quantity_borrowed }}</td>
+                    <td>{{ row.date_borrowed|date:'Y-m-d H:i' }}</td>
+                    <td>{{ row.status|title }}</td>
+                    <td>{{ row.item_stock_status|title }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7" class="text-center py-4 text-secondary">No records in selected scope.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if list_page.has_other_pages %}
+    <div class="card-footer bg-white d-flex justify-content-between align-items-center print-hide">
+        <small class="text-secondary">Page {{ list_page.number }} of {{ list_page.paginator.num_pages }}</small>
+        <div class="btn-group" role="group" aria-label="Detailed report pagination">
+            {% if list_page.has_previous %}
+            <a class="btn btn-sm btn-outline-success" href="?month={{ filter_state.month|urlencode }}&start_date={{ filter_state.start_date|urlencode }}&end_date={{ filter_state.end_date|urlencode }}&list_page={{ list_page.previous_page_number }}">Previous</a>
+            {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+            {% endif %}
+
+            {% for page_num in list_page.paginator.page_range %}
+                {% if page_num == list_page.number %}
+                <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                {% else %}
+                <a class="btn btn-sm btn-outline-success" href="?month={{ filter_state.month|urlencode }}&start_date={{ filter_state.start_date|urlencode }}&end_date={{ filter_state.end_date|urlencode }}&list_page={{ page_num }}">{{ page_num }}</a>
+                {% endif %}
+            {% endfor %}
+
+            {% if list_page.has_next %}
+            <a class="btn btn-sm btn-outline-success" href="?month={{ filter_state.month|urlencode }}&start_date={{ filter_state.start_date|urlencode }}&end_date={{ filter_state.end_date|urlencode }}&list_page={{ list_page.next_page_number }}">Next</a>
+            {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white">
+        <h3 class="h6 mb-0">Sign-off</h3>
+    </div>
+    <div class="card-body">
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="small text-secondary mb-3">Prepared By</div>
+                <div style="border-bottom:1px solid #ced4da; height: 32px;"></div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-secondary mb-3">Checked By</div>
+                <div style="border-bottom:1px solid #ced4da; height: 32px;"></div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-secondary mb-3">Approved By</div>
+                <div style="border-bottom:1px solid #ced4da; height: 32px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+{% endblock %}

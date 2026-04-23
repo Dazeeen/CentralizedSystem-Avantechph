@@ -1,0 +1,87 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Profile{% endblock %}
+{% block page_heading %}My Profile{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm profile-card">
+    <div class="card-body p-4 p-lg-5">
+        <div class="d-flex flex-column flex-md-row align-items-md-center gap-4 mb-4">
+            <div class="profile-avatar-wrap position-relative">
+                {% if profile.avatar %}
+                    <img src="{{ profile.avatar.url }}" alt="{{ request.user.username }}" class="profile-avatar-image rounded-circle">
+                {% else %}
+                    <div class="profile-avatar-fallback rounded-circle d-inline-flex align-items-center justify-content-center bg-success text-white">
+                        {{ request.user.first_name|default:request.user.username|first|upper }}
+                    </div>
+                {% endif %}
+                <span class="profile-status-dot" style="background-color: {{ profile.get_status_color }};" title="{{ profile.get_status_display }}"></span>
+            </div>
+
+            <div class="flex-grow-1">
+                <h2 class="h3 mb-1">
+                    {% if request.user.get_full_name %}
+                        {{ request.user.get_full_name }}
+                    {% else %}
+                        {{ request.user.username }}
+                    {% endif %}
+                </h2>
+                <div class="text-secondary mb-2">@{{ request.user.username }}</div>
+                <span class="badge text-bg-light border">Status: {{ profile.get_status_display }}</span>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Email</div>
+                    <div class="profile-meta-value">{{ request.user.email|default:'No email set' }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Department</div>
+                    <div class="profile-meta-value">{{ department }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Branch</div>
+                    <div class="profile-meta-value">{{ branch }}</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Roles</div>
+                    <div class="profile-meta-value">
+                        {% if role_names %}
+                            {% for role_name in role_names %}
+                                <span class="badge rounded-pill text-bg-success-subtle text-success-emphasis border me-1 mb-1">{{ role_name }}</span>
+                            {% endfor %}
+                        {% else %}
+                            <span class="text-secondary">No role assigned</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Presence</div>
+                    <div class="profile-meta-value">{{ presence_status }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Last Activity</div>
+                    <div class="profile-meta-value">{{ last_activity_label }}</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="alert alert-light border mb-0">
+                    Department and roles are assigned by admin and cannot be changed by users.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

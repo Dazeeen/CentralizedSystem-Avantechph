@@ -1,0 +1,211 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Development{% endblock %}
+{% block page_heading %}Development{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h2 class="h5 mb-1">Patch Notes and Updates</h2>
+                    <p class="text-secondary small mb-0">Open the full Patch Notes page to view release history.</p>
+                </div>
+                <a href="{% url 'development_patch_notes' %}" class="btn btn-outline-success">Open Patch Notes</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h2 class="h5 mb-2">Submit Feedback</h2>
+                <p class="text-secondary small mb-3">Report bugs, send feature suggestions, or drop comments for the dev team.</p>
+                <form method="post" class="d-grid gap-3">
+                    {% csrf_token %}
+                    <div>
+                        <label class="form-label" for="{{ form.category.id_for_label }}">Category</label>
+                        {{ form.category }}
+                        {% if form.category.errors %}<div class="text-danger small mt-1">{{ form.category.errors|join:', ' }}</div>{% endif %}
+                    </div>
+                    <div>
+                        <label class="form-label" for="{{ form.title.id_for_label }}">Title</label>
+                        {{ form.title }}
+                        {% if form.title.errors %}<div class="text-danger small mt-1">{{ form.title.errors|join:', ' }}</div>{% endif %}
+                    </div>
+                    <div>
+                        <label class="form-label" for="{{ form.message.id_for_label }}">Details</label>
+                        {{ form.message }}
+                        {% if form.message.errors %}<div class="text-danger small mt-1">{{ form.message.errors|join:', ' }}</div>{% endif %}
+                    </div>
+                    <button type="submit" class="btn btn-success">Submit to Development Queue</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="h5 mb-3">
+                    {% if can_manage_feedback %}
+                        Feedback Queue (All Users)
+                    {% else %}
+                        Recent Feedback (Your Submissions)
+                    {% endif %}
+                </h2>
+
+                <form method="get" class="row g-2 align-items-center mb-3">
+                    <div class="col-12 col-md-8">
+                        <input
+                            type="search"
+                            name="feedback_q"
+                            value="{{ feedback_q }}"
+                            class="form-control"
+                            placeholder="Search feedback title, details, category{% if can_manage_feedback %}, or submitter{% endif %}"
+                        >
+                    </div>
+                    <div class="col-6 col-md-2 d-grid">
+                        <button type="submit" class="btn btn-outline-secondary">Search</button>
+                    </div>
+                    <div class="col-6 col-md-2 d-grid">
+                        <a href="{% url 'development_hub' %}" class="btn btn-outline-light border">Clear</a>
+                    </div>
+                </form>
+
+                {% if feedback_page %}
+                    <div class="d-grid gap-3">
+                        {% for item in feedback_page %}
+                            <article class="border rounded-3 p-3 bg-light-subtle">
+                                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-2">
+                                    <div>
+                                        <div class="fw-semibold">{{ item.title }}</div>
+                                        <div class="small text-secondary">
+                                            {{ item.get_category_display }}
+                                            {% if can_manage_feedback %}
+                                                · by {{ item.created_by.get_full_name|default:item.created_by.username|default:'-' }}
+                                            {% endif %}
+                                            · {{ item.created_at|date:'Y-m-d H:i' }}
+                                        </div>
+                                    </div>
+                                    <span class="badge text-bg-secondary">{{ item.get_status_display }}</span>
+                                </div>
+
+                                <p class="mb-2" style="white-space: pre-wrap;">{{ item.message }}</p>
+
+                                {% if item.comments.all %}
+                                    <div class="border rounded-2 bg-white p-2 mb-2">
+                                        <div class="small fw-semibold mb-1">Admin Replies</div>
+                                        <div class="d-grid gap-2">
+                                            {% for reply in item.comments.all %}
+                                                <div class="small border-start border-3 border-success ps-2">
+                                                    <div class="text-secondary mb-1">
+                                                        {{ reply.created_by.get_full_name|default:reply.created_by.username|default:'Admin' }} · {{ reply.created_at|date:'Y-m-d H:i' }}
+                                                    </div>
+                                                    <div style="white-space: pre-wrap;">{{ reply.comment }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                {% endif %}
+
+                                {% if can_manage_feedback %}
+                                    <div class="row g-2">
+                                        <div class="col-lg-6">
+                                            <form method="post" action="{% url 'development_feedback_add_comment' item.id %}" class="d-grid gap-2">
+                                                {% csrf_token %}
+                                                <textarea name="comment" rows="2" class="form-control" placeholder="Write a reply to this feedback"></textarea>
+                                                <button type="submit" class="btn btn-sm btn-outline-success">Comment Back</button>
+                                            </form>
+                                        </div>
+                                        <div class="col-lg-6 d-grid gap-2">
+                                            <form method="post" action="{% url 'development_feedback_update_status' item.id %}" class="d-flex gap-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="next" value="{% url 'development_hub' %}?feedback_q={{ feedback_q|urlencode }}&feedback_page={{ feedback_page.number }}">
+                                                <select
+                                                    name="status"
+                                                    class="form-select form-select-sm js-feedback-status-select"
+                                                    data-original-status="{{ item.status }}"
+                                                >
+                                                    <option value="new" {% if item.status == 'new' %}selected{% endif %}>New</option>
+                                                    <option value="in_review" {% if item.status == 'in_review' %}selected{% endif %}>In Review</option>
+                                                    <option value="resolved" {% if item.status == 'resolved' %}selected{% endif %}>Resolved</option>
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-primary js-feedback-update-btn d-none">Update Status</button>
+                                            </form>
+                                            <form method="post" action="{% url 'development_feedback_delete' item.id %}" onsubmit="return confirm('Delete this feedback?');">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="next" value="{% url 'development_hub' %}?feedback_q={{ feedback_q|urlencode }}&feedback_page={{ feedback_page.number }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Delete feedback" title="Delete feedback">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                                        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5Zm2.5 0A.5.5 0 0 1 8.5 6v6a.5.5 0 0 1-1 0V6A.5.5 0 0 1 8 5.5Zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6Z"/>
+                                                        <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2H5.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1H14a1 1 0 0 1 .5 1ZM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118ZM2.5 3h11a.5.5 0 0 0 0-1h-11a.5.5 0 0 0 0 1Z"/>
+                                                    </svg>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </article>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-3">
+                        <span class="small text-secondary">Page {{ feedback_page.number }} of {{ feedback_page.paginator.num_pages }}</span>
+
+                        {% if feedback_page.paginator.num_pages > 1 %}
+                            <nav aria-label="Feedback pagination">
+                                <ul class="pagination pagination-sm mb-0">
+                                    {% if feedback_page.has_previous %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="?feedback_q={{ feedback_q|urlencode }}&feedback_page={{ feedback_page.previous_page_number }}">Previous</a>
+                                        </li>
+                                    {% endif %}
+
+                                    {% for num in feedback_page_numbers %}
+                                        <li class="page-item {% if feedback_page.number == num %}active{% endif %}">
+                                            <a class="page-link" href="?feedback_q={{ feedback_q|urlencode }}&feedback_page={{ num }}">{{ num }}</a>
+                                        </li>
+                                    {% endfor %}
+
+                                    {% if feedback_page.has_next %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="?feedback_q={{ feedback_q|urlencode }}&feedback_page={{ feedback_page.next_page_number }}">Next</a>
+                                        </li>
+                                    {% endif %}
+                                </ul>
+                            </nav>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <p class="text-secondary mb-0">No feedback submissions yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var forms = document.querySelectorAll('form[action*="feedback/"][action*="status"]');
+    forms.forEach(function (form) {
+        var select = form.querySelector('.js-feedback-status-select');
+        var button = form.querySelector('.js-feedback-update-btn');
+        if (!select || !button) {
+            return;
+        }
+
+        var sync = function () {
+            var original = select.getAttribute('data-original-status') || '';
+            var changed = select.value !== original;
+            button.classList.toggle('d-none', !changed);
+            button.disabled = !changed;
+        };
+
+        select.addEventListener('change', sync);
+        sync();
+    });
+});
+</script>
+{% endblock %}

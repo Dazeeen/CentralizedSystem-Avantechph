@@ -1,0 +1,175 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Asset Tag Document #{{ batch.id }}{% endblock %}
+{% block page_heading %}Asset Tagging Document{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 no-print">
+    <div>
+        <h2 class="h4 mb-1">Batch #{{ batch.id }}</h2>
+        <div class="text-secondary mb-1">
+            Scope: {{ batch.department.name|default:'All Departments' }} | Generated: {{ batch.created_at|date:'Y-m-d H:i' }}
+        </div>
+        <div>
+            {% if batch.generated_by %}
+                <div class="list-user-inline">
+                    {% if generator_profile and generator_profile.avatar %}
+                        <img src="{{ generator_profile.avatar.url }}" alt="{{ batch.generated_by.username }}" class="list-user-avatar">
+                    {% else %}
+                        <span class="list-user-avatar-fallback">{{ batch.generated_by.get_full_name|default:batch.generated_by.username|first|upper }}</span>
+                    {% endif %}
+                    <span class="text-secondary">By:</span>
+                    <button
+                        type="button"
+                        class="user-name-link js-user-profile-trigger"
+                        data-user-id="{{ batch.generated_by_id }}"
+                    >
+                        {{ batch.generated_by.get_full_name|default:batch.generated_by.username }}
+                    </button>
+                </div>
+            {% else %}
+                <span class="text-secondary">By: -</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'assets_list' %}">Back to Tracker</a>
+        <button class="btn btn-success" type="button" onclick="window.print()">Print Tags</button>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4 no-print">
+    <div class="card-body">
+        <h3 class="h6 mb-3">Batch Summary</h3>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="p-3 rounded bg-light border">
+                    <div class="small text-secondary">Total Printable Tags</div>
+                    <div class="h4 mb-0 text-success-emphasis">{{ total_tags }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="p-3 rounded bg-light border">
+                    <div class="small text-secondary">Unique Item IDs</div>
+                    <div class="h4 mb-0 text-success-emphasis">{{ unique_item_codes_count }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="p-3 rounded bg-light border">
+                    <div class="small text-secondary">Batch ID</div>
+                    <div class="h4 mb-0 text-success-emphasis">#{{ batch.id }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4 no-print">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Tag Code</th>
+                    <th scope="col">Item ID</th>
+                    <th scope="col">Item Name</th>
+                    <th scope="col">Specification</th>
+                    <th scope="col">Department</th>
+                    <th scope="col">Parent</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                    <tr>
+                        <td class="fw-semibold">{{ entry.item_code_snapshot }}</td>
+                        <td>{{ entry.item_code_snapshot }}</td>
+                        <td>{{ entry.item_name_snapshot }}</td>
+                        <td>{{ entry.specification_snapshot|default:'-' }}</td>
+                        <td>{{ entry.department_name_snapshot }}</td>
+                        <td>{{ entry.parent_item_code_snapshot|default:'-' }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-secondary">No entries in this batch.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="print-grid">
+    {% for entry in entries %}
+        <div class="print-tag">
+            <div class="print-tag-head">ASSET TAG</div>
+            <div class="print-tag-code">{{ entry.item_code_snapshot }}</div>
+            <div class="print-tag-line"><strong>Item:</strong> {{ entry.item_name_snapshot }}</div>
+            <div class="print-tag-line"><strong>ID:</strong> {{ entry.item_code_snapshot }}</div>
+            <div class="print-tag-line"><strong>Dept:</strong> {{ entry.department_name_snapshot }}</div>
+            <div class="print-tag-line"><strong>Spec:</strong> {{ entry.specification_snapshot|default:'-' }}</div>
+        </div>
+    {% endfor %}
+</div>
+
+<style>
+    .print-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+    }
+
+    .print-tag {
+        border: 1px dashed #198754;
+        border-radius: 8px;
+        padding: 10px;
+        background: #ffffff;
+    }
+
+    .print-tag-head {
+        font-size: 11px;
+        font-weight: 700;
+        color: #198754;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+    }
+
+    .print-tag-code {
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 6px;
+    }
+
+    .print-tag-line {
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    @media print {
+        .no-print,
+        .app-topbar,
+        .app-sidebar,
+        .offcanvas,
+        .toast-container {
+            display: none !important;
+        }
+
+        .app-main {
+            margin: 0 !important;
+            width: 100% !important;
+        }
+
+        .app-content-wrap {
+            padding: 0 !important;
+        }
+
+        .print-grid {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .print-tag {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,271 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Manage Departments{% endblock %}
+{% block page_heading %}Asset Departments{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+    <div>
+        <h2 class="h4 mb-1">Manage Departments</h2>
+        <p class="text-secondary mb-0">Create, update, and delete departments used by Asset Tracker.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'assets_list' %}">Back to Assets</a>
+        <a class="btn btn-success" href="{% url 'assets_department_create' %}">Add Department</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-9">
+                <label class="form-label mb-1" for="department-q">Search Departments</label>
+                <input id="department-q" type="text" name="q" class="form-control" value="{{ query }}" placeholder="Department name">
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-success">Search</button>
+                <a href="{% url 'assets_departments_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-success">
+                <tr>
+                    <th style="width: 42px;">
+                        <input type="checkbox" class="form-check-input" id="selectAllDepartments" aria-label="Select all departments on page">
+                    </th>
+                    <th>Name</th>
+                    <th>Assets</th>
+                    <th>Status</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for department in departments_page %}
+                    <tr class="js-department-row" data-edit-url="{% url 'assets_department_update' department.id %}" role="button" style="cursor: pointer;" title="Click to edit department">
+                        <td>
+                            <input type="checkbox" class="form-check-input js-department-checkbox" value="{{ department.id }}" aria-label="Select {{ department.name }}">
+                        </td>
+                        <td class="fw-semibold">{{ department.name }}</td>
+                        <td>{{ department.asset_count }}</td>
+                        <td>
+                            {% if department.is_default %}
+                                <span class="badge bg-light text-dark border">Default</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Regular</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Department actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'assets_department_update' department.id %}">Edit</a></li>
+                                    <li><a class="dropdown-item text-danger" href="{% url 'assets_department_delete' department.id %}">Delete</a></li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4 text-secondary">No departments found.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if departments_page.paginator.num_pages > 1 %}
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <small class="text-secondary">Page {{ departments_page.number }} of {{ departments_page.paginator.num_pages }}</small>
+            <div class="btn-group" role="group" aria-label="Department pagination">
+                {% if departments_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&page={{ departments_page.previous_page_number }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+
+                {% for page_num in departments_page.paginator.page_range %}
+                    {% if page_num == departments_page.number %}
+                        <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                    {% else %}
+                        <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&page={{ page_num }}">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if departments_page.has_next %}
+                    <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&page={{ departments_page.next_page_number }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div id="departmentsBulkActionBar" class="assets-bulk-action-bar d-none">
+    <form method="post" action="{% url 'assets_departments_bulk_delete' %}" id="departmentsBulkDeleteForm" class="d-flex align-items-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="selected_ids" id="departmentsBulkDeleteIds">
+        <span class="small fw-semibold" id="departmentsBulkSelectedLabel">0 selected</span>
+        <button type="submit" class="icon-only-action-btn is-danger" title="Delete selected departments" aria-label="Delete selected departments">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M9 7V5.8C9 4.81 9.81 4 10.8 4H13.2C14.19 4 15 4.81 15 5.8V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M8 7L8.7 18.2C8.76 19.15 9.55 19.9 10.5 19.9H13.5C14.45 19.9 15.24 19.15 15.3 18.2L16 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M10.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M13.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            </svg>
+        </button>
+        <button type="button" class="icon-only-action-btn" id="departmentsBulkClearBtn" title="Clear selection" aria-label="Clear selection">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+        </button>
+    </form>
+</div>
+
+<div class="modal fade" id="departmentsBulkDeleteConfirmModal" tabindex="-1" aria-labelledby="departmentsBulkDeleteConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="departmentsBulkDeleteConfirmModalLabel">Confirm Bulk Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Delete <span class="fw-semibold" id="departmentsBulkDeleteCount">0</span> selected department(s)?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="departmentsBulkDeleteConfirmBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const selectAllCheckbox = document.getElementById('selectAllDepartments');
+    const rowCheckboxes = Array.from(document.querySelectorAll('.js-department-checkbox'));
+    const bulkBar = document.getElementById('departmentsBulkActionBar');
+    const bulkSelectedLabel = document.getElementById('departmentsBulkSelectedLabel');
+    const bulkDeleteIdsInput = document.getElementById('departmentsBulkDeleteIds');
+    const bulkClearBtn = document.getElementById('departmentsBulkClearBtn');
+    const bulkDeleteForm = document.getElementById('departmentsBulkDeleteForm');
+    const bulkDeleteConfirmModalEl = document.getElementById('departmentsBulkDeleteConfirmModal');
+    const bulkDeleteCountEl = document.getElementById('departmentsBulkDeleteCount');
+    const bulkDeleteConfirmBtn = document.getElementById('departmentsBulkDeleteConfirmBtn');
+    const bulkDeleteConfirmModal = bulkDeleteConfirmModalEl && window.bootstrap && window.bootstrap.Modal
+        ? new window.bootstrap.Modal(bulkDeleteConfirmModalEl)
+        : null;
+    let bulkDeleteArmed = false;
+
+    function getSelectedIds() {
+        return rowCheckboxes
+            .filter(function (checkbox) { return checkbox.checked; })
+            .map(function (checkbox) { return checkbox.value; });
+    }
+
+    function syncBulkBarState() {
+        const selectedIds = getSelectedIds();
+        const selectedCount = selectedIds.length;
+
+        if (bulkDeleteIdsInput) {
+            bulkDeleteIdsInput.value = selectedIds.join(',');
+        }
+        if (bulkSelectedLabel) {
+            bulkSelectedLabel.textContent = selectedCount + ' selected';
+        }
+        if (bulkBar) {
+            bulkBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = rowCheckboxes.length > 0 && selectedCount === rowCheckboxes.length;
+            selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < rowCheckboxes.length;
+        }
+    }
+
+    rowCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', syncBulkBarState);
+        checkbox.addEventListener('click', function (event) { event.stopPropagation(); });
+    });
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function () {
+            const checked = selectAllCheckbox.checked;
+            rowCheckboxes.forEach(function (checkbox) { checkbox.checked = checked; });
+            syncBulkBarState();
+        });
+    }
+
+    if (bulkClearBtn) {
+        bulkClearBtn.addEventListener('click', function () {
+            rowCheckboxes.forEach(function (checkbox) { checkbox.checked = false; });
+            syncBulkBarState();
+        });
+    }
+
+    if (bulkDeleteForm) {
+        bulkDeleteForm.addEventListener('submit', function (event) {
+            const selectedIds = getSelectedIds();
+            if (!selectedIds.length) {
+                event.preventDefault();
+                return;
+            }
+
+            if (!bulkDeleteArmed) {
+                event.preventDefault();
+                if (bulkDeleteCountEl) {
+                    bulkDeleteCountEl.textContent = String(selectedIds.length);
+                }
+                if (bulkDeleteConfirmModal) {
+                    bulkDeleteConfirmModal.show();
+                }
+                return;
+            }
+            bulkDeleteArmed = false;
+
+            const existingHidden = bulkDeleteForm.querySelectorAll('input[name="department_ids"]');
+            existingHidden.forEach(function (node) { node.remove(); });
+            selectedIds.forEach(function (idValue) {
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'department_ids';
+                hidden.value = idValue;
+                bulkDeleteForm.appendChild(hidden);
+            });
+        });
+    }
+
+    if (bulkDeleteConfirmBtn && bulkDeleteForm) {
+        bulkDeleteConfirmBtn.addEventListener('click', function () {
+            bulkDeleteArmed = true;
+            if (bulkDeleteConfirmModal) {
+                bulkDeleteConfirmModal.hide();
+            }
+            bulkDeleteForm.requestSubmit();
+        });
+    }
+
+    document.querySelectorAll('.js-department-row').forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('a, button, form, input, select, textarea, label, .dropdown-menu')) {
+                return;
+            }
+
+            const editUrl = row.getAttribute('data-edit-url');
+            if (editUrl) {
+                window.location.href = editUrl;
+            }
+        });
+    });
+
+    syncBulkBarState();
+});
+</script>
+{% endblock %}

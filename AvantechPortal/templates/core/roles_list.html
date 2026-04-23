@@ -1,0 +1,202 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Roles{% endblock %}
+{% block page_heading %}Roles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="h4 mb-1">Roles & Permissions</h2>
+        <p class="text-secondary mb-0">Create and manage role definitions used by users.</p>
+    </div>
+    <a class="btn btn-success" href="{% url 'roles_create' %}">Add Role</a>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-3">
+        <form method="get" class="row g-2 align-items-center">
+            <div class="col-md-10">
+                <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search role name">
+            </div>
+            <div class="col-md-2 d-grid">
+                <button class="btn btn-outline-success" type="submit">Search</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-success">
+                <tr>
+                    <th scope="col">Role Name</th>
+                    <th scope="col">Members</th>
+                    <th scope="col">Permissions</th>
+                    <th scope="col" class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for role in roles %}
+                    <tr class="role-row-clickable" role="button" tabindex="0" data-role-modal-id="roleDetailModal{{ role.id }}">
+                        <td class="fw-semibold">{{ role.name }}</td>
+                        <td>{{ role.user_set.count }}</td>
+                        <td>{{ role.permissions.count }}</td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block js-role-action">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Role actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><button class="dropdown-item js-role-action" type="button" data-bs-toggle="modal" data-bs-target="#roleDetailModal{{ role.id }}">View</button></li>
+                                    <li><a class="dropdown-item js-role-action" href="{% url 'roles_update' role.id %}">Edit</a></li>
+                                    <li><a class="dropdown-item text-danger js-role-action" href="{% url 'roles_delete' role.id %}">Delete</a></li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center py-4 text-secondary">No roles found.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% for role in roles %}
+    <div class="modal fade" id="roleDetailModal{{ role.id }}" tabindex="-1" aria-labelledby="roleDetailModalLabel{{ role.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow">
+                {% include 'core/includes/modal_header.html' with modal_title=role.name modal_title_id='roleDetailModalLabel'|add:role.id %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <h3 class="h6">Assigned Users</h3>
+                        {% for member in role.user_set.all %}
+                            {% with member_profile=role_member_profiles_map|get_item:member.id %}
+                                <div class="list-user-inline mb-2">
+                                    {% if member_profile and member_profile.avatar %}
+                                        <img src="{{ member_profile.avatar.url }}" alt="{{ member.username }}" class="list-user-avatar">
+                                    {% else %}
+                                        <span class="list-user-avatar-fallback">{{ member.get_full_name|default:member.username|first|upper }}</span>
+                                    {% endif %}
+                                    <button
+                                        type="button"
+                                        class="user-name-link js-user-profile-trigger"
+                                        data-user-id="{{ member.id }}"
+                                    >
+                                        {{ member.get_full_name|default:member.username }}
+                                    </button>
+                                </div>
+                            {% endwith %}
+                        {% empty %}
+                            <p class="text-secondary mb-0">No users assigned.</p>
+                        {% endfor %}
+                    </div>
+                    <div>
+                        <h3 class="h6">Permissions</h3>
+                        {% with grouped_permissions=role_permissions_grouped_map|get_item:role.id %}
+                            {% if grouped_permissions %}
+                                <div class="mb-2">
+                                    <input
+                                        type="search"
+                                        class="form-control form-control-sm js-role-permission-search"
+                                        data-role-id="{{ role.id }}"
+                                        placeholder="Search permission name"
+                                    >
+                                </div>
+                                <div class="compact-permission-panel pe-1">
+                                    {% for group in grouped_permissions %}
+                                        <details class="permission-category js-role-permission-group" data-role-id="{{ role.id }}" data-app-label="{{ group.app_label|lower }}" {% if forloop.first %}open{% endif %}>
+                                            <summary class="permission-category-summary d-flex justify-content-between align-items-center">
+                                                <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
+                                                <span class="badge text-bg-light border">{{ group.items|length }} items</span>
+                                            </summary>
+                                            <div class="mt-2">
+                                                {% for permission_name in group.items %}
+                                                    <div class="small border rounded p-2 bg-light mb-2 js-role-permission-item" data-role-id="{{ role.id }}" data-permission-name="{{ permission_name|lower }}">{{ permission_name }}</div>
+                                                {% endfor %}
+                                            </div>
+                                        </details>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <p class="text-secondary mb-0">No permissions assigned.</p>
+                            {% endif %}
+                        {% endwith %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endfor %}
+
+<script>
+    (function () {
+        document.querySelectorAll('.role-row-clickable').forEach((row) => {
+            const openRoleModal = () => {
+                const modalId = row.dataset.roleModalId;
+                if (!modalId) {
+                    return;
+                }
+                const modalElement = document.getElementById(modalId);
+                if (!modalElement) {
+                    return;
+                }
+                const modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
+                modalInstance.show();
+            };
+
+            row.addEventListener('click', (event) => {
+                if (event.target.closest('.js-role-action') || event.target.closest('.dropdown')) {
+                    return;
+                }
+                openRoleModal();
+            });
+
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openRoleModal();
+                }
+            });
+        });
+
+        document.querySelectorAll('.js-role-action').forEach((element) => {
+            element.addEventListener('click', (event) => {
+                event.stopPropagation();
+            });
+        });
+
+        document.querySelectorAll('.js-role-permission-search').forEach((input) => {
+            input.addEventListener('input', () => {
+                const roleId = input.dataset.roleId;
+                const query = (input.value || '').trim().toLowerCase();
+                const groups = document.querySelectorAll(`.js-role-permission-group[data-role-id="${roleId}"]`);
+
+                groups.forEach((group) => {
+                    const appLabel = (group.dataset.appLabel || '').toLowerCase();
+                    const items = group.querySelectorAll(`.js-role-permission-item[data-role-id="${roleId}"]`);
+                    let hasVisibleItem = false;
+
+                    items.forEach((item) => {
+                        const permissionName = (item.dataset.permissionName || '').toLowerCase();
+                        const matches = !query || permissionName.includes(query) || appLabel.includes(query);
+                        item.classList.toggle('d-none', !matches);
+                        if (matches) {
+                            hasVisibleItem = true;
+                        }
+                    });
+
+                    group.classList.toggle('d-none', !hasVisibleItem);
+                    if (hasVisibleItem && query) {
+                        group.open = true;
+                    }
+                });
+            });
+        });
+    })();
+</script>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Email Verification{% endblock %}
+{% block page_heading %}Email Verification{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Verify Your Email</h2>
+        <p class="text-secondary">Enter the email linked to your account. We will send a 6-digit verification code.</p>
+
+        <form method="post">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+            <div class="mb-3">
+                <label for="id_email" class="form-label">Email</label>
+                {{ form.email }}
+                {% if form.email.errors %}
+                    <div class="text-danger small mt-1">{{ form.email.errors|striptags }}</div>
+                {% endif %}
+            </div>
+            <button type="submit" class="btn btn-success">Send Verification Code</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

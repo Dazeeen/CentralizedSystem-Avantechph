@@ -1,0 +1,113 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | {{ page_title }}{% endblock %}
+{% block page_heading %}Roles{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-4">{{ page_title }}</h2>
+
+        <form method="post">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="{{ form.name.id_for_label }}" class="form-label fw-semibold">{{ form.name.label }}</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                        <div class="text-danger small mt-1">{{ form.name.errors|striptags }}</div>
+                    {% endif %}
+                </div>
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-semibold mb-0">Permissions</label>
+                        <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0">
+                            <input type="checkbox" class="form-check-input js-toggle-all" data-target-field="permissions" id="toggleAllRolePermissions">
+                            <span>Select all / Unselect all</span>
+                        </label>
+                    </div>
+                    <div class="border rounded p-2 compact-permission-panel permissions-checklist" data-field-kind="permissions">
+                        {% for group in form.grouped_permissions %}
+                            <details class="permission-category" {% if group.selected_count > 0 or forloop.first %}open{% endif %}>
+                                <summary class="permission-category-summary d-flex justify-content-between align-items-center">
+                                    <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
+                                    <span class="badge text-bg-light border">{{ group.selected_count }}/{{ group.total_count }} selected</span>
+                                </summary>
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Permission</th>
+                                                <th class="text-center" style="width: 90px;">Select</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for item in group.items %}
+                                                <tr>
+                                                    <td>{{ item.label }}</td>
+                                                    <td class="text-center">
+                                                        <input type="checkbox" class="form-check-input" name="permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </details>
+                        {% empty %}
+                            <div class="text-secondary text-center py-2">No permissions available.</div>
+                        {% endfor %}
+                    </div>
+                    {% if form.permissions.errors %}
+                        <div class="text-danger small mt-1">{{ form.permissions.errors|striptags }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-success">{{ submit_label }}</button>
+                <a href="{% url 'roles_list' %}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const getFieldCheckboxes = (fieldKind) => document.querySelectorAll(
+            `[data-field-kind="${fieldKind}"] input[type="checkbox"]:not(.js-toggle-all):not(.js-category-toggle)`
+        );
+
+        const setCheckboxState = (fieldKind, checked) => {
+            getFieldCheckboxes(fieldKind).forEach((checkbox) => {
+                checkbox.checked = checked;
+            });
+        };
+
+        document.querySelectorAll('.js-toggle-all').forEach((toggle) => {
+            toggle.addEventListener('change', () => {
+                setCheckboxState(toggle.dataset.targetField, toggle.checked);
+                syncToggle();
+            });
+        });
+
+        const syncToggle = () => {
+            const toggle = document.querySelector('.js-toggle-all[data-target-field="permissions"]');
+            if (!toggle) {
+                return;
+            }
+            const checkboxes = Array.from(getFieldCheckboxes('permissions'));
+            toggle.checked = checkboxes.length > 0 && checkboxes.every((checkbox) => checkbox.checked);
+        };
+
+        getFieldCheckboxes('permissions').forEach((checkbox) => {
+            checkbox.addEventListener('change', syncToggle);
+        });
+        syncToggle();
+    })();
+</script>
+{% endblock %}

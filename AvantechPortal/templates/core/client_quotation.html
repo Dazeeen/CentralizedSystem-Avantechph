@@ -1,0 +1,751 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Client Quotation{% endblock %}
+{% block page_heading %}Clients{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="h4 mb-1">Quotation & Negotiation: {{ client.full_name }}</h2>
+        <p class="text-secondary mb-0">Track quotation versions and negotiation updates for this pre-sales client.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'clients_list' %}">Back to Clients</a>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h3 class="h5 mb-3">Send Quotation v{{ next_version }}</h3>
+                <form method="post" enctype="multipart/form-data" id="quotationForm">
+                    {% csrf_token %}
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label for="{{ form.product_package.id_for_label }}" class="form-label fw-semibold">{{ form.product_package.label }}</label>
+                        {{ form.product_package }}
+                        {% if form.product_package.errors %}
+                            <div class="text-danger small mt-1">{{ form.product_package.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.quoted_amount.id_for_label }}" class="form-label fw-semibold">{{ form.quoted_amount.label }}</label>
+                        {{ form.quoted_amount }}
+                        {% if form.quoted_amount.errors %}
+                            <div class="text-danger small mt-1">{{ form.quoted_amount.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.negotiation_status.id_for_label }}" class="form-label fw-semibold">{{ form.negotiation_status.label }}</label>
+                        {{ form.negotiation_status }}
+                        {% if form.negotiation_status.errors %}
+                            <div class="text-danger small mt-1">{{ form.negotiation_status.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.lead_status.id_for_label }}" class="form-label fw-semibold">{{ form.lead_status.label }}</label>
+                        {{ form.lead_status }}
+                        <div class="form-text">The latest submitted quotation record sets the current lead status.</div>
+                        {% if form.lead_status.errors %}
+                            <div class="text-danger small mt-1">{{ form.lead_status.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3" id="leadDispositionReasonWrap">
+                        <label for="{{ form.lead_disposition_reason.id_for_label }}" class="form-label fw-semibold">{{ form.lead_disposition_reason.label }}</label>
+                        {{ form.lead_disposition_reason }}
+                        <div class="form-text">Required when lead status is Lost or Not Qualified.</div>
+                        {% if form.lead_disposition_reason.errors %}
+                            <div class="text-danger small mt-1">{{ form.lead_disposition_reason.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.quotation_notes.id_for_label }}" class="form-label fw-semibold">{{ form.quotation_notes.label }}</label>
+                        {{ form.quotation_notes }}
+                        {% if form.quotation_notes.errors %}
+                            <div class="text-danger small mt-1">{{ form.quotation_notes.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="{{ form.documents.id_for_label }}">Any Documentation</label>
+                        <div id="quotationDocumentsDropzone" class="return-proof-dropzone">
+                            <div class="return-proof-dropzone-inner">
+                                <div class="fw-semibold">Drag and drop files here</div>
+                                <div class="small text-secondary">or click to browse any documentation files (images, PDFs, docs, videos, etc.)</div>
+                                {{ form.documents }}
+                            </div>
+                        </div>
+                        <div class="form-text">Multiple files are allowed for any documentation. Recommended to attach documentation for all statuses. Max 100MB per file.</div>
+                        {% if form.documents.errors %}
+                            <div class="text-danger small mt-1">{{ form.documents.errors|striptags }}</div>
+                        {% endif %}
+                        <div class="progress mt-3 d-none" id="quotationUploadProgressWrap" style="height: 10px;">
+                            <div class="progress-bar bg-success" id="quotationUploadProgress" role="progressbar" style="width: 0%;">0%</div>
+                        </div>
+                        <div class="small text-secondary mt-2" id="quotationUploadStatus">No files selected yet.</div>
+                        <div id="quotationDocumentsPreview" class="quotation-doc-grid mt-3"></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.scanned_document.id_for_label }}" class="form-label fw-semibold">Legacy Single File (Optional)</label>
+                        {{ form.scanned_document }}
+                        <div class="form-text">Optional single-file field for compatibility with older quotation records.</div>
+                        {% if form.scanned_document.errors %}
+                            <div class="text-danger small mt-1">{{ form.scanned_document.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <button type="submit" class="btn btn-success" id="quotationSubmitBtn">Send & Record Quotation</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h3 class="h5 mb-3">Quotation History</h3>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-success">
+                            <tr>
+                                <th style="width: 42px;">
+                                    <input type="checkbox" class="form-check-input" id="selectAllQuotations" aria-label="Select all quotations">
+                                </th>
+                                <th>Version</th>
+                                <th>Product/Package</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Sent By</th>
+                                <th>Date</th>
+                                <th>Document</th>
+                                <th>Attachments</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for quotation in quotations %}
+                                <tr>
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            class="form-check-input js-quotation-checkbox"
+                                            value="{{ quotation.id }}"
+                                            aria-label="Select quotation v{{ quotation.version }}"
+                                        >
+                                    </td>
+                                    <td class="fw-semibold">v{{ quotation.version }}</td>
+                                    <td>{{ quotation.product_package|default:'-' }}</td>
+                                    <td>PHP {{ quotation.quoted_amount }}</td>
+                                    <td><span class="badge text-bg-light border">{{ quotation.get_negotiation_status_display }}</span></td>
+                                    <td>
+                                        {% if quotation.sent_by %}
+                                            {% with sender_profile=quotation_sender_profile_map|get_item:quotation.sent_by_id %}
+                                                <div class="list-user-inline">
+                                                    {% if sender_profile and sender_profile.avatar %}
+                                                        <img src="{{ sender_profile.avatar.url }}" alt="{{ quotation.sent_by.username }}" class="list-user-avatar">
+                                                    {% else %}
+                                                        <span class="list-user-avatar-fallback">{{ quotation.sent_by.get_full_name|default:quotation.sent_by.username|first|upper }}</span>
+                                                    {% endif %}
+                                                    <button
+                                                        type="button"
+                                                        class="user-name-link js-user-profile-trigger"
+                                                        data-user-id="{{ quotation.sent_by_id }}"
+                                                    >
+                                                        {{ quotation.sent_by.get_full_name|default:quotation.sent_by.username }}
+                                                    </button>
+                                                </div>
+                                            {% endwith %}
+                                        {% else %}
+                                            <span class="text-secondary">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ quotation.sent_at|date:'Y-m-d H:i' }}</td>
+                                    <td>
+                                        <a class="btn btn-sm btn-outline-success" target="_blank" href="{% url 'clients_quotation_document' client.id quotation.id %}">Open</a>
+                                    </td>
+                                    <td>
+                                        {% if quotation.documents.exists %}
+                                            {% with docs=quotation.documents.all %}
+                                                {% if docs|length > 1 %}
+                                                    <div class="dropdown d-inline-block">
+                                                        <button class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Open attachments">
+                                                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                                                <path d="M3 7.5C3 6.67 3.67 6 4.5 6H9.2L10.6 7.4C10.79 7.59 11.04 7.7 11.3 7.7H19.5C20.33 7.7 21 8.37 21 9.2V17.5C21 18.33 20.33 19 19.5 19H4.5C3.67 19 3 18.33 3 17.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                            </svg>
+                                                            <span>{{ docs|length }}</span>
+                                                        </button>
+                                                        <div class="dropdown-menu dropdown-menu-end p-2 quotation-attachments-dropdown">
+                                                            <div class="quotation-attachments-grid">
+                                                                {% for item in docs %}
+                                                                    <a class="quotation-doc-card text-decoration-none" target="_blank" href="{{ item.file.url }}" title="Open {{ item.file.name|default:'attachment' }}">
+                                                                        {% if item.file|is_image_file %}
+                                                                            <img src="{{ item.file.url }}" alt="Attachment preview" class="quotation-doc-thumb">
+                                                                        {% elif item.file|is_video_file %}
+                                                                            <video class="quotation-doc-thumb" muted preload="metadata">
+                                                                                <source src="{{ item.file.url }}">
+                                                                            </video>
+                                                                        {% elif item.file|is_pdf_file %}
+                                                                            <div class="quotation-doc-icon-wrap">PDF</div>
+                                                                        {% else %}
+                                                                            <div class="quotation-doc-icon-wrap">{{ item.file|file_extension }}</div>
+                                                                        {% endif %}
+                                                                        <div class="quotation-doc-meta" title="{{ item.file.name|default:'Attachment' }}">{{ item.file.name|default:'Attachment' }}</div>
+                                                                    </a>
+                                                                {% endfor %}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% else %}
+                                                    {% for item in docs %}
+                                                        <div class="quotation-doc-single-wrap">
+                                                            <a class="quotation-doc-card text-decoration-none" target="_blank" href="{{ item.file.url }}" title="Open {{ item.file.name|default:'attachment' }}">
+                                                                {% if item.file|is_image_file %}
+                                                                    <img src="{{ item.file.url }}" alt="Attachment preview" class="quotation-doc-thumb">
+                                                                {% elif item.file|is_video_file %}
+                                                                    <video class="quotation-doc-thumb" muted preload="metadata">
+                                                                        <source src="{{ item.file.url }}">
+                                                                    </video>
+                                                                {% elif item.file|is_pdf_file %}
+                                                                    <div class="quotation-doc-icon-wrap">PDF</div>
+                                                                {% else %}
+                                                                    <div class="quotation-doc-icon-wrap">{{ item.file|file_extension }}</div>
+                                                                {% endif %}
+                                                                <div class="quotation-doc-meta" title="{{ item.file.name|default:'Attachment' }}">{{ item.file.name|default:'Attachment' }}</div>
+                                                            </a>
+                                                        </div>
+                                                    {% endfor %}
+                                                {% endif %}
+                                            {% endwith %}
+                                        {% elif quotation.scanned_document %}
+                                            <a class="btn btn-sm btn-outline-primary" target="_blank" href="{{ quotation.scanned_document.url }}">Open Legacy File</a>
+                                        {% else %}
+                                            <span class="text-secondary small">No file</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% if quotation.quotation_notes %}
+                                    <tr>
+                                        <td colspan="9" class="small text-secondary">Notes: {{ quotation.quotation_notes }}</td>
+                                    </tr>
+                                {% endif %}
+                            {% empty %}
+                                <tr>
+                                    <td colspan="9" class="text-center py-4 text-secondary">No quotation versions yet.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="quotationHistoryBulkActionBar" class="assets-bulk-action-bar d-none">
+    <form method="post" action="{% url 'clients_quotations_bulk_delete' client.id %}" id="quotationHistoryBulkDeleteForm" class="d-flex align-items-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="selected_ids" id="quotationHistoryBulkDeleteIds">
+        <span class="small fw-semibold" id="quotationHistoryBulkSelectedLabel">0 selected</span>
+        <button type="submit" class="icon-only-action-btn is-danger" title="Delete selected quotations" aria-label="Delete selected quotations">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M9 7V5.8C9 4.81 9.81 4 10.8 4H13.2C14.19 4 15 4.81 15 5.8V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M8 7L8.7 18.2C8.76 19.15 9.55 19.9 10.5 19.9H13.5C14.45 19.9 15.24 19.15 15.3 18.2L16 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M10.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M13.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            </svg>
+        </button>
+        <button type="button" class="icon-only-action-btn" id="quotationHistoryBulkClearBtn" title="Clear selection" aria-label="Clear selection">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+        </button>
+    </form>
+</div>
+
+<div class="modal fade" id="quotationBulkDeleteConfirmModal" tabindex="-1" aria-labelledby="quotationBulkDeleteConfirmTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="quotationBulkDeleteConfirmTitle">Confirm Bulk Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Delete <span id="quotationBulkDeleteModalCount" class="fw-semibold">0</span> selected quotation(s)? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="quotationBulkDeleteModalConfirmBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const quotationForm = document.getElementById('quotationForm');
+    const documentsInput = document.getElementById('{{ form.documents.id_for_label }}');
+    const dropzone = document.getElementById('quotationDocumentsDropzone');
+    const previewWrap = document.getElementById('quotationDocumentsPreview');
+    const uploadProgressWrap = document.getElementById('quotationUploadProgressWrap');
+    const uploadProgressBar = document.getElementById('quotationUploadProgress');
+    const uploadStatus = document.getElementById('quotationUploadStatus');
+    const submitBtn = document.getElementById('quotationSubmitBtn');
+    const leadStatusInput = document.getElementById('{{ form.lead_status.id_for_label }}');
+    const leadReasonInput = document.getElementById('{{ form.lead_disposition_reason.id_for_label }}');
+    const leadReasonWrap = document.getElementById('leadDispositionReasonWrap');
+    const quotationSelectAll = document.getElementById('selectAllQuotations');
+    const quotationRowCheckboxes = Array.from(document.querySelectorAll('.js-quotation-checkbox'));
+    const quotationBulkBar = document.getElementById('quotationHistoryBulkActionBar');
+    const quotationBulkSelectedLabel = document.getElementById('quotationHistoryBulkSelectedLabel');
+    const quotationBulkDeleteIdsInput = document.getElementById('quotationHistoryBulkDeleteIds');
+    const quotationBulkClearBtn = document.getElementById('quotationHistoryBulkClearBtn');
+    const quotationBulkDeleteForm = document.getElementById('quotationHistoryBulkDeleteForm');
+    const quotationBulkDeleteConfirmModalEl = document.getElementById('quotationBulkDeleteConfirmModal');
+    const quotationBulkDeleteModalCount = document.getElementById('quotationBulkDeleteModalCount');
+    const quotationBulkDeleteModalConfirmBtn = document.getElementById('quotationBulkDeleteModalConfirmBtn');
+    const quotationBulkDeleteConfirmModal = quotationBulkDeleteConfirmModalEl && window.bootstrap && window.bootstrap.Modal
+        ? new window.bootstrap.Modal(quotationBulkDeleteConfirmModalEl)
+        : null;
+
+    if (!quotationForm || !documentsInput || !dropzone || !previewWrap || !uploadProgressWrap || !uploadProgressBar || !uploadStatus) {
+        return;
+    }
+
+    let selectedFiles = [];
+    let isSubmitting = false;
+    let dragSourceIndex = null;
+    let quotationBulkDeleteArmed = false;
+    let quotationBulkDeletePendingIds = [];
+
+    const syncLeadReasonVisibility = function () {
+        if (!leadStatusInput || !leadReasonInput || !leadReasonWrap) {
+            return;
+        }
+
+        const currentValue = (leadStatusInput.value || '').toLowerCase();
+        const requiresReason = currentValue === 'lost' || currentValue === 'not_qualified';
+
+        leadReasonWrap.classList.toggle('d-none', !requiresReason);
+        leadReasonInput.required = requiresReason;
+        if (!requiresReason) {
+            leadReasonInput.value = '';
+        }
+    };
+
+    const formatFileSize = function (bytes) {
+        if (!bytes && bytes !== 0) {
+            return '-';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = bytes;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        return (value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)) + ' ' + units[unitIndex];
+    };
+
+    const buildFileInputState = function () {
+        const dataTransfer = new DataTransfer();
+        selectedFiles.forEach(function (file) {
+            dataTransfer.items.add(file);
+        });
+        documentsInput.files = dataTransfer.files;
+    };
+
+    const fileKind = function (file) {
+        const name = (file.name || '').toLowerCase();
+        const mime = (file.type || '').toLowerCase();
+
+        if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(name)) {
+            return 'image';
+        }
+        if (mime.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|mpeg|mpg)$/.test(name)) {
+            return 'video';
+        }
+        if (mime === 'application/pdf' || name.endsWith('.pdf')) {
+            return 'pdf';
+        }
+        return 'file';
+    };
+
+    const renderPreviews = function () {
+        if (!selectedFiles.length) {
+            previewWrap.innerHTML = '';
+            uploadStatus.textContent = 'No files selected yet.';
+            return;
+        }
+
+        uploadStatus.textContent = selectedFiles.length + ' file' + (selectedFiles.length === 1 ? '' : 's') + ' selected.';
+        previewWrap.innerHTML = selectedFiles.map(function (file, index) {
+            const kind = fileKind(file);
+            if (!file._previewUrl) {
+                file._previewUrl = URL.createObjectURL(file);
+            }
+            const objectUrl = file._previewUrl;
+            const extension = ((file.name || '').includes('.') ? (file.name || '').split('.').pop() : 'FILE').toUpperCase();
+
+            let previewBody = '<div class="quotation-doc-icon-wrap">' + extension + '</div>';
+            if (kind === 'image') {
+                previewBody = '<img src="' + objectUrl + '" alt="' + (file.name || 'File') + '" class="quotation-doc-thumb">';
+            } else if (kind === 'video') {
+                previewBody = '<video class="quotation-doc-thumb" muted preload="metadata"><source src="' + objectUrl + '"></video>';
+            } else if (kind === 'pdf') {
+                previewBody = '<div class="quotation-doc-icon-wrap">PDF</div>';
+            }
+
+            return '' +
+                '<div class="quotation-doc-card js-quotation-doc-open" data-index="' + index + '" draggable="true">' +
+                    '<button type="button" class="btn btn-sm btn-danger quotation-doc-remove js-quotation-doc-remove" data-index="' + index + '" aria-label="Remove file">x</button>' +
+                    previewBody +
+                    '<div class="quotation-doc-meta" title="' + (file.name || 'File') + '">' + (file.name || 'File') + '</div>' +
+                    '<div class="small text-secondary px-1 pb-1">' + formatFileSize(file.size) + '</div>' +
+                    '<div class="progress quotation-doc-upload-progress d-none" data-index="' + index + '" style="height: 6px;">' +
+                        '<div class="progress-bar bg-success js-file-progress" role="progressbar" style="width: 0%"></div>' +
+                    '</div>' +
+                '</div>';
+        }).join('');
+
+        previewWrap.querySelectorAll('.js-quotation-doc-remove').forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                const index = Number(button.getAttribute('data-index'));
+                if (Number.isNaN(index) || index < 0 || index >= selectedFiles.length) {
+                    return;
+                }
+                const targetFile = selectedFiles[index];
+                if (targetFile && targetFile._previewUrl) {
+                    URL.revokeObjectURL(targetFile._previewUrl);
+                }
+                selectedFiles.splice(index, 1);
+                buildFileInputState();
+                renderPreviews();
+            });
+        });
+
+        previewWrap.querySelectorAll('.js-quotation-doc-open').forEach(function (card) {
+            card.addEventListener('click', function () {
+                const index = Number(card.getAttribute('data-index'));
+                const file = selectedFiles[index];
+                if (!file || !file._previewUrl) {
+                    return;
+                }
+                window.open(file._previewUrl, '_blank', 'noopener,noreferrer');
+            });
+
+            card.addEventListener('dragstart', function (event) {
+                dragSourceIndex = Number(card.getAttribute('data-index'));
+                card.classList.add('is-dragging');
+                if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = 'move';
+                }
+            });
+
+            card.addEventListener('dragend', function () {
+                card.classList.remove('is-dragging');
+                previewWrap.querySelectorAll('.quotation-doc-card').forEach(function (node) {
+                    node.classList.remove('is-dragover');
+                });
+            });
+
+            card.addEventListener('dragover', function (event) {
+                event.preventDefault();
+                card.classList.add('is-dragover');
+                if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = 'move';
+                }
+            });
+
+            card.addEventListener('dragleave', function () {
+                card.classList.remove('is-dragover');
+            });
+
+            card.addEventListener('drop', function (event) {
+                event.preventDefault();
+                card.classList.remove('is-dragover');
+                const targetIndex = Number(card.getAttribute('data-index'));
+                if (Number.isNaN(dragSourceIndex) || Number.isNaN(targetIndex) || dragSourceIndex === targetIndex) {
+                    return;
+                }
+
+                const moved = selectedFiles.splice(dragSourceIndex, 1)[0];
+                if (!moved) {
+                    return;
+                }
+                selectedFiles.splice(targetIndex, 0, moved);
+                buildFileInputState();
+                renderPreviews();
+            });
+        });
+    };
+
+    const updatePerFileProgress = function (overallPercent) {
+        const totalBytes = selectedFiles.reduce(function (sum, file) {
+            return sum + (file.size || 0);
+        }, 0);
+
+        const uploadProgressBlocks = Array.from(previewWrap.querySelectorAll('.quotation-doc-upload-progress'));
+        const fileProgressBars = Array.from(previewWrap.querySelectorAll('.js-file-progress'));
+        uploadProgressBlocks.forEach(function (node) { node.classList.remove('d-none'); });
+
+        if (!totalBytes || !fileProgressBars.length) {
+            return;
+        }
+
+        const uploadedBytes = (Math.max(0, Math.min(100, overallPercent)) / 100) * totalBytes;
+        let previousCumulative = 0;
+
+        fileProgressBars.forEach(function (bar, index) {
+            const fileSize = selectedFiles[index] ? (selectedFiles[index].size || 0) : 0;
+            const cumulative = previousCumulative + fileSize;
+            let filePercent = 0;
+
+            if (fileSize > 0) {
+                if (uploadedBytes >= cumulative) {
+                    filePercent = 100;
+                } else if (uploadedBytes > previousCumulative) {
+                    filePercent = ((uploadedBytes - previousCumulative) / fileSize) * 100;
+                }
+            }
+
+            bar.style.width = Math.max(0, Math.min(100, filePercent)) + '%';
+            previousCumulative = cumulative;
+        });
+    };
+
+    const addFiles = function (fileList) {
+        const incoming = Array.from(fileList || []);
+        if (!incoming.length) {
+            return;
+        }
+
+        const existingKeySet = new Set(
+            selectedFiles.map(function (file) {
+                return [file.name, file.size, file.lastModified].join('::');
+            })
+        );
+
+        incoming.forEach(function (file) {
+            const key = [file.name, file.size, file.lastModified].join('::');
+            if (!existingKeySet.has(key)) {
+                existingKeySet.add(key);
+                selectedFiles.push(file);
+            }
+        });
+
+        buildFileInputState();
+        renderPreviews();
+    };
+
+    dropzone.addEventListener('click', function () {
+        documentsInput.click();
+    });
+
+    dropzone.addEventListener('dragover', function (event) {
+        event.preventDefault();
+        dropzone.classList.add('is-dragover');
+    });
+
+    dropzone.addEventListener('dragleave', function () {
+        dropzone.classList.remove('is-dragover');
+    });
+
+    dropzone.addEventListener('drop', function (event) {
+        event.preventDefault();
+        dropzone.classList.remove('is-dragover');
+        addFiles(event.dataTransfer ? event.dataTransfer.files : []);
+    });
+
+    documentsInput.addEventListener('change', function () {
+        addFiles(documentsInput.files);
+    });
+
+    if (leadStatusInput) {
+        leadStatusInput.addEventListener('change', syncLeadReasonVisibility);
+    }
+
+    quotationForm.addEventListener('submit', function (event) {
+        if (isSubmitting) {
+            event.preventDefault();
+            return;
+        }
+
+        event.preventDefault();
+        isSubmitting = true;
+        if (submitBtn) {
+            submitBtn.disabled = true;
+        }
+
+        uploadProgressWrap.classList.remove('d-none');
+        uploadProgressBar.style.width = '0%';
+        uploadProgressBar.textContent = '0%';
+        uploadStatus.textContent = 'Uploading files...';
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', quotationForm.action || window.location.href, true);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+        xhr.upload.addEventListener('progress', function (progressEvent) {
+            if (!progressEvent.lengthComputable) {
+                return;
+            }
+            const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+            uploadProgressBar.style.width = percent + '%';
+            uploadProgressBar.textContent = percent + '%';
+            updatePerFileProgress(percent);
+        });
+
+        xhr.addEventListener('load', function () {
+            if (xhr.status >= 200 && xhr.status < 400) {
+                uploadProgressBar.style.width = '100%';
+                uploadProgressBar.textContent = '100%';
+                updatePerFileProgress(100);
+                uploadStatus.textContent = 'Upload complete. Redirecting...';
+                window.location.href = xhr.responseURL || window.location.href;
+                return;
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = false;
+            }
+            isSubmitting = false;
+            uploadStatus.textContent = 'Upload failed. Please review the form and try again.';
+
+            if (xhr.responseText) {
+                document.open();
+                document.write(xhr.responseText);
+                document.close();
+            }
+        });
+
+        xhr.addEventListener('error', function () {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+            }
+            isSubmitting = false;
+            uploadStatus.textContent = 'Upload failed due to a network error.';
+        });
+
+        xhr.send(new FormData(quotationForm));
+    });
+
+    const getSelectedQuotationIds = function () {
+        return quotationRowCheckboxes
+            .filter(function (checkbox) { return checkbox.checked; })
+            .map(function (checkbox) { return checkbox.value; });
+    };
+
+    const syncQuotationBulkState = function () {
+        const selectedIds = getSelectedQuotationIds();
+        const selectedCount = selectedIds.length;
+
+        if (quotationBulkDeleteIdsInput) {
+            quotationBulkDeleteIdsInput.value = selectedIds.join(',');
+        }
+        if (quotationBulkSelectedLabel) {
+            quotationBulkSelectedLabel.textContent = selectedCount + ' selected';
+        }
+        if (quotationBulkBar) {
+            quotationBulkBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (quotationSelectAll) {
+            quotationSelectAll.checked = quotationRowCheckboxes.length > 0 && selectedCount === quotationRowCheckboxes.length;
+            quotationSelectAll.indeterminate = selectedCount > 0 && selectedCount < quotationRowCheckboxes.length;
+        }
+    };
+
+    quotationRowCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', syncQuotationBulkState);
+    });
+
+    if (quotationSelectAll) {
+        quotationSelectAll.addEventListener('change', function () {
+            const checked = quotationSelectAll.checked;
+            quotationRowCheckboxes.forEach(function (checkbox) { checkbox.checked = checked; });
+            syncQuotationBulkState();
+        });
+    }
+
+    if (quotationBulkClearBtn) {
+        quotationBulkClearBtn.addEventListener('click', function () {
+            quotationRowCheckboxes.forEach(function (checkbox) { checkbox.checked = false; });
+            syncQuotationBulkState();
+        });
+    }
+
+    if (quotationBulkDeleteForm) {
+        quotationBulkDeleteForm.addEventListener('submit', function (event) {
+            const selectedIds = getSelectedQuotationIds();
+            if (!selectedIds.length) {
+                event.preventDefault();
+                return;
+            }
+
+            if (!quotationBulkDeleteArmed) {
+                event.preventDefault();
+                quotationBulkDeletePendingIds = selectedIds;
+                if (quotationBulkDeleteModalCount) {
+                    quotationBulkDeleteModalCount.textContent = String(selectedIds.length);
+                }
+                if (quotationBulkDeleteConfirmModal) {
+                    quotationBulkDeleteConfirmModal.show();
+                }
+                return;
+            }
+
+            quotationBulkDeleteArmed = false;
+
+            const existingHidden = quotationBulkDeleteForm.querySelectorAll('input[name="quotation_ids"]');
+            existingHidden.forEach(function (node) { node.remove(); });
+            selectedIds.forEach(function (idValue) {
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'quotation_ids';
+                hidden.value = idValue;
+                quotationBulkDeleteForm.appendChild(hidden);
+            });
+        });
+    }
+
+    if (quotationBulkDeleteModalConfirmBtn && quotationBulkDeleteForm) {
+        quotationBulkDeleteModalConfirmBtn.addEventListener('click', function () {
+            if (!quotationBulkDeletePendingIds.length) {
+                return;
+            }
+
+            quotationBulkDeleteArmed = true;
+            quotationBulkDeletePendingIds.forEach(function (idValue) {
+                const checkbox = quotationRowCheckboxes.find(function (node) {
+                    return node.value === String(idValue);
+                });
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+            syncQuotationBulkState();
+
+            if (quotationBulkDeleteConfirmModal) {
+                quotationBulkDeleteConfirmModal.hide();
+            }
+            quotationBulkDeleteForm.requestSubmit();
+        });
+    }
+
+    renderPreviews();
+    syncQuotationBulkState();
+    syncLeadReasonVisibility();
+});
+</script>
+{% endblock %}

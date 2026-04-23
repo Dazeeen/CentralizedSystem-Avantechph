@@ -1,0 +1,36 @@
+<div class="p-3 p-md-4">
+	<h3 class="h5 mb-3">Security Setup (2FA)</h3>
+	<p class="text-secondary small mb-3">Scan this QR code in Google Authenticator or Microsoft Authenticator, then enter the generated 6-digit code.</p>
+
+	<div class="my-3 text-center">
+		{% if qr_svg %}
+			<div class="d-inline-block border rounded-3 p-2 bg-white otp-qr-wrap">{{ qr_svg|safe }}</div>
+		{% else %}
+			<img src="{{ qr_url }}" alt="TOTP QR code" class="img-fluid border rounded-3 p-2 bg-white" style="max-width: 220px;">
+		{% endif %}
+	</div>
+
+	<form method="post" action="{% url 'otp_setup' %}" data-settings-modal-form>
+		{% csrf_token %}
+		<input type="hidden" name="modal" value="1">
+
+		<div class="mb-3">
+			<label for="token" class="form-label">Authenticator code</label>
+			<input
+				type="text"
+				id="token"
+				name="token"
+				class="form-control"
+				maxlength="6"
+				inputmode="numeric"
+				autocomplete="one-time-code"
+				required
+			>
+		</div>
+
+		<div class="d-flex gap-2 mt-3">
+			<button type="submit" class="btn btn-success">Enable 2FA</button>
+			<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+		</div>
+	</form>
+</div>

@@ -1,0 +1,148 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Quotation Document{% endblock %}
+{% block page_heading %}Quotation Document{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <div>
+        <h2 class="h4 mb-1">Formal Quotation Document</h2>
+        <p class="text-secondary mb-0">Version v{{ quotation.version }} for {{ client.full_name }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-success" onclick="window.print()">Print / Save PDF</button>
+        <a class="btn btn-outline-secondary" href="{% url 'clients_quote' client.id %}">Back</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm print-document">
+    <div class="card-body p-4 p-lg-5">
+        <div class="d-flex justify-content-between align-items-start mb-4">
+            <div>
+                <h3 class="h4 mb-1">Avantech Formal Quotation</h3>
+                <div class="text-secondary small">Pre-Sales / Inquiry Negotiation</div>
+            </div>
+            <div class="text-end small">
+                <div><strong>Quotation #:</strong> {{ client.id }}-{{ quotation.version }}</div>
+                <div><strong>Date:</strong> {{ quotation.sent_at|date:'Y-m-d H:i' }}</div>
+                <div><strong>Status:</strong> {{ quotation.get_negotiation_status_display }}</div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Client Full Name</div>
+                    <div class="profile-meta-value">{{ client.full_name }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Email</div>
+                    <div class="profile-meta-value">{{ client.email }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Active Phone Number</div>
+                    <div class="profile-meta-value">{{ client.active_phone_number }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Exact Address</div>
+                    <div class="profile-meta-value">{{ client.exact_address }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Product / Package</div>
+                    <div class="profile-meta-value">{{ quotation.product_package }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Quoted Amount</div>
+                    <div class="profile-meta-value">PHP {{ quotation.quoted_amount }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Usage of Electricity</div>
+                    <div class="profile-meta-value">{{ client.get_usage_of_electricity_display }}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Average Monthly Bill</div>
+                    <div class="profile-meta-value">PHP {{ client.average_monthly_electricity_bill }}</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Appliances and Electric Things</div>
+                    <div class="profile-meta-value">{{ client.appliances_and_electric_things }}</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Quotation Notes</div>
+                    <div class="profile-meta-value">{{ quotation.quotation_notes|default:'-' }}</div>
+                </div>
+            </div>
+            <div class="col-12 no-print">
+                <div class="profile-meta-card">
+                    <div class="profile-meta-label">Attached Quotation Documents</div>
+                    <div class="profile-meta-value">
+                        {% if documents %}
+                            <ul class="mb-0 ps-3">
+                                {% for document in documents %}
+                                    <li><a target="_blank" href="{{ document.file.url }}">Open attachment {{ forloop.counter }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        {% elif quotation.scanned_document %}
+                            <a target="_blank" href="{{ quotation.scanned_document.url }}">Open uploaded scanned/PDF file</a>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pt-3 border-top small text-secondary">
+            <div><strong>Prepared By:</strong> {{ quotation.sent_by.get_full_name|default:quotation.sent_by.username|default:'-' }}</div>
+            <div><strong>Handled By:</strong> {{ client.handled_by.get_full_name|default:client.handled_by.username|default:'-' }}</div>
+            <div><strong>Handled Date:</strong> {{ client.handled_date|date:'Y-m-d' }}</div>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    .no-print,
+    .app-sidebar,
+    .app-topbar,
+    .notification-dropdown,
+    .user-dropdown {
+        display: none !important;
+    }
+
+    .app-main {
+        width: 100% !important;
+    }
+
+    .app-content-wrap {
+        padding: 0 !important;
+    }
+
+    .print-document {
+        box-shadow: none !important;
+        border: 0 !important;
+    }
+}
+</style>
+{% endblock %}

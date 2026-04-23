@@ -1,0 +1,21 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Delete Asset Item{% endblock %}
+{% block page_heading %}Asset Tracker{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Delete Asset Item</h2>
+        <p>Are you sure you want to delete <strong>{{ item.item_code }} - {{ item.item_name }}</strong>?</p>
+        <p class="text-secondary mb-0">This action cannot be undone.</p>
+        <form method="post" class="mt-4">
+            {% csrf_token %}
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-danger">Delete</button>
+                <a href="{% url 'assets_list' %}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,781 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Users{% endblock %}
+{% block page_heading %}Users{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Total Users</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_users }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Active Users</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ active_users }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Staff Accounts</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ staff_users }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="h4 mb-1">User Accounts</h2>
+        <p class="text-secondary mb-0">Manage staff users, roles, and permissions.</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if request.user.is_superuser or perms.axes.view_accessattempt %}
+            <a class="btn btn-outline-success" href="{% url 'support_lockout_center' %}">Lockouts</a>
+        {% endif %}
+        <a class="btn btn-outline-success" href="{% url 'roles_list' %}">Manage Roles</a>
+        <a class="btn btn-success" href="{% url 'users_create' %}">Add User</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body border-bottom">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-8 col-lg-6">
+                <label class="form-label mb-1" for="user-q">Search User Accounts</label>
+                <input id="user-q" type="text" name="user_q" value="{{ user_q }}" class="form-control" placeholder="Search by username, email, or role">
+                <input type="hidden" name="suspicious_q" value="{{ suspicious_q }}">
+                <input type="hidden" name="suspicious_page" value="{{ suspicious_page.number }}">
+                <input type="hidden" name="user_page" value="1">
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-success">Search</button>
+                <a href="?suspicious_q={{ suspicious_q|urlencode }}&suspicious_page={{ suspicious_page.number }}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-success">
+                <tr>
+                    <th scope="col" style="width: 42px;">
+                        <input type="checkbox" class="form-check-input" id="usersSelectAll" aria-label="Select all users">
+                    </th>
+                    <th scope="col">Username</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Roles</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in user_rows %}
+                    <tr class="user-row-clickable" role="button" tabindex="0" data-user-id="{{ row.user.id }}">
+                        <td>
+                            <input
+                                type="checkbox"
+                                class="form-check-input js-user-row-checkbox js-row-action"
+                                value="{{ row.user.id }}"
+                                aria-label="Select user {{ row.user.username }}"
+                            >
+                        </td>
+                        <td class="fw-semibold">
+                            <div class="list-user-inline">
+                                {% if row.avatar_url %}
+                                    <img src="{{ row.avatar_url }}" alt="{{ row.user.username }}" class="list-user-avatar">
+                                {% else %}
+                                    <span class="list-user-avatar-fallback">{{ row.user.get_full_name|default:row.user.username|first|upper }}</span>
+                                {% endif %}
+                                <span>{{ row.user.username }}</span>
+                            </div>
+                        </td>
+                        <td>{{ row.user.email|default:'-' }}</td>
+                        <td>
+                            {% for role_name in row.groups %}
+                                <span class="badge text-bg-light border border-success-subtle text-success-emphasis">{{ role_name }}</span>
+                            {% empty %}
+                                <span class="text-secondary">No role</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if row.user.is_active %}
+                                <span class="badge text-bg-success">Active</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block js-row-action">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn js-row-action" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="User actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item js-row-action" href="{% url 'users_update' row.user.id %}">Edit</a></li>
+                                    <li><a class="dropdown-item text-danger js-row-action" href="{% url 'users_delete' row.user.id %}">Delete</a></li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-secondary">No users found.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if perms.auth.change_user or perms.auth.delete_user %}
+    <div id="usersBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="User accounts bulk actions">
+        <div class="bulk-action-content">
+            <span class="bulk-action-count" id="usersBulkCount">0 selected</span>
+            {% if perms.auth.change_user %}
+            <form id="usersBulkStatusForm" method="post" action="{% url 'users_bulk_update_status' %}" class="d-inline-flex align-items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" id="usersBulkStatusSelectedIds" name="selected_ids" value="">
+                <button type="submit" class="btn btn-sm btn-outline-success" name="status_action" value="activate">Activate</button>
+                <button type="submit" class="btn btn-sm btn-outline-warning" name="status_action" value="deactivate">Deactivate</button>
+            </form>
+
+            <form id="usersBulkRoleForm" method="post" action="{% url 'users_bulk_update_role' %}" class="d-inline-flex align-items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" id="usersBulkRoleSelectedIds" name="selected_ids" value="">
+                <select class="form-select form-select-sm" name="role_id" aria-label="Select role" required>
+                    <option value="">Select Role...</option>
+                    {% for role in available_roles %}
+                    <option value="{{ role.id }}">{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-primary" name="role_action" value="assign">Assign Role</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary" name="role_action" value="remove">Remove Role</button>
+                <button type="submit" class="btn btn-sm btn-outline-dark" name="role_action" value="replace">Replace Role</button>
+            </form>
+            {% endif %}
+
+            {% if perms.auth.delete_user %}
+            <form id="usersBulkDeleteForm" method="post" action="{% url 'users_bulk_delete' %}" class="d-inline-flex align-items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" id="usersBulkSelectedIds" name="selected_ids" value="">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete Selected</button>
+            </form>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="clearUsersBulkSelection">Clear</button>
+        </div>
+    </div>
+    {% endif %}
+    {% if users_page.paginator.num_pages > 1 %}
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <small class="text-secondary">Page {{ users_page.number }} of {{ users_page.paginator.num_pages }}</small>
+            <div class="btn-group flex-wrap" role="group" aria-label="User accounts pagination">
+                {% if users_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-success" href="?{{ users_prev_qs }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+                {% for page_number in users_page.paginator.page_range %}
+                    {% if page_number == users_page.number %}
+                        <button class="btn btn-sm btn-success" type="button" disabled>{{ page_number }}</button>
+                    {% else %}
+                        <a class="btn btn-sm btn-outline-success" href="?user_q={{ user_q|urlencode }}&suspicious_q={{ suspicious_q|urlencode }}&user_page={{ page_number }}&suspicious_page={{ suspicious_page.number }}">{{ page_number }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if users_page.has_next %}
+                    <a class="btn btn-sm btn-outline-success" href="?{{ users_next_qs }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="userProfileModal" tabindex="-1" aria-labelledby="userProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            {% include 'core/includes/modal_header.html' with modal_title='User Profile' modal_title_id='userProfileModalLabel' %}
+            <div class="modal-body">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div class="profile-avatar" id="userProfileAvatar">U</div>
+                    <div>
+                        <h3 class="h5 mb-1" id="userProfileTitle">-</h3>
+                        <p class="text-secondary mb-0" id="userProfileSubtitle">-</p>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-6 col-lg-3">
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-label">Total Logins</span>
+                            <span class="profile-stat-value" id="userProfileTotalEvents">0</span>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-label">Successful</span>
+                            <span class="profile-stat-value" id="userProfileSuccessEvents">0</span>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-label">Failed</span>
+                            <span class="profile-stat-value" id="userProfileFailedEvents">0</span>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-label">Last Success</span>
+                            <span class="profile-stat-value text-break" id="userProfileLastSuccess">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Username</span>
+                            <span class="profile-detail-value" id="userProfileUsername">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Full Name</span>
+                            <span class="profile-detail-value" id="userProfileFullName">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Email</span>
+                            <span class="profile-detail-value" id="userProfileEmail">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Roles</span>
+                            <span class="profile-detail-value" id="userProfileRoles">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Branch</span>
+                            <span class="profile-detail-value" id="userProfileBranch">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Status</span>
+                            <span class="profile-detail-value" id="userProfileStatus">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Staff</span>
+                            <span class="profile-detail-value" id="userProfileStaff">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Email Verified</span>
+                            <span class="profile-detail-value" id="userProfileVerified">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Last Login</span>
+                            <span class="profile-detail-value" id="userProfileLastLogin">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Joined</span>
+                            <span class="profile-detail-value" id="userProfileJoined">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Last Login IP</span>
+                            <span class="profile-detail-value" id="userProfileIp">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Last Login User Agent</span>
+                            <span class="profile-detail-value text-break" id="userProfileAgent">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h4 class="h6 mb-0">Recent Login Activity</h4>
+                        <span class="badge text-bg-light border border-success-subtle text-success-emphasis" id="userProfileActivityCount">0 events</span>
+                    </div>
+                    <div class="recent-activity-list" id="userProfileRecentActivity"></div>
+                </div>
+
+                {% if request.user.is_superuser %}
+                    <div class="mt-4">
+                        <h4 class="h6 mb-2">Assigned Permissions (Admin Only)</h4>
+                        <div class="row g-3">
+                            <div class="col-12 col-md-6">
+                                <div class="profile-detail-card">
+                                    <span class="profile-detail-label">Direct User Permissions</span>
+                                    <div class="small" id="userProfileDirectPermissions">No direct permissions.</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <div class="profile-detail-card">
+                                    <span class="profile-detail-label">Permissions From Roles</span>
+                                    <div class="small" id="userProfileGroupPermissions">No role-based permissions.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ user_profile_map|json_script:'user-profile-data' }}
+
+<script>
+    (function () {
+        const initUserProfileModal = () => {
+            const profileModal = document.getElementById('userProfileModal');
+            if (!profileModal || !window.bootstrap) {
+                return;
+            }
+            const profileModalInstance = bootstrap.Modal.getOrCreateInstance(profileModal);
+            const profileDataNode = document.getElementById('user-profile-data');
+            if (!profileDataNode) {
+                return;
+            }
+            const profileData = JSON.parse(profileDataNode.textContent);
+
+            const fields = {
+                avatar: document.getElementById('userProfileAvatar'),
+                title: document.getElementById('userProfileTitle'),
+                subtitle: document.getElementById('userProfileSubtitle'),
+                username: document.getElementById('userProfileUsername'),
+                fullName: document.getElementById('userProfileFullName'),
+                email: document.getElementById('userProfileEmail'),
+                roles: document.getElementById('userProfileRoles'),
+                branch: document.getElementById('userProfileBranch'),
+                status: document.getElementById('userProfileStatus'),
+                staff: document.getElementById('userProfileStaff'),
+                verified: document.getElementById('userProfileVerified'),
+                lastLogin: document.getElementById('userProfileLastLogin'),
+                joined: document.getElementById('userProfileJoined'),
+                ip: document.getElementById('userProfileIp'),
+                agent: document.getElementById('userProfileAgent'),
+                totalEvents: document.getElementById('userProfileTotalEvents'),
+                successEvents: document.getElementById('userProfileSuccessEvents'),
+                failedEvents: document.getElementById('userProfileFailedEvents'),
+                lastSuccess: document.getElementById('userProfileLastSuccess'),
+                recentActivity: document.getElementById('userProfileRecentActivity'),
+                activityCount: document.getElementById('userProfileActivityCount'),
+                directPermissions: document.getElementById('userProfileDirectPermissions'),
+                groupPermissions: document.getElementById('userProfileGroupPermissions'),
+            };
+
+            const renderActivity = (items) => {
+                if (!items || !items.length) {
+                    fields.recentActivity.innerHTML = '<div class="text-secondary small">No recent login events recorded for this user.</div>';
+                    fields.activityCount.textContent = '0 events';
+                    return;
+                }
+
+                fields.activityCount.textContent = `${items.length} event${items.length === 1 ? '' : 's'}`;
+                fields.recentActivity.innerHTML = items.map((item) => `
+                    <div class="recent-activity-item">
+                        <div class="d-flex justify-content-between gap-3">
+                            <div>
+                                <div class="fw-semibold">${item.status} - ${item.reason}</div>
+                                <div class="text-secondary small">IP: ${item.ip_address}</div>
+                            </div>
+                            <div class="text-secondary small text-end">${item.time}</div>
+                        </div>
+                    </div>
+                `).join('');
+            };
+
+            const renderPermissionList = (container, items, emptyLabel) => {
+                if (!container) {
+                    return;
+                }
+                if (!items || !items.length) {
+                    container.innerHTML = `<span class="text-secondary">${emptyLabel}</span>`;
+                    return;
+                }
+                container.innerHTML = items
+                    .map((item) => `<div class="border rounded px-2 py-1 mb-1 bg-light-subtle">${item}</div>`)
+                    .join('');
+            };
+
+            document.querySelectorAll('.user-row-clickable').forEach((row) => {
+                row.addEventListener('click', (event) => {
+                    if (event.target.closest('.js-row-action') || event.target.closest('.dropdown')) {
+                        return;
+                    }
+
+                    const userId = row.dataset.userId;
+                    const userData = profileData[userId] || {};
+
+                    fields.avatar.textContent = userData.avatar_initials || 'U';
+                    fields.title.textContent = userData.username || '-';
+                    fields.subtitle.textContent = userData.full_name || '-';
+                    fields.username.textContent = userData.username || '-';
+                    fields.fullName.textContent = userData.full_name || '-';
+                    fields.email.textContent = userData.email || '-';
+                    fields.roles.textContent = userData.roles || '-';
+                    fields.branch.textContent = userData.branch || 'Not assigned';
+                    fields.status.textContent = userData.active_label || '-';
+                    fields.staff.textContent = userData.staff_label || '-';
+                    fields.verified.textContent = userData.email_verified_label || '-';
+                    fields.lastLogin.textContent = userData.last_login || '-';
+                    fields.joined.textContent = userData.joined || '-';
+                    fields.ip.textContent = userData.last_login_ip || '-';
+                    fields.agent.textContent = userData.last_login_user_agent || '-';
+                    fields.totalEvents.textContent = (userData.account_stats && userData.account_stats.total_events) || 0;
+                    fields.successEvents.textContent = (userData.account_stats && userData.account_stats.success_events) || 0;
+                    fields.failedEvents.textContent = (userData.account_stats && userData.account_stats.failed_events) || 0;
+                    fields.lastSuccess.textContent = (userData.account_stats && userData.account_stats.last_successful_login) || '-';
+                    renderActivity((userData.recent_activity || []).slice(0, 3));
+                    renderPermissionList(fields.directPermissions, userData.direct_permissions || [], 'No direct permissions.');
+                    renderPermissionList(fields.groupPermissions, userData.group_permissions || [], 'No role-based permissions.');
+                    profileModalInstance.show();
+                });
+
+                row.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        row.click();
+                    }
+                });
+            });
+        };
+
+        if (document.readyState === 'complete') {
+            initUserProfileModal();
+        } else {
+            window.addEventListener('load', initUserProfileModal, { once: true });
+        }
+    })();
+</script>
+
+<script>
+    (function () {
+        document.querySelectorAll('.js-row-action').forEach((element) => {
+            element.addEventListener('click', (event) => {
+                event.stopPropagation();
+            });
+        });
+
+        const selectAll = document.getElementById('usersSelectAll');
+        const rowCheckboxes = Array.from(document.querySelectorAll('.js-user-row-checkbox'));
+        const actionBar = document.getElementById('usersBulkActionBar');
+        const countElement = document.getElementById('usersBulkCount');
+        const selectedIdsInput = document.getElementById('usersBulkSelectedIds');
+        const statusSelectedIdsInput = document.getElementById('usersBulkStatusSelectedIds');
+        const roleSelectedIdsInput = document.getElementById('usersBulkRoleSelectedIds');
+        const clearButton = document.getElementById('clearUsersBulkSelection');
+        const bulkDeleteForm = document.getElementById('usersBulkDeleteForm');
+        const bulkStatusForm = document.getElementById('usersBulkStatusForm');
+        const bulkRoleForm = document.getElementById('usersBulkRoleForm');
+        let bulkDeleteArmed = false;
+        let bulkDeleteCountEl = null;
+        let bulkDeleteConfirmModal = null;
+        let bulkDeleteConfirmBtn = null;
+
+        if (bulkDeleteForm && window.bootstrap && window.bootstrap.Modal) {
+            const modalContainer = document.createElement('div');
+            modalContainer.innerHTML = '' +
+                '<div class="modal fade" id="usersBulkDeleteConfirmModal" tabindex="-1" aria-hidden="true">' +
+                    '<div class="modal-dialog modal-dialog-centered">' +
+                        '<div class="modal-content border-0 shadow">' +
+                            '<div class="modal-header">' +
+                                '<h5 class="modal-title">Confirm Bulk Delete</h5>' +
+                                '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>' +
+                            '</div>' +
+                            '<div class="modal-body">Delete <span class="fw-semibold" id="usersBulkDeleteCount">0</span> selected user account(s)?</div>' +
+                            '<div class="modal-footer">' +
+                                '<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>' +
+                                '<button type="button" class="btn btn-danger" id="usersBulkDeleteConfirmBtn">Delete</button>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(modalContainer.firstElementChild);
+            const modalEl = document.getElementById('usersBulkDeleteConfirmModal');
+            bulkDeleteCountEl = document.getElementById('usersBulkDeleteCount');
+            bulkDeleteConfirmBtn = document.getElementById('usersBulkDeleteConfirmBtn');
+            bulkDeleteConfirmModal = modalEl ? new window.bootstrap.Modal(modalEl) : null;
+        }
+
+        if (!selectAll || !rowCheckboxes.length || !actionBar || !countElement || (!selectedIdsInput && !statusSelectedIdsInput && !roleSelectedIdsInput)) {
+            return;
+        }
+
+        const sync = () => {
+            const selectedIds = rowCheckboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+            if (selectedIdsInput) {
+                selectedIdsInput.value = selectedIds.join(',');
+            }
+            if (statusSelectedIdsInput) {
+                statusSelectedIdsInput.value = selectedIds.join(',');
+            }
+            if (roleSelectedIdsInput) {
+                roleSelectedIdsInput.value = selectedIds.join(',');
+            }
+            countElement.textContent = `${selectedIds.length} selected`;
+            actionBar.classList.toggle('d-none', selectedIds.length === 0);
+
+            selectAll.checked = selectedIds.length > 0 && selectedIds.length === rowCheckboxes.length;
+            selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < rowCheckboxes.length;
+        };
+
+        selectAll.addEventListener('change', () => {
+            rowCheckboxes.forEach((checkbox) => {
+                checkbox.checked = selectAll.checked;
+            });
+            sync();
+        });
+
+        rowCheckboxes.forEach((checkbox) => {
+            checkbox.addEventListener('change', sync);
+        });
+
+        if (clearButton) {
+            clearButton.addEventListener('click', () => {
+                rowCheckboxes.forEach((checkbox) => {
+                    checkbox.checked = false;
+                });
+                selectAll.checked = false;
+                selectAll.indeterminate = false;
+                sync();
+            });
+        }
+
+        if (bulkDeleteForm) {
+            bulkDeleteForm.addEventListener('submit', (event) => {
+                const selectedIds = rowCheckboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+                if (!selectedIds.length) {
+                    event.preventDefault();
+                    return;
+                }
+
+                if (!bulkDeleteArmed) {
+                    event.preventDefault();
+                    if (bulkDeleteCountEl) {
+                        bulkDeleteCountEl.textContent = String(selectedIds.length);
+                    }
+                    if (bulkDeleteConfirmModal) {
+                        bulkDeleteConfirmModal.show();
+                    }
+                    return;
+                }
+
+                bulkDeleteArmed = false;
+            });
+        }
+
+        if (bulkDeleteConfirmBtn && bulkDeleteForm) {
+            bulkDeleteConfirmBtn.addEventListener('click', () => {
+                bulkDeleteArmed = true;
+                if (bulkDeleteConfirmModal) {
+                    bulkDeleteConfirmModal.hide();
+                }
+                bulkDeleteForm.requestSubmit();
+            });
+        }
+
+        if (bulkStatusForm) {
+            bulkStatusForm.addEventListener('submit', (event) => {
+                const submitter = event.submitter;
+                const action = submitter ? submitter.value : '';
+                if (action === 'deactivate' && !window.confirm('Deactivate selected user accounts?')) {
+                    event.preventDefault();
+                }
+            });
+        }
+
+        if (bulkRoleForm) {
+            bulkRoleForm.addEventListener('submit', (event) => {
+                const roleSelect = bulkRoleForm.querySelector('select[name="role_id"]');
+                if (!roleSelect || !roleSelect.value) {
+                    event.preventDefault();
+                    return;
+                }
+
+                const submitter = event.submitter;
+                const roleAction = submitter ? submitter.value : '';
+                if (roleAction === 'replace' && !window.confirm('Replace all existing roles with the selected role for all selected users?')) {
+                    event.preventDefault();
+                }
+            });
+        }
+
+        sync();
+    })();
+</script>
+
+{% if request.user.is_superuser or perms.axes.view_accessattempt %}
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Suspicious Login Activity</h2>
+                <span class="badge text-bg-danger">{{ suspicious_events_24h }} in last 24h</span>
+            </div>
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-12 col-md-8 col-lg-6">
+                    <label class="form-label mb-1" for="suspicious-q">Search Suspicious Activity</label>
+                    <input id="suspicious-q" type="text" name="suspicious_q" value="{{ suspicious_q }}" class="form-control" placeholder="Search by username, IP, or reason">
+                    <input type="hidden" name="user_q" value="{{ user_q }}">
+                    <input type="hidden" name="user_page" value="{{ users_page.number }}">
+                    <input type="hidden" name="suspicious_page" value="1">
+                </div>
+                <div class="col-12 col-md-auto d-flex gap-2">
+                    <button type="submit" class="btn btn-success">Search</button>
+                    <a href="?user_q={{ user_q|urlencode }}&user_page={{ users_page.number }}" class="btn btn-outline-secondary">Clear</a>
+                </div>
+            </form>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Username</th>
+                            <th>IP</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in suspicious_page %}
+                            <tr class="suspicious-row-clickable" role="button" tabindex="0" data-bs-toggle="modal" data-bs-target="#suspiciousDetailModal" data-event-time="{{ event.created_at|date:'Y-m-d H:i:s' }}" data-event-username="{{ event.username_attempt|default:'-'|escape }}" data-event-ip="{{ event.ip_address|default:'-'|escape }}" data-event-reason="{{ event.reason|default:'-'|escape }}" data-event-status="{{ event.successful|yesno:'Success,Failed' }}" data-event-user-agent="{{ event.user_agent|default:'-'|escape }}">
+                                <td>{{ event.created_at|date:'Y-m-d H:i' }}</td>
+                                <td>{{ event.username_attempt }}</td>
+                                <td>{{ event.ip_address|default:'-' }}</td>
+                                <td><span class="badge text-bg-warning">{{ event.reason }}</span></td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-secondary">No suspicious login events recorded recently.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if suspicious_page.paginator.num_pages > 1 %}
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <small class="text-secondary">Page {{ suspicious_page.number }} of {{ suspicious_page.paginator.num_pages }}</small>
+                    <div class="btn-group flex-wrap" role="group" aria-label="Suspicious activity pagination">
+                        {% if suspicious_page.has_previous %}
+                            <a class="btn btn-sm btn-outline-success" href="?{{ suspicious_prev_qs }}">Previous</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                        {% endif %}
+                        {% for page_number in suspicious_page.paginator.page_range %}
+                            {% if page_number == suspicious_page.number %}
+                                <button class="btn btn-sm btn-success" type="button" disabled>{{ page_number }}</button>
+                            {% else %}
+                                <a class="btn btn-sm btn-outline-success" href="?user_q={{ user_q|urlencode }}&suspicious_q={{ suspicious_q|urlencode }}&user_page={{ users_page.number }}&suspicious_page={{ page_number }}">{{ page_number }}</a>
+                            {% endif %}
+                        {% endfor %}
+                        {% if suspicious_page.has_next %}
+                            <a class="btn btn-sm btn-outline-success" href="?{{ suspicious_next_qs }}">Next</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endif %}
+
+<div class="modal fade" id="suspiciousDetailModal" tabindex="-1" aria-labelledby="suspiciousDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            {% include 'core/includes/modal_header.html' with modal_title='Suspicious Login Detail' modal_title_id='suspiciousDetailModalLabel' %}
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Timestamp</span>
+                            <span class="profile-detail-value" id="suspiciousDetailTime">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Username Attempt</span>
+                            <span class="profile-detail-value" id="suspiciousDetailUsername">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">IP Address</span>
+                            <span class="profile-detail-value" id="suspiciousDetailIp">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Status</span>
+                            <span class="profile-detail-value" id="suspiciousDetailStatus">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">Reason</span>
+                            <span class="profile-detail-value" id="suspiciousDetailReason">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
+                            <span class="profile-detail-label">User Agent</span>
+                            <span class="profile-detail-value text-break" id="suspiciousDetailUserAgent">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const fields = {
+            time: document.getElementById('suspiciousDetailTime'),
+            username: document.getElementById('suspiciousDetailUsername'),
+            ip: document.getElementById('suspiciousDetailIp'),
+            status: document.getElementById('suspiciousDetailStatus'),
+            reason: document.getElementById('suspiciousDetailReason'),
+            userAgent: document.getElementById('suspiciousDetailUserAgent'),
+        };
+
+        document.querySelectorAll('.suspicious-row-clickable').forEach((row) => {
+            row.addEventListener('click', () => {
+                fields.time.textContent = row.dataset.eventTime || '-';
+                fields.username.textContent = row.dataset.eventUsername || '-';
+                fields.ip.textContent = row.dataset.eventIp || '-';
+                fields.status.textContent = row.dataset.eventStatus || '-';
+                fields.reason.textContent = row.dataset.eventReason || '-';
+                fields.userAgent.textContent = row.dataset.eventUserAgent || '-';
+            });
+
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    row.click();
+                }
+            });
+        });
+    })();
+</script>
+{% endblock %}

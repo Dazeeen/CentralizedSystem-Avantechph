@@ -1,0 +1,32 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Security Setup{% endblock %}
+{% block page_heading %}Security Setup{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Enable Two-Factor Authentication</h2>
+        <p class="text-secondary">Scan this QR code in Google Authenticator or Microsoft Authenticator, then enter the generated code.</p>
+
+        <div class="my-4 text-center">
+            {% if qr_svg %}
+                <div class="d-inline-block border rounded-3 p-2 bg-white otp-qr-wrap">{{ qr_svg|safe }}</div>
+            {% else %}
+                <img src="{{ qr_url }}" alt="TOTP QR code" class="img-fluid border rounded-3 p-2 bg-white">
+            {% endif %}
+        </div>
+
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            <div class="col-md-6">
+                <label for="token" class="form-label">Authenticator code</label>
+                <input type="text" id="token" name="token" class="form-control" maxlength="6" required>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-success">Enable 2FA</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

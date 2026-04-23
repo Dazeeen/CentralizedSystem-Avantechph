@@ -1,0 +1,111 @@
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2 class="h5 mb-1">{{ client.full_name }}</h2>
+        <p class="text-secondary mb-0 small">Client Review</p>
+    </div>
+    <div>
+        <span class="badge text-bg-light border">{{ client.get_status_display }}</span>
+        <span class="badge text-bg-light border border-primary-subtle text-primary-emphasis">{{ client.get_lead_status_display }}</span>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="small text-secondary">Contact</div>
+        <div>{{ client.active_phone_number }}</div>
+        <div>{{ client.email }}</div>
+    </div>
+    <div class="col-md-6">
+        <div class="small text-secondary">Handled By</div>
+        {% if client.handled_by %}
+            <div class="list-user-inline">
+                {% if handled_by_profile and handled_by_profile.avatar %}
+                    <img src="{{ handled_by_profile.avatar.url }}" alt="{{ client.handled_by.username }}" class="list-user-avatar">
+                {% else %}
+                    <span class="list-user-avatar-fallback">{{ client.handled_by.get_full_name|default:client.handled_by.username|first|upper }}</span>
+                {% endif %}
+                <button
+                    type="button"
+                    class="user-name-link js-user-profile-trigger"
+                    data-user-id="{{ client.handled_by_id }}"
+                >
+                    {{ client.handled_by.get_full_name|default:client.handled_by.username }}
+                </button>
+            </div>
+        {% else %}
+            <div>-</div>
+        {% endif %}
+        <div class="small text-secondary mt-1">Handled Date: {{ client.handled_date|date:'Y-m-d' }}</div>
+    </div>
+    <div class="col-12">
+        <div class="small text-secondary">Address</div>
+        <div>{{ client.exact_address }}</div>
+    </div>
+    {% if client.lead_status == 'lost' or client.lead_status == 'not_qualified' %}
+        <div class="col-12">
+            <div class="small text-secondary">Lead Disposition Reason</div>
+            <div>{{ client.lead_disposition_reason|default:'-' }}</div>
+            {% if client.lead_proof_image %}
+                <a class="small" target="_blank" href="{{ client.lead_proof_image.url }}">Open proof image</a>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+
+<hr class="my-3">
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h3 class="h6 mb-0">Quotation History</h3>
+    <a class="btn btn-sm btn-outline-success" href="{% url 'clients_quote' client.id %}">Open Quotations</a>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>Version</th>
+                <th>Package</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Files</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for quotation in quotations %}
+                <tr>
+                    <td class="fw-semibold">v{{ quotation.version }}</td>
+                    <td>{{ quotation.product_package|default:'-' }}</td>
+                    <td>PHP {{ quotation.quoted_amount }}</td>
+                    <td>{{ quotation.get_negotiation_status_display }}</td>
+                    <td>{{ quotation.sent_at|date:'Y-m-d H:i' }}</td>
+                    <td>
+                        {% with doc_count=quotation.documents.count %}
+                            {% if doc_count %}
+                                {{ doc_count }} file{{ doc_count|pluralize }}
+                            {% elif quotation.scanned_document %}
+                                1 legacy file
+                            {% else %}
+                                0 files
+                            {% endif %}
+                        {% endwith %}
+                    </td>
+                </tr>
+                {% if quotation.quotation_notes %}
+                    <tr>
+                        <td colspan="6" class="small text-secondary">Notes: {{ quotation.quotation_notes }}</td>
+                    </tr>
+                {% endif %}
+            {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-3 text-secondary">No quotation history available.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="d-flex justify-content-end mt-4 gap-2">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+    <a class="btn btn-success" href="{% url 'clients_update' client.id %}">Edit Client</a>
+</div>

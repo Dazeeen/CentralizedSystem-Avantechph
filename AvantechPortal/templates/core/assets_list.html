@@ -1,0 +1,881 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Asset Tracker{% endblock %}
+{% block page_heading %}Asset Tracker{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Departments</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_departments }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Registered Item IDs</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_asset_codes }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Variants</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_variants }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Total Stock Units</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_stock_units }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h2 class="h4 mb-1">Company Asset Tracker</h2>
+        <p class="text-secondary mb-0">Track assets by department with automatic Item IDs and printable asset tags.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'assets_item_types_list' %}">Item Types</a>
+        <a class="btn btn-outline-success" href="{% url 'assets_departments_list' %}">Manage Departments</a>
+        <a class="btn btn-outline-success" href="{% url 'assets_company_accounts' %}">Company Internet Accounts</a>
+        <a class="btn btn-success" href="{% url 'assets_item_create' %}">Add Asset Item</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body border-bottom">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+                <label class="form-label mb-1" for="asset-department">Department</label>
+                <select id="asset-department" name="department" class="form-select">
+                    <option value="">All Departments</option>
+                    {% for department in departments %}
+                        <option value="{{ department.id }}" {% if selected_department == department.id|stringformat:'s' %}selected{% endif %}>{{ department.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-5">
+                <label class="form-label mb-1" for="asset-q">Search Assets</label>
+                <input id="asset-q" type="text" name="q" value="{{ query }}" class="form-control" placeholder="Item ID, name, department, specification">
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-success">Filter</button>
+                <a href="{% url 'assets_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+    <div class="card-body border-bottom bg-light-subtle">
+        <form method="post" action="{% url 'assets_generate_tags' %}" class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            {% csrf_token %}
+            <div class="text-secondary small">Generate a new print-ready tagging document snapshot. Previous batches remain separate to avoid old/new mix-up.</div>
+            <div class="d-flex gap-2">
+                <input type="hidden" name="department" value="{{ selected_department }}">
+                <button type="submit" class="btn btn-success">Generate Asset Tagging</button>
+            </div>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-success">
+                <tr>
+                    <th scope="col" style="width: 42px;">
+                        <input type="checkbox" class="form-check-input" id="selectAllAssets" aria-label="Select all items on page">
+                    </th>
+                    <th scope="col">Item ID</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Department</th>
+                    <th scope="col">Holder</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Specification</th>
+                    <th scope="col">Stock</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items_page %}
+                    <tr class="js-parent-item-row" data-item-id="{{ item.id }}" role="button" style="cursor: pointer;" title="Click to view variants and holders">
+                        <td>
+                            <input type="checkbox" class="form-check-input js-bulk-item-checkbox" value="{{ item.id }}" aria-label="Select {{ item.item_code }}">
+                        </td>
+                        <td class="fw-semibold">{{ item.item_code }}</td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if item.get_primary_image_url %}
+                                    <img src="{{ item.get_primary_image_url }}" alt="{{ item.item_name }}" class="rounded border" style="width: 28px; height: 28px; object-fit: cover;">
+                                {% else %}
+                                    <span class="d-inline-flex align-items-center justify-content-center rounded border bg-light text-secondary" style="width: 28px; height: 28px;">A</span>
+                                {% endif %}
+                                <span>{{ item.item_name }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            {{ item.department.name }}
+                            {% if item.department.is_default %}
+                                <span class="badge text-bg-light border border-success-subtle text-success-emphasis ms-1">Default</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% with holder_entries=holder_entries_map|get_item:item.id %}
+                                {% if holder_entries %}
+                                    <div class="d-flex flex-wrap align-items-center gap-1">
+                                        {% for holder in holder_entries|slice:":2" %}
+                                            <span class="list-user-inline">
+                                                {% if holder.avatar_url %}
+                                                    <img src="{{ holder.avatar_url }}" alt="{{ holder.name }}" class="list-user-avatar">
+                                                {% else %}
+                                                    <span class="list-user-avatar-fallback">{{ holder.avatar_initial }}</span>
+                                                {% endif %}
+                                                <button
+                                                    type="button"
+                                                    class="user-name-link js-user-profile-trigger"
+                                                    data-user-id="{{ holder.user_id }}"
+                                                >
+                                                    {{ holder.name }}
+                                                </button>
+                                            </span>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    {{ holder_summary_map|get_item:item.id|default:'-' }}
+                                {% endif %}
+                            {% endwith %}
+                            {% if holder_hidden_count_map|get_item:item.id %}
+                                <span
+                                    class="badge bg-secondary ms-1"
+                                    title="{{ holder_hidden_names_map|get_item:item.id|default:'No additional holders' }}"
+                                >
+                                    +{{ holder_hidden_count_map|get_item:item.id }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>{{ item.get_item_type_display }}</td>
+                        <td>{{ item.specification|default:'-' }}</td>
+                        <td>
+                            {{ parent_total_stock_map|get_item:item.id|default:0 }}
+                            <span class="badge bg-light text-dark border ms-1">{{ variant_counts_map|get_item:item.id|default:0 }} variants</span>
+                        </td>
+                        <td>
+                            {% if parent_stock_status_map|get_item:item.id == 'out of stock' %}
+                                <span class="badge bg-danger">Out of Stock</span>
+                            {% elif parent_stock_status_map|get_item:item.id == 'low stock' %}
+                                <span class="badge bg-warning text-dark">Low Stock</span>
+                            {% else %}
+                                <span class="badge bg-success">In Stock</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Item actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'assets_item_update' item.id %}">Edit</a></li>
+                                    <li><a class="dropdown-item text-danger" href="{% url 'assets_item_delete' item.id %}">Delete</a></li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center py-4 text-secondary">No asset items found.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if items_page.paginator.num_pages > 1 %}
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <small class="text-secondary">Page {{ items_page.number }} of {{ items_page.paginator.num_pages }}</small>
+            <div class="btn-group" role="group" aria-label="Asset pagination">
+                {% if items_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-success" href="?department={{ selected_department|urlencode }}&q={{ query|urlencode }}&page={{ items_page.previous_page_number }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+
+                {% for page_num in items_page.paginator.page_range %}
+                    {% if page_num == items_page.number %}
+                        <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                    {% else %}
+                        <a class="btn btn-sm btn-outline-success" href="?department={{ selected_department|urlencode }}&q={{ query|urlencode }}&page={{ page_num }}">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if items_page.has_next %}
+                    <a class="btn btn-sm btn-outline-success" href="?department={{ selected_department|urlencode }}&q={{ query|urlencode }}&page={{ items_page.next_page_number }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm generated-tag-documents-card">
+    <div class="card-header bg-white">
+        <h3 class="h5 mb-0">Generated Tag Documents</h3>
+    </div>
+    <div class="generated-tag-documents-table-wrap">
+        <table class="table align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col" style="width: 42px;">
+                        <input type="checkbox" class="form-check-input" id="selectAllTagBatches" aria-label="Select all generated tag documents">
+                    </th>
+                    <th scope="col">Batch</th>
+                    <th scope="col">Department Scope</th>
+                    <th scope="col">Generated By</th>
+                    <th scope="col">Created At</th>
+                    <th scope="col">Item IDs</th>
+                    <th scope="col">Tag Count</th>
+                    <th scope="col" class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for batch in batches_page %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" class="form-check-input js-bulk-batch-checkbox" value="{{ batch.id }}" aria-label="Select batch {{ batch.id }}">
+                        </td>
+                        <td class="fw-semibold">#{{ batch.id }}</td>
+                        <td>{{ batch.department.name|default:'All Departments' }}</td>
+                        <td>
+                            {% if batch.generated_by %}
+                                {% with generator_profile=batch_generator_profiles_map|get_item:batch.generated_by_id %}
+                                    <div class="list-user-inline">
+                                        {% if generator_profile and generator_profile.avatar %}
+                                            <img src="{{ generator_profile.avatar.url }}" alt="{{ batch.generated_by.username }}" class="list-user-avatar">
+                                        {% else %}
+                                            <span class="list-user-avatar-fallback">{{ batch.generated_by.get_full_name|default:batch.generated_by.username|first|upper }}</span>
+                                        {% endif %}
+                                        <button
+                                            type="button"
+                                            class="user-name-link js-user-profile-trigger"
+                                            data-user-id="{{ batch.generated_by_id }}"
+                                        >
+                                            {{ batch.generated_by.get_full_name|default:batch.generated_by.username }}
+                                        </button>
+                                    </div>
+                                {% endwith %}
+                            {% else %}
+                                <span class="text-secondary">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ batch.created_at|date:'Y-m-d H:i' }}</td>
+                        <td>{{ batch.total_item_codes }}</td>
+                        <td>{{ batch.total_tags }}</td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Generated tag document actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'assets_tag_document' batch.id %}" target="_blank">Open Print View</a></li>
+                                    <li>
+                                        <form method="post" action="{% url 'assets_tag_batch_delete' batch.id %}" class="js-confirm-delete-batch-form" data-confirm-message="Delete generated tag document batch #{{ batch.id }}?">
+                                            {% csrf_token %}
+                                            <button type="submit" class="dropdown-item text-danger">Delete</button>
+                                        </form>
+                                    </li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4 text-secondary">No generated tag documents yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if batches_page.paginator.num_pages > 1 %}
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <small class="text-secondary">Batch page {{ batches_page.number }} of {{ batches_page.paginator.num_pages }}</small>
+            <div class="btn-group" role="group" aria-label="Batch pagination">
+                {% if batches_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-success" href="?department={{ selected_department|urlencode }}&q={{ query|urlencode }}&page={{ items_page.number }}&batch_page={{ batches_page.previous_page_number }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+
+                {% for page_num in batches_page.paginator.page_range %}
+                    {% if page_num == batches_page.number %}
+                        <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                    {% else %}
+                        <a class="btn btn-sm btn-outline-success" href="?department={{ selected_department|urlencode }}&q={{ query|urlencode }}&page={{ items_page.number }}&batch_page={{ page_num }}">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if batches_page.has_next %}
+                    <a class="btn btn-sm btn-outline-success" href="?department={{ selected_department|urlencode }}&q={{ query|urlencode }}&page={{ items_page.number }}&batch_page={{ batches_page.next_page_number }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div id="tagBatchesBulkActionBar" class="assets-bulk-action-bar d-none">
+    <form method="post" action="{% url 'assets_tag_batches_bulk_delete' %}" id="tagBatchesBulkDeleteForm" class="d-flex align-items-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="selected_ids" id="tagBatchesBulkDeleteIds">
+        <span class="small fw-semibold" id="tagBatchesBulkSelectedLabel">0 selected</span>
+        <button type="submit" class="icon-only-action-btn is-danger" title="Delete selected generated tag documents" aria-label="Delete selected generated tag documents">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18" aria-hidden="true">
+                <path d="M5 7H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M9 7V5C9 4.44772 9.44772 4 10 4H14C14.5523 4 15 4.44772 15 5V7" stroke="currentColor" stroke-width="2"/>
+                <path d="M8 10V18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M12 10V18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M16 10V18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M6 7L7 20H17L18 7" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+        </button>
+        <button type="button" class="icon-only-action-btn" id="tagBatchesBulkClearBtn" title="Clear selection" aria-label="Clear selection">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18" aria-hidden="true">
+                <path d="M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+        </button>
+    </form>
+</div>
+
+<div class="modal fade" id="actionConfirmModal" tabindex="-1" aria-labelledby="actionConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger" id="actionConfirmModalLabel">Warning</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="actionConfirmModalMessage">Please confirm this action.</div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="actionConfirmModalProceed">Confirm Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="assetsBulkActionBar" class="assets-bulk-action-bar d-none">
+    <form method="post" action="{% url 'assets_items_bulk_delete' %}" id="assetsBulkDeleteForm" class="d-flex align-items-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="selected_ids" id="assetsBulkDeleteIds">
+        <span class="small fw-semibold" id="assetsBulkSelectedLabel">0 selected</span>
+        <button type="submit" class="icon-only-action-btn is-danger" title="Delete selected items" aria-label="Delete selected items">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M9 7V5.8C9 4.81 9.81 4 10.8 4H13.2C14.19 4 15 4.81 15 5.8V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M8 7L8.7 18.2C8.76 19.15 9.55 19.9 10.5 19.9H13.5C14.45 19.9 15.24 19.15 15.3 18.2L16 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M10.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                <path d="M13.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            </svg>
+        </button>
+        <button type="button" class="icon-only-action-btn" id="assetsBulkClearBtn" title="Clear selection" aria-label="Clear selection">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+        </button>
+    </form>
+</div>
+
+<div class="modal fade" id="assetVariantsModal" tabindex="-1" aria-labelledby="assetVariantsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="assetVariantsModalLabel">Item Variants and Current Holders</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="assetVariantsModalBody">
+                <div class="text-muted">Loading details...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="variantImageViewerModal" tabindex="-1" aria-labelledby="variantImageViewerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <div>
+                    <h5 class="modal-title" id="variantImageViewerModalLabel">Variant Image</h5>
+                    <div class="small text-secondary" id="variantImageViewerMeta">-</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body position-relative text-center">
+                <button type="button" class="btn btn-outline-secondary position-absolute top-50 start-0 translate-middle-y ms-2" id="variantImagePrevBtn" aria-label="Previous image">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <img id="variantImageViewerImg" src="" alt="Variant preview" class="img-fluid rounded border" style="max-height: 70vh; object-fit: contain;">
+                <button type="button" class="btn btn-outline-secondary position-absolute top-50 end-0 translate-middle-y me-2" id="variantImageNextBtn" aria-label="Next image">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modalElement = document.getElementById('assetVariantsModal');
+    const modalBody = document.getElementById('assetVariantsModalBody');
+    const bsModal = new bootstrap.Modal(modalElement);
+    const modalUrlTemplate = "{% url 'assets_item_variants_modal' 0 %}";
+    const variantImageViewerElement = document.getElementById('variantImageViewerModal');
+    const variantImageViewer = variantImageViewerElement ? new bootstrap.Modal(variantImageViewerElement) : null;
+    const variantImageViewerImg = document.getElementById('variantImageViewerImg');
+    const variantImageViewerMeta = document.getElementById('variantImageViewerMeta');
+    const variantImagePrevBtn = document.getElementById('variantImagePrevBtn');
+    const variantImageNextBtn = document.getElementById('variantImageNextBtn');
+    let variantGalleryItems = [];
+    let variantGalleryIndex = -1;
+    let variantImagesMap = {};
+
+    const updateVariantViewerLayering = function () {
+        if (!variantImageViewerElement) {
+            return;
+        }
+
+        const openModals = document.querySelectorAll('.modal.show').length;
+        const backdropBase = 1050 + (openModals * 20);
+        variantImageViewerElement.style.zIndex = String(backdropBase + 10);
+
+        const backdrops = document.querySelectorAll('.modal-backdrop.show');
+        const latestBackdrop = backdrops.length ? backdrops[backdrops.length - 1] : null;
+        if (latestBackdrop) {
+            latestBackdrop.style.zIndex = String(backdropBase);
+            latestBackdrop.classList.add('variant-image-backdrop');
+        }
+    };
+
+    if (variantImageViewerElement) {
+        variantImageViewerElement.addEventListener('shown.bs.modal', updateVariantViewerLayering);
+        variantImageViewerElement.addEventListener('hidden.bs.modal', function () {
+            variantImageViewerElement.style.zIndex = '';
+            document.querySelectorAll('.modal-backdrop.variant-image-backdrop').forEach(function (node) {
+                node.classList.remove('variant-image-backdrop');
+                node.style.zIndex = '';
+            });
+        });
+    }
+
+    function renderVariantGalleryImage() {
+        if (!variantImageViewerImg || !variantImageViewerMeta || !variantGalleryItems.length || variantGalleryIndex < 0) {
+            return;
+        }
+        const current = variantGalleryItems[variantGalleryIndex];
+        variantImageViewerImg.src = current.src || '';
+        variantImageViewerImg.alt = current.name || 'Variant image';
+        variantImageViewerMeta.textContent = `${current.name || 'Variant image'} (${variantGalleryIndex + 1}/${variantGalleryItems.length})`;
+    }
+
+    function openVariantGallery(index) {
+        if (!variantGalleryItems.length || index < 0 || index >= variantGalleryItems.length || !variantImageViewer) {
+            return;
+        }
+        variantGalleryIndex = index;
+        renderVariantGalleryImage();
+        variantImageViewer.show();
+    }
+
+    function navigateVariantGallery(direction) {
+        if (!variantGalleryItems.length) {
+            return;
+        }
+        const length = variantGalleryItems.length;
+        variantGalleryIndex = (variantGalleryIndex + direction + length) % length;
+        renderVariantGalleryImage();
+    }
+
+    const selectAllCheckbox = document.getElementById('selectAllAssets');
+    const rowCheckboxes = Array.from(document.querySelectorAll('.js-bulk-item-checkbox'));
+    const bulkBar = document.getElementById('assetsBulkActionBar');
+    const bulkDeleteIdsInput = document.getElementById('assetsBulkDeleteIds');
+    const bulkSelectedLabel = document.getElementById('assetsBulkSelectedLabel');
+    const bulkClearBtn = document.getElementById('assetsBulkClearBtn');
+    const bulkDeleteForm = document.getElementById('assetsBulkDeleteForm');
+    const selectAllTagBatches = document.getElementById('selectAllTagBatches');
+    const tagBatchCheckboxes = Array.from(document.querySelectorAll('.js-bulk-batch-checkbox'));
+    const tagBatchesBulkBar = document.getElementById('tagBatchesBulkActionBar');
+    const tagBatchesBulkDeleteIds = document.getElementById('tagBatchesBulkDeleteIds');
+    const tagBatchesBulkSelectedLabel = document.getElementById('tagBatchesBulkSelectedLabel');
+    const tagBatchesBulkDeleteForm = document.getElementById('tagBatchesBulkDeleteForm');
+    const tagBatchesBulkClearBtn = document.getElementById('tagBatchesBulkClearBtn');
+    const actionConfirmModalElement = document.getElementById('actionConfirmModal');
+    const actionConfirmModalMessage = document.getElementById('actionConfirmModalMessage');
+    const actionConfirmModalProceed = document.getElementById('actionConfirmModalProceed');
+    const actionConfirmModal = actionConfirmModalElement ? new bootstrap.Modal(actionConfirmModalElement) : null;
+    let pendingConfirmSubmitForm = null;
+
+    function openConfirmModal(message, formElement) {
+        if (!actionConfirmModal || !actionConfirmModalMessage || !actionConfirmModalProceed || !formElement) {
+            return;
+        }
+        pendingConfirmSubmitForm = formElement;
+        actionConfirmModalMessage.textContent = message || 'Please confirm this action.';
+        actionConfirmModal.show();
+    }
+
+    if (actionConfirmModalProceed) {
+        actionConfirmModalProceed.addEventListener('click', function () {
+            if (!pendingConfirmSubmitForm) {
+                return;
+            }
+            const targetForm = pendingConfirmSubmitForm;
+            pendingConfirmSubmitForm = null;
+            actionConfirmModal.hide();
+            HTMLFormElement.prototype.submit.call(targetForm);
+        });
+    }
+
+    if (actionConfirmModalElement) {
+        actionConfirmModalElement.addEventListener('hidden.bs.modal', function () {
+            pendingConfirmSubmitForm = null;
+        });
+    }
+
+    function initializeVariantBulkControls() {
+        const selectAllVariants = modalBody.querySelector('#selectAllVariants');
+        const variantCheckboxes = Array.from(modalBody.querySelectorAll('.js-variant-checkbox'));
+        const variantBulkBar = modalBody.querySelector('#variantBulkActionBar');
+        const variantBulkSelectedLabel = modalBody.querySelector('#variantBulkSelectedLabel');
+        const variantBulkClearBtn = modalBody.querySelector('#variantBulkClearBtn');
+        const variantBulkDeleteForm = modalBody.querySelector('#variantBulkDeleteForm');
+
+        function getSelectedVariantIds() {
+            return variantCheckboxes
+                .filter(function (checkbox) { return checkbox.checked; })
+                .map(function (checkbox) { return checkbox.value; });
+        }
+
+        function syncVariantBulkState() {
+            const selectedIds = getSelectedVariantIds();
+            const selectedCount = selectedIds.length;
+
+            if (variantBulkSelectedLabel) {
+                variantBulkSelectedLabel.textContent = selectedCount + ' selected';
+            }
+            if (variantBulkBar) {
+                variantBulkBar.classList.toggle('d-none', selectedCount === 0);
+            }
+            if (selectAllVariants) {
+                selectAllVariants.checked = variantCheckboxes.length > 0 && selectedCount === variantCheckboxes.length;
+                selectAllVariants.indeterminate = selectedCount > 0 && selectedCount < variantCheckboxes.length;
+            }
+        }
+
+        const variantImageTriggers = Array.from(modalBody.querySelectorAll('.js-variant-image-trigger'));
+        const variantImagesDataNode = modalBody.querySelector('#variant-images-data');
+        if (variantImagesDataNode) {
+            try {
+                variantImagesMap = JSON.parse(variantImagesDataNode.textContent || '{}');
+            } catch (error) {
+                variantImagesMap = {};
+            }
+        } else {
+            variantImagesMap = {};
+        }
+
+        variantImageTriggers.forEach(function (trigger, index) {
+            trigger.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                const variantId = String(trigger.getAttribute('data-variant-id') || '');
+                const variantImages = Array.isArray(variantImagesMap[variantId]) ? variantImagesMap[variantId] : [];
+                if (variantImages.length) {
+                    variantGalleryItems = variantImages.map(function (entry) {
+                        return {
+                            src: entry.src || '',
+                            name: entry.name || trigger.getAttribute('data-image-name') || 'Variant image',
+                        };
+                    }).filter(function (entry) { return entry.src; });
+                    openVariantGallery(0);
+                    return;
+                }
+
+                variantGalleryItems = [{
+                    src: trigger.getAttribute('data-image-src') || '',
+                    name: trigger.getAttribute('data-image-name') || 'Variant image',
+                }].filter(function (entry) { return entry.src; });
+                openVariantGallery(0);
+            });
+        });
+
+        const parentImageTrigger = modalBody.querySelector('.js-parent-image-trigger');
+        if (parentImageTrigger) {
+            parentImageTrigger.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                variantGalleryItems = [{
+                    src: parentImageTrigger.getAttribute('data-image-src') || '',
+                    name: parentImageTrigger.getAttribute('data-image-name') || 'Item image',
+                }].filter(function (entry) { return entry.src; });
+                openVariantGallery(0);
+            });
+        }
+
+        variantCheckboxes.forEach(function (checkbox) {
+            checkbox.addEventListener('change', syncVariantBulkState);
+            checkbox.addEventListener('click', function (event) { event.stopPropagation(); });
+        });
+
+        if (selectAllVariants) {
+            selectAllVariants.addEventListener('change', function () {
+                const checked = selectAllVariants.checked;
+                variantCheckboxes.forEach(function (checkbox) { checkbox.checked = checked; });
+                syncVariantBulkState();
+            });
+        }
+
+        if (variantBulkClearBtn) {
+            variantBulkClearBtn.addEventListener('click', function () {
+                variantCheckboxes.forEach(function (checkbox) { checkbox.checked = false; });
+                syncVariantBulkState();
+            });
+        }
+
+        if (variantBulkDeleteForm) {
+            variantBulkDeleteForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                const selectedIds = getSelectedVariantIds();
+                if (!selectedIds.length) {
+                    return;
+                }
+
+                const existingHidden = variantBulkDeleteForm.querySelectorAll('input[name="item_ids"]');
+                existingHidden.forEach(function (node) { node.remove(); });
+                selectedIds.forEach(function (idValue) {
+                    const hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'item_ids';
+                    hidden.value = idValue;
+                    variantBulkDeleteForm.appendChild(hidden);
+                });
+
+                openConfirmModal('Delete selected variants?', variantBulkDeleteForm);
+            });
+        }
+
+        syncVariantBulkState();
+    }
+
+    if (variantImagePrevBtn) {
+        variantImagePrevBtn.addEventListener('click', function () {
+            navigateVariantGallery(-1);
+        });
+    }
+
+    if (variantImageNextBtn) {
+        variantImageNextBtn.addEventListener('click', function () {
+            navigateVariantGallery(1);
+        });
+    }
+
+    document.addEventListener('keydown', function (event) {
+        if (!variantImageViewerElement || !variantImageViewerElement.classList.contains('show')) {
+            return;
+        }
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            navigateVariantGallery(-1);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            navigateVariantGallery(1);
+        }
+    });
+
+    function getSelectedIds() {
+        return rowCheckboxes
+            .filter(function (checkbox) { return checkbox.checked; })
+            .map(function (checkbox) { return checkbox.value; });
+    }
+
+    function syncBulkBarState() {
+        const selectedIds = getSelectedIds();
+        const selectedCount = selectedIds.length;
+        if (bulkDeleteIdsInput) {
+            bulkDeleteIdsInput.value = selectedIds.join(',');
+        }
+        if (bulkSelectedLabel) {
+            bulkSelectedLabel.textContent = selectedCount + ' selected';
+        }
+        if (bulkBar) {
+            bulkBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = rowCheckboxes.length > 0 && selectedCount === rowCheckboxes.length;
+            selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < rowCheckboxes.length;
+        }
+    }
+
+    rowCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', syncBulkBarState);
+        checkbox.addEventListener('click', function (event) { event.stopPropagation(); });
+    });
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function () {
+            const checked = selectAllCheckbox.checked;
+            rowCheckboxes.forEach(function (checkbox) { checkbox.checked = checked; });
+            syncBulkBarState();
+        });
+    }
+
+    if (bulkClearBtn) {
+        bulkClearBtn.addEventListener('click', function () {
+            rowCheckboxes.forEach(function (checkbox) { checkbox.checked = false; });
+            syncBulkBarState();
+        });
+    }
+
+    if (bulkDeleteForm) {
+        bulkDeleteForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const selectedIds = getSelectedIds();
+            if (!selectedIds.length) {
+                return;
+            }
+
+            // Send repeated item_ids fields so backend getlist works.
+            const existingHidden = bulkDeleteForm.querySelectorAll('input[name="item_ids"]');
+            existingHidden.forEach(function (node) { node.remove(); });
+            selectedIds.forEach(function (idValue) {
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'item_ids';
+                hidden.value = idValue;
+                bulkDeleteForm.appendChild(hidden);
+            });
+
+            openConfirmModal('Delete selected items?', bulkDeleteForm);
+        });
+    }
+
+    function getSelectedBatchIds() {
+        return tagBatchCheckboxes
+            .filter(function (checkbox) { return checkbox.checked; })
+            .map(function (checkbox) { return checkbox.value; });
+    }
+
+    function syncTagBatchesBulkState() {
+        const selectedIds = getSelectedBatchIds();
+        const selectedCount = selectedIds.length;
+
+        if (tagBatchesBulkDeleteIds) {
+            tagBatchesBulkDeleteIds.value = selectedIds.join(',');
+        }
+        if (tagBatchesBulkSelectedLabel) {
+            tagBatchesBulkSelectedLabel.textContent = selectedCount + ' selected';
+        }
+        if (tagBatchesBulkBar) {
+            tagBatchesBulkBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (selectAllTagBatches) {
+            selectAllTagBatches.checked = tagBatchCheckboxes.length > 0 && selectedCount === tagBatchCheckboxes.length;
+            selectAllTagBatches.indeterminate = selectedCount > 0 && selectedCount < tagBatchCheckboxes.length;
+        }
+    }
+
+    tagBatchCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', syncTagBatchesBulkState);
+    });
+
+    if (selectAllTagBatches) {
+        selectAllTagBatches.addEventListener('change', function () {
+            const checked = selectAllTagBatches.checked;
+            tagBatchCheckboxes.forEach(function (checkbox) { checkbox.checked = checked; });
+            syncTagBatchesBulkState();
+        });
+    }
+
+    if (tagBatchesBulkClearBtn) {
+        tagBatchesBulkClearBtn.addEventListener('click', function () {
+            tagBatchCheckboxes.forEach(function (checkbox) { checkbox.checked = false; });
+            syncTagBatchesBulkState();
+        });
+    }
+
+    if (tagBatchesBulkDeleteForm) {
+        tagBatchesBulkDeleteForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            const selectedIds = getSelectedBatchIds();
+            if (!selectedIds.length) {
+                return;
+            }
+
+            const existingHidden = tagBatchesBulkDeleteForm.querySelectorAll('input[name="batch_ids"]');
+            existingHidden.forEach(function (node) { node.remove(); });
+            selectedIds.forEach(function (idValue) {
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'batch_ids';
+                hidden.value = idValue;
+                tagBatchesBulkDeleteForm.appendChild(hidden);
+            });
+
+            openConfirmModal('Delete selected generated tag documents?', tagBatchesBulkDeleteForm);
+        });
+    }
+
+    document.querySelectorAll('.js-confirm-delete-batch-form').forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            openConfirmModal(form.getAttribute('data-confirm-message') || 'Delete generated tag document?', form);
+        });
+    });
+
+    syncBulkBarState();
+    syncTagBatchesBulkState();
+
+    document.querySelectorAll('.js-parent-item-row').forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('a, button, form, input, select, textarea, label')) {
+                return;
+            }
+
+            const itemId = row.getAttribute('data-item-id');
+            if (!itemId) {
+                return;
+            }
+
+            modalBody.innerHTML = '<div class="text-muted">Loading details...</div>';
+            bsModal.show();
+
+            const modalUrl = modalUrlTemplate.replace('/0/', '/' + itemId + '/');
+            fetch(modalUrl, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.ok) {
+                    modalBody.innerHTML = data.html;
+                    initializeVariantBulkControls();
+                } else {
+                    modalBody.innerHTML = '<div class="alert alert-warning mb-0">Unable to load variant details.</div>';
+                }
+            })
+            .catch(function () {
+                modalBody.innerHTML = '<div class="alert alert-danger mb-0">Something went wrong while loading variant details.</div>';
+            });
+        });
+    });
+});
+</script>
+{% endblock %}

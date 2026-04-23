@@ -1,0 +1,1168 @@
+{% extends "base_app.html" %}
+{% load static core_extras %}
+
+{% block title %}Asset Accountability | Avantech Portal{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <h1 class="h3 mb-0">Asset Accountability</h1>
+            <p class="text-muted small">Track borrowed items and manage returns</p>
+        </div>
+        <div class="col-md-6 text-end">
+            {% if perms.core.add_assetaccountability %}
+            <a href="{% url 'accountability_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle me-2"></i>Borrow Item
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="alert alert-light border small mb-4">
+        When returning an item, you can optionally upload proof images. This is recommended for better tracking.
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-0">Pending Requests</p>
+                            <h4 class="mb-0">{{ total_pending_requests }}</h4>
+                        </div>
+                        <div class="text-warning" style="font-size: 2rem;">
+                            <i class="bi bi-hourglass-split"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-0">Active Borrowings</p>
+                            <h4 class="mb-0">{{ total_borrowed_active }}</h4>
+                        </div>
+                        <div class="text-primary" style="font-size: 2rem;">
+                            <i class="bi bi-hand-thumbs-up"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-0">Returned Items</p>
+                            <h4 class="mb-0">{{ total_returned }}</h4>
+                        </div>
+                        <div class="text-success" style="font-size: 2rem;">
+                            <i class="bi bi-check-circle"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-0">Total Records</p>
+                            <h4 class="mb-0">{{ total_borrowed_active|add:total_returned }}</h4>
+                        </div>
+                        <div class="text-info" style="font-size: 2rem;">
+                            <i class="bi bi-list-check"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if can_review_requests %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0">Pending Borrow Requests (Admin Review)</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 42px;">
+                            <input type="checkbox" class="form-check-input" id="pendingSelectAll" aria-label="Select all pending requests">
+                        </th>
+                        <th>Requested By</th>
+                        <th>Item</th>
+                        <th>Qty</th>
+                        <th>Available Stock</th>
+                        <th>Requested At</th>
+                        <th>Reason/Notes</th>
+                        <th>Decision</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for request_row in pending_requests_page %}
+                    <tr>
+                        <td>
+                            <input
+                                type="checkbox"
+                                class="form-check-input js-pending-row-checkbox"
+                                value="{{ request_row.id }}"
+                                aria-label="Select pending request {{ request_row.id }}"
+                            >
+                        </td>
+                        <td>
+                            <div class="list-user-inline">
+                                {% with borrower_profile=borrower_profiles_map|get_item:request_row.borrowed_by_id %}
+                                    {% if borrower_profile and borrower_profile.avatar %}
+                                        <img src="{{ borrower_profile.avatar.url }}" alt="{{ request_row.borrowed_by.username }}" class="list-user-avatar">
+                                    {% else %}
+                                        <span class="list-user-avatar-fallback">{{ request_row.borrowed_by.get_full_name|default:request_row.borrowed_by.username|first|upper }}</span>
+                                    {% endif %}
+                                {% endwith %}
+                                <button
+                                    type="button"
+                                    class="user-name-link js-user-profile-trigger"
+                                    data-user-id="{{ request_row.borrowed_by_id }}"
+                                >
+                                    {{ request_row.borrowed_by.get_full_name|default:request_row.borrowed_by.username }}
+                                </button>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-info me-1">{{ request_row.item.item_code }}</span>
+                            {{ request_row.item.item_name }}
+                        </td>
+                        <td>{{ request_row.quantity_borrowed }}</td>
+                        <td>
+                            {{ request_row.item.stock_quantity }}
+                            {% if request_row.item_stock_status == 'instock' %}
+                                <span class="badge bg-success ms-1">In Stock</span>
+                            {% elif request_row.item_stock_status == 'low stock' %}
+                                <span class="badge bg-warning ms-1">Low Stock</span>
+                            {% else %}
+                                <span class="badge bg-danger ms-1">Out of Stock</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ request_row.created_at|date:"M d, Y H:i" }}</td>
+                        <td>{{ request_row.notes|default:'-' }}</td>
+                        <td>
+                            <form method="post" action="{% url 'accountability_decide' request_row.id %}" class="d-flex flex-column gap-2">
+                                {% csrf_token %}
+                                <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason (required for decline)">
+                                <div class="d-flex gap-2">
+                                    <button type="submit" name="decision" value="approve" class="btn btn-sm btn-success">Approve</button>
+                                    <button type="submit" name="decision" value="decline" class="btn btn-sm btn-outline-danger">Decline</button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4 text-muted">No pending borrow requests.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if can_review_requests %}
+        <div id="pendingBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="Pending requests bulk actions">
+            <div class="bulk-action-content">
+                <span class="bulk-action-count" id="pendingBulkCount">0 selected</span>
+                <form id="pendingBulkApproveForm" method="post" action="{% url 'accountability_pending_bulk_decide' %}" class="d-inline-flex align-items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="decision" value="approve">
+                    <input type="hidden" id="pendingBulkApproveSelectedIds" name="selected_ids" value="">
+                    <input type="hidden" id="pendingBulkApproveReason" name="reason" value="">
+                    <button type="submit" class="btn btn-sm btn-success d-inline-flex align-items-center justify-content-center" title="Approve selected requests" aria-label="Approve selected requests" style="width: 34px; height: 30px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                            <path d="M10.96 2.38a1 1 0 0 1 1.72.97L11 6h6a3 3 0 0 1 2.93 3.65l-1.18 6A3 3 0 0 1 15.8 18H9a3 3 0 0 1-3-3V9.41l3.96-7.03zM4 9a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0v-7a1 1 0 0 1 1-1z"/>
+                        </svg>
+                    </button>
+                </form>
+                <form id="pendingBulkDeclineForm" method="post" action="{% url 'accountability_pending_bulk_decide' %}" class="d-inline-flex align-items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="decision" value="decline">
+                    <input type="hidden" id="pendingBulkDeclineSelectedIds" name="selected_ids" value="">
+                    <input type="text" class="form-control form-control-sm" id="pendingBulkDeclineReason" name="reason" placeholder="Reason for bulk decline" required>
+                    <button type="submit" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center justify-content-center" title="Decline selected requests" aria-label="Decline selected requests" style="width: 34px; height: 30px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                            <path d="M13.04 21.62a1 1 0 0 1-1.72-.97L13 18H7a3 3 0 0 1-2.93-3.65l1.18-6A3 3 0 0 1 8.2 6H15a3 3 0 0 1 3 3v5.59l-3.96 7.03zM20 15a1 1 0 0 1-1-1V7a1 1 0 1 1 2 0v7a1 1 0 0 1-1 1z"/>
+                        </svg>
+                    </button>
+                </form>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center" id="clearPendingBulkSelection" title="Clear selection" aria-label="Clear selection" style="width: 34px; height: 30px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        {% endif %}
+        {% if pending_requests_page.has_other_pages %}
+        <div class="card-footer bg-white">
+            <nav aria-label="Pending requests pagination">
+                <ul class="pagination pagination-sm mb-0 justify-content-center">
+                    {% if pending_requests_page.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?pending_page=1{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if records_page.number %}&page={{ records_page.number }}{% endif %}">First</a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?pending_page={{ pending_requests_page.previous_page_number }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if records_page.number %}&page={{ records_page.number }}{% endif %}">Previous</a>
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-white">
+                            <h5 class="mb-0">Generate Report Docs</h5>
+                        </div>
+                        <div class="card-body">
+                            <form method="get" class="row g-3 align-items-end" target="_blank">
+                                <div class="col-md-4">
+                                    <label class="form-label" for="report-month">Month</label>
+                                    <input id="report-month" type="month" name="month" class="form-control">
+                                    <div class="form-text">Use month only, or use Start/End Date range below.</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="report-start-date">Start Date</label>
+                                    <input id="report-start-date" type="date" name="start_date" class="form-control">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="report-end-date">End Date</label>
+                                    <input id="report-end-date" type="date" name="end_date" class="form-control">
+                                </div>
+                                <div class="col-md-2 d-grid gap-2">
+                                    <button type="submit" formaction="{% url 'accountability_report_summary' %}" class="btn btn-outline-success">Summary Doc</button>
+                                    <button type="submit" formaction="{% url 'accountability_report_list' %}" class="btn btn-success">List Doc</button>
+                                    <button type="submit" formaction="{% url 'accountability_report_summary' %}?auto_print=1" class="btn btn-dark">Ready to Print</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Search & Filter -->
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">First</span></li>
+                    <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                    {% endif %}
+
+                    {% for num in pending_requests_page.paginator.page_range %}
+                        {% if pending_requests_page.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="?pending_page={{ num }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if records_page.number %}&page={{ records_page.number }}{% endif %}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if pending_requests_page.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?pending_page={{ pending_requests_page.next_page_number }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if records_page.number %}&page={{ records_page.number }}{% endif %}">Next</a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?pending_page={{ pending_requests_page.paginator.num_pages }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if records_page.number %}&page={{ records_page.number }}{% endif %}">Last</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next</span></li>
+                    <li class="page-item disabled"><span class="page-link">Last</span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Search & Filter -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-6">
+                    <label for="searchInput" class="form-label">Search</label>
+                    <input type="text" class="form-control" id="searchInput" name="q" value="{{ query }}" placeholder="Item code, item name, or person name...">
+                </div>
+                <div class="col-md-4">
+                    <label for="statusFilter" class="form-label">Status</label>
+                    <select class="form-select" id="statusFilter" name="status">
+                        <option value="">All Statuses</option>
+                        <option value="borrowed" {% if status_filter == 'borrowed' %}selected{% endif %}>Borrowed</option>
+                        <option value="returned" {% if status_filter == 'returned' %}selected{% endif %}>Returned</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="submit" class="btn btn-outline-primary w-100">
+                        <i class="bi bi-search me-1"></i>Search
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Accountability Records Table -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white">
+            <h5 class="mb-0">Borrowers List (Approved Records)</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 42px;">
+                            <input type="checkbox" class="form-check-input" id="approvedSelectAll" aria-label="Select all approved records">
+                        </th>
+                        <th>Item Code</th>
+                        <th>Item Name</th>
+                        <th>Item Type</th>
+                        <th>Borrowed By</th>
+                        <th>Quantity</th>
+                        <th>Borrowed Date</th>
+                        <th>Status</th>
+                        <th>Stock Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records_page %}
+                    <tr class="js-approved-record-row" role="button" style="cursor: pointer;" title="Click to view record details">
+                        <td>
+                            <input
+                                type="checkbox"
+                                class="form-check-input js-approved-row-checkbox"
+                                value="{{ record.id }}"
+                                aria-label="Select approved record {{ record.id }}"
+                            >
+                        </td>
+                        <td>
+                            <span class="badge bg-info">{{ record.item.item_code }}</span>
+                        </td>
+                        <td>{{ record.item.item_name }}</td>
+                        <td>{{ record.item.get_item_type_display }}</td>
+                        <td>
+                            <div class="list-user-inline">
+                                {% with borrower_profile=borrower_profiles_map|get_item:record.borrowed_by_id %}
+                                    {% if borrower_profile and borrower_profile.avatar %}
+                                        <img src="{{ borrower_profile.avatar.url }}" alt="{{ record.borrowed_by.username }}" class="list-user-avatar">
+                                    {% else %}
+                                        <span class="list-user-avatar-fallback">{{ record.borrowed_by.get_full_name|default:record.borrowed_by.username|first|upper }}</span>
+                                    {% endif %}
+                                {% endwith %}
+                                <button
+                                    type="button"
+                                    class="user-name-link js-user-profile-trigger"
+                                    data-user-id="{{ record.borrowed_by_id }}"
+                                >
+                                    {{ record.borrowed_by.get_full_name|default:record.borrowed_by.username }}
+                                </button>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary">{{ record.quantity_borrowed }}x</span>
+                        </td>
+                        <td>{{ record.date_borrowed|date:"M d, Y H:i" }}</td>
+                        <td>
+                            {% if record.status == 'borrowed' %}
+                                <span class="badge bg-warning text-dark">Borrowed</span>
+                            {% else %}
+                                <span class="badge bg-success">Returned</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.item_stock_status == 'instock' %}
+                                <span class="badge bg-success">In Stock</span>
+                            {% elif record.item_stock_status == 'low stock' %}
+                                <span class="badge bg-warning text-dark">Low Stock</span>
+                            {% else %}
+                                <span class="badge bg-danger">Out of Stock</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-2" role="group" aria-label="Accountability row actions">
+                                {% if record.status == 'borrowed' and perms.core.change_assetaccountability %}
+                                <button
+                                    type="button"
+                                    class="btn btn-success js-return-item-btn"
+                                    title="Mark as returned"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#returnProofModal"
+                                    data-return-url="{% url 'accountability_return' record.id %}"
+                                    data-item-code="{{ record.item.item_code }}"
+                                    data-item-name="{{ record.item.item_name }}"
+                                    data-borrowed-by="{{ record.borrowed_by.get_full_name|default:record.borrowed_by.username|escape }}"
+                                    data-quantity="{{ record.quantity_borrowed }}"
+                                >
+                                    <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                    <span class="ms-1">Return</span>
+                                </button>
+                                {% endif %}
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary js-accountability-details-btn"
+                                    title="View details"
+                                    data-record-id="{{ record.id }}"
+                                    data-item-code="{{ record.item.item_code }}"
+                                    data-item-name="{{ record.item.item_name }}"
+                                    data-item-type="{{ record.item.get_item_type_display }}"
+                                    data-borrowed-by="{{ record.borrowed_by.get_full_name|default:record.borrowed_by.username }}"
+                                    data-quantity="{{ record.quantity_borrowed }}x"
+                                    data-borrowed-date="{{ record.date_borrowed|date:'M d, Y H:i' }}"
+                                    data-status="{{ record.status|title }}"
+                                    data-stock-status="{{ record.item_stock_status|title }}"
+                                    data-specification="{{ record.item.specification|default:'N/A' }}"
+                                    data-department="{{ record.item.department.name }}"
+                                    data-current-stock="{{ record.item.stock_quantity }}x"
+                                    data-notes="{{ record.notes|default:'N/A' }}"
+                                    data-returned-date="{{ record.date_returned|date:'M d, Y H:i'|default:'N/A' }}"
+                                    data-asset-image="{{ record.item.get_primary_image_url|default:'' }}"
+                                >
+                                    <i class="bi bi-eye" aria-hidden="true"></i>
+                                    <span class="ms-1">Details</span>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                            <p class="mt-2 mb-0">No accountability records found</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div id="approvedBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="Approved records bulk actions">
+            <div class="bulk-action-content">
+                <span class="bulk-action-count" id="approvedBulkCount">0 selected</span>
+                {% if perms.core.change_assetaccountability %}
+                <form id="approvedBulkReturnForm" method="post" action="{% url 'accountability_records_bulk_action' %}" class="d-inline-flex align-items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="return">
+                    <input type="hidden" id="approvedBulkReturnSelectedIds" name="selected_ids" value="">
+                    <button type="submit" class="btn btn-sm btn-success d-inline-flex align-items-center justify-content-center" title="Return selected records" aria-label="Return selected records" style="width: 34px; height: 30px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <path d="M9 7L4 12L9 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M4 12H13C16.3137 12 19 14.6863 19 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </form>
+                {% endif %}
+                {% if perms.core.delete_assetaccountability %}
+                <form id="approvedBulkDeleteForm" method="post" action="{% url 'accountability_records_bulk_action' %}" class="d-inline-flex align-items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" id="approvedBulkDeleteSelectedIds" name="selected_ids" value="">
+                    <button type="submit" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center justify-content-center" title="Delete selected records" aria-label="Delete selected records" style="width: 34px; height: 30px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <path d="M5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                            <path d="M9 7V5.8C9 4.81 9.81 4 10.8 4H13.2C14.19 4 15 4.81 15 5.8V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                            <path d="M8 7L8.7 18.2C8.76 19.15 9.55 19.9 10.5 19.9H13.5C14.45 19.9 15.24 19.15 15.3 18.2L16 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M10.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                            <path d="M13.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </form>
+                {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center" id="clearApprovedBulkSelection" title="Clear selection" aria-label="Clear selection" style="width: 34px; height: 30px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if records_page.has_other_pages %}
+    <nav class="mt-4">
+        <ul class="pagination justify-content-center">
+            {% if records_page.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page=1{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">First</a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ records_page.previous_page_number }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">Previous</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">First</span></li>
+            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+            {% endif %}
+
+            {% for num in records_page.paginator.page_range %}
+                {% if records_page.number == num %}
+                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                {% else %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ num }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">{{ num }}</a>
+                </li>
+                {% endif %}
+            {% endfor %}
+
+            {% if records_page.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ records_page.next_page_number }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">Next</a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ records_page.paginator.num_pages }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">Last</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">Next</span></li>
+            <li class="page-item disabled"><span class="page-link">Last</span></li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+
+{{ return_proofs_map|json_script:'return-proofs-data' }}
+
+<div class="modal fade" id="returnProofModal" tabindex="-1" aria-labelledby="returnProofModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <div>
+                    <h5 class="modal-title" id="returnProofModalLabel">Confirm Return</h5>
+                    <div class="text-secondary small">Please review the item details before confirming. Uploading proof images is optional but recommended.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="returnProofForm" method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        You are about to mark this item as returned.
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6"><strong>Item Code:</strong><div id="returnModalItemCode" class="text-muted">-</div></div>
+                        <div class="col-md-6"><strong>Item Name:</strong><div id="returnModalItemName" class="text-muted">-</div></div>
+                        <div class="col-md-6"><strong>Borrowed By:</strong><div id="returnModalBorrowedBy" class="text-muted">-</div></div>
+                        <div class="col-md-6"><strong>Quantity:</strong><div id="returnModalQuantity" class="text-muted">-</div></div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="returnProofImages" class="form-label">Optional Proof Images</label>
+                        <div id="returnProofDropzone" class="return-proof-dropzone">
+                            <div class="return-proof-dropzone-inner">
+                                <div class="fw-semibold">Drag and drop images here</div>
+                                <div class="small text-secondary">or click to browse files</div>
+                                <input type="file" class="d-none" id="returnProofImages" name="return_proof_images" accept="image/*" multiple>
+                            </div>
+                        </div>
+                        <div class="form-text">Recommended: upload one or more photos as proof of return.</div>
+                        <div class="progress mt-3 d-none" id="returnProofUploadProgressWrap" style="height: 10px;">
+                            <div class="progress-bar bg-success" id="returnProofUploadProgress" role="progressbar" style="width: 0%;"></div>
+                        </div>
+                        <div class="small text-secondary mt-2" id="returnProofUploadStatus">No files selected yet.</div>
+                        <div class="return-proof-file-list mt-3" id="returnProofFileList"></div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="confirmReturnCheck" required>
+                        <label class="form-check-label" for="confirmReturnCheck">I confirm this item has been returned.</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Confirm Return</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="returnProofPreviewModal" tabindex="-1" aria-labelledby="returnProofPreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <div>
+                    <h5 class="modal-title" id="returnProofPreviewModalLabel">Proof Preview</h5>
+                    <div class="text-secondary small" id="returnProofPreviewMeta">-</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="returnProofPreviewImage" src="" alt="Proof preview" class="img-fluid rounded border return-proof-preview-image">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="accountabilityDetailsModal" tabindex="-1" aria-labelledby="accountabilityDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <h5 class="modal-title" id="accountabilityDetailsModalLabel">Borrow Record Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <strong>Asset Image:</strong>
+                        <div id="modalAssetImageWrap" class="mt-2">
+                            <div class="text-muted">No image</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4"><strong>Item Code:</strong><div id="modalItemCode" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Item Name:</strong><div id="modalItemName" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Item Type:</strong><div id="modalItemType" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Borrowed By:</strong><div id="modalBorrowedBy" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Quantity:</strong><div id="modalQuantity" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Borrowed Date:</strong><div id="modalBorrowedDate" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Status:</strong><div id="modalStatus" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Stock Status:</strong><div id="modalStockStatus" class="text-muted">-</div></div>
+                    <div class="col-md-4"><strong>Current Stock:</strong><div id="modalCurrentStock" class="text-muted">-</div></div>
+                    <div class="col-md-6"><strong>Department:</strong><div id="modalDepartment" class="text-muted">-</div></div>
+                    <div class="col-md-6"><strong>Returned Date:</strong><div id="modalReturnedDate" class="text-muted">-</div></div>
+                    <div class="col-12"><strong>Specification:</strong><div id="modalSpecification" class="text-muted">-</div></div>
+                    <div class="col-12"><strong>Notes:</strong><div id="modalNotes" class="text-muted">-</div></div>
+                    <div class="col-12">
+                        <strong>Return Proof Images:</strong>
+                        <div id="modalReturnProofs" class="return-proof-file-list mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const returnModalElement = document.getElementById('returnProofModal');
+    const returnForm = document.getElementById('returnProofForm');
+    const returnProofInput = document.getElementById('returnProofImages');
+    const returnProofDropzone = document.getElementById('returnProofDropzone');
+    const returnProofFileList = document.getElementById('returnProofFileList');
+    const returnProofStatus = document.getElementById('returnProofUploadStatus');
+    const returnProofProgressWrap = document.getElementById('returnProofUploadProgressWrap');
+    const returnProofProgress = document.getElementById('returnProofUploadProgress');
+    const returnPreviewModalElement = document.getElementById('returnProofPreviewModal');
+    const returnPreviewImage = document.getElementById('returnProofPreviewImage');
+    const returnPreviewMeta = document.getElementById('returnProofPreviewMeta');
+    const returnProofMapDataElement = document.getElementById('return-proofs-data');
+    const returnProofMap = returnProofMapDataElement ? JSON.parse(returnProofMapDataElement.textContent) : {};
+    const returnFields = {
+        itemCode: document.getElementById('returnModalItemCode'),
+        itemName: document.getElementById('returnModalItemName'),
+        borrowedBy: document.getElementById('returnModalBorrowedBy'),
+        quantity: document.getElementById('returnModalQuantity'),
+        confirm: document.getElementById('confirmReturnCheck'),
+    };
+    const previewModal = returnPreviewModalElement && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(returnPreviewModalElement) : null;
+    let selectedProofFiles = [];
+
+    const updatePreviewModalLayering = function () {
+        if (!returnPreviewModalElement) {
+            return;
+        }
+
+        const openModals = document.querySelectorAll('.modal.show').length;
+        const backdropBase = 1050 + (openModals * 20);
+        returnPreviewModalElement.style.zIndex = String(backdropBase + 10);
+
+        const backdrops = document.querySelectorAll('.modal-backdrop.show');
+        const latestBackdrop = backdrops.length ? backdrops[backdrops.length - 1] : null;
+        if (latestBackdrop) {
+            latestBackdrop.style.zIndex = String(backdropBase);
+        }
+    };
+
+    if (returnPreviewModalElement) {
+        returnPreviewModalElement.addEventListener('shown.bs.modal', updatePreviewModalLayering);
+        returnPreviewModalElement.addEventListener('hidden.bs.modal', function () {
+            returnPreviewModalElement.style.zIndex = '';
+        });
+    }
+
+    const openPreview = function (src, metaText) {
+        if (!previewModal || !returnPreviewImage || !returnPreviewMeta) {
+            return;
+        }
+        returnPreviewImage.src = src || '';
+        returnPreviewMeta.textContent = metaText || '-';
+        previewModal.show();
+    };
+
+    const formatFileSize = function (bytes) {
+        if (!bytes && bytes !== 0) {
+            return '-';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = bytes;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+    };
+
+    const renderSelectedFiles = function () {
+        if (!returnProofFileList || !returnProofInput) {
+            return;
+        }
+
+        if (!selectedProofFiles.length) {
+            returnProofFileList.innerHTML = '<div class="text-secondary small">No proof images selected yet.</div>';
+            returnProofStatus.textContent = 'No files selected yet.';
+            returnProofProgressWrap.classList.add('d-none');
+            returnProofProgress.style.width = '0%';
+            returnProofProgress.textContent = '';
+            return;
+        }
+
+        returnProofStatus.textContent = `${selectedProofFiles.length} file${selectedProofFiles.length === 1 ? '' : 's'} selected.`;
+        returnProofFileList.innerHTML = selectedProofFiles.map(function (file, index) {
+            const objectUrl = URL.createObjectURL(file);
+            file._previewUrl = objectUrl;
+            return `
+                <div class="return-proof-file-item">
+                    <button type="button" class="return-proof-file-thumb js-return-proof-preview" data-index="${index}">
+                        <img src="${objectUrl}" alt="${file.name}" class="return-proof-thumb-image">
+                    </button>
+                    <div class="return-proof-file-meta">
+                        <div class="fw-semibold text-truncate">${file.name}</div>
+                        <div class="small text-secondary">${formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        returnProofFileList.querySelectorAll('.js-return-proof-preview').forEach(function (button) {
+            button.addEventListener('click', function () {
+                if (!previewModal) {
+                    return;
+                }
+                const selectedIndex = Number(button.getAttribute('data-index'));
+                const selectedFile = selectedProofFiles[selectedIndex];
+                if (!selectedFile) {
+                    return;
+                }
+                openPreview(selectedFile._previewUrl, `${selectedFile.name} • ${formatFileSize(selectedFile.size)}`);
+            });
+        });
+    };
+
+    const setFiles = function (files) {
+        selectedProofFiles = Array.from(files || []).filter(function (file) {
+            return file && file.type && file.type.startsWith('image/');
+        });
+
+        if (returnProofInput) {
+            const dataTransfer = new DataTransfer();
+            selectedProofFiles.forEach(function (file) {
+                dataTransfer.items.add(file);
+            });
+            returnProofInput.files = dataTransfer.files;
+        }
+
+        renderSelectedFiles();
+    };
+
+    const bindDropzone = function () {
+        if (!returnProofDropzone || !returnProofInput) {
+            return;
+        }
+
+        returnProofDropzone.addEventListener('click', function () {
+            returnProofInput.click();
+        });
+
+        returnProofDropzone.addEventListener('dragover', function (event) {
+            event.preventDefault();
+            returnProofDropzone.classList.add('is-dragover');
+        });
+
+        returnProofDropzone.addEventListener('dragleave', function () {
+            returnProofDropzone.classList.remove('is-dragover');
+        });
+
+        returnProofDropzone.addEventListener('drop', function (event) {
+            event.preventDefault();
+            returnProofDropzone.classList.remove('is-dragover');
+            if (event.dataTransfer && event.dataTransfer.files) {
+                setFiles(event.dataTransfer.files);
+            }
+        });
+
+        returnProofInput.addEventListener('change', function () {
+            setFiles(returnProofInput.files);
+        });
+    };
+
+    document.querySelectorAll('.js-return-item-btn').forEach(function (button) {
+        button.addEventListener('click', function () {
+            if (!returnForm) {
+                return;
+            }
+
+            returnForm.action = button.dataset.returnUrl || returnForm.action;
+            returnFields.itemCode.textContent = button.dataset.itemCode || '-';
+            returnFields.itemName.textContent = button.dataset.itemName || '-';
+            returnFields.borrowedBy.textContent = button.dataset.borrowedBy || '-';
+            returnFields.quantity.textContent = button.dataset.quantity ? button.dataset.quantity + 'x' : '-';
+            if (returnFields.confirm) {
+                returnFields.confirm.checked = false;
+            }
+            selectedProofFiles = [];
+            if (returnProofInput) {
+                returnProofInput.value = '';
+            }
+            renderSelectedFiles();
+        });
+    });
+
+    if (returnForm && returnFields.confirm) {
+        returnForm.addEventListener('submit', function (event) {
+            if (!returnFields.confirm.checked) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+
+            event.preventDefault();
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', returnForm.action, true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+            xhr.upload.addEventListener('progress', function (progressEvent) {
+                if (!progressEvent.lengthComputable || !returnProofProgressWrap || !returnProofProgress) {
+                    return;
+                }
+                const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+                returnProofProgressWrap.classList.remove('d-none');
+                returnProofProgress.style.width = `${percent}%`;
+                returnProofProgress.textContent = `${percent}%`;
+            });
+
+            xhr.addEventListener('load', function () {
+                const isSuccess = xhr.status >= 200 && xhr.status < 300;
+                let payload = null;
+
+                try {
+                    payload = JSON.parse(xhr.responseText || '{}');
+                } catch (error) {
+                    payload = null;
+                }
+
+                if (isSuccess && payload && payload.ok) {
+                    window.location.reload();
+                    return;
+                }
+
+                if (payload && payload.message) {
+                    alert(payload.message);
+                } else {
+                    alert('Unable to complete the return request right now.');
+                }
+            });
+
+            xhr.send(new FormData(returnForm));
+        });
+    }
+
+    bindDropzone();
+    renderSelectedFiles();
+
+    const modalElement = document.getElementById('accountabilityDetailsModal');
+    const hasDetailsModal = !!modalElement && typeof bootstrap !== 'undefined';
+    const detailsModal = hasDetailsModal ? new bootstrap.Modal(modalElement) : null;
+    const fieldMap = hasDetailsModal
+        ? {
+            itemCode: document.getElementById('modalItemCode'),
+            itemName: document.getElementById('modalItemName'),
+            itemType: document.getElementById('modalItemType'),
+            borrowedBy: document.getElementById('modalBorrowedBy'),
+            quantity: document.getElementById('modalQuantity'),
+            borrowedDate: document.getElementById('modalBorrowedDate'),
+            status: document.getElementById('modalStatus'),
+            stockStatus: document.getElementById('modalStockStatus'),
+            currentStock: document.getElementById('modalCurrentStock'),
+            department: document.getElementById('modalDepartment'),
+            returnedDate: document.getElementById('modalReturnedDate'),
+            specification: document.getElementById('modalSpecification'),
+            notes: document.getElementById('modalNotes'),
+            returnProofs: document.getElementById('modalReturnProofs'),
+            assetImageWrap: document.getElementById('modalAssetImageWrap'),
+        }
+        : null;
+
+    const renderAssetImage = function (imageUrl, imageLabel) {
+        if (!fieldMap || !fieldMap.assetImageWrap) {
+            return;
+        }
+
+        if (!imageUrl) {
+            fieldMap.assetImageWrap.innerHTML = '<div class="text-muted">No image</div>';
+            return;
+        }
+
+        fieldMap.assetImageWrap.innerHTML = `
+            <button type="button" class="btn p-0 border-0 bg-transparent js-modal-asset-image-preview" aria-label="View asset image">
+                <img src="${imageUrl}" alt="${imageLabel || 'Asset image'}" class="rounded border" style="max-height: 170px; object-fit: cover;">
+            </button>
+        `;
+
+        const previewTrigger = fieldMap.assetImageWrap.querySelector('.js-modal-asset-image-preview');
+        if (previewTrigger) {
+            previewTrigger.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                openPreview(imageUrl, imageLabel || 'Asset image');
+            });
+        }
+    };
+
+    const renderReturnProofs = function (recordId) {
+        if (!fieldMap || !fieldMap.returnProofs) {
+            return;
+        }
+
+        const proofs = returnProofMap[String(recordId)] || [];
+        if (!proofs.length) {
+            fieldMap.returnProofs.innerHTML = '<div class="text-secondary small">No proof images uploaded for this record.</div>';
+            return;
+        }
+
+        fieldMap.returnProofs.innerHTML = proofs.map(function (proof, index) {
+            return `
+                <div class="return-proof-file-item">
+                    <button type="button" class="return-proof-file-thumb js-return-proof-existing-preview" data-index="${index}">
+                        <img src="${proof.url}" alt="${proof.name}" class="return-proof-thumb-image">
+                    </button>
+                    <div class="return-proof-file-meta">
+                        <div class="fw-semibold text-truncate">${proof.name || 'Return proof image'}</div>
+                        <div class="small text-secondary">${formatFileSize(proof.size)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        fieldMap.returnProofs.querySelectorAll('.js-return-proof-existing-preview').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const selectedIndex = Number(button.getAttribute('data-index'));
+                const selectedProof = proofs[selectedIndex];
+                if (!selectedProof) {
+                    return;
+                }
+                openPreview(selectedProof.url, `${selectedProof.name || 'Return proof image'} • ${formatFileSize(selectedProof.size)}`);
+            });
+        });
+    };
+
+    const toStatusBadge = function (value) {
+        const normalized = (value || '').toLowerCase();
+        if (normalized === 'borrowed') {
+            return '<span class="badge bg-warning text-dark">Borrowed</span>';
+        }
+        if (normalized === 'returned') {
+            return '<span class="badge bg-success">Returned</span>';
+        }
+        return '<span class="badge bg-secondary">N/A</span>';
+    };
+
+    const toStockBadge = function (value) {
+        const normalized = (value || '').toLowerCase();
+        if (normalized === 'instock') {
+            return '<span class="badge bg-success">In Stock</span>';
+        }
+        if (normalized === 'low stock') {
+            return '<span class="badge bg-warning text-dark">Low Stock</span>';
+        }
+        if (normalized === 'out of stock') {
+            return '<span class="badge bg-danger">Out of Stock</span>';
+        }
+        return '<span class="badge bg-secondary">N/A</span>';
+    };
+
+    document.querySelectorAll('.js-accountability-details-btn').forEach(function (button) {
+        button.addEventListener('click', function () {
+            if (!hasDetailsModal || !fieldMap || !detailsModal) {
+                return;
+            }
+            fieldMap.itemCode.textContent = button.dataset.itemCode || '-';
+            fieldMap.itemName.textContent = button.dataset.itemName || '-';
+            fieldMap.itemType.textContent = button.dataset.itemType || '-';
+            fieldMap.borrowedBy.textContent = button.dataset.borrowedBy || '-';
+            fieldMap.quantity.textContent = button.dataset.quantity || '-';
+            fieldMap.borrowedDate.textContent = button.dataset.borrowedDate || '-';
+            fieldMap.status.innerHTML = toStatusBadge(button.dataset.status);
+            fieldMap.stockStatus.innerHTML = toStockBadge(button.dataset.stockStatus);
+            fieldMap.currentStock.textContent = button.dataset.currentStock || '-';
+            fieldMap.department.textContent = button.dataset.department || '-';
+            fieldMap.returnedDate.textContent = button.dataset.returnedDate || 'N/A';
+            fieldMap.specification.textContent = button.dataset.specification || 'N/A';
+            fieldMap.notes.textContent = button.dataset.notes || 'N/A';
+            renderAssetImage(button.dataset.assetImage || '', button.dataset.itemName || 'Asset image');
+            renderReturnProofs(button.dataset.recordId || '');
+
+            detailsModal.show();
+        });
+    });
+
+    document.querySelectorAll('.js-approved-record-row').forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('a, button, form, input, select, textarea, label')) {
+                return;
+            }
+
+            const detailsButton = row.querySelector('.js-accountability-details-btn');
+            if (detailsButton) {
+                detailsButton.click();
+            }
+        });
+    });
+
+    const wireBulkSelection = function (config) {
+        const selectAll = document.getElementById(config.selectAllId);
+        const rowCheckboxes = Array.from(document.querySelectorAll(config.rowCheckboxSelector));
+        const actionBar = document.getElementById(config.actionBarId);
+        const countElement = document.getElementById(config.countElementId);
+        const hiddenInputs = (config.hiddenInputIds || []).map(function (id) { return document.getElementById(id); }).filter(Boolean);
+        const clearButton = document.getElementById(config.clearButtonId);
+
+        if (!selectAll || !rowCheckboxes.length || !actionBar || !countElement) {
+            return;
+        }
+
+        const sync = function () {
+            const selected = rowCheckboxes.filter(function (checkbox) { return checkbox.checked; });
+            const selectedIds = selected.map(function (checkbox) { return checkbox.value; });
+
+            countElement.textContent = selectedIds.length + ' selected';
+            actionBar.classList.toggle('d-none', selectedIds.length === 0);
+            hiddenInputs.forEach(function (input) {
+                input.value = selectedIds.join(',');
+            });
+
+            const allChecked = selectedIds.length > 0 && selectedIds.length === rowCheckboxes.length;
+            selectAll.checked = allChecked;
+            selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < rowCheckboxes.length;
+        };
+
+        selectAll.addEventListener('change', function () {
+            rowCheckboxes.forEach(function (checkbox) {
+                checkbox.checked = selectAll.checked;
+            });
+            sync();
+        });
+
+        rowCheckboxes.forEach(function (checkbox) {
+            checkbox.addEventListener('change', sync);
+            checkbox.addEventListener('click', function (event) {
+                event.stopPropagation();
+            });
+        });
+
+        if (clearButton) {
+            clearButton.addEventListener('click', function () {
+                rowCheckboxes.forEach(function (checkbox) {
+                    checkbox.checked = false;
+                });
+                selectAll.checked = false;
+                selectAll.indeterminate = false;
+                sync();
+            });
+        }
+
+        sync();
+    };
+
+    wireBulkSelection({
+        selectAllId: 'pendingSelectAll',
+        rowCheckboxSelector: '.js-pending-row-checkbox',
+        actionBarId: 'pendingBulkActionBar',
+        countElementId: 'pendingBulkCount',
+        hiddenInputIds: ['pendingBulkApproveSelectedIds', 'pendingBulkDeclineSelectedIds'],
+        clearButtonId: 'clearPendingBulkSelection'
+    });
+
+    wireBulkSelection({
+        selectAllId: 'approvedSelectAll',
+        rowCheckboxSelector: '.js-approved-row-checkbox',
+        actionBarId: 'approvedBulkActionBar',
+        countElementId: 'approvedBulkCount',
+        hiddenInputIds: ['approvedBulkReturnSelectedIds', 'approvedBulkDeleteSelectedIds'],
+        clearButtonId: 'clearApprovedBulkSelection'
+    });
+
+    const approvedBulkDeleteForm = document.getElementById('approvedBulkDeleteForm');
+    let approvedBulkDeleteArmed = false;
+    let approvedBulkDeleteCountEl = null;
+    let approvedBulkDeleteConfirmBtn = null;
+    let approvedBulkDeleteConfirmModal = null;
+
+    if (approvedBulkDeleteForm && window.bootstrap && window.bootstrap.Modal) {
+        const modalContainer = document.createElement('div');
+        modalContainer.innerHTML = '' +
+            '<div class="modal fade" id="approvedBulkDeleteConfirmModal" tabindex="-1" aria-hidden="true">' +
+                '<div class="modal-dialog modal-dialog-centered">' +
+                    '<div class="modal-content border-0 shadow">' +
+                        '<div class="modal-header">' +
+                            '<h5 class="modal-title">Confirm Bulk Delete</h5>' +
+                            '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>' +
+                        '</div>' +
+                        '<div class="modal-body">Delete <span class="fw-semibold" id="approvedBulkDeleteCount">0</span> selected approved record(s)? Borrowed records will be returned to stock before deletion.</div>' +
+                        '<div class="modal-footer">' +
+                            '<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>' +
+                            '<button type="button" class="btn btn-danger" id="approvedBulkDeleteConfirmBtn">Delete</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(modalContainer.firstElementChild);
+        const modalEl = document.getElementById('approvedBulkDeleteConfirmModal');
+        approvedBulkDeleteCountEl = document.getElementById('approvedBulkDeleteCount');
+        approvedBulkDeleteConfirmBtn = document.getElementById('approvedBulkDeleteConfirmBtn');
+        approvedBulkDeleteConfirmModal = modalEl ? new window.bootstrap.Modal(modalEl) : null;
+    }
+
+    if (approvedBulkDeleteForm) {
+        approvedBulkDeleteForm.addEventListener('submit', function (event) {
+            const selectedIdsInput = document.getElementById('approvedBulkDeleteSelectedIds');
+            const selectedCount = selectedIdsInput && selectedIdsInput.value
+                ? selectedIdsInput.value.split(',').filter(function (idValue) { return idValue; }).length
+                : 0;
+
+            if (!selectedCount) {
+                event.preventDefault();
+                return;
+            }
+
+            if (!approvedBulkDeleteArmed) {
+                event.preventDefault();
+                if (approvedBulkDeleteCountEl) {
+                    approvedBulkDeleteCountEl.textContent = String(selectedCount);
+                }
+                if (approvedBulkDeleteConfirmModal) {
+                    approvedBulkDeleteConfirmModal.show();
+                }
+                return;
+            }
+
+            approvedBulkDeleteArmed = false;
+        });
+    }
+
+    if (approvedBulkDeleteConfirmBtn && approvedBulkDeleteForm) {
+        approvedBulkDeleteConfirmBtn.addEventListener('click', function () {
+            approvedBulkDeleteArmed = true;
+            if (approvedBulkDeleteConfirmModal) {
+                approvedBulkDeleteConfirmModal.hide();
+            }
+            approvedBulkDeleteForm.requestSubmit();
+        });
+    }
+});
+</script>
+{% endblock %}

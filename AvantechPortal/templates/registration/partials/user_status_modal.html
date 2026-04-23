@@ -1,0 +1,17 @@
+<form method="post" action="{% url 'update_user_status' %}?modal=1" data-settings-modal-form>
+    {% csrf_token %}
+    <div class="mb-3">
+        <label for="id_status" class="form-label">{{ form.status.label }}</label>
+        {{ form.status }}
+        {% if form.status.errors %}
+            <div class="text-danger small mt-1">{{ form.status.errors|striptags }}</div>
+        {% endif %}
+    </div>
+    {% if status_updated %}
+        <div class="alert alert-success mb-3">Status updated successfully!</div>
+    {% endif %}
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-success flex-grow-1">Save Status</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+    </div>
+</form>

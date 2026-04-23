@@ -1,0 +1,406 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | {{ page_title }}{% endblock %}
+{% block page_heading %}Asset Item{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-8 col-lg-9">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <h2 class="h5 mb-0">{{ page_title }}</h2>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" novalidate id="assetItemForm">
+                    {% csrf_token %}
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger">{{ form.non_field_errors|join:', ' }}</div>
+                    {% endif %}
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.department.id_for_label }}">Department</label>
+                            {{ form.department }}
+                            {% if form.department.errors %}
+                                <div class="text-danger small mt-1">{{ form.department.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.parent_item.id_for_label }}">Parent Item (Variant Under)</label>
+                            {{ form.parent_item }}
+                            {% if form.parent_item.errors %}
+                                <div class="text-danger small mt-1">{{ form.parent_item.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.item_name.id_for_label }}">Item Name</label>
+                            {{ form.item_name }}
+                            {% if form.item_name.errors %}
+                                <div class="text-danger small mt-1">{{ form.item_name.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.item_type.id_for_label }}">Item Type</label>
+                            {{ form.item_type }}
+                            {% if form.item_type.errors %}
+                                <div class="text-danger small mt-1">{{ form.item_type.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.code_prefix.id_for_label }}">Code Prefix (Optional)</label>
+                            {{ form.code_prefix }}
+                            {% if form.code_prefix.help_text %}
+                                <div class="form-text">{{ form.code_prefix.help_text }}</div>
+                            {% endif %}
+                            {% if form.code_prefix.errors %}
+                                <div class="text-danger small mt-1">{{ form.code_prefix.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.stock_quantity.id_for_label }}">Stock Quantity</label>
+                            {{ form.stock_quantity }}
+                            {% if form.stock_quantity.errors %}
+                                <div class="text-danger small mt-1">{{ form.stock_quantity.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="{{ form.low_stock_threshold.id_for_label }}">Low Stock Threshold</label>
+                            {{ form.low_stock_threshold }}
+                            {% if form.low_stock_threshold.errors %}
+                                <div class="text-danger small mt-1">{{ form.low_stock_threshold.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="{{ form.specification.id_for_label }}">Specification</label>
+                            {{ form.specification }}
+                            {% if form.specification.errors %}
+                                <div class="text-danger small mt-1">{{ form.specification.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label" for="{{ form.note.id_for_label }}">Note (Optional)</label>
+                            {{ form.note }}
+                            {% if form.note.errors %}
+                                <div class="text-danger small mt-1">{{ form.note.errors|join:', ' }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-12" id="asset-image-field-wrap">
+                            <label class="form-label" for="{{ form.asset_images.id_for_label }}">Asset Images (Optional)</label>
+                            {{ form.asset_images }}
+                            {{ form.remove_image_ids }}
+                            <div class="asset-image-dropzone mt-2" id="assetImageDropzone" role="button" tabindex="0">
+                                <div class="small fw-semibold">Drag and drop images here</div>
+                                <div class="small text-secondary">or click to browse files</div>
+                            </div>
+                            {% if form.asset_images.help_text %}
+                                <div class="form-text" id="asset-image-help">{{ form.asset_images.help_text }}</div>
+                            {% endif %}
+                            {% if form.asset_images.errors %}
+                                <div class="text-danger small mt-1">{{ form.asset_images.errors|join:', ' }}</div>
+                            {% endif %}
+
+                            <div class="asset-upload-progress progress mt-2 d-none" id="assetUploadProgressWrap" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" id="assetUploadProgressBar" style="width: 0%;">0%</div>
+                            </div>
+                            <div class="small text-secondary mt-1" id="asset-upload-status"></div>
+
+                            <div class="asset-image-grid mt-3" id="assetImageGrid">
+                                {% if form.instance.pk %}
+                                    {% for image in form.instance.images.all %}
+                                        <div class="asset-image-card" data-existing-id="{{ image.id }}">
+                                            <button type="button" class="btn btn-sm btn-danger asset-image-remove" data-remove-existing="{{ image.id }}" aria-label="Remove image">Delete</button>
+                                            <img src="{{ image.image.url }}" alt="Existing image" class="asset-image-thumb js-asset-preview-trigger" data-preview-src="{{ image.image.url }}">
+                                            <div class="asset-image-meta" title="{{ image.image.name }}">{{ image.image.name }}</div>
+                                        </div>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="form-check">
+                                {{ form.is_active }}
+                                <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Active in tracker</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2 mt-4">
+                        <button type="submit" class="btn btn-success">{{ submit_label }}</button>
+                        <a href="{% url 'assets_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="assetImagePreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title">Image Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="assetImagePreviewModalImg" src="" alt="Preview" style="max-width: 100%; max-height: 70vh; object-fit: contain;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('assetItemForm');
+    const parentField = document.getElementById('{{ form.parent_item.id_for_label }}');
+    const imageFieldWrap = document.getElementById('asset-image-field-wrap');
+    const imageInput = document.getElementById('{{ form.asset_images.id_for_label }}');
+    const removeImageIdsField = document.getElementById('{{ form.remove_image_ids.id_for_label }}');
+    const imageHelp = document.getElementById('asset-image-help');
+    const dropzone = document.getElementById('assetImageDropzone');
+    const imageGrid = document.getElementById('assetImageGrid');
+    const uploadProgressWrap = document.getElementById('assetUploadProgressWrap');
+    const uploadProgressBar = document.getElementById('assetUploadProgressBar');
+    const uploadStatus = document.getElementById('asset-upload-status');
+    const previewModalElement = document.getElementById('assetImagePreviewModal');
+    const previewModalImage = document.getElementById('assetImagePreviewModalImg');
+    const previewModal = previewModalElement ? new bootstrap.Modal(previewModalElement) : null;
+
+    const queuedFiles = [];
+    const removedExistingIds = new Set();
+
+    function bytesToReadable(sizeBytes) {
+        if (!sizeBytes || sizeBytes < 0) {
+            return '0 B';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = sizeBytes;
+        let index = 0;
+        while (value >= 1024 && index < units.length - 1) {
+            value /= 1024;
+            index += 1;
+        }
+        return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+    }
+
+    function syncRemovedIdsField() {
+        if (removeImageIdsField) {
+            removeImageIdsField.value = Array.from(removedExistingIds).join(',');
+        }
+    }
+
+    function rebuildInputFileList() {
+        if (!imageInput) {
+            return;
+        }
+
+        const transfer = new DataTransfer();
+        queuedFiles.forEach(function (entry) {
+            transfer.items.add(entry.file);
+        });
+        imageInput.files = transfer.files;
+        uploadStatus.textContent = queuedFiles.length ? `${queuedFiles.length} file(s) ready for upload.` : '';
+    }
+
+    function addPreviewCardForFile(file, fileIndex) {
+        const card = document.createElement('div');
+        card.className = 'asset-image-card';
+        card.dataset.fileIndex = String(fileIndex);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'btn btn-sm btn-danger asset-image-remove';
+        removeButton.textContent = 'Delete';
+        removeButton.setAttribute('aria-label', 'Remove image');
+        removeButton.dataset.removeQueued = String(fileIndex);
+
+        const image = document.createElement('img');
+        image.className = 'asset-image-thumb js-asset-preview-trigger';
+        image.alt = file.name;
+
+        const meta = document.createElement('div');
+        meta.className = 'asset-image-meta';
+        meta.title = `${file.name} (${bytesToReadable(file.size)})`;
+        meta.textContent = `${file.name} (${bytesToReadable(file.size)})`;
+
+        card.appendChild(removeButton);
+        card.appendChild(image);
+        card.appendChild(meta);
+        imageGrid.appendChild(card);
+
+        const reader = new FileReader();
+        reader.onload = function (event) {
+            image.src = event.target && event.target.result ? event.target.result : '';
+            image.dataset.previewSrc = image.src;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function queueFiles(fileList) {
+        const filesArray = Array.from(fileList || []).filter(function (file) {
+            return file && String(file.type || '').toLowerCase().startsWith('image/');
+        });
+
+        if (!filesArray.length) {
+            return;
+        }
+
+        filesArray.forEach(function (file) {
+            const newIndex = queuedFiles.length;
+            queuedFiles.push({ file: file });
+            addPreviewCardForFile(file, newIndex);
+        });
+
+        rebuildInputFileList();
+    }
+
+    function updateImageFieldVisibility() {
+        imageFieldWrap.style.display = '';
+        if (imageInput) {
+            imageInput.disabled = false;
+        }
+        if (imageHelp) {
+            imageHelp.textContent = 'Optional images for both parent and variant items. You can upload multiple files.';
+        }
+    }
+
+    if (imageInput) {
+        imageInput.classList.add('d-none');
+        imageInput.addEventListener('change', function () {
+            queueFiles(imageInput.files);
+        });
+    }
+
+    if (dropzone && imageInput) {
+        dropzone.addEventListener('click', function () {
+            if (!imageInput.disabled) {
+                imageInput.click();
+            }
+        });
+
+        dropzone.addEventListener('keydown', function (event) {
+            if ((event.key === 'Enter' || event.key === ' ') && !imageInput.disabled) {
+                event.preventDefault();
+                imageInput.click();
+            }
+        });
+
+        ['dragenter', 'dragover'].forEach(function (eventName) {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                dropzone.classList.add('is-dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(function (eventName) {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                dropzone.classList.remove('is-dragover');
+            });
+        });
+
+        dropzone.addEventListener('drop', function (event) {
+            queueFiles(event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : []);
+        });
+    }
+
+    if (imageGrid) {
+        imageGrid.addEventListener('click', function (event) {
+            const removeQueuedButton = event.target.closest('[data-remove-queued]');
+            if (removeQueuedButton) {
+                const indexValue = Number(removeQueuedButton.getAttribute('data-remove-queued'));
+                if (!Number.isNaN(indexValue)) {
+                    queuedFiles.splice(indexValue, 1);
+                    imageGrid.querySelectorAll('[data-file-index]').forEach(function (node) { node.remove(); });
+                    queuedFiles.forEach(function (entry, idx) {
+                        addPreviewCardForFile(entry.file, idx);
+                    });
+                    rebuildInputFileList();
+                }
+                return;
+            }
+
+            const removeExistingButton = event.target.closest('[data-remove-existing]');
+            if (removeExistingButton) {
+                const existingId = removeExistingButton.getAttribute('data-remove-existing');
+                if (existingId && /^[0-9]+$/.test(existingId)) {
+                    removedExistingIds.add(existingId);
+                    syncRemovedIdsField();
+                    const parentCard = removeExistingButton.closest('.asset-image-card');
+                    if (parentCard) {
+                        parentCard.remove();
+                    }
+                }
+                return;
+            }
+
+            const previewTarget = event.target.closest('.js-asset-preview-trigger');
+            if (previewTarget && previewModal && previewModalImage) {
+                const src = previewTarget.getAttribute('data-preview-src') || previewTarget.getAttribute('src') || '';
+                if (src) {
+                    previewModalImage.src = src;
+                    previewModal.show();
+                }
+            }
+        });
+    }
+
+    if (form) {
+        form.addEventListener('submit', function (event) {
+            if (!imageInput || imageInput.disabled || !imageInput.files.length) {
+                return;
+            }
+
+            event.preventDefault();
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', form.action || window.location.href, true);
+
+            uploadProgressWrap.classList.remove('d-none');
+            uploadProgressBar.style.width = '0%';
+            uploadProgressBar.textContent = '0%';
+            uploadStatus.textContent = 'Uploading images...';
+
+            xhr.upload.addEventListener('progress', function (progressEvent) {
+                if (!progressEvent.lengthComputable) {
+                    return;
+                }
+                const percent = Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100));
+                uploadProgressBar.style.width = `${percent}%`;
+                uploadProgressBar.textContent = `${percent}%`;
+            });
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== XMLHttpRequest.DONE) {
+                    return;
+                }
+
+                if (xhr.status >= 200 && xhr.status < 400) {
+                    uploadStatus.textContent = 'Upload completed.';
+                    if (xhr.responseURL) {
+                        window.location.assign(xhr.responseURL);
+                        return;
+                    }
+                }
+
+                document.open();
+                document.write(xhr.responseText);
+                document.close();
+            };
+
+            xhr.send(new FormData(form));
+        });
+    }
+
+    if (parentField) {
+        parentField.addEventListener('change', updateImageFieldVisibility);
+    }
+
+    updateImageFieldVisibility();
+});
+</script>
+{% endblock %}

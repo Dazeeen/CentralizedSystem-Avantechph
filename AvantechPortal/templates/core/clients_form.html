@@ -1,0 +1,49 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | {{ page_title }}{% endblock %}
+{% block page_heading %}Clients{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        {% include 'core/includes/client_form_modal_content.html' %}
+    </div>
+</div>
+
+<script>
+    (function () {
+        const leadStatusField = document.getElementById('id_lead_status');
+        const reasonWrapper = document.querySelector('[data-field-name="lead_disposition_reason"]');
+        const proofWrapper = document.querySelector('[data-field-name="lead_proof_image"]');
+        const reasonInput = document.getElementById('id_lead_disposition_reason');
+        const proofInput = document.getElementById('id_lead_proof_image');
+        const requiredStatuses = new Set(['lost', 'not_qualified']);
+
+        if (!leadStatusField || !reasonWrapper || !proofWrapper || !reasonInput || !proofInput) {
+            return;
+        }
+
+        if (leadStatusField.disabled) {
+            reasonWrapper.classList.add('d-none');
+            proofWrapper.classList.add('d-none');
+            reasonInput.required = false;
+            proofInput.required = false;
+            return;
+        }
+
+        const applyLeadRules = () => {
+            const selectedStatus = (leadStatusField.value || '').toLowerCase();
+            const isRequired = requiredStatuses.has(selectedStatus);
+
+            reasonWrapper.classList.toggle('d-none', !isRequired);
+            proofWrapper.classList.toggle('d-none', !isRequired);
+
+            reasonInput.required = isRequired;
+            proofInput.required = isRequired;
+        };
+
+        leadStatusField.addEventListener('change', applyLeadRules);
+        applyLeadRules();
+    })();
+</script>
+{% endblock %}

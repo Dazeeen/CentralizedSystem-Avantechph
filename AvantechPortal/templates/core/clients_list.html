@@ -1,0 +1,843 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Clients{% endblock %}
+{% block page_heading %}Clients{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Total Clients</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_clients }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">New Clients</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ new_clients }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Old Clients</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ old_clients }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Lead Pipeline</p>
+                <p class="mb-1"><span class="fw-semibold">Intake:</span> {{ intake_leads }}</p>
+                <p class="mb-1"><span class="fw-semibold">Converted:</span> {{ converted_leads }}</p>
+                <p class="mb-1"><span class="fw-semibold">Qualified:</span> {{ qualified_leads }}</p>
+                <p class="mb-1"><span class="fw-semibold">Not Qualified:</span> {{ not_qualified_leads }}</p>
+                <p class="mb-0"><span class="fw-semibold">Lost:</span> {{ lost_leads }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="h4 mb-1">Formal Quotation Clients</h2>
+        <p class="text-secondary mb-0">Pre-sales inquiries, quotation status, and handling assignments.</p>
+    </div>
+    <a class="btn btn-success js-client-modal-trigger" href="{% url 'clients_create' %}">Add Client</a>
+</div>
+
+{% if can_approve_client_deletions %}
+<div class="card border-0 shadow-sm mb-3" id="clientDeletionApprovals">
+    <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h3 class="h5 mb-1">Client Deletion Approvals</h3>
+                <p class="text-secondary mb-0">Only admins or users with deletion-approval permission can review these requests.</p>
+            </div>
+            <span class="badge text-bg-light border">{{ pending_client_deletion_requests|length }} pending</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Client</th>
+                        <th>Requested By</th>
+                        <th>Reason</th>
+                        <th>Re-submits</th>
+                        <th>Date</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for deletion_request in pending_client_deletion_requests %}
+                        <tr>
+                            <td class="fw-semibold">{{ deletion_request.client_name_snapshot }}</td>
+                            <td>
+                                {% if deletion_request.requested_by %}
+                                    {{ deletion_request.requested_by.get_full_name|default:deletion_request.requested_by.username }}
+                                {% else %}
+                                    <span class="text-secondary">-</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ deletion_request.reason|default:'-' }}</td>
+                            <td>
+                                {% if deletion_request.resubmission_count %}
+                                    <span class="badge text-bg-warning">{{ deletion_request.resubmission_count }}</span>
+                                {% else %}
+                                    <span class="text-secondary">0</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ deletion_request.requested_at|date:'Y-m-d H:i' }}</td>
+                            <td class="text-end">
+                                <div class="d-inline-flex align-items-center gap-1">
+                                    {% if deletion_request.client_id %}
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-primary js-review-client-request"
+                                        data-quick-view-url="{% url 'clients_quick_view' deletion_request.client_id %}"
+                                        title="Review client info and quotation"
+                                    >
+                                        Review Client
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Client record no longer exists">
+                                        Review Client
+                                    </button>
+                                    {% endif %}
+                                    <form method="post" action="{% url 'clients_deletion_request_approve' deletion_request.id %}" class="m-0">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Approve request">Approve</button>
+                                    </form>
+                                    <form method="post" action="{% url 'clients_deletion_request_reject' deletion_request.id %}" class="m-0">
+                                        {% csrf_token %}
+                                        <input
+                                            type="text"
+                                            name="review_notes"
+                                            class="form-control form-control-sm d-inline-block me-1"
+                                            style="width: 220px;"
+                                            placeholder="Reason for rejection"
+                                            required
+                                        >
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Reject request">Reject</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-secondary">No pending deletion requests.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body border-bottom">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-8 col-lg-6">
+                <label class="form-label mb-1" for="client-q">Search Clients</label>
+                <input id="client-q" type="text" name="q" value="{{ query }}" class="form-control" placeholder="Name, email, phone, lead status, status, type, handled by">
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-success">Search</button>
+                <a href="{% url 'clients_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0" id="clientsTable">
+            <thead class="table-success">
+                <tr>
+                    <th scope="col" style="width: 42px;">
+                        <input type="checkbox" class="form-check-input" id="clientsSelectAll" aria-label="Select all clients">
+                    </th>
+                    <th scope="col">Full Name</th>
+                    <th scope="col">Contact</th>
+                    <th scope="col">Client Type</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Lead</th>
+                    <th scope="col">Quotation</th>
+                    <th scope="col">Handled By</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for client in clients_page %}
+                    <tr
+                        class="js-client-row"
+                        data-client-id="{{ client.id }}"
+                        data-quick-view-url="{% url 'clients_quick_view' client.id %}"
+                        onclick="window.openClientQuickView && window.openClientQuickView(this, event.target)"
+                        onkeydown="if(event.key==='Enter' && window.openClientQuickView){ window.openClientQuickView(this, event.target); }"
+                        tabindex="0"
+                        style="cursor: pointer;"
+                    >
+                        <td>
+                            <input
+                                type="checkbox"
+                                class="form-check-input js-client-row-checkbox"
+                                value="{{ client.id }}"
+                                aria-label="Select client {{ client.full_name }}"
+                            >
+                        </td>
+                        <td class="fw-semibold">{{ client.full_name }}</td>
+                        <td>
+                            <div>{{ client.active_phone_number }}</div>
+                            <div class="small text-secondary">{{ client.email }}</div>
+                        </td>
+                        <td>
+                            <span class="badge text-bg-light border border-success-subtle text-success-emphasis">{{ client.get_client_type_display }}</span>
+                        </td>
+                        <td>
+                            <span class="badge text-bg-light border">{{ client.get_status_display }}</span>
+                        </td>
+                        <td>
+                            <span class="badge text-bg-light border border-primary-subtle text-primary-emphasis">{{ client.get_lead_status_display }}</span>
+                            {% if client.lead_status == 'lost' or client.lead_status == 'not_qualified' %}
+                                <div class="small text-secondary mt-1">{{ client.lead_disposition_reason|default:'No reason' }}</div>
+                                {% if client.lead_proof_image %}
+                                    <a class="small" href="{{ client.lead_proof_image.url }}" target="_blank">View proof</a>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if quotation_counts|get_item:client.id %}
+                                <span class="badge text-bg-success-subtle text-success-emphasis border">v{{ latest_versions|get_item:client.id }}</span>
+                                <div class="small text-secondary mt-1">{{ quotation_counts|get_item:client.id }} version{{ quotation_counts|get_item:client.id|pluralize }}</div>
+                            {% else %}
+                                <span class="text-secondary">No quotation</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if client.handled_by %}
+                                <div class="list-user-inline">
+                                    {% with handler_profile=handler_profiles_map|get_item:client.handled_by_id %}
+                                        {% if handler_profile and handler_profile.avatar %}
+                                            <img src="{{ handler_profile.avatar.url }}" alt="{{ client.handled_by.username }}" class="list-user-avatar">
+                                        {% else %}
+                                            <span class="list-user-avatar-fallback">{{ client.handled_by.get_full_name|default:client.handled_by.username|first|upper }}</span>
+                                        {% endif %}
+                                    {% endwith %}
+                                    <button
+                                        type="button"
+                                        class="user-name-link js-user-profile-trigger"
+                                        data-user-id="{{ client.handled_by_id }}"
+                                    >
+                                        {{ client.handled_by.get_full_name|default:client.handled_by.username }}
+                                    </button>
+                                </div>
+                            {% else %}
+                                <span class="text-secondary">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ client.handled_date|date:'Y-m-d' }}</td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block">
+                                <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Client actions">
+                                    ...
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'clients_quote' client.id %}">Quotation</a></li>
+                                    <li><a class="dropdown-item js-client-modal-trigger" href="{% url 'clients_update' client.id %}">Edit</a></li>
+                                    <li>
+                                        <button
+                                            type="button"
+                                            class="dropdown-item text-danger js-client-delete-request"
+                                            data-delete-url="{% url 'clients_delete' client.id %}"
+                                            data-client-name="{{ client.full_name|escape }}"
+                                        >
+                                            Request Delete
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center py-4 text-secondary">No clients found.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if perms.core.change_client or perms.core.delete_client %}
+    <div id="clientsBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="Clients bulk actions">
+        <div class="bulk-action-content">
+            <span class="bulk-action-count" id="clientsBulkCount">0 selected</span>
+            {% if perms.core.change_client %}
+            <form id="clientsBulkStatusForm" method="post" action="{% url 'clients_bulk_update_status' %}" class="d-inline-flex align-items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" id="clientsBulkStatusSelectedIds" name="selected_ids" value="">
+                <select class="form-select form-select-sm" name="status" aria-label="Select client status" required>
+                    <option value="">Set Status...</option>
+                    {% for status_value, status_label in client_status_choices %}
+                    <option value="{{ status_value }}">{{ status_label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="icon-only-action-btn" title="Apply selected status" aria-label="Apply selected status">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M5 12.5L9.2 16.7L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </form>
+            {% endif %}
+            {% if perms.core.delete_client %}
+            <form id="clientsBulkDeleteForm" method="post" action="{% url 'clients_bulk_delete' %}" class="d-inline-flex align-items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" id="clientsBulkSelectedIds" name="selected_ids" value="">
+                <input type="hidden" id="clientsBulkDeleteReason" name="reason" value="">
+                <button
+                    type="button"
+                    id="clientsBulkDeleteOpenModalBtn"
+                    class="icon-only-action-btn is-danger"
+                    title="Request deletion for selected clients"
+                    aria-label="Request deletion for selected clients"
+                    data-bs-toggle="modal"
+                    data-bs-target="#clientsBulkDeleteConfirmModal"
+                >
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                        <path d="M9 7V5.8C9 4.81 9.81 4 10.8 4H13.2C14.19 4 15 4.81 15 5.8V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                        <path d="M8 7L8.7 18.2C8.76 19.15 9.55 19.9 10.5 19.9H13.5C14.45 19.9 15.24 19.15 15.3 18.2L16 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M10.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                        <path d="M13.5 10.2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </form>
+            {% endif %}
+            <button type="button" class="icon-only-action-btn" id="clearClientsBulkSelection" title="Clear selection" aria-label="Clear selection">
+                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    {% endif %}
+    {% if clients_page.paginator.num_pages > 1 %}
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <small class="text-secondary">Page {{ clients_page.number }} of {{ clients_page.paginator.num_pages }}</small>
+            <div class="btn-group" role="group" aria-label="Clients pagination">
+                {% if clients_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&page={{ clients_page.previous_page_number }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+
+                {% for page_num in clients_page.paginator.page_range %}
+                    {% if page_num == clients_page.number %}
+                        <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                    {% else %}
+                        <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&page={{ page_num }}">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if clients_page.has_next %}
+                    <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&page={{ clients_page.next_page_number }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="clientsBulkDeleteConfirmModal" tabindex="-1" aria-labelledby="clientsBulkDeleteConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="clientsBulkDeleteConfirmModalLabel">Confirm Deletion Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Submit deletion request for <span class="fw-semibold" id="clientsBulkDeleteCount">0</span> selected client(s)?</p>
+                <label for="clientsBulkDeleteReasonInput" class="form-label fw-semibold">Reason for deletion request</label>
+                <textarea id="clientsBulkDeleteReasonInput" class="form-control" rows="3" placeholder="State why these client records should be deleted." required></textarea>
+                <div class="invalid-feedback">Reason is required.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="clientsBulkDeleteConfirmBtn">Submit Request</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="clientDeleteRequestModal" tabindex="-1" aria-labelledby="clientDeleteRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form method="post" id="clientDeleteRequestForm" action="">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title" id="clientDeleteRequestModalLabel">Request Client Deletion</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">Submit deletion request for <span class="fw-semibold" id="clientDeleteRequestClientName">this client</span>?</p>
+                    <label for="clientDeleteReasonInput" class="form-label fw-semibold">Reason for deletion request</label>
+                    <textarea id="clientDeleteReasonInput" name="reason" class="form-control" rows="3" placeholder="State why this client record should be deleted." required></textarea>
+                    <div class="invalid-feedback">Reason is required.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Submit Request</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="clientFormModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-body p-4" id="clientFormModalBody">
+                <div class="text-secondary">Loading form...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="clientQuickViewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-body p-4" id="clientQuickViewModalBody">
+                <div class="text-secondary">Loading client details...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="clientDeletionReviewModal" tabindex="-1" aria-labelledby="clientDeletionReviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="clientDeletionReviewModalLabel">Client Deletion Review</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4" id="clientDeletionReviewModalBody">
+                <div class="text-secondary">Loading client details and quotation history...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const modalElement = document.getElementById('clientFormModal');
+        const modalBody = document.getElementById('clientFormModalBody');
+        const quickViewModalElement = document.getElementById('clientQuickViewModal');
+        const quickViewModalBody = document.getElementById('clientQuickViewModalBody');
+        const deletionReviewModalElement = document.getElementById('clientDeletionReviewModal');
+        const deletionReviewModalBody = document.getElementById('clientDeletionReviewModalBody');
+
+        const applyLeadRules = (container) => {
+            const scope = container || document;
+            const leadStatusField = scope.querySelector('#id_lead_status');
+            const reasonWrapper = scope.querySelector('[data-field-name="lead_disposition_reason"]');
+            const proofWrapper = scope.querySelector('[data-field-name="lead_proof_image"]');
+            const reasonInput = scope.querySelector('#id_lead_disposition_reason');
+            const proofInput = scope.querySelector('#id_lead_proof_image');
+            const requiredStatuses = new Set(['lost', 'not_qualified']);
+
+            if (!leadStatusField || !reasonWrapper || !proofWrapper || !reasonInput || !proofInput) {
+                return;
+            }
+
+            const update = () => {
+                const selectedStatus = (leadStatusField.value || '').toLowerCase();
+                const isRequired = requiredStatuses.has(selectedStatus);
+                reasonWrapper.classList.toggle('d-none', !isRequired);
+                proofWrapper.classList.toggle('d-none', !isRequired);
+                reasonInput.required = isRequired;
+                proofInput.required = isRequired;
+            };
+
+            if (leadStatusField.dataset.leadRuleBound !== '1') {
+                leadStatusField.addEventListener('change', update);
+                leadStatusField.dataset.leadRuleBound = '1';
+            }
+            update();
+        };
+
+        const bootstrapApi = (typeof window !== 'undefined' && window.bootstrap)
+            ? window.bootstrap
+            : (typeof bootstrap !== 'undefined' ? bootstrap : null);
+        const hasBootstrap = !!(bootstrapApi && bootstrapApi.Modal);
+        const modal = hasBootstrap && modalElement ? new bootstrapApi.Modal(modalElement) : null;
+        const quickViewModal = hasBootstrap && quickViewModalElement ? new bootstrapApi.Modal(quickViewModalElement) : null;
+        const deletionReviewModal = hasBootstrap && deletionReviewModalElement ? new bootstrapApi.Modal(deletionReviewModalElement) : null;
+        const clientDeleteRequestModalEl = document.getElementById('clientDeleteRequestModal');
+        const clientDeleteRequestForm = document.getElementById('clientDeleteRequestForm');
+        const clientDeleteReasonInput = document.getElementById('clientDeleteReasonInput');
+        const clientDeleteRequestClientName = document.getElementById('clientDeleteRequestClientName');
+        const clientDeleteRequestModal = hasBootstrap && clientDeleteRequestModalEl ? new bootstrapApi.Modal(clientDeleteRequestModalEl) : null;
+
+        const openQuickViewByUrl = async (quickViewUrl) => {
+            if (!quickViewUrl || !quickViewModal || !quickViewModalBody) {
+                return;
+            }
+
+            quickViewModalBody.innerHTML = '<div class="text-secondary">Loading client details...</div>';
+            quickViewModal.show();
+
+            try {
+                const response = await fetch(quickViewUrl, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (!response.ok) {
+                    throw new Error('Unable to load client details.');
+                }
+                const payload = await response.json();
+                quickViewModalBody.innerHTML = payload.html || '<div class="alert alert-danger mb-0">Unable to render client details.</div>';
+            } catch (error) {
+                quickViewModalBody.innerHTML = '<div class="alert alert-danger mb-0">Unable to load client details.</div>';
+            }
+        };
+
+        const openDeletionReviewByUrl = async (quickViewUrl) => {
+            if (!quickViewUrl || !deletionReviewModal || !deletionReviewModalBody) {
+                return;
+            }
+
+            deletionReviewModalBody.innerHTML = '<div class="text-secondary">Loading client details and quotation history...</div>';
+            deletionReviewModal.show();
+
+            try {
+                const response = await fetch(quickViewUrl, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (!response.ok) {
+                    throw new Error('Unable to load client details.');
+                }
+                const payload = await response.json();
+                deletionReviewModalBody.innerHTML = payload.html || '<div class="alert alert-danger mb-0">Unable to render client details.</div>';
+            } catch (error) {
+                deletionReviewModalBody.innerHTML = '<div class="alert alert-danger mb-0">Unable to load client details.</div>';
+            }
+        };
+
+        const loadForm = async (url) => {
+            const fetchUrl = url.indexOf('?') >= 0 ? `${url}&modal=1` : `${url}?modal=1`;
+            const response = await fetch(fetchUrl, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+
+            if (!response.ok) {
+                throw new Error('Unable to load form.');
+            }
+
+            const payload = await response.json();
+            modalBody.innerHTML = payload.html || '<div class="text-danger">Unable to render form.</div>';
+            if (window.AvantechFormEnhancer && typeof window.AvantechFormEnhancer.enhance === 'function') {
+                window.AvantechFormEnhancer.enhance(modalBody);
+            }
+            applyLeadRules(modalBody);
+        };
+
+        document.addEventListener('click', async (event) => {
+            const rowAction = event.target.closest('.dropdown-menu .dropdown-item');
+            if (rowAction) {
+                event.stopPropagation();
+            }
+
+            const deleteRequestTrigger = event.target.closest('.js-client-delete-request');
+            if (deleteRequestTrigger) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                const deleteUrl = deleteRequestTrigger.getAttribute('data-delete-url') || '';
+                const clientName = deleteRequestTrigger.getAttribute('data-client-name') || 'this client';
+
+                if (!clientDeleteRequestModal || !clientDeleteRequestForm) {
+                    if (deleteUrl) {
+                        window.location.href = deleteUrl;
+                    }
+                    return;
+                }
+
+                clientDeleteRequestForm.setAttribute('action', deleteUrl);
+                if (clientDeleteRequestClientName) {
+                    clientDeleteRequestClientName.textContent = clientName;
+                }
+                if (clientDeleteReasonInput) {
+                    clientDeleteReasonInput.value = '';
+                    clientDeleteReasonInput.classList.remove('is-invalid');
+                }
+                clientDeleteRequestModal.show();
+                return;
+            }
+
+            const reviewTrigger = event.target.closest('.js-review-client-request');
+            if (reviewTrigger) {
+                event.preventDefault();
+                event.stopPropagation();
+                await openDeletionReviewByUrl(reviewTrigger.getAttribute('data-quick-view-url'));
+                return;
+            }
+
+            const trigger = event.target.closest('.js-client-modal-trigger');
+            if (!trigger) {
+                return;
+            }
+
+            if (!modal || !modalBody) {
+                return;
+            }
+
+            event.preventDefault();
+            modalBody.innerHTML = '<div class="text-secondary">Loading form...</div>';
+            modal.show();
+
+            try {
+                await loadForm(trigger.getAttribute('href'));
+            } catch (error) {
+                modalBody.innerHTML = '<div class="alert alert-danger mb-0">Unable to load client form.</div>';
+            }
+        });
+
+        if (clientDeleteRequestForm) {
+            clientDeleteRequestForm.addEventListener('submit', (event) => {
+                const reasonText = clientDeleteReasonInput ? clientDeleteReasonInput.value.trim() : '';
+                if (!reasonText) {
+                    event.preventDefault();
+                    if (clientDeleteReasonInput) {
+                        clientDeleteReasonInput.classList.add('is-invalid');
+                        clientDeleteReasonInput.focus();
+                    }
+                    return;
+                }
+
+                if (clientDeleteReasonInput) {
+                    clientDeleteReasonInput.classList.remove('is-invalid');
+                }
+            });
+        }
+
+        const clientsTable = document.getElementById('clientsTable');
+        const openQuickView = async (row, eventTarget) => {
+            if (!row) {
+                return;
+            }
+
+            const triggerElement = eventTarget && eventTarget.target ? eventTarget.target : eventTarget;
+            if (triggerElement && triggerElement.closest && triggerElement.closest('a, button, input, select, textarea, form, label, .dropdown-menu')) {
+                return;
+            }
+
+            if (!quickViewModal || !quickViewModalBody) {
+                return;
+            }
+
+            const quickViewUrl = row.getAttribute('data-quick-view-url');
+            if (!quickViewUrl) {
+                return;
+            }
+
+            await openQuickViewByUrl(quickViewUrl);
+        };
+
+        window.openClientQuickView = openQuickView;
+
+        if (clientsTable) {
+            clientsTable.addEventListener('click', async (event) => {
+                const row = event.target.closest('.js-client-row');
+                if (!row) {
+                    return;
+                }
+                await openQuickView(row, event.target);
+            });
+
+            clientsTable.addEventListener('keydown', async (event) => {
+                if (event.key !== 'Enter') {
+                    return;
+                }
+                const row = event.target.closest('.js-client-row');
+                if (!row) {
+                    return;
+                }
+                event.preventDefault();
+                await openQuickView(row, event.target);
+            });
+        }
+
+        const selectAll = document.getElementById('clientsSelectAll');
+        const rowCheckboxes = Array.from(document.querySelectorAll('.js-client-row-checkbox'));
+        const actionBar = document.getElementById('clientsBulkActionBar');
+        const countElement = document.getElementById('clientsBulkCount');
+        const selectedIdsInput = document.getElementById('clientsBulkSelectedIds');
+        const statusSelectedIdsInput = document.getElementById('clientsBulkStatusSelectedIds');
+        const clearButton = document.getElementById('clearClientsBulkSelection');
+        const bulkDeleteForm = document.getElementById('clientsBulkDeleteForm');
+        const bulkStatusForm = document.getElementById('clientsBulkStatusForm');
+        const bulkDeleteConfirmModalEl = document.getElementById('clientsBulkDeleteConfirmModal');
+        const bulkDeleteCountEl = document.getElementById('clientsBulkDeleteCount');
+        const bulkDeleteConfirmBtn = document.getElementById('clientsBulkDeleteConfirmBtn');
+        const bulkDeleteReasonInput = document.getElementById('clientsBulkDeleteReasonInput');
+        const bulkDeleteReasonHiddenInput = document.getElementById('clientsBulkDeleteReason');
+        const bulkDeleteOpenModalBtn = document.getElementById('clientsBulkDeleteOpenModalBtn');
+        const bulkDeleteConfirmModal = hasBootstrap && bulkDeleteConfirmModalEl
+            ? new bootstrapApi.Modal(bulkDeleteConfirmModalEl)
+            : null;
+
+        if (selectAll && rowCheckboxes.length && actionBar && countElement && (selectedIdsInput || statusSelectedIdsInput)) {
+            const sync = () => {
+                const selectedIds = rowCheckboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+                if (selectedIdsInput) {
+                    selectedIdsInput.value = selectedIds.join(',');
+                }
+                if (statusSelectedIdsInput) {
+                    statusSelectedIdsInput.value = selectedIds.join(',');
+                }
+                countElement.textContent = `${selectedIds.length} selected`;
+                actionBar.classList.toggle('d-none', selectedIds.length === 0);
+
+                selectAll.checked = selectedIds.length > 0 && selectedIds.length === rowCheckboxes.length;
+                selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < rowCheckboxes.length;
+            };
+
+            selectAll.addEventListener('click', (event) => {
+                event.stopPropagation();
+            });
+            selectAll.addEventListener('change', () => {
+                rowCheckboxes.forEach((checkbox) => {
+                    checkbox.checked = selectAll.checked;
+                });
+                sync();
+            });
+
+            rowCheckboxes.forEach((checkbox) => {
+                checkbox.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                });
+                checkbox.addEventListener('change', sync);
+            });
+
+            if (clearButton) {
+                clearButton.addEventListener('click', () => {
+                    rowCheckboxes.forEach((checkbox) => {
+                        checkbox.checked = false;
+                    });
+                    selectAll.checked = false;
+                    selectAll.indeterminate = false;
+                    sync();
+                });
+            }
+
+            sync();
+        }
+
+        if (bulkDeleteOpenModalBtn) {
+            bulkDeleteOpenModalBtn.addEventListener('click', (event) => {
+                const selectedIds = rowCheckboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+                if (!selectedIds.length) {
+                    event.preventDefault();
+                    return;
+                }
+
+                if (bulkDeleteCountEl) {
+                    bulkDeleteCountEl.textContent = String(selectedIds.length);
+                }
+                if (bulkDeleteReasonInput) {
+                    bulkDeleteReasonInput.value = '';
+                    bulkDeleteReasonInput.classList.remove('is-invalid');
+                }
+            });
+        }
+
+        if (bulkDeleteForm) {
+            bulkDeleteForm.addEventListener('submit', (event) => {
+                const selectedIds = rowCheckboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+                const reasonText = bulkDeleteReasonHiddenInput ? bulkDeleteReasonHiddenInput.value.trim() : '';
+                if (!selectedIds.length || !reasonText) {
+                    event.preventDefault();
+                }
+            });
+        }
+
+        if (bulkDeleteConfirmBtn && bulkDeleteForm) {
+            bulkDeleteConfirmBtn.addEventListener('click', () => {
+                const reasonText = bulkDeleteReasonInput ? bulkDeleteReasonInput.value.trim() : '';
+                if (!reasonText) {
+                    if (bulkDeleteReasonInput) {
+                        bulkDeleteReasonInput.classList.add('is-invalid');
+                        bulkDeleteReasonInput.focus();
+                    }
+                    return;
+                }
+
+                if (bulkDeleteReasonInput) {
+                    bulkDeleteReasonInput.classList.remove('is-invalid');
+                }
+                if (bulkDeleteReasonHiddenInput) {
+                    bulkDeleteReasonHiddenInput.value = reasonText;
+                }
+                if (bulkDeleteConfirmModal) {
+                    bulkDeleteConfirmModal.hide();
+                }
+                bulkDeleteForm.requestSubmit();
+            });
+        }
+
+        if (bulkStatusForm) {
+            bulkStatusForm.addEventListener('submit', (event) => {
+                const statusSelect = bulkStatusForm.querySelector('select[name="status"]');
+                if (!statusSelect || !statusSelect.value) {
+                    event.preventDefault();
+                    return;
+                }
+                if (!window.confirm('Update status for selected clients?')) {
+                    event.preventDefault();
+                }
+            });
+        }
+
+        if (modalBody) {
+            modalBody.addEventListener('submit', async (event) => {
+            const form = event.target;
+            if (!form || form.id !== 'clientModalForm') {
+                return;
+            }
+
+            event.preventDefault();
+            const action = form.getAttribute('action');
+            const formData = new FormData(form);
+
+            try {
+                const response = await fetch(action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const payload = await response.json();
+
+                if (response.ok && payload.ok) {
+                    window.location.href = payload.redirect_url || '{% url "clients_list" %}';
+                    return;
+                }
+
+                modalBody.innerHTML = payload.html || '<div class="alert alert-danger mb-0">Unable to submit form.</div>';
+                if (window.AvantechFormEnhancer && typeof window.AvantechFormEnhancer.enhance === 'function') {
+                    window.AvantechFormEnhancer.enhance(modalBody);
+                }
+                applyLeadRules(modalBody);
+            } catch (error) {
+                modalBody.innerHTML = '<div class="alert alert-danger mb-0">Unable to submit client form.</div>';
+            }
+        });
+        }
+    })();
+</script>
+{% endblock %}

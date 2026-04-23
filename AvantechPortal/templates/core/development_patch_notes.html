@@ -1,0 +1,247 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Patch Notes{% endblock %}
+{% block page_heading %}Patch Notes{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div>
+                <h2 class="h5 mb-1">Release History</h2>
+                <p class="text-secondary small mb-0">
+                    {% if can_manage_patch_notes %}
+                        Admin view includes published and unpublished notes.
+                    {% else %}
+                        Showing published release notes.
+                    {% endif %}
+                </p>
+            </div>
+            <a href="{% url 'development_hub' %}" class="btn btn-outline-secondary btn-sm">Back to Development</a>
+        </div>
+
+        {% if can_add_patch_notes %}
+            <div class="border rounded-3 p-3 mb-3">
+                <h3 class="h6 mb-2">Post Patch Note</h3>
+                <form method="post" enctype="multipart/form-data" class="row g-2">
+                    {% csrf_token %}
+                    <div class="col-md-3">
+                        <label class="form-label" for="{{ patch_note_form.version.id_for_label }}">Version</label>
+                        {{ patch_note_form.version }}
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label" for="{{ patch_note_form.title.id_for_label }}">Title</label>
+                        {{ patch_note_form.title }}
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label" for="{{ patch_note_form.published_at.id_for_label }}">Published Date</label>
+                        {{ patch_note_form.published_at }}
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <div class="form-check">
+                            {{ patch_note_form.is_published }}
+                            <label class="form-check-label" for="{{ patch_note_form.is_published.id_for_label }}">Published</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="{{ patch_note_form.details.id_for_label }}">Details</label>
+                        {{ patch_note_form.details }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="{{ patch_note_form.attachment_files.id_for_label }}">Attachments</label>
+                        {{ patch_note_form.attachment_files }}
+                        <div class="form-text">Supports images, videos, and other files. Executable/script file types are blocked for safety.</div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-success">Post Patch Note</button>
+                    </div>
+                </form>
+            </div>
+        {% endif %}
+
+        {% if patch_notes_page %}
+            <div class="d-grid gap-3">
+                {% for note in patch_notes_page %}
+                    <article class="border rounded-3 p-3 bg-light-subtle patch-note-card">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1 patch-note-head">
+                            <strong>v{{ note.version }} · {{ note.title }}</strong>
+                            <span class="small text-secondary">{{ note.published_at }}</span>
+                        </div>
+
+                        {% if note.can_edit or note.can_delete %}
+                            <div class="patch-actions-menu patch-actions-menu-floating">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#patchActionsModal{{ note.id }}"
+                                    aria-label="Patch note actions"
+                                >
+                                    <span class="btn-icon" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
+                                            <circle cx="12" cy="5" r="1.8" fill="currentColor"/>
+                                            <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
+                                            <circle cx="12" cy="19" r="1.8" fill="currentColor"/>
+                                        </svg>
+                                    </span>
+                                </button>
+                            </div>
+                        {% endif %}
+
+                        <div class="small text-secondary mb-1">
+                            Status: {% if note.is_published %}Published{% else %}Draft{% endif %}
+                        </div>
+                        <div style="white-space: pre-wrap;">{{ note.details }}</div>
+
+                        {% if note.attachments_for_display %}
+                            <div class="mt-2 patch-note-attachments">
+                                <div class="small fw-semibold mb-1">Attachments</div>
+                                <div class="d-grid gap-2">
+                                    {% for attachment in note.attachments_for_display %}
+                                        <div class="patch-note-attachment-item border rounded-2 p-2 bg-white">
+                                            {% if attachment.kind == 'image' %}
+                                                <img src="{{ attachment.url }}" alt="{{ attachment.name }}" class="patch-note-attachment-image mb-2">
+                                            {% elif attachment.kind == 'video' %}
+                                                <video src="{{ attachment.url }}" class="patch-note-attachment-video mb-2" controls preload="metadata"></video>
+                                            {% endif %}
+                                            <a href="{{ attachment.url }}" class="small text-decoration-none" target="_blank" rel="noopener">
+                                                {{ attachment.name }}
+                                            </a>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <div class="d-flex align-items-center gap-2 mt-3 flex-wrap">
+                            {% for reaction in note.reaction_buttons %}
+                                <form method="post" action="{% url 'development_patch_note_toggle_like' note.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="reaction" value="{{ reaction.key }}">
+                                    <button type="submit" class="btn btn-sm reaction-pill reaction-pill-{{ reaction.key }} {% if reaction.is_selected %}is-selected{% endif %}">
+                                        <span class="reaction-icon" aria-hidden="true">
+                                            {% if reaction.key == 'like' %}
+                                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none"><path d="M10 10V5.5C10 4.1 11.1 3 12.5 3L13 3C13.6 3 14 3.4 14 4L14 8.5L16.4 8.5C17.6 8.5 18.5 9.6 18.2 10.8L17.2 16.3C17 17.2 16.2 17.8 15.3 17.8H10M10 10H7.2C6.5 10 6 10.5 6 11.2V16.6C6 17.3 6.5 17.8 7.2 17.8H10M10 10V17.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            {% elif reaction.key == 'love' %}
+                                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none"><path d="M12 20.2C11.8 20.2 11.5 20.1 11.3 19.9C7.1 16.7 4.5 14.3 4.5 10.9C4.5 8.6 6.3 6.8 8.6 6.8C10 6.8 11.3 7.5 12 8.6C12.7 7.5 14 6.8 15.4 6.8C17.7 6.8 19.5 8.6 19.5 10.9C19.5 14.3 16.9 16.7 12.7 19.9C12.5 20.1 12.2 20.2 12 20.2Z" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            {% elif reaction.key == 'celebrate' %}
+                                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none"><path d="M7 14L11 10L14 13L10 17L7 14Z" stroke="currentColor" stroke-width="1.9"/><path d="M11 10L16.5 4.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M14 13L19.5 7.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M5 19L9.5 14.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+                                            {% else %}
+                                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none"><path d="M12 5.5C8.1 5.5 5 8.6 5 12.5C5 16.4 8.1 19.5 12 19.5C15.9 19.5 19 16.4 19 12.5C19 8.6 15.9 5.5 12 5.5Z" stroke="currentColor" stroke-width="1.9"/><path d="M12 9.2V12.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="15.4" r="1" fill="currentColor"/></svg>
+                                            {% endif %}
+                                        </span>
+                                        <span>{{ reaction.label }}</span>
+                                        <span class="reaction-count">{{ reaction.count }}</span>
+                                    </button>
+                                </form>
+                            {% endfor %}
+                        </div>
+
+                        <div class="mt-3">
+                            <h4 class="h6 mb-2">Comments</h4>
+                            <div class="d-grid gap-2 mb-2">
+                                {% for comment in note.comments_for_display %}
+                                    <div class="small border-start border-3 border-success ps-2">
+                                        <div class="text-secondary mb-1">
+                                            {{ comment.created_by.get_full_name|default:comment.created_by.username|default:'User' }} · {{ comment.created_at|date:'Y-m-d H:i' }}
+                                        </div>
+                                        <div style="white-space: pre-wrap;">{{ comment.comment }}</div>
+                                        {% if request.user.is_superuser or request.user.id == comment.created_by_id %}
+                                            <details class="comment-actions-menu mt-2">
+                                                <summary class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" aria-label="Comment actions">
+                                                    <span class="btn-icon" aria-hidden="true">
+                                                        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
+                                                            <circle cx="12" cy="5" r="1.8" fill="currentColor"/>
+                                                            <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
+                                                            <circle cx="12" cy="19" r="1.8" fill="currentColor"/>
+                                                        </svg>
+                                                    </span>
+                                                </summary>
+                                                <div class="comment-actions-panel border rounded-2 bg-white p-2 shadow-sm mt-1">
+                                                    <form method="post" action="{% url 'development_patch_note_comment_edit' comment.id %}" class="d-grid gap-2 mb-2">
+                                                        {% csrf_token %}
+                                                        <textarea name="comment" class="form-control form-control-sm" rows="2">{{ comment.comment }}</textarea>
+                                                        <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                                                    </form>
+                                                    <form method="post" action="{% url 'development_patch_note_comment_delete' comment.id %}" onsubmit="return confirm('Delete this comment?');">
+                                                        {% csrf_token %}
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Delete</button>
+                                                    </form>
+                                                </div>
+                                            </details>
+                                        {% endif %}
+                                    </div>
+                                {% empty %}
+                                    <div class="small text-secondary">No comments yet.</div>
+                                {% endfor %}
+                            </div>
+
+                            <form method="post" action="{% url 'development_patch_note_comment_add' note.id %}" class="d-grid gap-2">
+                                {% csrf_token %}
+                                <textarea name="comment" class="form-control" rows="2" placeholder="Write a comment"></textarea>
+                                <div>
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Post Comment</button>
+                                </div>
+                            </form>
+                        </div>
+                    </article>
+
+                    {% if note.can_edit or note.can_delete %}
+                        <div class="modal fade" id="patchActionsModal{{ note.id }}" tabindex="-1" aria-labelledby="patchActionsModalLabel{{ note.id }}" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h3 class="modal-title fs-6" id="patchActionsModalLabel{{ note.id }}">Patch Note Actions · v{{ note.version }}</h3>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        {% if note.can_edit %}
+                                            <form method="post" enctype="multipart/form-data" action="{% url 'development_patch_note_update' note.id %}" class="d-grid gap-2 mb-3">
+                                                {% csrf_token %}
+                                                <input type="text" name="version" class="form-control form-control-sm" value="{{ note.version }}" placeholder="Version">
+                                                <input type="text" name="title" class="form-control form-control-sm" value="{{ note.title }}" placeholder="Title">
+                                                <input type="date" name="published_at" class="form-control form-control-sm" value="{{ note.published_at|date:'Y-m-d' }}">
+                                                <textarea name="details" class="form-control form-control-sm" rows="4">{{ note.details }}</textarea>
+                                                <input type="file" name="attachment_files" class="form-control form-control-sm" multiple>
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" name="is_published" id="patch_published_{{ note.id }}" {% if note.is_published %}checked{% endif %}>
+                                                    <label class="form-check-label" for="patch_published_{{ note.id }}">Published</label>
+                                                </div>
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">Save Patch Note</button>
+                                            </form>
+                                        {% endif %}
+
+                                        {% if note.can_delete %}
+                                            <form method="post" action="{% url 'development_patch_note_delete' note.id %}" onsubmit="return confirm('Delete this patch note?');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger w-100">Delete Patch Note</button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center pt-3">
+                <span class="small text-secondary">Page {{ patch_notes_page.number }} of {{ patch_notes_page.paginator.num_pages }}</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Patch notes pagination">
+                    {% if patch_notes_page.has_previous %}
+                        <a class="btn btn-outline-secondary" href="?page={{ patch_notes_page.previous_page_number }}">Previous</a>
+                    {% endif %}
+                    {% for page_number in patch_notes_page_numbers %}
+                        <a class="btn {% if page_number == patch_notes_page.number %}btn-success{% else %}btn-outline-secondary{% endif %}" href="?page={{ page_number }}">{{ page_number }}</a>
+                    {% endfor %}
+                    {% if patch_notes_page.has_next %}
+                        <a class="btn btn-outline-secondary" href="?page={{ patch_notes_page.next_page_number }}">Next</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <p class="text-secondary mb-0">No patch notes available yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Notifications | Avantech Portal{% endblock %}
+{% block page_heading %}Notifications{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+    <div class="col-md-6 col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-secondary mb-1">Total Notifications</p>
+                <h4 class="mb-0">{{ total_notifications }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-secondary mb-1">Unread</p>
+                <h4 class="mb-0">{{ total_unread }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label mb-1" for="notification-q">Search</label>
+                <input id="notification-q" name="q" type="text" value="{{ query }}" class="form-control" placeholder="Title or message">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label mb-1" for="notification-status">Status</label>
+                <select id="notification-status" name="status" class="form-select">
+                    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
+                    <option value="unread" {% if status_filter == 'unread' %}selected{% endif %}>Unread</option>
+                    <option value="read" {% if status_filter == 'read' %}selected{% endif %}>Read</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-success w-100">Apply</button>
+                <a href="{% url 'notifications_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Title</th>
+                    <th>Message</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th class="text-end">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for notification in page_obj %}
+                <tr>
+                    <td class="fw-semibold">{{ notification.title }}</td>
+                    <td>{{ notification.message }}</td>
+                    <td>
+                        {% if notification.is_read %}
+                        <span class="badge bg-secondary">Read</span>
+                        {% else %}
+                        <span class="badge bg-success">Unread</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ notification.created_at|date:'M d, Y H:i' }}</td>
+                    <td class="text-end">
+                        {% if not notification.is_read %}
+                        <form method="post" action="{% url 'mark_notifications_read' %}" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="notification_id" value="{{ notification.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                        </form>
+                        {% else %}
+                        <span class="text-muted small">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center py-4 text-secondary">No notifications found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if page_obj.has_other_pages %}
+    <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+        <small class="text-secondary">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</small>
+        <div class="btn-group" role="group" aria-label="Notification pagination">
+            {% if page_obj.has_previous %}
+            <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&status={{ status_filter|urlencode }}&page={{ page_obj.previous_page_number }}">Previous</a>
+            {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+            {% endif %}
+            {% if page_obj.has_next %}
+            <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&status={{ status_filter|urlencode }}&page={{ page_obj.next_page_number }}">Next</a>
+            {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

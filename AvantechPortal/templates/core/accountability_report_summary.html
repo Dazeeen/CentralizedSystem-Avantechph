@@ -1,0 +1,177 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Accountability Summary Report | Avantech Portal{% endblock %}
+{% block page_heading %}Accountability Summary Report{% endblock %}
+
+{% block content %}
+<div class="report-doc-wrap">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 report-toolbar print-hide">
+    <div>
+        <h2 class="h4 mb-1">Asset Accountability Summary Document</h2>
+        <p class="text-secondary mb-0">Scope: {{ report_scope_label }} | Generated: {{ generated_at|date:'Y-m-d H:i' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{% url 'accountability_report_summary_csv' %}?month={{ filter_state.month|urlencode }}&start_date={{ filter_state.start_date|urlencode }}&end_date={{ filter_state.end_date|urlencode }}" class="btn btn-outline-success">Download CSV</a>
+        <button type="button" class="btn btn-success" onclick="window.print();">Ready to Print</button>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <span class="d-inline-flex align-items-center justify-content-center rounded-3" style="width:48px;height:48px;background:#e7f6ec;color:#0d4d2a;">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 3L20 8V16L12 21L4 16V8L12 3Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M8.5 13.5L12 7.5L15.5 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <div>
+                    <div class="fw-bold">Avantech Centralized System</div>
+                    <div class="small text-secondary">Asset Accountability Reporting Document</div>
+                </div>
+            </div>
+            <div class="small text-secondary text-end">
+                <div>Document Type: Summary</div>
+                <div>Scope: {{ report_scope_label }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-secondary mb-1">Total Records</p>
+                <h4 class="mb-0">{{ summary.total_records|default:0 }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-secondary mb-1">Total Quantity</p>
+                <h4 class="mb-0">{{ summary.total_quantity|default:0 }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-secondary mb-1">Active Borrowed</p>
+                <h4 class="mb-0">{{ summary.active_borrowed|default:0 }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-secondary mb-1">Returned</p>
+                <h4 class="mb-0">{{ summary.total_returned|default:0 }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white">
+        <h3 class="h6 mb-0">Borrower Coverage</h3>
+    </div>
+    <div class="card-body">
+        <p class="mb-0">Unique Borrowers in selected scope: <strong>{{ unique_borrowers_count }}</strong></p>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white">
+        <h3 class="h6 mb-0">Top Borrowed Items (Top 20)</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Item Code</th>
+                    <th>Item Name</th>
+                    <th>Total Records</th>
+                    <th>Total Quantity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in item_summary_rows %}
+                <tr>
+                    <td>{{ row.item__item_code }}</td>
+                    <td>{{ row.item__item_name }}</td>
+                    <td>{{ row.total_records }}</td>
+                    <td>{{ row.total_quantity|default:0 }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center py-3 text-secondary">No records in selected scope.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white">
+        <h3 class="h6 mb-0">Top Borrowers (Top 20)</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Borrower</th>
+                    <th>Total Records</th>
+                    <th>Total Quantity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in borrower_summary_rows %}
+                <tr>
+                    <td>{{ row.borrowed_by__first_name }} {{ row.borrowed_by__last_name }}{% if not row.borrowed_by__first_name and not row.borrowed_by__last_name %}{{ row.borrowed_by__username|default:'-' }}{% endif %}</td>
+                    <td>{{ row.total_records }}</td>
+                    <td>{{ row.total_quantity|default:0 }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="3" class="text-center py-3 text-secondary">No records in selected scope.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white">
+        <h3 class="h6 mb-0">Sign-off</h3>
+    </div>
+    <div class="card-body">
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="small text-secondary mb-3">Prepared By</div>
+                <div style="border-bottom:1px solid #ced4da; height: 32px;"></div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-secondary mb-3">Checked By</div>
+                <div style="border-bottom:1px solid #ced4da; height: 32px;"></div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-secondary mb-3">Approved By</div>
+                <div style="border-bottom:1px solid #ced4da; height: 32px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+{% if auto_print %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    window.print();
+});
+</script>
+{% endif %}
+{% endblock %}

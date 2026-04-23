@@ -1,0 +1,582 @@
+{% extends "base_app.html" %}
+{% load static %}
+
+{% block title %}Borrow Item | Asset Accountability{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-lg-6 offset-lg-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="bi bi-hand-thumbs-up me-2"></i>{{ page_title }}
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <form method="post" class="needs-validation" novalidate>
+                        {% csrf_token %}
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {{ form.non_field_errors|join:', ' }}
+                        </div>
+                        {% endif %}
+
+                        <!-- Item Selection -->
+                        <div class="mb-3">
+                            <label for="{{ form.item.id_for_label }}" class="form-label">
+                                {{ form.items.label }}
+                                <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group mb-2">
+                                <input
+                                    type="text"
+                                    id="borrowItemSearch"
+                                    class="form-control"
+                                    list="borrowItemOptionsList"
+                                    placeholder="Type to search item..."
+                                    autocomplete="off"
+                                >
+                                <button type="button" class="btn btn-outline-primary" id="borrowItemAddBtn">Add Item</button>
+                            </div>
+                            <datalist id="borrowItemOptionsList"></datalist>
+                            <div class="border rounded p-2 bg-light-subtle mb-2" id="borrowSelectedItemsList">
+                                <div class="small text-muted">No items selected yet.</div>
+                            </div>
+                            {{ form.items }}
+                            {{ form.item_quantities }}
+                            {{ form.item }}
+                            {% if form.items.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.items.errors.0 }}
+                            </div>
+                            {% endif %}
+                            <small class="form-text text-muted">Select one or more items, then set quantity per selected item.</small>
+                        </div>
+
+                        <div id="borrowItemNotice" class="alert alert-warning d-none" role="alert"></div>
+
+                        <!-- Auto-filled Item Details -->
+                        <div class="row" id="itemDetailsContainer" style="display: none;">
+                            <div class="col-12 mb-3">
+                                <label class="form-label">Asset Image</label>
+                                <div>
+                                    <img id="itemImagePreview" src="" alt="Asset image" class="rounded border" style="width: 72px; height: 72px; object-fit: cover; display: none;">
+                                    <div id="itemImageFallback" class="small text-muted">No image uploaded for this asset.</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Item Name</label>
+                                <div class="form-control" id="itemNameDisplay" style="background-color: #f8f9fa;">-</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Item Type</label>
+                                <div class="form-control" id="itemTypeDisplay" style="background-color: #f8f9fa;">-</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Available Stock</label>
+                                <div class="form-control" id="availableStockDisplay" style="background-color: #f8f9fa;">-</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Stock Status</label>
+                                <div id="stockStatusDisplay" style="padding: 0.375rem 0.75rem;">-</div>
+                            </div>
+                            <div class="col-12 mb-3">
+                                <label class="form-label">Specification</label>
+                                <div class="form-control" id="specificationDisplay" style="background-color: #f8f9fa; white-space: pre-wrap;">-</div>
+                            </div>
+                        </div>
+
+                        {{ form.quantity_borrowed.as_hidden }}
+
+                        <!-- Notes -->
+                        <div class="mb-4">
+                            <label for="{{ form.notes.id_for_label }}" class="form-label">
+                                {{ form.notes.label }}
+                            </label>
+                            {{ form.notes }}
+                            {% if form.notes.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.notes.errors.0 }}
+                            </div>
+                            {% endif %}
+                            <small class="form-text text-muted">Optional: Add any notes about this borrowing</small>
+                        </div>
+
+                        <!-- Buttons -->
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary flex-grow-1">
+                                <i class="bi bi-check-lg me-1"></i>{{ submit_label }}
+                            </button>
+                            <a href="{% url 'accountability_list' %}" class="btn btn-outline-secondary flex-grow-1">
+                                <i class="bi bi-x-lg me-1"></i>Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Info Alert -->
+            <div class="alert alert-info mt-3" role="alert">
+                <h6 class="alert-heading"><i class="bi bi-info-circle me-2"></i>Important</h6>
+                <ul class="mb-0 ms-3">
+                    <li>Borrow requests are reviewed first by an admin before stock is deducted</li>
+                    <li>Make sure to return items when you're done using them</li>
+                    <li>Once approved or declined, you will receive a notification</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const itemSelect = document.getElementById('{{ form.item.id_for_label }}');
+    const itemsSelect = document.getElementById('{{ form.items.id_for_label }}');
+    const itemSearchInput = document.getElementById('borrowItemSearch');
+    const itemOptionsList = document.getElementById('borrowItemOptionsList');
+    const borrowItemAddBtn = document.getElementById('borrowItemAddBtn');
+    const borrowSelectedItemsList = document.getElementById('borrowSelectedItemsList');
+    const itemQuantitiesInput = document.getElementById('{{ form.item_quantities.id_for_label }}');
+    const itemDetailsContainer = document.getElementById('itemDetailsContainer');
+    const borrowItemNotice = document.getElementById('borrowItemNotice');
+    const selectedItemIds = new Set();
+    const selectedItemQuantities = {};
+    const itemAvailabilityMap = {};
+    const itemImageMap = {};
+    const itemAvailabilityLoadingMap = {};
+
+    if (itemSelect) {
+        itemSelect.classList.add('d-none');
+    }
+    if (itemsSelect) {
+        itemsSelect.classList.add('d-none');
+    }
+
+    function getSelectableOptions() {
+        if (!itemSelect) {
+            return [];
+        }
+        return Array.from(itemSelect.options || []).filter(function(option) {
+            return option && option.value;
+        });
+    }
+
+    function syncSearchOptions(filterText) {
+        if (!itemOptionsList) {
+            return;
+        }
+
+        const normalizedFilter = (filterText || '').trim().toLowerCase();
+        const options = getSelectableOptions().filter(function(option) {
+            if (!normalizedFilter) {
+                return true;
+            }
+            return (option.text || '').toLowerCase().includes(normalizedFilter);
+        });
+
+        itemOptionsList.innerHTML = options.map(function(option) {
+            const label = (option.text || '').replace(/"/g, '&quot;');
+            return `<option value="${label}"></option>`;
+        }).join('');
+    }
+
+    function findOptionByLabel(labelText) {
+        const typedValue = (labelText || '').trim().toLowerCase();
+        if (!typedValue) {
+            return null;
+        }
+        return getSelectableOptions().find(function(option) {
+            return (option.text || '').trim().toLowerCase() === typedValue;
+        }) || null;
+    }
+
+    function syncItemsSelect() {
+        if (!itemsSelect) {
+            return;
+        }
+        Array.from(itemsSelect.options || []).forEach(function(option) {
+            option.selected = selectedItemIds.has(String(option.value));
+        });
+    }
+
+    function renderSelectedItems() {
+        if (!borrowSelectedItemsList) {
+            return;
+        }
+
+        const selectedEntries = getSelectableOptions().filter(function(option) {
+            return selectedItemIds.has(String(option.value));
+        });
+
+        if (!selectedEntries.length) {
+            borrowSelectedItemsList.innerHTML = '<div class="small text-muted">No items selected yet.</div>';
+            return;
+        }
+
+        borrowSelectedItemsList.innerHTML = selectedEntries.map(function(option) {
+            const value = String(option.value).replace(/"/g, '&quot;');
+            const itemId = String(option.value);
+            const label = (option.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const currentQty = parseInt(selectedItemQuantities[String(option.value)] || 1, 10);
+            const availableStock = itemAvailabilityMap[itemId];
+            const imageUrl = itemImageMap[itemId] || '';
+            const availabilityHint = Number.isInteger(availableStock)
+                ? `Available: ${availableStock}`
+                : 'Checking availability...';
+            return `
+                <div class="d-flex align-items-center justify-content-between border rounded bg-white px-2 py-1 mb-1">
+                    <div class="d-flex align-items-center me-2 gap-2">
+                        ${imageUrl
+                            ? `<img src="${imageUrl}" alt="Item image" class="rounded border" style="width: 28px; height: 28px; object-fit: cover;">`
+                            : `<span class="d-inline-flex align-items-center justify-content-center rounded border bg-light text-secondary" style="width: 28px; height: 28px;">-</span>`}
+                        <div>
+                            <div class="small">${label}</div>
+                            <div class="small text-secondary" data-item-availability-id="${value}">${availabilityHint}</div>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <input
+                            type="number"
+                            class="form-control form-control-sm"
+                            data-item-qty-id="${value}"
+                            min="1"
+                            step="1"
+                            ${Number.isInteger(availableStock) && availableStock > 0 ? `max="${availableStock}"` : ''}
+                            value="${Number.isNaN(currentQty) ? 1 : currentQty}"
+                            style="width: 88px;"
+                            aria-label="Quantity"
+                        >
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-remove-item-id="${value}">Remove</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function fetchAvailabilityForItem(itemId) {
+        if (!itemId) {
+            return;
+        }
+        if (Object.prototype.hasOwnProperty.call(itemAvailabilityMap, itemId)) {
+            return;
+        }
+        if (itemAvailabilityLoadingMap[itemId]) {
+            return;
+        }
+
+        itemAvailabilityLoadingMap[itemId] = true;
+        fetch(`{% url 'accountability_item_auto_fill' %}?item_id=${itemId}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data && data.ok) {
+                const available = parseInt(data.available_stock, 10);
+                itemAvailabilityMap[itemId] = Number.isNaN(available) ? null : available;
+                itemImageMap[itemId] = data.image_url || '';
+            } else {
+                itemAvailabilityMap[itemId] = null;
+                itemImageMap[itemId] = '';
+            }
+
+            if (!selectedItemQuantities[itemId] || selectedItemQuantities[itemId] < 1) {
+                selectedItemQuantities[itemId] = 1;
+            }
+
+            if (Number.isInteger(itemAvailabilityMap[itemId]) && itemAvailabilityMap[itemId] > 0) {
+                selectedItemQuantities[itemId] = Math.min(selectedItemQuantities[itemId], itemAvailabilityMap[itemId]);
+            }
+
+            renderSelectedItems();
+            syncItemQuantitiesPayload();
+        })
+        .catch(() => {
+            itemAvailabilityMap[itemId] = null;
+            itemImageMap[itemId] = '';
+            renderSelectedItems();
+        })
+        .finally(() => {
+            itemAvailabilityLoadingMap[itemId] = false;
+        });
+    }
+
+    function ensureAvailabilityLoadedForSelectedItems() {
+        selectedItemIds.forEach(function(itemId) {
+            fetchAvailabilityForItem(itemId);
+        });
+    }
+
+    function syncItemQuantitiesPayload() {
+        if (!itemQuantitiesInput) {
+            return;
+        }
+
+        const payload = {};
+        selectedItemIds.forEach(function(itemId) {
+            const parsedQty = parseInt(selectedItemQuantities[itemId] || 1, 10);
+            payload[itemId] = Number.isNaN(parsedQty) || parsedQty < 1 ? 1 : parsedQty;
+        });
+        itemQuantitiesInput.value = JSON.stringify(payload);
+    }
+
+    function addTypedItem() {
+        const typed = itemSearchInput ? itemSearchInput.value : '';
+        const matchedOption = findOptionByLabel(typed);
+
+        if (!matchedOption) {
+            showNotice('Select a valid item from the dropdown suggestions before adding.');
+            return;
+        }
+
+        clearNotice();
+        const selectedId = String(matchedOption.value);
+        selectedItemIds.add(selectedId);
+        if (!selectedItemQuantities[selectedId]) {
+            selectedItemQuantities[selectedId] = 1;
+        }
+        syncItemsSelect();
+        renderSelectedItems();
+        syncItemQuantitiesPayload();
+        ensureAvailabilityLoadedForSelectedItems();
+
+        if (itemSelect && itemSelect.value !== matchedOption.value) {
+            itemSelect.value = matchedOption.value;
+            itemSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        if (itemSearchInput) {
+            itemSearchInput.value = '';
+            syncSearchOptions('');
+            itemSearchInput.focus();
+        }
+    }
+
+    function syncSelectFromSearch() {
+        if (!itemSelect || !itemSearchInput) {
+            return;
+        }
+
+        const matchedOption = findOptionByLabel(itemSearchInput.value || '');
+
+        const nextValue = matchedOption ? matchedOption.value : '';
+        if (itemSelect.value !== nextValue) {
+            itemSelect.value = nextValue;
+            itemSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    function showNotice(message) {
+        if (!borrowItemNotice) {
+            return;
+        }
+        borrowItemNotice.textContent = message;
+        borrowItemNotice.classList.remove('d-none');
+    }
+
+    function clearNotice() {
+        if (!borrowItemNotice) {
+            return;
+        }
+        borrowItemNotice.textContent = '';
+        borrowItemNotice.classList.add('d-none');
+    }
+
+    function autoFillItemDetails() {
+        const itemId = itemSelect.value;
+
+        if (!itemId) {
+            itemDetailsContainer.style.display = 'none';
+            clearNotice();
+            return;
+        }
+
+        // Fetch item details via AJAX
+        fetch(`{% url 'accountability_item_auto_fill' %}?item_id=${itemId}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.ok) {
+                clearNotice();
+                document.getElementById('itemNameDisplay').textContent = data.item_name;
+                document.getElementById('itemTypeDisplay').textContent = data.item_type;
+                document.getElementById('availableStockDisplay').textContent = data.available_stock + 'x';
+                document.getElementById('specificationDisplay').textContent = data.specification || 'N/A';
+
+                const previewImg = document.getElementById('itemImagePreview');
+                const fallbackLabel = document.getElementById('itemImageFallback');
+                if (data.image_url) {
+                    previewImg.src = data.image_url;
+                    previewImg.style.display = 'inline-block';
+                    fallbackLabel.style.display = 'none';
+                } else {
+                    previewImg.src = '';
+                    previewImg.style.display = 'none';
+                    fallbackLabel.style.display = 'block';
+                }
+
+                // Set stock status badge
+                const statusDisplay = document.getElementById('stockStatusDisplay');
+                let badgeClass = 'badge bg-success';
+                if (data.stock_status === 'low stock') {
+                    badgeClass = 'badge bg-warning';
+                } else if (data.stock_status === 'out of stock') {
+                    badgeClass = 'badge bg-danger';
+                }
+                statusDisplay.innerHTML = `<span class="${badgeClass}">${data.stock_status}</span>`;
+
+                itemDetailsContainer.style.display = 'block';
+            } else {
+                itemDetailsContainer.style.display = 'none';
+                showNotice(data.message || 'This item is not available for borrowing.');
+            }
+        })
+        .catch(error => {
+            itemDetailsContainer.style.display = 'none';
+            showNotice('Unable to load item availability right now.');
+        });
+    }
+
+    // Trigger auto-fill when item selection changes
+    itemSelect.addEventListener('change', autoFillItemDetails);
+
+    if (borrowItemAddBtn) {
+        borrowItemAddBtn.addEventListener('click', addTypedItem);
+    }
+
+    if (itemSearchInput) {
+        itemSearchInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                addTypedItem();
+            }
+        });
+    }
+
+    if (borrowSelectedItemsList) {
+        borrowSelectedItemsList.addEventListener('click', function(event) {
+            const removeButton = event.target.closest('[data-remove-item-id]');
+            if (!removeButton) {
+                return;
+            }
+
+            const removeId = removeButton.getAttribute('data-remove-item-id') || '';
+            if (!removeId) {
+                return;
+            }
+
+            selectedItemIds.delete(String(removeId));
+            delete selectedItemQuantities[String(removeId)];
+            syncItemsSelect();
+            renderSelectedItems();
+            syncItemQuantitiesPayload();
+
+            if (itemSelect && itemSelect.value === String(removeId)) {
+                itemSelect.value = '';
+                itemSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+    }
+
+    if (borrowSelectedItemsList) {
+        borrowSelectedItemsList.addEventListener('input', function(event) {
+            const qtyInput = event.target.closest('[data-item-qty-id]');
+            if (!qtyInput) {
+                return;
+            }
+
+            const itemId = qtyInput.getAttribute('data-item-qty-id') || '';
+            if (!itemId) {
+                return;
+            }
+
+            let parsedQty = parseInt(qtyInput.value || '1', 10);
+            if (Number.isNaN(parsedQty) || parsedQty < 1) {
+                parsedQty = 1;
+            }
+
+            const availableStock = parseInt(itemAvailabilityMap[itemId], 10);
+            if (!Number.isNaN(availableStock) && availableStock > 0) {
+                parsedQty = Math.min(parsedQty, availableStock);
+            }
+
+            qtyInput.value = String(parsedQty);
+            selectedItemQuantities[itemId] = parsedQty;
+            syncItemQuantitiesPayload();
+        });
+    }
+
+    if (itemSearchInput) {
+        syncSearchOptions('');
+
+        itemSearchInput.addEventListener('input', function() {
+            syncSearchOptions(itemSearchInput.value);
+            syncSelectFromSearch();
+        });
+
+        itemSearchInput.addEventListener('change', function() {
+            syncSelectFromSearch();
+        });
+    }
+
+    // Initial auto-fill if item is already selected (edit mode)
+    if (itemSelect.value) {
+        const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+        if (selectedOption && itemSearchInput) {
+            itemSearchInput.value = selectedOption.text || '';
+        }
+        autoFillItemDetails();
+    }
+
+    if (itemsSelect) {
+        Array.from(itemsSelect.selectedOptions || []).forEach(function(option) {
+            const optionId = String(option.value);
+            selectedItemIds.add(optionId);
+            if (!selectedItemQuantities[optionId]) {
+                selectedItemQuantities[optionId] = 1;
+            }
+        });
+        syncItemsSelect();
+        renderSelectedItems();
+        syncItemQuantitiesPayload();
+        ensureAvailabilityLoadedForSelectedItems();
+    }
+
+    // Form validation
+    const form = document.querySelector('.needs-validation');
+    form.addEventListener('submit', function(event) {
+        if (selectedItemIds.size < 1) {
+            event.preventDefault();
+            event.stopPropagation();
+            showNotice('Select at least one item to borrow.');
+            return;
+        }
+
+        syncItemsSelect();
+        syncItemQuantitiesPayload();
+
+        const invalidQty = Array.from(selectedItemIds).some(function(itemId) {
+            const qty = parseInt(selectedItemQuantities[itemId] || 1, 10);
+            return Number.isNaN(qty) || qty < 1;
+        });
+        if (invalidQty) {
+            event.preventDefault();
+            event.stopPropagation();
+            showNotice('Each selected item must have quantity of at least 1.');
+            return;
+        }
+
+        if (!form.checkValidity()) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        form.classList.add('was-validated');
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,471 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Dashboard{% endblock %}
+{% block page_heading %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <h2 class="h4 mb-3">Welcome to Avantech Portal</h2>
+        <p class="mb-0 text-secondary">All user-related analytics and security activity are now available under the Users category.</p>
+    </div>
+</div>
+
+{% if can_view_clients %}
+    <div class="card border-0 shadow-sm mt-3">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 class="h6 mb-0">Lead Status Overview</h3>
+                <span class="small text-secondary">Intake, Qualified, Not Qualified, Lost, Converted</span>
+            </div>
+            <canvas id="dashboardClientsAnalyticsChart" height="104"></canvas>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mt-3">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 class="h6 mb-0">Agent Performance Comparison</h3>
+                <span class="small text-secondary">Score = (Converted x 2) + Qualified - Not Qualified - (Lost x 4)</span>
+            </div>
+            <canvas id="agentPerformanceChart" height="112"></canvas>
+
+            <div class="row g-3 mt-1">
+                <div class="col-md-4">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Top Agent</div>
+                        <div class="fw-semibold">{{ top_agent_name }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Top Agent Score</div>
+                        <div class="fw-semibold">{{ top_agent_score }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Top Agent Conversion Rate</div>
+                        <div class="fw-semibold">{{ top_agent_conversion_rate }}%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive mt-3">
+                <table class="table table-sm align-middle mb-0" id="agentPerformanceTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="name" data-sort-type="text" data-label="Agent">Agent</button>
+                            </th>
+                            <th class="text-end">
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="total" data-sort-type="number" data-label="Total Leads">Total Leads</button>
+                            </th>
+                            <th class="text-end">
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="converted" data-sort-type="number" data-label="Converted">Converted</button>
+                            </th>
+                            <th class="text-end">
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="lost" data-sort-type="number" data-label="Lost">Lost</button>
+                            </th>
+                            <th class="text-end">
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="rate" data-sort-type="number" data-label="Conversion Rate">Conversion Rate</button>
+                            </th>
+                            <th class="text-end">
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="recovery" data-sort-type="number" data-label="Recovery Target">Recovery Target</button>
+                            </th>
+                            <th class="text-end">
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 js-agent-sort" data-sort-key="score" data-sort-type="number" data-label="Score">Score</button>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in agent_performance_rows %}
+                            <tr
+                                data-name="{{ item.name }}"
+                                data-total="{{ item.total_leads }}"
+                                data-converted="{{ item.converted }}"
+                                data-lost="{{ item.lost }}"
+                                data-rate="{{ item.conversion_rate }}"
+                                data-recovery="{{ item.recovery_target }}"
+                                data-score="{{ item.weighted_score }}"
+                            >
+                                <td>{{ item.name }}</td>
+                                <td class="text-end">{{ item.total_leads }}</td>
+                                <td class="text-end">{{ item.converted }}</td>
+                                <td class="text-end">{{ item.lost }}</td>
+                                <td class="text-end">{{ item.conversion_rate }}%</td>
+                                <td class="text-end">
+                                    {% if item.recovery_target > 0 %}
+                                        <span class="badge text-bg-warning">Need {{ item.recovery_target }} converted</span>
+                                    {% else %}
+                                        <span class="badge text-bg-success">Recovered</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end fw-semibold">{{ item.weighted_score }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center text-secondary py-3">No handled leads yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mt-3">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 class="h6 mb-0">Sales Report</h3>
+                <form method="get" class="d-flex align-items-center gap-2">
+                    <label for="sales-range" class="small text-secondary mb-0">Range:</label>
+                    <select id="sales-range" name="range" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for days in sales_range_options %}
+                            <option value="{{ days }}" {% if selected_range_days == days %}selected{% endif %}>Last {{ days }} days</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+            <div class="small text-secondary mb-3">Based on quotation performance in the last {{ selected_range_days }} days.</div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Total Quotations</div>
+                        <div class="fw-semibold">{{ total_quotations }}</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Accepted Quotations</div>
+                        <div class="fw-semibold">{{ accepted_quotations }}</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Acceptance Rate</div>
+                        <div class="fw-semibold">{{ quotation_acceptance_rate }}%</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Accepted Sales Value</div>
+                        <div class="fw-semibold">PHP {{ accepted_quoted_amount }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Total Quoted Value</div>
+                        <div class="fw-semibold">PHP {{ total_quoted_amount }}</div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                        <div class="small text-secondary mb-1">Accepted vs Total Quotations</div>
+                        <div class="fw-semibold">{{ accepted_quotations }} / {{ total_quotations }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <canvas id="salesTrendChart" height="104"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script>
+        (function () {
+            const canvas = document.getElementById('dashboardClientsAnalyticsChart');
+            if (!canvas || !window.Chart) {
+                return;
+            }
+
+            new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: ['Intake', 'Qualified', 'Not Qualified', 'Lost', 'Converted'],
+                    datasets: [
+                        {
+                            label: 'Clients Count',
+                            data: [
+                                {{ intake_leads }},
+                                {{ qualified_leads }},
+                                {{ not_qualified_leads }},
+                                {{ lost_leads }},
+                                {{ converted_leads }}
+                            ],
+                            backgroundColor: [
+                                'rgba(25, 135, 84, 0.72)',
+                                'rgba(32, 201, 151, 0.72)',
+                                'rgba(255, 193, 7, 0.72)',
+                                'rgba(220, 53, 69, 0.72)',
+                                'rgba(13, 110, 253, 0.72)'
+                            ],
+                            borderWidth: 0,
+                            borderRadius: 6,
+                            maxBarThickness: 26,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                stepSize: 1,
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false,
+                        }
+                    }
+                }
+            });
+
+            const agentCanvas = document.getElementById('agentPerformanceChart');
+            const agentLabels = {{ agent_labels_json|safe }};
+            const agentIntake = {{ agent_intake_json|safe }};
+            const agentQualified = {{ agent_qualified_json|safe }};
+            const agentNotQualified = {{ agent_not_qualified_json|safe }};
+            const agentLost = {{ agent_lost_json|safe }};
+            const agentConverted = {{ agent_converted_json|safe }};
+            const agentWeightedScore = {{ agent_weighted_score_json|safe }};
+
+            if (agentCanvas && agentLabels.length) {
+                new Chart(agentCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels: agentLabels,
+                        datasets: [
+                            {
+                                label: 'Intake',
+                                data: agentIntake,
+                                backgroundColor: 'rgba(25, 135, 84, 0.5)',
+                                stack: 'leadCounts'
+                            },
+                            {
+                                label: 'Qualified',
+                                data: agentQualified,
+                                backgroundColor: 'rgba(32, 201, 151, 0.65)',
+                                stack: 'leadCounts'
+                            },
+                            {
+                                label: 'Not Qualified',
+                                data: agentNotQualified,
+                                backgroundColor: 'rgba(255, 193, 7, 0.7)',
+                                stack: 'leadCounts'
+                            },
+                            {
+                                label: 'Lost',
+                                data: agentLost,
+                                backgroundColor: 'rgba(220, 53, 69, 0.75)',
+                                stack: 'leadCounts'
+                            },
+                            {
+                                label: 'Converted',
+                                data: agentConverted,
+                                backgroundColor: 'rgba(13, 110, 253, 0.78)',
+                                stack: 'leadCounts'
+                            },
+                            {
+                                type: 'line',
+                                label: 'Performance Score',
+                                data: agentWeightedScore,
+                                borderColor: '#111827',
+                                backgroundColor: '#111827',
+                                yAxisID: 'scoreAxis',
+                                tension: 0.25,
+                                pointRadius: 3,
+                                pointHoverRadius: 4,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        scales: {
+                            x: {
+                                stacked: true,
+                            },
+                            y: {
+                                beginAtZero: true,
+                                stacked: true,
+                                ticks: {
+                                    precision: 0,
+                                    stepSize: 1,
+                                }
+                            },
+                            scoreAxis: {
+                                position: 'right',
+                                beginAtZero: true,
+                                grid: {
+                                    drawOnChartArea: false,
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            const performanceTable = document.getElementById('agentPerformanceTable');
+            if (performanceTable) {
+                const tbody = performanceTable.querySelector('tbody');
+                const sortButtons = performanceTable.querySelectorAll('.js-agent-sort');
+                const sortState = {
+                    key: 'score',
+                    direction: 'desc',
+                };
+
+                const getComparableValue = (row, key, type) => {
+                    const raw = (row.dataset[key] || '').toString();
+                    if (type === 'number') {
+                        const num = Number.parseFloat(raw);
+                        return Number.isNaN(num) ? 0 : num;
+                    }
+                    return raw.toLowerCase();
+                };
+
+                const sortRows = (key, type, direction) => {
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const sortableRows = rows.filter((row) => row.dataset && row.dataset.name);
+                    sortableRows.sort((a, b) => {
+                        const left = getComparableValue(a, key, type);
+                        const right = getComparableValue(b, key, type);
+                        if (left < right) {
+                            return direction === 'asc' ? -1 : 1;
+                        }
+                        if (left > right) {
+                            return direction === 'asc' ? 1 : -1;
+                        }
+                        return 0;
+                    });
+
+                    sortableRows.forEach((row) => tbody.appendChild(row));
+                };
+
+                sortButtons.forEach((button) => {
+                    if (!button.dataset.label) {
+                        button.dataset.label = (button.textContent || '').trim();
+                    }
+                    button.addEventListener('click', () => {
+                        const key = button.dataset.sortKey;
+                        const type = button.dataset.sortType || 'text';
+                        if (!key) {
+                            return;
+                        }
+
+                        if (sortState.key === key) {
+                            sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            sortState.key = key;
+                            sortState.direction = type === 'text' ? 'asc' : 'desc';
+                        }
+
+                        sortRows(sortState.key, type, sortState.direction);
+                        sortButtons.forEach((otherButton) => {
+                            const baseLabel = otherButton.dataset.label || '';
+                            if (otherButton.dataset.sortKey === sortState.key) {
+                                const indicator = sortState.direction === 'asc' ? ' \u2191' : ' \u2193';
+                                otherButton.textContent = `${baseLabel}${indicator}`;
+                            } else {
+                                otherButton.textContent = baseLabel;
+                            }
+                        });
+                    });
+                });
+
+                sortRows(sortState.key, 'number', sortState.direction);
+                sortButtons.forEach((button) => {
+                    const baseLabel = button.dataset.label || '';
+                    if (button.dataset.sortKey === sortState.key) {
+                        button.textContent = `${baseLabel} \u2193`;
+                    } else {
+                        button.textContent = baseLabel;
+                    }
+                });
+            }
+
+            const salesCanvas = document.getElementById('salesTrendChart');
+            const monthlyLabels = {{ monthly_labels_json|safe }};
+            const monthlySent = {{ monthly_sent_json|safe }};
+            const monthlyAccepted = {{ monthly_accepted_json|safe }};
+            const monthlyAcceptedAmount = {{ monthly_accepted_amount_json|safe }};
+
+            if (salesCanvas && monthlyLabels.length) {
+                new Chart(salesCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels: monthlyLabels,
+                        datasets: [
+                            {
+                                label: 'Sent Quotations',
+                                data: monthlySent,
+                                backgroundColor: 'rgba(13, 110, 253, 0.65)',
+                                borderRadius: 6,
+                                maxBarThickness: 24,
+                                yAxisID: 'countAxis',
+                            },
+                            {
+                                label: 'Accepted Quotations',
+                                data: monthlyAccepted,
+                                backgroundColor: 'rgba(25, 135, 84, 0.75)',
+                                borderRadius: 6,
+                                maxBarThickness: 24,
+                                yAxisID: 'countAxis',
+                            },
+                            {
+                                type: 'line',
+                                label: 'Accepted Sales Value',
+                                data: monthlyAcceptedAmount,
+                                borderColor: '#f59e0b',
+                                backgroundColor: '#f59e0b',
+                                yAxisID: 'amountAxis',
+                                tension: 0.3,
+                                pointRadius: 3,
+                                pointHoverRadius: 4,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        scales: {
+                            countAxis: {
+                                beginAtZero: true,
+                                position: 'left',
+                                ticks: {
+                                    precision: 0,
+                                    stepSize: 1,
+                                }
+                            },
+                            amountAxis: {
+                                beginAtZero: true,
+                                position: 'right',
+                                grid: {
+                                    drawOnChartArea: false,
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        })();
+    </script>
+{% endif %}
+{% endblock %}

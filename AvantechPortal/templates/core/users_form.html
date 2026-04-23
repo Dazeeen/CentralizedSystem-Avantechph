@@ -1,0 +1,319 @@
+{% extends 'base_app.html' %}
+{% load static %}
+
+{% block title %}Avantech Portal | {{ page_title }}{% endblock %}
+{% block page_heading %}Users{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-4">{{ page_title }}</h2>
+
+        <form method="post">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="row g-3">
+                {% for field in form %}
+                    {% if field.name == 'groups' %}
+                        <div class="col-12 col-lg-6">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label for="{{ field.id_for_label }}" class="form-label fw-semibold mb-0">{{ field.label }}</label>
+                                <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0">
+                                    <input type="checkbox" class="form-check-input js-toggle-all" data-target-field="groups" id="toggleAllGroups">
+                                    <span>Select all / Unselect all</span>
+                                </label>
+                            </div>
+                            <div class="table-responsive border rounded compact-permission-panel" data-field-kind="{{ field.name }}">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Role</th>
+                                            <th class="text-center" style="width: 90px;">Select</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% with selected_values=field.value %}
+                                            {% for role in field.field.queryset %}
+                                                <tr class="role-row-clickable js-role-preview-row" data-role-id="{{ role.pk }}" role="button" tabindex="0" title="View role permissions">
+                                                    <td>{{ role.name }}</td>
+                                                    <td class="text-center">
+                                                        <input type="checkbox" class="form-check-input" name="groups" value="{{ role.pk }}" {% if role.pk|stringformat:'s' in selected_values %}checked{% endif %}>
+                                                    </td>
+                                                </tr>
+                                            {% empty %}
+                                                <tr>
+                                                    <td colspan="2" class="text-secondary text-center">No roles available.</td>
+                                                </tr>
+                                            {% endfor %}
+                                        {% endwith %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% if field.errors %}
+                                <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                    {% elif field.name == 'user_permissions' %}
+                        <div class="col-12 col-lg-6">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label fw-semibold mb-0">{{ field.label }}</label>
+                                <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0">
+                                    <input type="checkbox" class="form-check-input js-toggle-all" data-target-field="user_permissions" id="toggleAllPermissions">
+                                    <span>Select all / Unselect all</span>
+                                </label>
+                            </div>
+                            <div class="border rounded p-2 compact-permission-panel" data-field-kind="{{ field.name }}">
+                                {% for group in form.grouped_user_permissions %}
+                                    <details class="permission-category" {% if forloop.first %}open{% endif %}>
+                                        <summary class="permission-category-summary d-flex justify-content-between align-items-center">
+                                            <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
+                                            <span class="d-inline-flex align-items-center gap-2">
+                                                <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0" title="Select or unselect this module">
+                                                    <input
+                                                        type="checkbox"
+                                                        class="form-check-input js-category-toggle"
+                                                        data-category-key="user-perm-category-{{ forloop.counter }}"
+                                                    >
+                                                </label>
+                                                <span class="badge text-bg-light border">{{ group.items|length }} items</span>
+                                            </span>
+                                        </summary>
+                                        <div class="table-responsive mt-2">
+                                            <table class="table table-sm align-middle mb-0">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Permission</th>
+                                                        <th class="text-center" style="width: 90px;">Select</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for item in group.items %}
+                                                        <tr>
+                                                            <td>{{ item.label }}</td>
+                                                            <td class="text-center">
+                                                                <input type="checkbox" class="form-check-input js-category-item" data-category-key="user-perm-category-{{ forloop.parentloop.counter }}" name="user_permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
+                                                            </td>
+                                                        </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </details>
+                                {% empty %}
+                                    <div class="text-secondary text-center py-2">No permissions available.</div>
+                                {% endfor %}
+                            </div>
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% if field.errors %}
+                                <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="col-12 col-md-6">
+                            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% if field.errors %}
+                                <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-success">{{ submit_label }}</button>
+                <a href="{% url 'users_list' %}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="rolePermissionPreviewModal" tabindex="-1" aria-labelledby="rolePermissionPreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            {% include 'core/includes/modal_header.html' with modal_title='Role Permissions Preview' modal_title_id='rolePermissionPreviewModalLabel' %}
+            <div class="modal-body" id="rolePermissionPreviewBody">
+                <div class="text-secondary">Select a role row to view permissions.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ role_permissions_grouped_map|json_script:'role-permissions-grouped-data' }}
+
+<script>
+    (function () {
+        const initUserFormInteractions = () => {
+        const getFieldCheckboxes = (fieldKind) => {
+            if (fieldKind === 'groups') {
+                return document.querySelectorAll('input[type="checkbox"][name="groups"]');
+            }
+            if (fieldKind === 'user_permissions') {
+                return document.querySelectorAll('input[type="checkbox"][name="user_permissions"]');
+            }
+            return document.querySelectorAll(
+                `[data-field-kind="${fieldKind}"] input[type="checkbox"]:not(.js-toggle-all):not(.js-category-toggle)`
+            );
+        };
+        const rolePermissionsData = JSON.parse(document.getElementById('role-permissions-grouped-data')?.textContent || '{}');
+        const rolePreviewModalElement = document.getElementById('rolePermissionPreviewModal');
+        const rolePreviewBody = document.getElementById('rolePermissionPreviewBody');
+        const rolePreviewModal = rolePreviewModalElement ? new bootstrap.Modal(rolePreviewModalElement) : null;
+        const escapeHtml = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        const setCheckboxState = (fieldKind, checked) => {
+            getFieldCheckboxes(fieldKind).forEach((checkbox) => {
+                checkbox.checked = checked;
+            });
+        };
+
+        const toggleFieldSelection = (fieldKind) => {
+            const checkboxes = Array.from(getFieldCheckboxes(fieldKind));
+            const shouldCheck = !checkboxes.length || !checkboxes.every((checkbox) => checkbox.checked);
+            setCheckboxState(fieldKind, shouldCheck);
+
+            if (fieldKind === 'user_permissions') {
+                document.querySelectorAll('.js-category-toggle').forEach((categoryToggle) => {
+                    syncCategoryToggleState(categoryToggle.dataset.categoryKey);
+                });
+            }
+
+            syncToggleState(fieldKind);
+        };
+
+        const syncToggleState = (fieldKind) => {
+            const toggle = document.querySelector(`.js-toggle-all[data-target-field="${fieldKind}"]`);
+            if (!toggle) {
+                return;
+            }
+            const checkboxes = Array.from(getFieldCheckboxes(fieldKind));
+            toggle.checked = checkboxes.length > 0 && checkboxes.every((checkbox) => checkbox.checked);
+        };
+
+        document.querySelectorAll('.js-toggle-all').forEach((toggle) => {
+            toggle.addEventListener('change', () => {
+                toggleFieldSelection(toggle.dataset.targetField);
+            });
+        });
+
+        const syncCategoryToggleState = (categoryKey) => {
+            const categoryToggle = document.querySelector(`.js-category-toggle[data-category-key="${categoryKey}"]`);
+            if (!categoryToggle) {
+                return;
+            }
+            const categoryItems = Array.from(document.querySelectorAll(`.js-category-item[data-category-key="${categoryKey}"]`));
+            categoryToggle.checked = categoryItems.length > 0 && categoryItems.every((item) => item.checked);
+        };
+
+        document.querySelectorAll('.js-category-toggle').forEach((toggle) => {
+            toggle.addEventListener('click', (event) => {
+                event.stopPropagation();
+            });
+            toggle.addEventListener('change', () => {
+                const categoryItems = document.querySelectorAll(`.js-category-item[data-category-key="${toggle.dataset.categoryKey}"]`);
+                categoryItems.forEach((item) => {
+                    item.checked = toggle.checked;
+                });
+                syncToggleState('user_permissions');
+            });
+        });
+
+        document.querySelectorAll('.js-category-item').forEach((checkbox) => {
+            checkbox.addEventListener('change', () => {
+                syncCategoryToggleState(checkbox.dataset.categoryKey);
+                syncToggleState('user_permissions');
+            });
+        });
+
+        const renderRolePermissionPreview = (roleId, roleName) => {
+            if (!rolePreviewBody) {
+                return;
+            }
+
+            const groupedPermissions = rolePermissionsData[String(roleId)] || [];
+            if (!groupedPermissions.length) {
+                rolePreviewBody.innerHTML = `<p class="text-secondary mb-0">${roleName} has no assigned permissions.</p>`;
+                return;
+            }
+
+            const groupsMarkup = groupedPermissions
+                .map((group, index) => {
+                    const items = (group.items || [])
+                        .map((permissionName) => `<div class="small border rounded p-2 bg-light mb-2">${escapeHtml(permissionName)}</div>`)
+                        .join('');
+                    return `
+                        <details class="permission-category" ${index === 0 ? 'open' : ''}>
+                            <summary class="permission-category-summary d-flex justify-content-between align-items-center">
+                                <span class="fw-semibold text-capitalize">${escapeHtml(group.app_label)}</span>
+                                <span class="badge text-bg-light border">${(group.items || []).length} items</span>
+                            </summary>
+                            <div class="mt-2">${items}</div>
+                        </details>
+                    `;
+                })
+                .join('');
+
+            rolePreviewBody.innerHTML = `<div class="compact-permission-panel pe-1">${groupsMarkup}</div>`;
+        };
+
+        document.querySelectorAll('.js-role-preview-row').forEach((row) => {
+            const openPreview = () => {
+                const roleName = row.querySelector('td')?.textContent?.trim() || 'Selected role';
+                renderRolePermissionPreview(row.dataset.roleId, roleName);
+                if (rolePreviewModal) {
+                    rolePreviewModal.show();
+                }
+            };
+
+            row.addEventListener('click', (event) => {
+                if (event.target.closest('input[type="checkbox"]')) {
+                    return;
+                }
+                openPreview();
+            });
+
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openPreview();
+                }
+            });
+        });
+
+        ['groups', 'user_permissions'].forEach((fieldKind) => {
+            getFieldCheckboxes(fieldKind).forEach((checkbox) => {
+                checkbox.addEventListener('change', () => syncToggleState(fieldKind));
+            });
+            syncToggleState(fieldKind);
+        });
+
+        document.querySelectorAll('.js-category-toggle').forEach((toggle) => {
+            syncCategoryToggleState(toggle.dataset.categoryKey);
+        });
+
+        };
+
+        if (document.readyState === 'complete') {
+            initUserFormInteractions();
+        } else {
+            window.addEventListener('load', initUserFormInteractions, { once: true });
+        }
+    })();
+</script>
+{% endblock %}

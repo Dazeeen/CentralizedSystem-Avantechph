@@ -1,0 +1,1192 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Avantech Portal{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="{% static 'css/site.css' %}">
+</head>
+<body class="app-body">
+    <div class="app-shell" id="appShell">
+        <aside class="app-sidebar sticky-top" id="sidebar">
+            <div class="sidebar-header p-3 border-bottom border-success-subtle d-flex align-items-center justify-content-between">
+                <a class="sidebar-brand text-decoration-none" href="{% url 'dashboard' %}">
+                    <span class="brand-logo" aria-hidden="true">
+                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 3L20 8V16L12 21L4 16V8L12 3Z" stroke="currentColor" stroke-width="1.8"/>
+                            <path d="M8.5 13.5L12 7.5L15.5 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    <span class="brand-text">Avantech Portal</span>
+                </a>
+                <button class="btn btn-sm btn-outline-success d-none d-lg-inline-flex" id="sidebarToggle" type="button" aria-label="Toggle sidebar">≡</button>
+            </div>
+            <div class="sidebar-body">
+                <div class="sidebar-primary">
+                    <div class="px-3 pt-3 small text-muted sidebar-section-title">Users</div>
+                    <nav class="nav flex-column px-2 gap-1 pb-3">
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+                                    <rect x="13" y="4" width="7" height="4" rx="1.2" stroke="currentColor" stroke-width="1.8"/>
+                                    <rect x="13" y="10" width="7" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+                                    <rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Dashboard</span>
+                        </a>
+                        {% if request.user.is_superuser or perms.core.view_client %}
+                            <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'clients_list' or request.resolver_match.url_name == 'clients_create' or request.resolver_match.url_name == 'clients_update' or request.resolver_match.url_name == 'clients_delete' %}active{% endif %}" href="{% url 'clients_list' %}">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M4 7.5C4 6.12 5.12 5 6.5 5H17.5C18.88 5 20 6.12 20 7.5V16.5C20 17.88 18.88 19 17.5 19H6.5C5.12 19 4 17.88 4 16.5V7.5Z" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8 9H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Clients</span>
+                            </a>
+                        {% endif %}
+                        {% if request.user.is_superuser or perms.core.view_assetitem %}
+                            <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' or request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' or request.resolver_match.url_name == 'assets_company_accounts' or request.resolver_match.url_name == 'assets_company_account_submit' or request.resolver_match.url_name == 'assets_company_account_reveal' %}active{% endif %}" href="{% url 'assets_list' %}">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M7 8H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M7 12H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M7 16H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Asset Tracker</span>
+                            </a>
+                            {% if request.user.is_superuser or perms.core.view_assetaccountability %}
+                                {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' or request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' or request.resolver_match.url_name == 'assets_company_accounts' or request.resolver_match.url_name == 'assets_company_account_submit' or request.resolver_match.url_name == 'assets_company_account_reveal' %}
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' %}active{% endif %}" href="{% url 'accountability_list' %}" style="font-size: 0.9rem;">
+                                    <span class="nav-logo" aria-hidden="true">
+                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M5 8H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <rect x="4" y="3" width="16" height="17" rx="1" stroke="currentColor" stroke-width="1.8"/>
+                                            <path d="M7 11H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <path d="M7 15H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        </svg>
+                                    </span>
+                                    <span class="nav-label">Accountability</span>
+                                </a>
+                                {% if request.user.is_superuser or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_company_accounts' %}active{% endif %}" href="{% url 'assets_company_accounts' %}" style="font-size: 0.9rem;">
+                                    <span class="nav-logo" aria-hidden="true">
+                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M4 7H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <path d="M4 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <path d="M4 17H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <circle cx="18" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+                                        </svg>
+                                    </span>
+                                    <span class="nav-label">Internet Accounts</span>
+                                </a>
+                                {% endif %}
+                                {% endif %}
+                            {% endif %}
+                        {% endif %}
+                        {% if request.user.is_superuser or perms.auth.view_user %}
+                            <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'users_list' or request.resolver_match.url_name == 'users_create' or request.resolver_match.url_name == 'users_update' or request.resolver_match.url_name == 'users_delete' or request.resolver_match.url_name == 'roles_list' or request.resolver_match.url_name == 'roles_create' or request.resolver_match.url_name == 'roles_update' or request.resolver_match.url_name == 'roles_delete' or request.resolver_match.url_name == 'support_lockout_center' %}active{% endif %}" href="{% url 'users_list' %}">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <circle cx="9" cy="9" r="3" stroke="currentColor" stroke-width="1.8"/>
+                                        <circle cx="16" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M4.5 18.5C5.3 15.9 7.1 14.5 9 14.5C10.9 14.5 12.7 15.9 13.5 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M13.8 18.5C14.3 16.9 15.5 15.9 16.8 15.9C18.1 15.9 19.3 16.9 19.8 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Users</span>
+                            </a>
+                        {% endif %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'development_hub' %}active{% endif %}" href="{% url 'development_hub' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M8 4H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M9 4V8L5.5 14C4.8 15.1 5.6 16.5 6.9 16.5H17.1C18.4 16.5 19.2 15.1 18.5 14L15 8V4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                    <path d="M9 12H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M10.5 19.5H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Development</span>
+                        </a>
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% url 'system_hub' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M12 8V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">System</span>
+                        </a>
+                    </nav>
+                </div>
+
+                <div class="sidebar-settings border-top border-success-subtle pt-3 pb-3">
+                    <div class="px-3 small text-muted sidebar-section-title">Settings</div>
+                    <nav class="nav flex-column px-2 gap-1">
+                        <button type="button" class="nav-link app-nav-link nav-settings-trigger" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5A3.5 3.5 0 1 0 12 8.5Z" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M4.8 13.4V10.6L6.9 10L7.5 8.6L6.4 6.7L8.3 4.8L10.2 5.9L11.6 5.3L12.2 3.2H15L15.6 5.3L17 5.9L18.9 4.8L20.8 6.7L19.7 8.6L20.3 10L22.4 10.6V13.4L20.3 14L19.7 15.4L20.8 17.3L18.9 19.2L17 18.1L15.6 18.7L15 20.8H12.2L11.6 18.7L10.2 18.1L8.3 19.2L6.4 17.3L7.5 15.4L6.9 14L4.8 13.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Settings</span>
+                        </button>
+                    </nav>
+                </div>
+            </div>
+        </aside>
+
+        <div class="app-main flex-grow-1">
+            <header class="app-topbar border-bottom border-success-subtle bg-white px-3 px-md-4 py-3 d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-outline-success d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">Menu</button>
+                    <h1 class="h5 mb-0 fw-bold text-success-emphasis">{% block page_heading %}Avantech Portal{% endblock %}</h1>
+                </div>
+                <div class="d-flex align-items-center gap-2 gap-md-3">
+                    <span class="small text-secondary d-none d-md-inline">{{ request.user.get_full_name|default:request.user.username }}</span>
+                    <div class="dropdown notification-dropdown">
+                        <button
+                            class="btn btn-outline-success position-relative notification-bell-btn"
+                            type="button"
+                            data-bs-toggle="dropdown"
+                            aria-expanded="false"
+                            aria-label="Notifications"
+                        >
+                            <span aria-hidden="true" class="notification-bell-icon">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M15 17H19L17.6 15.6C17.22 15.22 17 14.7 17 14.15V11C17 8.39 15.39 6.1 13 5.18V4.5C13 3.12 11.88 2 10.5 2C9.12 2 8 3.12 8 4.5V5.18C5.61 6.1 4 8.39 4 11V14.15C4 14.7 3.78 15.22 3.4 15.6L2 17H6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M9.5 20C9.8 20.6 10.4 21 11.05 21C11.7 21 12.3 20.6 12.6 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            {% if unread_notification_count %}
+                                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger notification-badge">
+                                    {{ unread_notification_count }}
+                                    <span class="visually-hidden">unread notifications</span>
+                                </span>
+                            {% endif %}
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-end shadow notification-dropdown-menu p-0">
+                            <div class="p-3 border-bottom">
+                                <div class="d-flex justify-content-between align-items-center gap-3">
+                                    <div>
+                                        <div class="fw-semibold">Notifications</div>
+                                        <div class="small text-secondary">Latest updates from your account</div>
+                                    </div>
+                                    <form method="post" action="{% url 'mark_notifications_read' %}" class="m-0">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-link text-success text-decoration-none p-0">Mark all read</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <div class="notification-dropdown-list" id="notificationDropdownList">
+                                {% if notifications %}
+                                    {% for notification in notifications %}
+                                        <a class="dropdown-item notification-dropdown-item {% if not notification.is_read %}is-unread{% endif %}" href="{{ notification.link_url|default:'#' }}" data-notification-id="{{ notification.id }}">
+                                            <div class="d-flex justify-content-between gap-2">
+                                                <span class="fw-semibold">{{ notification.title }}</span>
+                                                {% if not notification.is_read %}<span class="badge bg-success-subtle text-success">New</span>{% endif %}
+                                            </div>
+                                            <div class="small text-secondary mt-1">{{ notification.message }}</div>
+                                        </a>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="p-3 small text-secondary">No notifications yet.</div>
+                                {% endif %}
+                            </div>
+                            <div class="px-3 py-2 border-top d-flex justify-content-between align-items-center small">
+                                <span class="text-secondary">Showing latest 5 unread notifications</span>
+                                <a href="{% url 'notifications_list' %}" class="text-success text-decoration-none">View all</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dropdown user-dropdown">
+                        <button
+                            class="btn p-0 position-relative user-avatar-btn"
+                            type="button"
+                            data-bs-toggle="dropdown"
+                            aria-expanded="false"
+                            aria-label="User menu"
+                        >
+                            {% if request.user.profile.avatar %}
+                                <img src="{{ request.user.profile.avatar.url }}" alt="{{ request.user.username }}" class="user-avatar-img rounded-circle">
+                            {% else %}
+                                <div class="user-avatar-placeholder rounded-circle d-inline-flex align-items-center justify-content-center bg-success text-white">
+                                    {{ request.user.first_name|default:request.user.username|first|upper }}
+                                </div>
+                            {% endif %}
+                            <span class="position-absolute bottom-0 end-0 user-status-badge" style="background-color: {{ request.user.profile.get_status_color }}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white;" title="{{ request.user.profile.get_status_display }}"></span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow user-dropdown-menu">
+                            <li><a class="dropdown-item" href="{% url 'profile_page' %}">Profile</a></li>
+                            <li>
+                                <button type="button" class="dropdown-item js-settings-action" data-action-title="Set Status" data-action-url="{% url 'update_user_status' %}">
+                                    Set Status
+                                </button>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form method="post" action="{% url 'logout' %}" class="m-0">
+                                    {% csrf_token %}
+                                    <button type="submit" class="dropdown-item text-danger">Logout</button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="p-3 p-md-4 app-content-wrap">
+                {% if messages %}
+                    <div class="mb-3">
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags|default:'info' }} mb-2" role="alert">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel">
+        <div class="offcanvas-header">
+            <h2 class="offcanvas-title h5 mb-0" id="mobileSidebarLabel">Avantech Portal</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body mobile-sidebar-body">
+            <div class="mobile-sidebar-primary">
+                <nav class="nav flex-column gap-2">
+                    <div class="small text-muted mt-1">Users</div>
+                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+                        <span class="nav-logo" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+                                <rect x="13" y="4" width="7" height="4" rx="1.2" stroke="currentColor" stroke-width="1.8"/>
+                                <rect x="13" y="10" width="7" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+                                <rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+                            </svg>
+                        </span>
+                        <span class="nav-label">Dashboard</span>
+                    </a>
+                    {% if request.user.is_superuser or perms.core.view_client %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'clients_list' or request.resolver_match.url_name == 'clients_create' or request.resolver_match.url_name == 'clients_update' or request.resolver_match.url_name == 'clients_delete' %}active{% endif %}" href="{% url 'clients_list' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M4 7.5C4 6.12 5.12 5 6.5 5H17.5C18.88 5 20 6.12 20 7.5V16.5C20 17.88 18.88 19 17.5 19H6.5C5.12 19 4 17.88 4 16.5V7.5Z" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 9H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Clients</span>
+                        </a>
+                    {% endif %}
+                    {% if request.user.is_superuser or perms.core.view_assetitem %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' or request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' or request.resolver_match.url_name == 'assets_company_accounts' or request.resolver_match.url_name == 'assets_company_account_submit' or request.resolver_match.url_name == 'assets_company_account_reveal' %}active{% endif %}" href="{% url 'assets_list' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M7 8H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M7 12H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M7 16H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Asset Tracker</span>
+                        </a>
+                        {% if request.user.is_superuser or perms.core.view_assetaccountability %}
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' %}active{% endif %}" href="{% url 'accountability_list' %}" style="font-size: 0.9rem;">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M5 8H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <rect x="4" y="3" width="16" height="17" rx="1" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M7 11H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M7 15H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Accountability</span>
+                            </a>
+                        {% endif %}
+                        {% if request.user.is_superuser or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_company_accounts' %}active{% endif %}" href="{% url 'assets_company_accounts' %}" style="font-size: 0.9rem;">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M4 7H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M4 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M4 17H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <circle cx="18" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Internet Accounts</span>
+                            </a>
+                        {% endif %}
+                    {% endif %}
+                    {% if request.user.is_superuser or perms.auth.view_user %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'users_list' or request.resolver_match.url_name == 'users_create' or request.resolver_match.url_name == 'users_update' or request.resolver_match.url_name == 'users_delete' or request.resolver_match.url_name == 'roles_list' or request.resolver_match.url_name == 'roles_create' or request.resolver_match.url_name == 'roles_update' or request.resolver_match.url_name == 'roles_delete' or request.resolver_match.url_name == 'support_lockout_center' %}active{% endif %}" href="{% url 'users_list' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="9" cy="9" r="3" stroke="currentColor" stroke-width="1.8"/>
+                                    <circle cx="16" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M4.5 18.5C5.3 15.9 7.1 14.5 9 14.5C10.9 14.5 12.7 15.9 13.5 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M13.8 18.5C14.3 16.9 15.5 15.9 16.8 15.9C18.1 15.9 19.3 16.9 19.8 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Users</span>
+                        </a>
+                    {% endif %}
+                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'development_hub' %}active{% endif %}" href="{% url 'development_hub' %}">
+                        <span class="nav-logo" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 4H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M9 4V8L5.5 14C4.8 15.1 5.6 16.5 6.9 16.5H17.1C18.4 16.5 19.2 15.1 18.5 14L15 8V4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                <path d="M9 12H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M10.5 19.5H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            </svg>
+                        </span>
+                        <span class="nav-label">Development</span>
+                    </a>
+                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% url 'system_hub' %}">
+                        <span class="nav-logo" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M12 8V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            </svg>
+                        </span>
+                        <span class="nav-label">System</span>
+                    </a>
+                </nav>
+            </div>
+
+            <div class="mobile-sidebar-settings border-top border-success-subtle pt-3">
+                <div class="small text-muted">Settings</div>
+                <button type="button" class="nav-link app-nav-link nav-settings-trigger mt-1" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                    <span class="nav-logo" aria-hidden="true">
+                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5A3.5 3.5 0 1 0 12 8.5Z" stroke="currentColor" stroke-width="1.8"/>
+                            <path d="M4.8 13.4V10.6L6.9 10L7.5 8.6L6.4 6.7L8.3 4.8L10.2 5.9L11.6 5.3L12.2 3.2H15L15.6 5.3L17 5.9L18.9 4.8L20.8 6.7L19.7 8.6L20.3 10L22.4 10.6V13.4L20.3 14L19.7 15.4L20.8 17.3L18.9 19.2L17 18.1L15.6 18.7L15 20.8H12.2L11.6 18.7L10.2 18.1L8.3 19.2L6.4 17.3L7.5 15.4L6.9 14L4.8 13.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    <span class="nav-label">Settings</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                {% include 'core/includes/modal_header.html' with modal_title='Settings' modal_title_id='settingsModalLabel' %}
+                <div class="modal-body">
+                    <div id="settingsMenuPanel">
+                        <p class="text-secondary mb-3">Manage your account security settings.</p>
+                        <div class="d-grid gap-2">
+                            <button type="button" class="btn btn-outline-success js-settings-action" data-action-title="Change Password" data-action-url="{% url 'password_change' %}">Change Password</button>
+                            <button type="button" class="btn btn-outline-success js-settings-action" data-action-title="Verify Email" data-action-url="{% url 'send_email_verification' %}">Verify Email</button>
+                            <button type="button" class="btn btn-outline-success js-settings-action" data-action-title="Security Setup (2FA)" data-action-url="{% url 'otp_setup' %}">Security Setup (2FA)</button>
+                            <form method="post" action="{% url 'logout' %}" class="m-0">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-danger w-100">Logout</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div id="settingsInlinePanel" class="d-none">
+                        <div class="d-flex justify-content-between align-items-center px-3 pt-2">
+                            <h3 class="h6 mb-0" id="settingsInlineTitle">Settings Action</h3>
+                        </div>
+                        <div id="settingsInlineBody" class="pt-2">
+                            <div class="p-3 text-secondary">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="userQuickProfileModal" tabindex="-1" aria-labelledby="userQuickProfileModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-sm">
+                <div class="modal-header bg-white">
+                    <h5 class="modal-title" id="userQuickProfileModalLabel">User Profile</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="userQuickProfileModalBody">
+                    <div class="text-secondary">Loading profile...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed top-0 end-0 p-3" id="appToastContainer" style="z-index: 1080;"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="{% static 'js/form_enhancements.js' %}"></script>
+    <script>
+        (function () {
+            const presenceEndpoint = '{% url "update_presence_status" %}';
+            const inactivityLimitMs = 10 * 60 * 1000;
+            const presenceSessionStorageKey = 'avantech_presence_session_id';
+            const statusColors = {
+                active: '#198754',
+                idle: '#ffc107',
+                offline: '#dc3545',
+            };
+
+            const randomId = () => {
+                if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                    return window.crypto.randomUUID();
+                }
+                return `sid-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            };
+
+            let presenceSessionId = '{{ request.session.presence_session_id|default:"" }}';
+            if (!presenceSessionId) {
+                presenceSessionId = window.sessionStorage.getItem(presenceSessionStorageKey) || randomId();
+            }
+            window.sessionStorage.setItem(presenceSessionStorageKey, presenceSessionId);
+
+            let currentStatus = '{{ request.user.profile.status|default:"active" }}'.toLowerCase();
+            let idleTimerId = null;
+
+            const getCsrfToken = () => {
+                const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                if (csrfInput && csrfInput.value) {
+                    return csrfInput.value;
+                }
+
+                const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+                return match ? decodeURIComponent(match[1]) : '';
+            };
+
+            const applyStatusUI = (status) => {
+                const color = statusColors[status] || statusColors.active;
+                document.querySelectorAll('.user-status-badge, .profile-status-dot').forEach((badge) => {
+                    badge.style.backgroundColor = color;
+                    badge.setAttribute('title', status.charAt(0).toUpperCase() + status.slice(1));
+                });
+            };
+
+            const sendStatus = async (status, options = {}) => {
+                const force = !!options.force;
+                if (!status || (!force && status === currentStatus)) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(presenceEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': getCsrfToken(),
+                        },
+                        credentials: 'same-origin',
+                        body: new URLSearchParams({
+                            status,
+                            session_id: presenceSessionId,
+                            event_ms: String(Date.now()),
+                        }),
+                        keepalive: true,
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.session_id) {
+                            presenceSessionId = data.session_id;
+                            window.sessionStorage.setItem(presenceSessionStorageKey, presenceSessionId);
+                        }
+                        currentStatus = status;
+                        applyStatusUI(status);
+                    }
+                } catch (error) {
+                    if (status === 'offline') {
+                        currentStatus = status;
+                        applyStatusUI(status);
+                    }
+                }
+            };
+
+            const sendOfflineBeacon = () => {
+                const csrfToken = getCsrfToken();
+                const payload = new URLSearchParams({
+                    status: 'offline',
+                    session_id: presenceSessionId,
+                    event_ms: String(Date.now()),
+                    csrfmiddlewaretoken: csrfToken,
+                });
+
+                if (navigator.sendBeacon) {
+                    const blob = new Blob([payload.toString()], { type: 'application/x-www-form-urlencoded' });
+                    navigator.sendBeacon(presenceEndpoint, blob);
+                } else {
+                    void fetch(presenceEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': csrfToken,
+                        },
+                        credentials: 'same-origin',
+                        body: payload,
+                        keepalive: true,
+                    });
+                }
+
+                currentStatus = 'offline';
+                applyStatusUI('offline');
+            };
+
+            const resetIdleTimer = () => {
+                if (idleTimerId) {
+                    window.clearTimeout(idleTimerId);
+                }
+                idleTimerId = window.setTimeout(() => {
+                    void sendStatus('idle');
+                }, inactivityLimitMs);
+            };
+
+            const registerActivity = () => {
+                if (!navigator.onLine) {
+                    return;
+                }
+                void sendStatus('active');
+                resetIdleTimer();
+            };
+
+            ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach((eventName) => {
+                window.addEventListener(eventName, registerActivity, { passive: true });
+            });
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    registerActivity();
+                }
+            });
+
+            window.addEventListener('online', () => {
+                registerActivity();
+            });
+
+            window.addEventListener('offline', () => {
+                currentStatus = 'offline';
+                applyStatusUI('offline');
+                void sendStatus('offline', { force: true });
+            });
+
+            window.addEventListener('beforeunload', () => {
+                sendOfflineBeacon();
+            });
+
+            document.querySelectorAll('form[action="{% url 'logout' %}"]').forEach((form) => {
+                form.addEventListener('submit', () => {
+                    sendOfflineBeacon();
+                });
+            });
+
+            applyStatusUI(currentStatus);
+            void sendStatus('active', { force: true });
+            resetIdleTimer();
+        })();
+
+        const shell = document.getElementById('appShell');
+        const toggle = document.getElementById('sidebarToggle');
+        if (shell && toggle) {
+            toggle.addEventListener('click', () => {
+                shell.classList.toggle('sidebar-collapsed');
+            });
+        }
+
+        (function () {
+            const notificationList = document.getElementById('notificationDropdownList');
+            const bellButton = document.querySelector('.notification-bell-btn');
+            let badge = bellButton ? bellButton.querySelector('.notification-badge') : null;
+            const markAllForm = document.querySelector('form[action="{% url 'mark_notifications_read' %}"]');
+            const feedUrl = '{% url "notifications_feed" %}';
+            const markReadUrl = '{% url "mark_notifications_read" %}';
+            let lastUnreadCount = Number('{{ unread_notification_count|default:0 }}') || 0;
+            let hasUserInteracted = false;
+
+            if (!notificationList || !bellButton) {
+                return;
+            }
+
+            const unlockAudio = () => {
+                hasUserInteracted = true;
+                window.removeEventListener('pointerdown', unlockAudio);
+                window.removeEventListener('keydown', unlockAudio);
+            };
+
+            window.addEventListener('pointerdown', unlockAudio, { once: true });
+            window.addEventListener('keydown', unlockAudio, { once: true });
+
+            const playNewNotificationTone = () => {
+                if (!hasUserInteracted || document.hidden) {
+                    return;
+                }
+
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioCtx) {
+                        return;
+                    }
+
+                    const audioContext = new AudioCtx();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.type = 'sine';
+                    oscillator.frequency.value = 880;
+                    gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.06, audioContext.currentTime + 0.02);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.22);
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    oscillator.start();
+                    oscillator.stop(audioContext.currentTime + 0.24);
+                    oscillator.onended = () => {
+                        audioContext.close().catch(() => {});
+                    };
+                } catch (error) {
+                    // Fail silently when browser blocks autoplay or audio context.
+                }
+            };
+
+            const getCsrfToken = () => {
+                const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                if (csrfInput && csrfInput.value) {
+                    return csrfInput.value;
+                }
+
+                const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+                return match ? decodeURIComponent(match[1]) : '';
+            };
+
+            const refreshBadge = (count) => {
+                const unreadCount = Number(count) || 0;
+                if (badge) {
+                    if (unreadCount > 0) {
+                        badge.classList.remove('d-none');
+                        badge.innerHTML = `${unreadCount}<span class="visually-hidden">unread notifications</span>`;
+                    } else {
+                        badge.classList.add('d-none');
+                    }
+                } else if (unreadCount > 0) {
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = 'position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger notification-badge';
+                    badgeSpan.innerHTML = `${unreadCount}<span class="visually-hidden">unread notifications</span>`;
+                    bellButton.appendChild(badgeSpan);
+                    badge = badgeSpan;
+                }
+            };
+
+            const renderNotifications = (items) => {
+                if (!Array.isArray(items) || items.length === 0) {
+                    notificationList.innerHTML = '<div class="p-3 small text-secondary">No notifications yet.</div>';
+                    return;
+                }
+
+                const html = items.slice(0, 5).map((notification) => {
+                    const safeTitle = (notification.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const safeMessage = (notification.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const linkUrl = notification.link_url || '#';
+                    return `
+                        <a class="dropdown-item notification-dropdown-item is-unread" href="${linkUrl}" data-notification-id="${notification.id}">
+                            <div class="d-flex justify-content-between gap-2">
+                                <span class="fw-semibold">${safeTitle}</span>
+                                <span class="badge bg-success-subtle text-success">New</span>
+                            </div>
+                            <div class="small text-secondary mt-1">${safeMessage}</div>
+                        </a>
+                    `;
+                }).join('');
+
+                notificationList.innerHTML = html;
+            };
+
+            const fetchFeed = async () => {
+                try {
+                    const response = await fetch(feedUrl, {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        credentials: 'same-origin',
+                    });
+                    if (!response.ok) {
+                        return;
+                    }
+
+                    const data = await response.json();
+                    if (!data.ok) {
+                        return;
+                    }
+
+                    const nextUnreadCount = Number(data.unread_notification_count || 0);
+                    if (nextUnreadCount > lastUnreadCount) {
+                        playNewNotificationTone();
+                    }
+
+                    renderNotifications(data.notifications || []);
+                    refreshBadge(nextUnreadCount);
+                    lastUnreadCount = nextUnreadCount;
+                } catch (error) {
+                    // Keep existing list when feed request fails.
+                }
+            };
+
+            notificationList.addEventListener('click', async (event) => {
+                const notificationItem = event.target.closest('[data-notification-id]');
+                if (!notificationItem) {
+                    return;
+                }
+
+                const notificationId = notificationItem.getAttribute('data-notification-id');
+                if (!notificationId) {
+                    return;
+                }
+
+                try {
+                    await fetch(markReadUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': getCsrfToken(),
+                        },
+                        credentials: 'same-origin',
+                        body: new URLSearchParams({ notification_id: notificationId }),
+                    });
+                } catch (error) {
+                    // Do not block link navigation when mark-read fails.
+                }
+            });
+
+            if (markAllForm) {
+                markAllForm.addEventListener('submit', () => {
+                    window.setTimeout(() => {
+                        fetchFeed();
+                    }, 100);
+                });
+            }
+
+            window.setInterval(fetchFeed, 20000);
+        })();
+
+        (function () {
+            const settingsModal = document.getElementById('settingsModal');
+            const menuPanel = document.getElementById('settingsMenuPanel');
+            const inlinePanel = document.getElementById('settingsInlinePanel');
+            const inlineTitle = document.getElementById('settingsInlineTitle');
+            const inlineBody = document.getElementById('settingsInlineBody');
+            const toastContainer = document.getElementById('appToastContainer');
+            if (!settingsModal || !menuPanel || !inlinePanel || !inlineTitle || !inlineBody) {
+                return;
+            }
+
+            const settingsModalInstance = bootstrap.Modal.getOrCreateInstance(settingsModal);
+            let currentActionUrl = '';
+
+            const showToast = (message, variant = 'success') => {
+                if (!toastContainer) {
+                    return;
+                }
+
+                const toast = document.createElement('div');
+                toast.className = `toast align-items-center text-bg-${variant} border-0`;
+                toast.setAttribute('role', 'alert');
+                toast.setAttribute('aria-live', 'assertive');
+                toast.setAttribute('aria-atomic', 'true');
+                toast.innerHTML = `
+                    <div class="d-flex">
+                        <div class="toast-body">${message}</div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                `;
+
+                toastContainer.appendChild(toast);
+                const instance = bootstrap.Toast.getOrCreateInstance(toast, { delay: 2600 });
+                toast.addEventListener('hidden.bs.toast', () => toast.remove());
+                instance.show();
+            };
+
+            const renderLoading = () => {
+                inlineBody.innerHTML = '<div class="p-3 text-secondary">Loading...</div>';
+            };
+
+            const renderError = (text) => {
+                inlineBody.innerHTML = `<div class="p-3"><div class="alert alert-danger mb-0">${text}</div></div>`;
+            };
+
+            const incrementNotificationBadge = () => {
+                const badge = document.querySelector('.notification-badge');
+                if (badge) {
+                    const currentValue = parseInt(badge.textContent || '0', 10) || 0;
+                    badge.textContent = String(currentValue + 1);
+                    return;
+                }
+
+                const bellButton = document.querySelector('.notification-bell-btn');
+                if (!bellButton) {
+                    return;
+                }
+
+                const newBadge = document.createElement('span');
+                newBadge.className = 'position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger notification-badge';
+                newBadge.innerHTML = '1 <span class="visually-hidden">unread notifications</span>';
+                bellButton.appendChild(newBadge);
+            };
+
+            const prependNotificationItem = (title, message, linkUrl = '#') => {
+                const list = document.getElementById('notificationDropdownList');
+                if (!list) {
+                    return;
+                }
+
+                const emptyState = list.querySelector('.text-secondary');
+                if (emptyState && emptyState.parentElement === list) {
+                    emptyState.remove();
+                }
+
+                const item = document.createElement('a');
+                item.className = 'dropdown-item notification-dropdown-item is-unread';
+                item.href = linkUrl || '#';
+                item.innerHTML = `
+                    <div class="d-flex justify-content-between gap-2">
+                        <span class="fw-semibold">${title}</span>
+                        <span class="badge bg-success-subtle text-success">New</span>
+                    </div>
+                    <div class="small text-secondary mt-1">${message}</div>
+                `;
+
+                list.prepend(item);
+                incrementNotificationBadge();
+                initializeNotificationClickHandlers();
+            };
+
+            const initializeNotificationClickHandlers = () => {
+                const notificationItems = document.querySelectorAll('.notification-dropdown-item');
+                notificationItems.forEach((item) => {
+                    const isUnread = item.classList.contains('is-unread');
+                    if (!isUnread) {
+                        return;
+                    }
+
+                    item.addEventListener('click', async (event) => {
+                        event.preventDefault();
+                        const notificationId = item.dataset.notificationId;
+                        const linkUrl = item.href;
+
+                        if (!notificationId) {
+                            window.location.href = linkUrl;
+                            return;
+                        }
+
+                        try {
+                            const response = await fetch('{% url "mark_notifications_read" %}', {
+                                method: 'POST',
+                                headers: {
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                },
+                                credentials: 'same-origin',
+                                body: new URLSearchParams({
+                                    notification_id: notificationId,
+                                    csrfmiddlewaretoken: document.querySelector('[name=csrfmiddlewaretoken]').value,
+                                }),
+                            });
+
+                            if (response.ok) {
+                                item.classList.remove('is-unread');
+                                const badge = item.querySelector('.badge');
+                                if (badge) {
+                                    badge.remove();
+                                }
+
+                                const notificationBadge = document.querySelector('.notification-badge');
+                                if (notificationBadge) {
+                                    let badgeValue = parseInt(notificationBadge.textContent || '0', 10) || 0;
+                                    badgeValue -= 1;
+                                    if (badgeValue > 0) {
+                                        notificationBadge.textContent = String(badgeValue);
+                                    } else {
+                                        notificationBadge.remove();
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Error marking notification as read:', error);
+                        }
+
+                        window.location.href = linkUrl;
+                    }, { once: true });
+                });
+            };
+
+            const initializeResendTimer = () => {
+                const button = inlineBody.querySelector('#resendVerificationButton');
+                const status = inlineBody.querySelector('#resendVerificationStatus');
+                if (!button || !status) {
+                    return;
+                }
+
+                let remaining = parseInt(button.dataset.resendSecondsRemaining || '0', 10);
+                if (!remaining || Number.isNaN(remaining)) {
+                    return;
+                }
+
+                const tick = () => {
+                    if (!inlineBody.contains(button) || !inlineBody.contains(status)) {
+                        return;
+                    }
+
+                    if (remaining <= 0) {
+                        button.disabled = false;
+                        delete button.dataset.resendSecondsRemaining;
+                        status.textContent = 'You can resend now.';
+                        return;
+                    }
+
+                    button.disabled = true;
+                    status.textContent = `You can resend in ${remaining} second${remaining === 1 ? '' : 's'}.`;
+                    remaining -= 1;
+                    window.setTimeout(tick, 1000);
+                };
+
+                tick();
+            };
+
+            const replaceInlineBody = (html, title) => {
+                inlineBody.innerHTML = html;
+                if (title) {
+                    inlineTitle.textContent = title;
+                }
+                if (window.AvantechFormEnhancer && typeof window.AvantechFormEnhancer.enhance === 'function') {
+                    window.AvantechFormEnhancer.enhance(inlineBody);
+                }
+                initializeResendTimer();
+            };
+
+            const showMenu = () => {
+                inlinePanel.classList.add('d-none');
+                menuPanel.classList.remove('d-none');
+                inlineBody.innerHTML = '<div class="p-3 text-secondary">Loading...</div>';
+                inlineTitle.textContent = 'Settings Action';
+                currentActionUrl = '';
+            };
+
+            const loadAction = async (baseUrl, title) => {
+                currentActionUrl = baseUrl;
+                menuPanel.classList.add('d-none');
+                inlinePanel.classList.remove('d-none');
+                inlineTitle.textContent = title || 'Settings Action';
+                renderLoading();
+                const url = baseUrl.includes('?') ? `${baseUrl}&modal=1` : `${baseUrl}?modal=1`;
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        credentials: 'same-origin',
+                    });
+                    const html = await response.text();
+                    if (html.toLowerCase().includes('<html')) {
+                        renderError('Unexpected full-page response detected. Please refresh and try again.');
+                        return;
+                    }
+                    replaceInlineBody(html);
+                } catch (error) {
+                    renderError('Unable to load this settings panel. Please try again.');
+                }
+            };
+            document.querySelectorAll('.js-settings-action').forEach((button) => {
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const actionUrl = button.dataset.actionUrl || '';
+                    const actionTitle = button.dataset.actionTitle || 'Settings Action';
+                    if (!actionUrl) {
+                        return;
+                    }
+
+                    // Load inline action immediately to avoid transition-event race conditions.
+                    loadAction(actionUrl, actionTitle);
+
+                    // Ensure modal is visible for actions triggered from the user dropdown.
+                    if (!settingsModal.classList.contains('show')) {
+                        settingsModalInstance.show();
+                    }
+                });
+            });
+
+            initializeNotificationClickHandlers();
+
+            inlineBody.addEventListener('submit', async (event) => {
+                const form = event.target.closest('form[data-settings-modal-form]');
+                if (!form) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (!form.checkValidity()) {
+                    form.reportValidity();
+                    return;
+                }
+
+                const formData = new FormData(form);
+                if (!formData.has('modal')) {
+                    formData.append('modal', '1');
+                }
+
+                const postUrl = form.action || currentActionUrl;
+                try {
+                    const response = await fetch(postUrl, {
+                        method: 'POST',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: formData,
+                        credentials: 'same-origin',
+                    });
+
+                    const contentType = response.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        const data = await response.json();
+                        if (data.ok) {
+                            if (data.html) {
+                                replaceInlineBody(data.html, data.title || inlineTitle.textContent);
+                                if (data.message) {
+                                    showToast(data.message, 'success');
+                                }
+                                return;
+                            }
+                            if (data.close_modal) {
+                                showToast(data.message || 'Saved successfully.', 'success');
+                                settingsModalInstance.hide();
+                                return;
+                            }
+                            if (data.redirect_url) {
+                                window.location.href = data.redirect_url;
+                                return;
+                            }
+                            showToast(data.message || 'Saved successfully.', 'success');
+                            showMenu();
+                            return;
+                        }
+                        showToast(data.message || 'Action failed.', 'danger');
+                        renderError(data.message || 'Action failed.');
+                        return;
+                    }
+
+                    const html = await response.text();
+                    const lower = html.toLowerCase();
+                    if (lower.includes('<html')) {
+                        showToast('Your session may have expired. Redirecting to login.', 'warning');
+                        window.location.href = response.url || '{% url "login" %}';
+                        return;
+                    }
+                    replaceInlineBody(html);
+                    if (html.includes('data-email-verification-success="1"')) {
+                        prependNotificationItem('Email verified', 'Email verified na. Your account email is now confirmed.', '{% url "dashboard" %}');
+                    }
+                } catch (error) {
+                    showToast('Unable to submit this settings form right now. Please try again.', 'danger');
+                    renderError('Unable to submit this settings form right now. Please try again.');
+                }
+            });
+
+            settingsModal.addEventListener('hidden.bs.modal', () => {
+                showMenu();
+            });
+        })();
+
+        (function () {
+            const userModalElement = document.getElementById('userQuickProfileModal');
+            const userModalBody = document.getElementById('userQuickProfileModalBody');
+            if (!userModalElement || !userModalBody || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const userModal = new bootstrap.Modal(userModalElement);
+
+            const renderUserProfileBody = (user) => {
+                const safeRoles = Array.isArray(user.roles) && user.roles.length
+                    ? user.roles.map((role) => `<span class="badge text-bg-success-subtle text-success-emphasis border me-1 mb-1">${role}</span>`).join('')
+                    : '<span class="text-secondary">No role assigned</span>';
+
+                const avatarHtml = user.avatar_url
+                    ? `<img src="${user.avatar_url}" alt="${user.username}" class="quick-user-avatar">`
+                    : `<span class="quick-user-avatar-fallback">${user.avatar_initial || 'U'}</span>`;
+
+                return `
+                    <div class="d-flex align-items-center gap-3 mb-3">
+                        ${avatarHtml}
+                        <div>
+                            <div class="fw-semibold">${user.full_name || user.username}</div>
+                            <div class="small text-secondary">@${user.username}</div>
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <div class="profile-detail-card"><span class="profile-detail-label">Email</span><span class="profile-detail-value">${user.email || '-'}</span></div>
+                        </div>
+                        <div class="col-6">
+                            <div class="profile-detail-card"><span class="profile-detail-label">Branch</span><span class="profile-detail-value">${user.branch || 'Not assigned'}</span></div>
+                        </div>
+                        <div class="col-6">
+                            <div class="profile-detail-card"><span class="profile-detail-label">Status</span><span class="profile-detail-value">${user.status || '-'}</span></div>
+                        </div>
+                        <div class="col-12">
+                            <div class="profile-detail-card"><span class="profile-detail-label">Roles</span><span class="profile-detail-value">${safeRoles}</span></div>
+                        </div>
+                    </div>
+                `;
+            };
+
+            document.addEventListener('click', async (event) => {
+                const trigger = event.target.closest('.js-user-profile-trigger');
+                if (!trigger) {
+                    return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                const userId = (trigger.getAttribute('data-user-id') || '').trim();
+                if (!userId || !/^\d+$/.test(userId)) {
+                    return;
+                }
+
+                userModalBody.innerHTML = '<div class="text-secondary">Loading profile...</div>';
+                userModal.show();
+
+                try {
+                    const response = await fetch(`/users/${userId}/quick-profile/`, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (!response.ok) {
+                        throw new Error('Unable to load user profile.');
+                    }
+                    const payload = await response.json();
+                    if (!payload.ok || !payload.user) {
+                        throw new Error('Unable to load user profile.');
+                    }
+
+                    userModalBody.innerHTML = renderUserProfileBody(payload.user);
+                } catch (error) {
+                    userModalBody.innerHTML = '<div class="alert alert-danger mb-0">Unable to load user profile.</div>';
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

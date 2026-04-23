@@ -1,0 +1,80 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Verify Email Code{% endblock %}
+{% block page_heading %}Verify Email{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Enter Verification Code</h2>
+        <p class="text-secondary mb-4">We sent a 6-digit code to your email. Enter it below to verify your account.</p>
+
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+            <div class="mb-3{% if form.otp.errors %} field-has-error{% endif %}">
+                <label for="id_otp" class="form-label">Verification code</label>
+                {{ form.otp }}
+                {% if form.otp.errors %}
+                    <div class="text-danger small mt-1">{{ form.otp.errors|striptags }}</div>
+                {% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <button type="submit" class="btn btn-success" name="action" value="verify">Verify Email</button>
+                <button
+                    type="submit"
+                    class="btn btn-outline-success"
+                    name="action"
+                    value="resend"
+                    id="resendVerificationButton"
+                    formnovalidate
+                    {% if resend_seconds_remaining > 0 %}disabled data-resend-seconds-remaining="{{ resend_seconds_remaining }}"{% endif %}
+                >
+                    Resend Code
+                </button>
+                <span class="text-secondary small" id="resendVerificationStatus">
+                    {% if resend_seconds_remaining > 0 %}
+                        You can resend in {{ resend_seconds_remaining }} second{{ resend_seconds_remaining|pluralize }}.
+                    {% else %}
+                        You can resend now.
+                    {% endif %}
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function () {
+    const button = document.getElementById('resendVerificationButton');
+    const status = document.getElementById('resendVerificationStatus');
+    if (!button || !status) {
+        return;
+    }
+
+    let remaining = parseInt(button.dataset.resendSecondsRemaining || '0', 10);
+    if (!remaining || Number.isNaN(remaining)) {
+        return;
+    }
+
+    const tick = () => {
+        if (remaining <= 0) {
+            button.disabled = false;
+            delete button.dataset.resendSecondsRemaining;
+            status.textContent = 'You can resend now.';
+            return;
+        }
+
+        button.disabled = true;
+        status.textContent = `You can resend in ${remaining} second${remaining === 1 ? '' : 's'}.`;
+        remaining -= 1;
+        window.setTimeout(tick, 1000);
+    };
+
+    tick();
+})();
+</script>
+{% endblock %}

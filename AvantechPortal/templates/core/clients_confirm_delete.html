@@ -1,0 +1,24 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Delete Client{% endblock %}
+{% block page_heading %}Clients{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-lg-5">
+        <h2 class="h4 mb-3">Request Client Deletion</h2>
+        <p>Submit a deletion request for <strong>{{ client.full_name }}</strong>. This request requires approval before the client is deleted.</p>
+        <form method="post">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label for="deleteReason" class="form-label fw-semibold">Reason for deletion request</label>
+                <textarea id="deleteReason" name="reason" class="form-control" rows="3" placeholder="State why this client should be deleted." required></textarea>
+            </div>
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-danger">Submit Request</button>
+                <a href="{% url 'clients_list' %}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
