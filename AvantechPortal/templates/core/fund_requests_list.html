@@ -1,0 +1,928 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Fund Request{% endblock %}
+{% block page_heading %}Fund Request{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Total Fund Requests</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_fund_requests }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Pending Approval</p>
+                <p class="display-6 fw-bold mb-0 text-warning-emphasis">{{ total_pending_fund_requests }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Total Requested Amount</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">PHP {{ total_fund_amount }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+                    <div>
+                        <h2 class="h4 mb-1">Create Fund Request</h2>
+                        <p class="text-secondary mb-0">Choose a template, preview it, then encode the request with line items and automatic totals.</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        {% if active_template %}
+                            <span class="badge text-bg-light border">Default: {{ active_template.name }}</span>
+                        {% else %}
+                            <span class="badge text-bg-warning">Auto-generated form</span>
+                        {% endif %}
+                        {% if can_add_fund_requests %}
+                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#fundRequestCreateModal">
+                                New Fund Request
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if can_add_fund_requests %}
+                    <div class="border rounded-3 p-3 bg-light-subtle">
+                        <div class="fw-semibold mb-1">Template-driven request form</div>
+                        <p class="text-secondary mb-2">Click <strong>New Fund Request</strong> to select a template and fill out the request data.</p>
+                        <div class="small text-secondary mb-0">Tip: for `.docx` and `.xlsx`, regular placeholders like <code>{% templatetag openvariable %} requester_name {% templatetag closevariable %}</code> work, and dynamic rows now work using <code>{% templatetag openvariable %}#line_items{% templatetag closevariable %}</code> ... <code>{% templatetag openvariable %}/line_items{% templatetag closevariable %}</code>.</div>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning mb-0">You can view fund requests, but you do not have permission to create one.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if can_manage_templates %}
+            <div class="card border-0 shadow-sm mt-3">
+                <div class="card-body p-4">
+                    <h3 class="h5 mb-1">Preferred Template</h3>
+                    <p class="text-secondary mb-3">Upload templates here. Users can then pick from the template grid when creating a fund request.</p>
+
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <input type="hidden" name="action_type" value="upload_template">
+
+                        <div class="mb-3">
+                            <label for="{{ template_form.name.id_for_label }}" class="form-label fw-semibold">Template Name</label>
+                            {{ template_form.name }}
+                            {% if template_form.name.errors %}
+                                <div class="text-danger small mt-1">{{ template_form.name.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-3">
+                            <label for="{{ template_form.file.id_for_label }}" class="form-label fw-semibold">Template File</label>
+                            {{ template_form.file }}
+                            <div class="form-text">Supported uploads: PDF, DOC, DOCX, XLS, XLSX. Auto-fill currently works on `.docx` and `.xlsx` placeholder templates.</div>
+                            {% if template_form.file.errors %}
+                                <div class="text-danger small mt-1">{{ template_form.file.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-3">
+                            <label for="{{ template_form.notes.id_for_label }}" class="form-label fw-semibold">Notes</label>
+                            {{ template_form.notes }}
+                            {% if template_form.notes.errors %}
+                                <div class="text-danger small mt-1">{{ template_form.notes.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="form-check mb-3">
+                            {{ template_form.is_active }}
+                            <label for="{{ template_form.is_active.id_for_label }}" class="form-check-label">Set as active template</label>
+                        </div>
+                        <button type="submit" class="btn btn-outline-success">Upload Template</button>
+                    </form>
+
+                    <div class="border rounded-3 p-3 bg-light-subtle mt-4">
+                        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                            <div>
+                                <div class="fw-semibold mb-1">Placeholder Guide</div>
+                                <div class="small text-secondary">Open any uploaded template to see a PDF preview plus the full placeholder list with copy buttons and usage notes.</div>
+                            </div>
+                            {% if all_templates %}
+                                <a href="{% url 'fund_request_template_preview' all_templates.0.id %}" class="btn btn-sm btn-outline-success">Open Guide</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                    <div>
+                        <h3 class="h5 mb-1">Template Library</h3>
+                        <p class="text-secondary mb-0">Preview available templates, see who uploaded them, and know which one is the default.</p>
+                    </div>
+                    <div class="small text-secondary">{{ all_templates|length }} template(s)</div>
+                </div>
+
+                {% if all_templates %}
+                    <form method="post" id="fundRequestTemplatesBulkForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="action_type" value="bulk_delete_templates">
+                    <div class="row g-3">
+                        {% for template_record in all_templates %}
+                            <div class="col-md-6">
+                                <div class="border rounded-3 h-100 bg-white overflow-hidden">
+                                    <div class="fund-template-preview-mini border-bottom">
+                                        {% if template_record.file|is_pdf_file %}
+                                            <iframe src="{{ template_record.file.url }}#toolbar=0&navpanes=0&scrollbar=0" title="{{ template_record.name }}" loading="lazy"></iframe>
+                                        {% else %}
+                                            <div class="fund-template-preview-fallback">
+                                                <span class="fund-template-extension">{{ template_record.file|file_extension }}</span>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="p-3">
+                                        {% if can_manage_templates %}
+                                            <div class="form-check mb-2">
+                                                <input
+                                                    class="form-check-input js-template-checkbox"
+                                                    type="checkbox"
+                                                    name="selected_template_ids"
+                                                    value="{{ template_record.id }}"
+                                                    id="selectedTemplate{{ template_record.id }}"
+                                                >
+                                                <label class="form-check-label small text-secondary" for="selectedTemplate{{ template_record.id }}">
+                                                    Select template
+                                                </label>
+                                            </div>
+                                        {% endif %}
+                                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                            <div class="fw-semibold">{{ template_record.name }}</div>
+                                            {% if template_record.is_active %}
+                                                <span class="badge text-bg-success">Default</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="small text-secondary">{{ template_record.file|basename }}</div>
+                                        <div class="small text-secondary mt-1">
+                                            Uploaded by
+                                            {% if template_record.uploaded_by %}
+                                                {{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username }}
+                                            {% else %}
+                                                System
+                                            {% endif %}
+                                        </div>
+                                        <div class="small text-secondary">Updated {{ template_record.updated_at|date:'Y-m-d H:i' }}</div>
+                                        <div class="mt-3 d-flex gap-2 flex-wrap">
+                                            <a class="btn btn-sm btn-outline-success" href="{% url 'fund_request_template_preview' template_record.id %}">Open Preview</a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ template_record.file.url }}" target="_blank">Original File</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    {% if can_manage_templates %}
+                        <div class="border-top bg-light-subtle px-3 py-3 mt-3 d-flex justify-content-between align-items-center gap-3 flex-wrap d-none" id="fundRequestTemplatesBulkActionBar">
+                            <div class="small text-secondary">
+                                <strong id="fundRequestTemplatesSelectedCount">0</strong> template(s) selected
+                            </div>
+                            <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete all selected uploaded templates?')">Delete Selected Templates</button>
+                        </div>
+                    {% endif %}
+                    </form>
+                {% else %}
+                    <div class="border rounded-3 p-4 text-center text-secondary">No uploaded templates yet. The system will use the built-in generated form.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body border-bottom">
+                <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap">
+                    <div>
+                        <h2 class="h4 mb-1">Fund Request Records</h2>
+                        <p class="text-secondary mb-0">Submitted requests are tracked here. Only approved requests receive a serial number and printable document.</p>
+                    </div>
+                    <form method="get" class="d-flex gap-2 flex-wrap">
+                        <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search serial, name, department, branch">
+                        <button type="submit" class="btn btn-success">Search</button>
+                        <a href="{% url 'fund_requests_list' %}" class="btn btn-outline-secondary">Clear</a>
+                    </form>
+                </div>
+            </div>
+            <form method="post" id="fundRequestsBulkForm">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="bulk_delete_requests">
+                <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead class="table-success">
+                        <tr>
+                            <th style="width: 52px;">
+                                <input class="form-check-input" type="checkbox" id="fundRequestsSelectAll" aria-label="Select all fund requests">
+                            </th>
+                            <th>Serial No.</th>
+                            <th>Status</th>
+                            <th>Name</th>
+                            <th>Date</th>
+                            <th>Department / Branch</th>
+                            <th>Total</th>
+                            <th>Prepared By</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fund_request in fund_requests_page %}
+                            <tr data-request-row>
+                                <td>
+                                    <input
+                                        class="form-check-input js-fund-request-checkbox"
+                                        type="checkbox"
+                                        name="selected_request_ids"
+                                        value="{{ fund_request.id }}"
+                                        data-open-url="{% if fund_request.request_status == 'approved' %}{% url 'fund_request_document' fund_request.id %}{% endif %}"
+                                        data-download-url="{% if fund_request.request_status == 'approved' %}{% url 'fund_request_document_download' fund_request.id %}{% endif %}"
+                                        aria-label="Select {{ fund_request.serial_number|default:fund_request.requester_name }}"
+                                    >
+                                </td>
+                                <td class="fw-semibold">
+                                    {% if fund_request.serial_number %}
+                                        {{ fund_request.serial_number }}
+                                    {% else %}
+                                        <span class="text-secondary">For approval</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if fund_request.request_status == 'approved' %}
+                                        <span class="badge text-bg-success">Approved</span>
+                                    {% elif fund_request.request_status == 'rejected' %}
+                                        <span class="badge text-bg-danger">Rejected</span>
+                                    {% else %}
+                                        <span class="badge text-bg-warning">Pending</span>
+                                    {% endif %}
+                                    {% if fund_request.processed_by %}
+                                        <div class="small text-secondary mt-1">
+                                            By {{ fund_request.processed_by.get_full_name|default:fund_request.processed_by.username }}
+                                        </div>
+                                    {% endif %}
+                                    {% if fund_request.decision_reason %}
+                                        <div class="small text-secondary mt-1">{{ fund_request.decision_reason }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ fund_request.requester_name }}</td>
+                                <td>{{ fund_request.request_date|date:'Y-m-d' }}</td>
+                                <td>
+                                    <div>{{ fund_request.department }}</div>
+                                    <div class="small text-secondary">{{ fund_request.branch }}</div>
+                                    <div class="small text-secondary">{{ fund_request.attachments.count }} image(s)</div>
+                                </td>
+                                <td>PHP {{ fund_request.total_amount }}</td>
+                                <td>
+                                    {% if fund_request.created_by %}
+                                        {% with creator_profile=creator_profiles_map|get_item:fund_request.created_by_id %}
+                                            <div class="list-user-inline">
+                                                {% if creator_profile and creator_profile.avatar %}
+                                                    <img src="{{ creator_profile.avatar.url }}" alt="{{ fund_request.created_by.username }}" class="list-user-avatar">
+                                                {% else %}
+                                                    <span class="list-user-avatar-fallback">{{ fund_request.created_by.get_full_name|default:fund_request.created_by.username|first|upper }}</span>
+                                                {% endif %}
+                                                <button type="button" class="user-name-link js-user-profile-trigger" data-user-id="{{ fund_request.created_by_id }}">
+                                                    {{ fund_request.created_by.get_full_name|default:fund_request.created_by.username }}
+                                                </button>
+                                            </div>
+                                        {% endwith %}
+                                    {% else %}
+                                        <span class="text-secondary">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            Action
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            {% if fund_request.request_status == 'approved' %}
+                                                <li><a class="dropdown-item" href="{% url 'fund_request_document' fund_request.id %}" target="_blank">Open</a></li>
+                                                <li><a class="dropdown-item" href="{% url 'fund_request_document_download' fund_request.id %}">Download</a></li>
+                                            {% else %}
+                                                <li><a class="dropdown-item" href="{% url 'fund_request_review' fund_request.id %}">Review File</a></li>
+                                            {% endif %}
+                                            {% if can_approve_fund_requests and fund_request.request_status == 'pending' %}
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <a class="dropdown-item text-success" href="{% url 'fund_request_review' fund_request.id %}">
+                                                        Review and Approve
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item text-danger"
+                                                        data-fund-request-reject
+                                                        data-request-id="{{ fund_request.id }}"
+                                                        data-request-label="{{ fund_request.requester_name }}"
+                                                    >
+                                                        Reject
+                                                    </button>
+                                                </li>
+                                            {% endif %}
+                                            {% if can_delete_fund_requests %}
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item text-danger"
+                                                        data-fund-request-remove
+                                                        data-request-id="{{ fund_request.id }}"
+                                                        data-request-serial="{{ fund_request.serial_number }}"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="9" class="text-center py-4 text-secondary">No fund requests yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                <div
+                    class="border-top bg-light-subtle px-3 py-3 d-flex justify-content-between align-items-center gap-3 flex-wrap d-none"
+                    id="fundRequestsBulkActionBar"
+                >
+                    <div class="small text-secondary">
+                        <strong id="fundRequestsSelectedCount">0</strong> request(s) selected
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-outline-success btn-sm" id="fundRequestsBulkOpenBtn">Open Selected</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="fundRequestsBulkDownloadBtn">Download Selected</button>
+                        {% if can_delete_fund_requests %}
+                            <button type="submit" class="btn btn-danger btn-sm" id="fundRequestsBulkDeleteBtn" onclick="return confirm('Remove all selected fund requests?')">Remove Selected</button>
+                        {% endif %}
+                    </div>
+                </div>
+            </form>
+            {% if can_delete_fund_requests %}
+                <form method="post" id="fundRequestDeleteForm" class="d-none">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="delete_request">
+                    <input type="hidden" name="request_id" id="fundRequestDeleteId">
+                </form>
+            {% endif %}
+            {% if can_approve_fund_requests %}
+                <form method="post" id="fundRequestApproveForm" class="d-none">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="approve_request">
+                    <input type="hidden" name="request_id" id="fundRequestApproveId">
+                    <input type="hidden" name="reason" id="fundRequestApproveReason">
+                </form>
+                <form method="post" id="fundRequestRejectForm" class="d-none">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="reject_request">
+                    <input type="hidden" name="request_id" id="fundRequestRejectId">
+                    <input type="hidden" name="reason" id="fundRequestRejectReason">
+                </form>
+            {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if can_add_fund_requests %}
+<div class="modal fade" id="fundRequestCreateModal" tabindex="-1" aria-labelledby="fundRequestCreateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-white">
+                <div>
+                    <h5 class="modal-title" id="fundRequestCreateModalLabel">Create Fund Request</h5>
+                    <div class="small text-secondary">Serial numbers are assigned automatically as `YYYY-XXXX` when the request is saved.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form method="post" id="fundRequestForm" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="create_request">
+                    {{ fund_request_form.line_items_payload }}
+
+                    {% if fund_request_form.non_field_errors %}
+                        <div class="alert alert-danger">{{ fund_request_form.non_field_errors }}</div>
+                    {% endif %}
+
+                    <div class="border rounded-3 p-3 p-lg-4 mb-4 bg-light-subtle">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                            <div>
+                                <div class="fw-semibold">Choose Template</div>
+                                <div class="small text-secondary">Select which template to use for this fund request before entering the request details.</div>
+                            </div>
+                            {% if active_template %}
+                                <span class="badge text-bg-light border">Default template: {{ active_template.name }}</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6 col-xl-4">
+                                <label class="fund-template-picker-card h-100">
+                                    <input
+                                        type="radio"
+                                        name="selected_template_id"
+                                        value=""
+                                        class="fund-template-picker-input"
+                                        {% if not default_selected_template_id %}checked{% endif %}
+                                    >
+                                    <span class="fund-template-picker-frame">
+                                        <span class="fund-template-preview-mini border-bottom">
+                                            <span class="fund-template-preview-fallback">
+                                                <span class="fund-template-extension">AUTO</span>
+                                            </span>
+                                        </span>
+                                        <span class="d-block p-3">
+                                            <span class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                                <span class="fw-semibold d-block">Generated Form</span>
+                                                <span class="badge text-bg-warning">Built-in</span>
+                                            </span>
+                                            <span class="small text-secondary d-block">Uses the portal's built-in printable document layout.</span>
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                            {% for template_record in all_templates %}
+                                <div class="col-md-6 col-xl-4">
+                                    <label class="fund-template-picker-card h-100">
+                                        <input
+                                            type="radio"
+                                            name="selected_template_id"
+                                            value="{{ template_record.id }}"
+                                            class="fund-template-picker-input"
+                                            {% if default_selected_template_id|stringformat:'s' == template_record.id|stringformat:'s' %}checked{% endif %}
+                                        >
+                                        <span class="fund-template-picker-frame">
+                                            <span class="fund-template-preview-mini border-bottom">
+                                                {% if template_record.file|is_pdf_file %}
+                                                    <iframe src="{{ template_record.file.url }}#toolbar=0&navpanes=0&scrollbar=0" title="{{ template_record.name }}" loading="lazy"></iframe>
+                                                {% else %}
+                                                    <span class="fund-template-preview-fallback">
+                                                        <span class="fund-template-extension">{{ template_record.file|file_extension }}</span>
+                                                    </span>
+                                                {% endif %}
+                                            </span>
+                                            <span class="d-block p-3">
+                                                <span class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                                    <span class="fw-semibold d-block">{{ template_record.name }}</span>
+                                                    {% if template_record.is_active %}
+                                                        <span class="badge text-bg-success">Default</span>
+                                                    {% endif %}
+                                                </span>
+                                                <span class="small text-secondary d-block">{{ template_record.file|basename }}</span>
+                                                <span class="small text-secondary d-block mt-1">
+                                                    Uploaded by
+                                                    {% if template_record.uploaded_by %}
+                                                        {{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username }}
+                                                    {% else %}
+                                                        System
+                                                    {% endif %}
+                                                </span>
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="{{ fund_request_form.requester_name.id_for_label }}" class="form-label fw-semibold">Name</label>
+                            {{ fund_request_form.requester_name }}
+                            {% if fund_request_form.requester_name.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.requester_name.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ fund_request_form.request_date.id_for_label }}" class="form-label fw-semibold">Date</label>
+                            {{ fund_request_form.request_date }}
+                            {% if fund_request_form.request_date.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.request_date.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ fund_request_form.department.id_for_label }}" class="form-label fw-semibold">Department</label>
+                            {{ fund_request_form.department }}
+                            {% if fund_request_form.department.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.department.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ fund_request_form.branch.id_for_label }}" class="form-label fw-semibold">Branch</label>
+                            {{ fund_request_form.branch }}
+                            {% if fund_request_form.branch.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.branch.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="border rounded-3 overflow-hidden">
+                        <div class="table-responsive">
+                            <table class="table align-middle mb-0" id="fundRequestItemsTable">
+                                <thead class="table-success">
+                                    <tr>
+                                        <th style="min-width: 150px;">Date</th>
+                                        <th style="min-width: 240px;">Particulars</th>
+                                        <th style="min-width: 140px;">Amount</th>
+                                        <th style="width: 70px;" class="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fundRequestItemsBody"></tbody>
+                                <tfoot>
+                                    <tr>
+                                        <th colspan="2" class="text-end">Total Amount</th>
+                                        <th id="fundRequestTotalLabel">PHP 0.00</th>
+                                        <th></th>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    {% if fund_request_form.line_items_payload.errors %}
+                        <div class="text-danger small mt-2">{{ fund_request_form.line_items_payload.errors|striptags }}</div>
+                    {% endif %}
+
+                    <div class="mt-4">
+                        <label for="{{ fund_request_form.request_images.id_for_label }}" class="form-label fw-semibold">Supporting Images</label>
+                        {{ fund_request_form.request_images }}
+                        <div class="form-text">{{ fund_request_form.request_images.help_text }}</div>
+                        {% if fund_request_form.request_images.errors %}
+                            <div class="text-danger small mt-1">{{ fund_request_form.request_images.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-secondary" id="addFundRequestRowBtn">Add Row</button>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success">Save Fund Request</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{{ fund_request_form.line_items_payload.value|default:'[]'|json_script:"fund-request-line-items-data" }}
+
+<style>
+    .fund-template-preview-mini {
+        display: block;
+        height: 140px;
+        background: linear-gradient(135deg, #f8faf8 0%, #eef5ee 100%);
+    }
+
+    .fund-template-preview-mini iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #fff;
+    }
+
+    .fund-template-preview-fallback {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.12), transparent 42%),
+            linear-gradient(135deg, #f7fbf7 0%, #edf5ef 100%);
+    }
+
+    .fund-template-extension {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 74px;
+        min-height: 74px;
+        border-radius: 18px;
+        background: #ffffff;
+        border: 1px solid rgba(25, 135, 84, 0.16);
+        color: #198754;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        box-shadow: 0 12px 24px rgba(25, 135, 84, 0.08);
+    }
+
+    .fund-template-picker-card {
+        display: block;
+        cursor: pointer;
+    }
+
+    .fund-template-picker-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .fund-template-picker-frame {
+        display: block;
+        height: 100%;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 1rem;
+        overflow: hidden;
+        background: #fff;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    .fund-template-picker-card:hover .fund-template-picker-frame {
+        transform: translateY(-2px);
+        box-shadow: 0 14px 30px rgba(33, 37, 41, 0.08);
+    }
+
+    .fund-template-picker-input:checked + .fund-template-picker-frame {
+        border-color: #198754;
+        box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.16);
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modalElement = document.getElementById('fundRequestCreateModal');
+    const tbody = document.getElementById('fundRequestItemsBody');
+    const addRowButton = document.getElementById('addFundRequestRowBtn');
+    const payloadInput = document.getElementById('{{ fund_request_form.line_items_payload.id_for_label }}');
+    const totalLabel = document.getElementById('fundRequestTotalLabel');
+    const requestDateField = document.getElementById('{{ fund_request_form.request_date.id_for_label }}');
+    if (tbody && addRowButton && payloadInput && totalLabel) {
+        const initialPayloadElement = document.getElementById('fund-request-line-items-data');
+        let initialRows = [];
+        if (initialPayloadElement) {
+            try {
+                initialRows = JSON.parse(initialPayloadElement.textContent || '[]');
+                if (typeof initialRows === 'string') {
+                    initialRows = JSON.parse(initialRows || '[]');
+                }
+            } catch (error) {
+                initialRows = [];
+            }
+        }
+
+        const getDefaultDate = () => {
+            if (requestDateField && requestDateField.value) {
+                return requestDateField.value;
+            }
+            const now = new Date();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${now.getFullYear()}-${month}-${day}`;
+        };
+
+        const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        const syncRows = () => {
+            const payload = [];
+            let total = 0;
+            tbody.querySelectorAll('tr').forEach((row) => {
+                const date = row.querySelector('[data-line-item="date"]').value.trim();
+                const particulars = row.querySelector('[data-line-item="particulars"]').value.trim();
+                const amountRaw = row.querySelector('[data-line-item="amount"]').value.trim();
+                const amount = Number(amountRaw || 0);
+                if (date || particulars || amountRaw) {
+                    payload.push({
+                        date,
+                        particulars,
+                        amount: amountRaw,
+                    });
+                }
+                total += Number.isFinite(amount) ? amount : 0;
+            });
+            payloadInput.value = JSON.stringify(payload);
+            totalLabel.textContent = formatCurrency(total);
+        };
+
+        const attachRowEvents = (row) => {
+            row.querySelectorAll('input').forEach((input) => {
+                input.addEventListener('input', syncRows);
+            });
+            row.querySelector('[data-remove-row]').addEventListener('click', function () {
+                row.remove();
+                if (!tbody.children.length) {
+                    addRow();
+                }
+                syncRows();
+            });
+        };
+
+        const addRow = (values = {}) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="date" class="form-control" data-line-item="date" value="${values.entry_date || values.date || getDefaultDate()}"></td>
+                <td><input type="text" class="form-control" data-line-item="particulars" placeholder="Enter particulars" value="${values.particulars || ''}"></td>
+                <td><input type="number" class="form-control" data-line-item="amount" min="0" step="0.01" placeholder="0.00" value="${values.amount || ''}"></td>
+                <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Remove</button></td>
+            `;
+            tbody.appendChild(row);
+            attachRowEvents(row);
+            syncRows();
+        };
+
+        if (Array.isArray(initialRows) && initialRows.length) {
+            initialRows.forEach(addRow);
+        } else {
+            addRow();
+        }
+
+        addRowButton.addEventListener('click', function () {
+            addRow();
+        });
+
+        if (requestDateField) {
+            requestDateField.addEventListener('change', function () {
+                tbody.querySelectorAll('[data-line-item="date"]').forEach((input) => {
+                    if (!input.value) {
+                        input.value = requestDateField.value;
+                    }
+                });
+                syncRows();
+            });
+        }
+
+        syncRows();
+    }
+
+    const hasErrors = {{ fund_request_form.errors|yesno:"true,false" }};
+    if (hasErrors && modalElement && window.bootstrap && window.bootstrap.Modal) {
+        const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+        modal.show();
+    }
+
+    const selectAllCheckbox = document.getElementById('fundRequestsSelectAll');
+    const requestCheckboxes = Array.from(document.querySelectorAll('.js-fund-request-checkbox'));
+    const bulkActionBar = document.getElementById('fundRequestsBulkActionBar');
+    const selectedCountLabel = document.getElementById('fundRequestsSelectedCount');
+    const bulkOpenButton = document.getElementById('fundRequestsBulkOpenBtn');
+    const bulkDownloadButton = document.getElementById('fundRequestsBulkDownloadBtn');
+    const deleteForm = document.getElementById('fundRequestDeleteForm');
+    const deleteIdInput = document.getElementById('fundRequestDeleteId');
+    const removeButtons = Array.from(document.querySelectorAll('[data-fund-request-remove]'));
+    const approveForm = document.getElementById('fundRequestApproveForm');
+    const approveIdInput = document.getElementById('fundRequestApproveId');
+    const approveReasonInput = document.getElementById('fundRequestApproveReason');
+    const rejectForm = document.getElementById('fundRequestRejectForm');
+    const rejectIdInput = document.getElementById('fundRequestRejectId');
+    const rejectReasonInput = document.getElementById('fundRequestRejectReason');
+    const approveButtons = Array.from(document.querySelectorAll('[data-fund-request-approve]'));
+    const rejectButtons = Array.from(document.querySelectorAll('[data-fund-request-reject]'));
+    const templateCheckboxes = Array.from(document.querySelectorAll('.js-template-checkbox'));
+    const templatesBulkActionBar = document.getElementById('fundRequestTemplatesBulkActionBar');
+    const templatesSelectedCountLabel = document.getElementById('fundRequestTemplatesSelectedCount');
+
+    const getSelectedCheckboxes = () => requestCheckboxes.filter((checkbox) => checkbox.checked);
+
+    const syncFundRequestSelection = () => {
+        if (!requestCheckboxes.length) {
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
+            if (bulkActionBar) {
+                bulkActionBar.classList.add('d-none');
+            }
+            return;
+        }
+
+        const selectedCheckboxes = getSelectedCheckboxes();
+        const selectedCount = selectedCheckboxes.length;
+
+        if (selectedCountLabel) {
+            selectedCountLabel.textContent = String(selectedCount);
+        }
+        if (bulkActionBar) {
+            bulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = selectedCount > 0 && selectedCount === requestCheckboxes.length;
+            selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < requestCheckboxes.length;
+        }
+    };
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function () {
+            requestCheckboxes.forEach((checkbox) => {
+                checkbox.checked = selectAllCheckbox.checked;
+            });
+            syncFundRequestSelection();
+        });
+    }
+
+    requestCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', syncFundRequestSelection);
+    });
+
+    if (bulkOpenButton) {
+        bulkOpenButton.addEventListener('click', function () {
+            getSelectedCheckboxes().forEach((checkbox) => {
+                const url = checkbox.dataset.openUrl;
+                if (url) {
+                    window.open(url, '_blank');
+                }
+            });
+        });
+    }
+
+    if (bulkDownloadButton) {
+        bulkDownloadButton.addEventListener('click', function () {
+            getSelectedCheckboxes().forEach((checkbox, index) => {
+                const url = checkbox.dataset.downloadUrl;
+                if (!url) {
+                    return;
+                }
+
+                window.setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                }, index * 150);
+            });
+        });
+    }
+
+    removeButtons.forEach((button) => {
+        button.addEventListener('click', function () {
+            if (!deleteForm || !deleteIdInput) {
+                return;
+            }
+
+            const serialNumber = button.dataset.requestSerial || 'this fund request';
+            const requestId = button.dataset.requestId;
+            if (!requestId) {
+                return;
+            }
+
+            if (window.confirm(`Remove fund request ${serialNumber}?`)) {
+                deleteIdInput.value = requestId;
+                deleteForm.submit();
+            }
+        });
+    });
+
+    rejectButtons.forEach((button) => {
+        button.addEventListener('click', function () {
+            if (!rejectForm || !rejectIdInput || !rejectReasonInput) {
+                return;
+            }
+
+            const requestId = button.dataset.requestId;
+            const label = button.dataset.requestLabel || 'this fund request';
+            if (!requestId) {
+                return;
+            }
+
+            const reason = window.prompt(`Reject fund request for ${label}.\nPlease enter the reason:`) || '';
+            if (!reason.trim()) {
+                return;
+            }
+
+            rejectIdInput.value = requestId;
+            rejectReasonInput.value = reason.trim();
+            rejectForm.submit();
+        });
+    });
+
+    const syncTemplateSelection = () => {
+        const selectedCount = templateCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (templatesSelectedCountLabel) {
+            templatesSelectedCountLabel.textContent = String(selectedCount);
+        }
+        if (templatesBulkActionBar) {
+            templatesBulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+    };
+
+    templateCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', syncTemplateSelection);
+    });
+
+    syncFundRequestSelection();
+    syncTemplateSelection();
+});
+</script>
+{% endblock %}

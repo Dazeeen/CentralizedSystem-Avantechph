@@ -1,5 +1,6 @@
 import json
 import time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from captcha.fields import CaptchaField
@@ -9,6 +10,7 @@ from django.contrib.auth.models import Group, Permission, User
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.conf import settings
+from PIL import Image
 
 from .auth_utils import get_client_ip
 from .models import (
@@ -21,6 +23,10 @@ from .models import (
     ClientQuotation,
     CompanyInternetAccount,
     DevelopmentFeedback,
+    FundRequest,
+    FundRequestAttachment,
+    FundRequestLineItem,
+    FundRequestTemplate,
     PatchNote,
     PatchNoteAttachment,
     PatchNoteComment,
@@ -552,6 +558,163 @@ class ClientQuotationForm(forms.ModelForm):
         cleaned_data['lead_disposition_reason'] = reason
 
         return cleaned_data
+
+
+class FundRequestTemplateForm(forms.ModelForm):
+    MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx'}
+
+    class Meta:
+        model = FundRequestTemplate
+        fields = ['name', 'file', 'notes', 'is_active']
+        widgets = {
+            'notes': forms.Textarea(attrs={'rows': 3}),
+            'file': forms.ClearableFileInput(attrs={'accept': '.pdf,.doc,.docx,.xls,.xlsx'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['is_active'].help_text = 'When enabled, new fund requests will use this as the preferred template.'
+
+    def clean_file(self):
+        file = self.cleaned_data.get('file')
+        if not file:
+            return file
+
+        extension = Path(file.name or '').suffix.lower()
+        if extension not in self.ALLOWED_EXTENSIONS:
+            raise ValidationError('Upload a PDF, DOC, DOCX, XLS, or XLSX template file.')
+        if getattr(file, 'size', 0) > self.MAX_FILE_SIZE_BYTES:
+            raise ValidationError('Template file size must be 25MB or less.')
+        return file
+
+
+class FundRequestForm(forms.ModelForm):
+    line_items_payload = forms.CharField(widget=forms.HiddenInput())
+    request_images = MultipleFileField(
+        required=True,
+        widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp', 'multiple': True}),
+        label='Supporting Images',
+        help_text='Upload one or more supporting images. These will be appended as extra pages after the generated template PDF.',
+    )
+    MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
+    ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+
+    class Meta:
+        model = FundRequest
+        fields = ['requester_name', 'request_date', 'department', 'branch']
+        widgets = {
+            'request_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            field.widget.attrs.setdefault('class', 'form-control')
+        self._parsed_line_items = []
+
+    def clean_request_images(self):
+        files = self.cleaned_data.get('request_images') or []
+        if not files:
+            raise ValidationError('Upload at least one supporting image.')
+
+        for upload in files:
+            extension = Path(getattr(upload, 'name', '')).suffix.lower()
+            if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
+                raise ValidationError('Upload valid image files only: PNG, JPG, JPEG, or WEBP.')
+            if getattr(upload, 'size', 0) > self.MAX_IMAGE_SIZE_BYTES:
+                raise ValidationError('Each image must be 10MB or less.')
+            try:
+                upload.seek(0)
+                image = Image.open(upload)
+                image.verify()
+            except Exception as exc:
+                raise ValidationError('One of the uploaded files is not a valid image.') from exc
+            finally:
+                try:
+                    upload.seek(0)
+                except Exception:
+                    pass
+        return files
+
+    def clean_line_items_payload(self):
+        raw_payload = (self.cleaned_data.get('line_items_payload') or '').strip()
+        if not raw_payload:
+            raise ValidationError('Add at least one fund request line item.')
+
+        try:
+            parsed = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise ValidationError('Line items could not be parsed. Please review the table rows.') from exc
+
+        if not isinstance(parsed, list) or not parsed:
+            raise ValidationError('Add at least one fund request line item.')
+
+        cleaned_items = []
+        for index, item in enumerate(parsed, start=1):
+            if not isinstance(item, dict):
+                raise ValidationError(f'Line item #{index} is invalid.')
+
+            entry_date = (item.get('date') or '').strip()
+            particulars = (item.get('particulars') or '').strip()
+            amount_raw = str(item.get('amount') or '').strip()
+
+            if not entry_date:
+                raise ValidationError(f'Line item #{index} is missing a date.')
+            if not particulars:
+                raise ValidationError(f'Line item #{index} is missing particulars.')
+
+            try:
+                amount = Decimal(amount_raw)
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValidationError(f'Line item #{index} has an invalid amount.') from exc
+
+            if amount <= 0:
+                raise ValidationError(f'Line item #{index} amount must be greater than zero.')
+
+            cleaned_items.append(
+                {
+                    'entry_date': entry_date,
+                    'particulars': particulars,
+                    'amount': amount.quantize(Decimal('0.01')),
+                }
+            )
+
+        self._parsed_line_items = cleaned_items
+        return raw_payload
+
+    def get_line_items(self):
+        return list(self._parsed_line_items)
+
+    def save_line_items(self, fund_request):
+        if not fund_request or not fund_request.pk:
+            return
+
+        FundRequestLineItem.objects.filter(fund_request=fund_request).delete()
+        for item in self.get_line_items():
+            FundRequestLineItem.objects.create(
+                fund_request=fund_request,
+                entry_date=item['entry_date'],
+                particulars=item['particulars'],
+                amount=item['amount'],
+            )
+        fund_request.refresh_total_amount(save=True)
+
+    def save_attachments(self, fund_request, uploaded_by=None):
+        if not fund_request or not fund_request.pk:
+            return
+
+        for upload in self.cleaned_data.get('request_images', []):
+            FundRequestAttachment.objects.create(
+                fund_request=fund_request,
+                image=upload,
+                uploaded_by=uploaded_by,
+            )
 
 
 class AssetDepartmentForm(forms.ModelForm):
