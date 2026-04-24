@@ -6,8 +6,8 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
-from django.db import models
-from django.db.models import Q, Sum
+from django.db import models, transaction
+from django.db.models import Max, Q, Sum
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.text import slugify
@@ -53,6 +53,24 @@ def accountability_return_proof_upload_to(instance, filename):
 	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d')
 	formatted_name = f'{accountability_id}_return_proof_{date_stamp}{extension}'
 	return f'accountability_return_proofs/{formatted_name}'
+
+
+def fund_request_template_upload_to(instance, filename):
+	original_name = filename or 'fund-request-template.file'
+	extension = Path(original_name).suffix.lower() or '.file'
+	template_slug = slugify(getattr(instance, 'name', '') or 'fund-request-template')
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'fund_requests/templates/{template_slug}_{date_stamp}{extension}'
+
+
+def fund_request_attachment_upload_to(instance, filename):
+	original_name = filename or 'fund-request-image.jpg'
+	extension = Path(original_name).suffix.lower() or '.jpg'
+	request_obj = getattr(instance, 'fund_request', None)
+	serial_label = getattr(request_obj, 'serial_number', '') or f'request-{getattr(instance, "fund_request_id", "pending")}'
+	request_slug = slugify(serial_label) or 'fund-request'
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'fund_requests/attachments/{request_slug}_{date_stamp}{extension}'
 
 
 def _credentials_fernet():
@@ -329,6 +347,182 @@ class ClientQuotationDocument(models.Model):
 
 	def __str__(self):
 		return f'ClientQuotationDocument<{self.quotation_id}:{self.file.name}>'
+
+
+class FundRequestTemplate(models.Model):
+	name = models.CharField(max_length=150, default='Fund Request Template')
+	file = models.FileField(upload_to=fund_request_template_upload_to)
+	notes = models.TextField(blank=True)
+	is_active = models.BooleanField(default=True)
+	uploaded_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='fund_request_templates_uploaded',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-is_active', '-updated_at', '-created_at']
+
+	def __str__(self):
+		return self.name
+
+	def save(self, *args, **kwargs):
+		super().save(*args, **kwargs)
+		if self.is_active:
+			FundRequestTemplate.objects.exclude(pk=self.pk).filter(is_active=True).update(is_active=False)
+
+
+class FundRequest(models.Model):
+	REQUEST_STATUS_CHOICES = [
+		('pending', 'Pending Approval'),
+		('approved', 'Approved'),
+		('rejected', 'Rejected'),
+	]
+
+	serial_number = models.CharField(max_length=9, unique=True, editable=False, null=True, blank=True)
+	request_year = models.PositiveIntegerField(editable=False, db_index=True, null=True, blank=True)
+	serial_sequence = models.PositiveIntegerField(editable=False, null=True, blank=True)
+	requester_name = models.CharField(max_length=150)
+	request_date = models.DateField(default=timezone.localdate)
+	department = models.CharField(max_length=120)
+	branch = models.CharField(max_length=120)
+	total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	request_status = models.CharField(max_length=20, choices=REQUEST_STATUS_CHOICES, default='pending', db_index=True)
+	decision_reason = models.TextField(blank=True)
+	template = models.ForeignKey(
+		FundRequestTemplate,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='fund_requests',
+	)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='fund_requests_created',
+	)
+	processed_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='fund_requests_processed',
+	)
+	processed_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		constraints = [
+			models.UniqueConstraint(fields=['request_year', 'serial_sequence'], name='unique_fund_request_year_sequence'),
+		]
+
+	def __str__(self):
+		return self.serial_number or f'FundRequest<{self.pk}:{self.request_status}>'
+
+	def _assign_serial_number(self):
+		request_date = self.request_date or timezone.localdate()
+		self.request_year = int(request_date.year)
+		if self.serial_sequence:
+			self.serial_number = f'{self.request_year}-{self.serial_sequence:04d}'
+			return
+
+		with transaction.atomic():
+			latest_sequence = (
+				FundRequest.objects.select_for_update()
+				.filter(request_year=self.request_year)
+				.aggregate(max_sequence=Max('serial_sequence'))
+				.get('max_sequence')
+				or 0
+			)
+			self.serial_sequence = latest_sequence + 1
+			self.serial_number = f'{self.request_year}-{self.serial_sequence:04d}'
+
+	def save(self, *args, **kwargs):
+		if self.request_status == 'approved' and (not self.serial_number or not self.request_year or not self.serial_sequence):
+			self._assign_serial_number()
+		super().save(*args, **kwargs)
+
+	def refresh_total_amount(self, save=True):
+		total = self.items.aggregate(total=Sum('amount')).get('total') or 0
+		self.total_amount = total
+		if save and self.pk:
+			self.save(update_fields=['total_amount', 'updated_at'])
+		return total
+
+	def mark_approved(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+
+		self.request_status = 'approved'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		if not self.serial_number or not self.request_year or not self.serial_sequence:
+			self._assign_serial_number()
+		self.save(
+			update_fields=[
+				'request_status',
+				'processed_by',
+				'processed_at',
+				'decision_reason',
+				'serial_number',
+				'request_year',
+				'serial_sequence',
+				'updated_at',
+			]
+		)
+		return True
+
+	def mark_rejected(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+
+		self.request_status = 'rejected'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'updated_at'])
+		return True
+
+
+class FundRequestLineItem(models.Model):
+	fund_request = models.ForeignKey(FundRequest, on_delete=models.CASCADE, related_name='items')
+	entry_date = models.DateField()
+	particulars = models.CharField(max_length=255)
+	amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+	class Meta:
+		ordering = ['id']
+
+	def __str__(self):
+		return f'FundRequestLineItem<{self.fund_request_id}:{self.particulars}>'
+
+
+class FundRequestAttachment(models.Model):
+	fund_request = models.ForeignKey(FundRequest, on_delete=models.CASCADE, related_name='attachments')
+	image = models.ImageField(upload_to=fund_request_attachment_upload_to)
+	uploaded_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='fund_request_attachments_uploaded',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['id']
+
+	def __str__(self):
+		return f'FundRequestAttachment<{self.fund_request_id}:{self.image.name}>'
 
 
 class AssetDepartment(models.Model):

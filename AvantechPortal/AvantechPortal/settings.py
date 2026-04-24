@@ -57,6 +57,26 @@ def _resolve_sqlite_database_name(base_dir):
     return sqlite_dir / db_file
 
 
+def _build_sqlite_database_options():
+    timeout_seconds = env_int('DJANGO_DB_TIMEOUT', 20)
+    busy_timeout_ms = env_int('DJANGO_DB_BUSY_TIMEOUT', timeout_seconds * 1000)
+    transaction_mode = (os.getenv('DJANGO_SQLITE_TRANSACTION_MODE', 'IMMEDIATE') or '').strip().upper() or None
+
+    init_commands = [
+        'PRAGMA journal_mode=WAL',
+        'PRAGMA synchronous=NORMAL',
+        f'PRAGMA busy_timeout={busy_timeout_ms}',
+    ]
+
+    options = {
+        'timeout': timeout_seconds,
+        'init_command': '; '.join(init_commands),
+    }
+    if transaction_mode:
+        options['transaction_mode'] = transaction_mode
+    return options
+
+
 def _build_default_database(base_dir):
     db_engine = (os.getenv('DJANGO_DB_ENGINE', 'sqlite3') or 'sqlite3').strip().lower()
 
@@ -79,6 +99,7 @@ def _build_default_database(base_dir):
         return {
             'ENGINE': engine,
             'NAME': _resolve_sqlite_database_name(base_dir),
+            'OPTIONS': _build_sqlite_database_options(),
         }
 
     return {

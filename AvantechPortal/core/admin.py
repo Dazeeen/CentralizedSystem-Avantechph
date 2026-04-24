@@ -17,6 +17,9 @@ from .models import (
 	DevelopmentFeedback,
 	DevelopmentFeedbackComment,
 	EmailVerificationToken,
+	FundRequest,
+	FundRequestLineItem,
+	FundRequestTemplate,
 	LoginEvent,
 	Notification,
 	PatchNote,
@@ -141,6 +144,28 @@ class ClientQuotationDocumentAdmin(admin.ModelAdmin):
 	list_display = ('quotation', 'uploaded_by', 'uploaded_at')
 	list_filter = ('uploaded_at',)
 	search_fields = ('quotation__client__full_name', 'quotation__client__email', 'file')
+
+
+@admin.register(FundRequestTemplate)
+class FundRequestTemplateAdmin(admin.ModelAdmin):
+	list_display = ('name', 'is_active', 'uploaded_by', 'updated_at')
+	list_filter = ('is_active', 'updated_at')
+	search_fields = ('name', 'notes', 'uploaded_by__username', 'uploaded_by__email')
+
+
+@admin.register(FundRequest)
+class FundRequestAdmin(admin.ModelAdmin):
+	list_display = ('serial_number', 'requester_name', 'request_date', 'department', 'branch', 'total_amount', 'created_by')
+	list_filter = ('request_year', 'request_date', 'department', 'branch')
+	search_fields = ('serial_number', 'requester_name', 'department', 'branch')
+	readonly_fields = ('serial_number', 'request_year', 'serial_sequence', 'total_amount', 'created_at', 'updated_at')
+
+
+@admin.register(FundRequestLineItem)
+class FundRequestLineItemAdmin(admin.ModelAdmin):
+	list_display = ('fund_request', 'entry_date', 'particulars', 'amount')
+	list_filter = ('entry_date',)
+	search_fields = ('fund_request__serial_number', 'particulars')
 
 
 @admin.register(AssetDepartment)

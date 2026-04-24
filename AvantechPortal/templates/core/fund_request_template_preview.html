@@ -1,0 +1,237 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | {{ template_record.name }} Preview{% endblock %}
+{% block page_heading %}Fund Request Template Preview{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+    <div>
+        <h2 class="h4 mb-1">{{ template_record.name }}</h2>
+        <p class="text-secondary mb-0">
+            Preview type:
+            {% if preview_mode == 'filled_preview' %}
+                Generated PDF with sample values filled into the template.
+            {% elif preview_mode == 'original_pdf' %}
+                Uploaded PDF template shown as-is.
+            {% elif preview_mode == 'converted_original' %}
+                Uploaded file converted to PDF for easier viewing.
+            {% else %}
+                Preview not available.
+            {% endif %}
+        </p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
+        <a class="btn btn-outline-success" href="{{ template_record.file.url }}" target="_blank">Open Original File</a>
+        <a class="btn btn-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF</a>
+    </div>
+</div>
+
+<div class="row g-3 g-xl-4">
+    <div class="col-xl-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-3 p-lg-4">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
+                    <div>
+                        <h3 class="h5 mb-1">PDF Preview</h3>
+                        <p class="text-secondary mb-0">The preview stays on this page so you can compare the output and the placeholders side by side.</p>
+                    </div>
+                    <span class="badge text-bg-light border">{{ template_extension|upper|default:'FILE' }}</span>
+                </div>
+                <div class="fund-template-preview-frame">
+                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="{{ template_record.name }} PDF preview"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h3 class="h5 mb-3">Preview Sample Values</h3>
+                <div class="template-preview-meta-list">
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Serial Number</span>
+                        <strong>{{ sample_summary.serial_number }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Requester Name</span>
+                        <strong>{{ sample_summary.requester_name }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Request Date</span>
+                        <strong>{{ sample_summary.request_date }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Department</span>
+                        <strong>{{ sample_summary.department }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Branch</span>
+                        <strong>{{ sample_summary.branch }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Prepared By</span>
+                        <strong>{{ sample_summary.prepared_by }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Total Amount</span>
+                        <strong>{{ sample_summary.total_amount_php }}</strong>
+                    </div>
+                </div>
+
+                {% if preview_mode == 'filled_preview' %}
+                    <div class="alert alert-success mt-4 mb-0">
+                        This preview uses sample values so you can confirm the placeholder positions before the template is used in a real approved fund request.
+                    </div>
+                {% elif preview_mode == 'converted_original' %}
+                    <div class="alert alert-warning mt-4 mb-0">
+                        This file format is converted to PDF for viewing, but automatic placeholder filling currently works best on `.docx` and `.xlsx`.
+                    </div>
+                {% elif preview_mode == 'original_pdf' %}
+                    <div class="alert alert-info mt-4 mb-0">
+                        Uploaded PDF files are shown directly. Placeholder auto-fill preview is intended for `.docx` and `.xlsx` templates.
+                    </div>
+                {% else %}
+                    <div class="alert alert-danger mt-4 mb-0">
+                        The portal could not generate a PDF preview for this file.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+            <div>
+                <h3 class="h5 mb-1">Placeholder Format Guide</h3>
+                <p class="text-secondary mb-0">Use the exact placeholder text below inside your template. Each row has a copy button and a short description of when to use it.</p>
+            </div>
+            <div class="small text-secondary">{{ placeholder_guide|length }} placeholder format(s)</div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table align-middle placeholder-guide-table mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width: 280px;">Placeholder Format</th>
+                        <th>Description of Use</th>
+                        <th style="width: 120px;" class="text-end">Copy</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in placeholder_guide %}
+                        <tr>
+                            <td>
+                                <code class="placeholder-token">{{ item.placeholder }}</code>
+                            </td>
+                            <td>
+                                <div class="fw-semibold small text-body">{{ item.description }}</div>
+                                <div class="small text-secondary mt-1">{{ item.use_case }}</div>
+                            </td>
+                            <td class="text-end">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-success js-copy-placeholder"
+                                    data-copy-value="{{ item.placeholder }}"
+                                >
+                                    Copy
+                                </button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .fund-template-preview-frame {
+        min-height: 78vh;
+        border: 1px solid rgba(25, 135, 84, 0.16);
+        border-radius: 1rem;
+        overflow: hidden;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.08), transparent 35%),
+            linear-gradient(180deg, #eef6f0 0%, #f8fbf9 100%);
+    }
+
+    .fund-template-preview-frame iframe {
+        width: 100%;
+        min-height: 78vh;
+        border: 0;
+        background: #fff;
+    }
+
+    .template-preview-meta-list {
+        display: grid;
+        gap: 0.85rem;
+    }
+
+    .template-preview-meta-item {
+        padding: 0.9rem 1rem;
+        border-radius: 0.9rem;
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        background: linear-gradient(180deg, #ffffff 0%, #f9fcfa 100%);
+    }
+
+    .template-preview-meta-item strong {
+        display: block;
+        margin-top: 0.15rem;
+    }
+
+    .placeholder-guide-table code {
+        font-size: 0.95rem;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 991.98px) {
+        .fund-template-preview-frame,
+        .fund-template-preview-frame iframe {
+            min-height: 60vh;
+        }
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.js-copy-placeholder').forEach(function (button) {
+        button.addEventListener('click', async function () {
+            const value = button.getAttribute('data-copy-value') || '';
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const helper = document.createElement('textarea');
+                    helper.value = value;
+                    helper.setAttribute('readonly', 'readonly');
+                    helper.style.position = 'absolute';
+                    helper.style.left = '-9999px';
+                    document.body.appendChild(helper);
+                    helper.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(helper);
+                }
+                const originalLabel = button.textContent;
+                button.textContent = 'Copied';
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-success');
+                window.setTimeout(function () {
+                    button.textContent = originalLabel;
+                    button.classList.remove('btn-success');
+                    button.classList.add('btn-outline-success');
+                }, 1400);
+            } catch (error) {
+                button.textContent = 'Failed';
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-outline-danger');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,187 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Fund Request Review{% endblock %}
+{% block page_heading %}Fund Request Review{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+    <div>
+        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Pending Fund Request" }}</h2>
+        <p class="text-secondary mb-0">
+            {{ fund_request.requester_name }} | {{ fund_request.request_date|date:'Y-m-d' }} | {{ fund_request.department }} / {{ fund_request.branch }}
+        </p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
+        <a class="btn btn-outline-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF Review</a>
+        {% if fund_request.request_status == 'approved' %}
+            <a class="btn btn-success" href="{% url 'fund_request_document_download' fund_request.id %}">Download PDF</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-3 g-xl-4">
+    <div class="col-xl-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-3 p-lg-4">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
+                    <div>
+                        <h3 class="h5 mb-1">Combined PDF Review</h3>
+                        <p class="text-secondary mb-0">The template pages appear first, followed by the uploaded image attachments as extra PDF pages.</p>
+                    </div>
+                    <span class="badge {% if fund_request.request_status == 'approved' %}text-bg-success{% elif fund_request.request_status == 'rejected' %}text-bg-danger{% else %}text-bg-warning{% endif %}">
+                        {{ fund_request.get_request_status_display }}
+                    </span>
+                </div>
+                <div class="fund-request-review-frame">
+                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="Fund request PDF review"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body p-4">
+                <h3 class="h5 mb-3">Request Summary</h3>
+                <div class="review-meta-list">
+                    <div class="review-meta-item">
+                        <span class="text-secondary small">Requester</span>
+                        <strong>{{ fund_request.requester_name }}</strong>
+                    </div>
+                    <div class="review-meta-item">
+                        <span class="text-secondary small">Template</span>
+                        <strong>{{ template_record.name|default:'Auto-generated form' }}</strong>
+                    </div>
+                    <div class="review-meta-item">
+                        <span class="text-secondary small">Total Amount</span>
+                        <strong>PHP {{ fund_request.total_amount }}</strong>
+                    </div>
+                    <div class="review-meta-item">
+                        <span class="text-secondary small">Prepared By</span>
+                        <strong>{{ fund_request.created_by.get_full_name|default:fund_request.created_by.username|default:'-' }}</strong>
+                    </div>
+                    <div class="review-meta-item">
+                        <span class="text-secondary small">Image Attachments</span>
+                        <strong>{{ attachments|length }}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if can_approve_this_request %}
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-body p-4">
+                    <h3 class="h5 mb-3">Approval Actions</h3>
+                    <form method="post" action="{% url 'fund_requests_list' %}" class="mb-3">
+                        {% csrf_token %}
+                        <input type="hidden" name="action_type" value="approve_request">
+                        <input type="hidden" name="request_id" value="{{ fund_request.id }}">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Approval Note</label>
+                            <textarea name="reason" rows="3" class="form-control" placeholder="Optional approval note"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100">Approve Request</button>
+                    </form>
+
+                    <form method="post" action="{% url 'fund_requests_list' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action_type" value="reject_request">
+                        <input type="hidden" name="request_id" value="{{ fund_request.id }}">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Rejection Reason</label>
+                            <textarea name="reason" rows="3" class="form-control" placeholder="Required reason for rejection" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-outline-danger w-100">Reject Request</button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h3 class="h5 mb-3">Uploaded Images</h3>
+                {% if attachments %}
+                    <div class="row g-2">
+                        {% for attachment in attachments %}
+                            <div class="col-6">
+                                <a href="{{ attachment.image.url }}" target="_blank" class="review-image-card">
+                                    <img src="{{ attachment.image.url }}" alt="Fund request attachment {{ forloop.counter }}">
+                                    <span>Image {{ forloop.counter }}</span>
+                                </a>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-secondary small">No uploaded images found for this request.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .fund-request-review-frame {
+        min-height: 76vh;
+        border: 1px solid rgba(25, 135, 84, 0.14);
+        border-radius: 1rem;
+        overflow: hidden;
+        background: linear-gradient(180deg, #eef6f0 0%, #f9fbfa 100%);
+    }
+
+    .fund-request-review-frame iframe {
+        width: 100%;
+        min-height: 76vh;
+        border: 0;
+        background: #fff;
+    }
+
+    .review-meta-list {
+        display: grid;
+        gap: 0.8rem;
+    }
+
+    .review-meta-item {
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        border-radius: 0.9rem;
+        padding: 0.9rem 1rem;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbf9 100%);
+    }
+
+    .review-meta-item strong {
+        display: block;
+        margin-top: 0.15rem;
+    }
+
+    .review-image-card {
+        display: block;
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        border-radius: 0.9rem;
+        overflow: hidden;
+        background: #fff;
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .review-image-card img {
+        width: 100%;
+        height: 140px;
+        object-fit: cover;
+        display: block;
+    }
+
+    .review-image-card span {
+        display: block;
+        padding: 0.65rem 0.8rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    @media (max-width: 991.98px) {
+        .fund-request-review-frame,
+        .fund-request-review-frame iframe {
+            min-height: 60vh;
+        }
+    }
+</style>
+{% endblock %}

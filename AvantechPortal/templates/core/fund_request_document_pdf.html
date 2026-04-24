@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Fund Request {{ fund_request.serial_number|default:fund_request.id }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            color: #212529;
+            margin: 24px;
+        }
+
+        .header {
+            display: table;
+            width: 100%;
+            border-bottom: 2px solid #198754;
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+        }
+
+        .header-col {
+            display: table-cell;
+            vertical-align: top;
+            width: 50%;
+        }
+
+        .header-col.is-right {
+            text-align: right;
+        }
+
+        .eyebrow {
+            color: #198754;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        h1 {
+            margin: 6px 0 4px;
+            font-size: 24px;
+        }
+
+        .muted {
+            color: #6c757d;
+            font-size: 12px;
+        }
+
+        .details {
+            width: 100%;
+            margin-bottom: 20px;
+            border-spacing: 12px;
+        }
+
+        .detail-card {
+            border: 1px solid #dbe7dd;
+            padding: 12px;
+            border-radius: 10px;
+        }
+
+        .detail-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 4px;
+        }
+
+        .detail-value {
+            font-size: 15px;
+            font-weight: bold;
+        }
+
+        table.items {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+        }
+
+        table.items th,
+        table.items td {
+            border: 1px solid #d4ddd6;
+            padding: 10px;
+            font-size: 13px;
+        }
+
+        table.items thead th,
+        table.items tfoot th {
+            background: #eef6f0;
+        }
+
+        .signature-block {
+            margin-top: 40px;
+            width: 240px;
+            margin-left: auto;
+            text-align: center;
+        }
+
+        .signature-line {
+            border-top: 1px solid #212529;
+            margin-top: 42px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-col">
+            <div class="eyebrow">Avantech Portal</div>
+            <h1>Fund Request Form</h1>
+            <div class="muted">Generated on {{ fund_request.created_at|date:'Y-m-d H:i' }}</div>
+        </div>
+        <div class="header-col is-right">
+            <div><strong>Serial No.:</strong> {{ fund_request.serial_number|default:'Pending Approval' }}</div>
+            <div><strong>Request Date:</strong> {{ fund_request.request_date|date:'Y-m-d' }}</div>
+            <div><strong>Template:</strong> {{ template_record.name|default:'Auto-generated' }}</div>
+        </div>
+    </div>
+
+    <table class="details">
+        <tr>
+            <td class="detail-card">
+                <div class="detail-label">Name</div>
+                <div class="detail-value">{{ fund_request.requester_name }}</div>
+            </td>
+            <td class="detail-card">
+                <div class="detail-label">Department</div>
+                <div class="detail-value">{{ fund_request.department }}</div>
+            </td>
+            <td class="detail-card">
+                <div class="detail-label">Branch</div>
+                <div class="detail-value">{{ fund_request.branch }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <table class="items">
+        <thead>
+            <tr>
+                <th style="width: 160px;">Date</th>
+                <th>Particulars</th>
+                <th style="width: 180px;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in line_items %}
+                <tr>
+                    <td>{{ item.entry_date|date:'Y-m-d' }}</td>
+                    <td>{{ item.particulars }}</td>
+                    <td>PHP {{ item.amount }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <th colspan="2" style="text-align: right;">Total Amount</th>
+                <th>PHP {{ fund_request.total_amount }}</th>
+            </tr>
+        </tfoot>
+    </table>
+
+    <div><strong>Prepared By:</strong> {{ fund_request.created_by.get_full_name|default:fund_request.created_by.username|default:'-' }}</div>
+
+    <div class="signature-block">
+        <div class="signature-line"></div>
+        <div class="muted" style="margin-top: 8px;">Authorized Signature</div>
+    </div>
+</body>
+</html>
