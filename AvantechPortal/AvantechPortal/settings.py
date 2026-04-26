@@ -187,6 +187,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.notification_summary',
+                'core.context_processors.finance_navigation_state',
             ],
         },
     },

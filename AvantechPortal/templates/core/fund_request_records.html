@@ -1,0 +1,227 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Fund Request Records{% endblock %}
+{% block page_heading %}Fund Request Records{% endblock %}
+
+{% block content %}
+<div class="fund-records-doc">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 print-hide">
+        <div>
+            <h2 class="h4 mb-1">Fund Request Records</h2>
+            <p class="text-secondary mb-0">
+                {% if can_view_all_request_records %}
+                    Scope: All requests
+                {% else %}
+                    Scope: My requests only
+                {% endif %}
+                | Generated: {{ generated_at|date:'Y-m-d H:i:s' }}
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'fund_requests_list' %}" class="btn btn-outline-secondary">Back</a>
+            <a href="{% url 'fund_request_records_pdf' %}?q={{ filter_state.query|urlencode }}&request_status={{ filter_state.request_status|urlencode }}&record_date={{ filter_state.record_date|urlencode }}&created_from={{ filter_state.created_from|urlencode }}&created_to={{ filter_state.created_to|urlencode }}&series_from={{ filter_state.series_from|urlencode }}&series_to={{ filter_state.series_to|urlencode }}&amount_min={{ filter_state.amount_min|urlencode }}&amount_max={{ filter_state.amount_max|urlencode }}" class="btn btn-outline-success">Download PDF</a>
+            <button type="button" class="btn btn-success" onclick="window.print();">Print Record</button>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3 print-hide">
+        <div class="card-body">
+            <form method="get" class="d-flex gap-2 flex-wrap align-items-end">
+                <div>
+                    <label for="records-q" class="form-label small text-secondary mb-1">Search</label>
+                    <input id="records-q" type="text" name="q" value="{{ filter_state.query }}" class="form-control" placeholder="Series, requester, department, branch">
+                </div>
+                <div>
+                    <label for="records-status" class="form-label small text-secondary mb-1">Status</label>
+                    <select id="records-status" name="request_status" class="form-select">
+                        <option value="">All Statuses</option>
+                        {% for status_value, status_label in request_status_choices %}
+                            <option value="{{ status_value }}" {% if filter_state.request_status == status_value %}selected{% endif %}>{{ status_label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="records-date" class="form-label small text-secondary mb-1">Request Date</label>
+                    <input id="records-date" type="date" name="record_date" value="{{ filter_state.record_date }}" class="form-control">
+                </div>
+                <div>
+                    <label for="records-created-from" class="form-label small text-secondary mb-1">Created From</label>
+                    <input id="records-created-from" type="datetime-local" name="created_from" value="{{ filter_state.created_from }}" class="form-control">
+                </div>
+                <div>
+                    <label for="records-created-to" class="form-label small text-secondary mb-1">Created To</label>
+                    <input id="records-created-to" type="datetime-local" name="created_to" value="{{ filter_state.created_to }}" class="form-control">
+                </div>
+                <div>
+                    <label for="records-series-from" class="form-label small text-secondary mb-1">Series From</label>
+                    <input id="records-series-from" type="text" name="series_from" value="{{ filter_state.series_from }}" class="form-control" placeholder="2026-0001">
+                </div>
+                <div>
+                    <label for="records-series-to" class="form-label small text-secondary mb-1">Series To</label>
+                    <input id="records-series-to" type="text" name="series_to" value="{{ filter_state.series_to }}" class="form-control" placeholder="2026-9999">
+                </div>
+                <div>
+                    <label for="records-min-amount" class="form-label small text-secondary mb-1">Min Amount</label>
+                    <input id="records-min-amount" type="number" min="0" step="0.01" name="amount_min" value="{{ filter_state.amount_min }}" class="form-control" placeholder="0.00">
+                </div>
+                <div>
+                    <label for="records-max-amount" class="form-label small text-secondary mb-1">Max Amount</label>
+                    <input id="records-max-amount" type="number" min="0" step="0.01" name="amount_max" value="{{ filter_state.amount_max }}" class="form-control" placeholder="0.00">
+                </div>
+                <button type="submit" class="btn btn-success">Apply</button>
+                <a href="{% url 'fund_request_records' %}" class="btn btn-outline-secondary">Clear</a>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body pb-2">
+            <div class="small text-secondary"><strong>Generated At:</strong> {{ generated_at|date:'Y-m-d H:i:s' }}</div>
+            <div class="small text-secondary"><strong>Generated By:</strong> {{ generated_by_label }}</div>
+            <div class="small text-secondary"><strong>Filters:</strong> {{ filter_summary }}</div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0 fund-records-csv-table">
+                <thead>
+                    <tr>
+                        <th>Record ID</th>
+                        <th>Serial Number</th>
+                        <th>Status</th>
+                        <th>Requester Name</th>
+                        <th>Request Date</th>
+                        <th>Created At</th>
+                        <th>Processed At</th>
+                        <th>Department</th>
+                        <th>Branch</th>
+                        <th>Total Amount</th>
+                        <th>Prepared By</th>
+                        <th>Reviewed By</th>
+                        <th>Template</th>
+                        <th>Decision Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records_page %}
+                        <tr>
+                            <td>{{ record.pk }}</td>
+                            <td>{{ record.serial_number|default:'-' }}</td>
+                            <td>{{ record.get_request_status_display }}</td>
+                            <td>{{ record.requester_name|default:'-' }}</td>
+                            <td>{{ record.request_date|date:'Y-m-d'|default:'-' }}</td>
+                            <td>{{ record.created_at|date:'Y-m-d H:i'|default:'-' }}</td>
+                            <td>{{ record.processed_at|date:'Y-m-d H:i'|default:'-' }}</td>
+                            <td>{{ record.department|default:'-' }}</td>
+                            <td>{{ record.branch|default:'-' }}</td>
+                            <td>{{ record.total_amount|default:0 }}</td>
+                            <td>
+                                {% if record.created_by %}
+                                    {{ record.created_by.get_full_name|default:record.created_by.username|default:'-' }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if record.processed_by %}
+                                    {{ record.processed_by.get_full_name|default:record.processed_by.username|default:'-' }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ record.template.name|default:'-' }}</td>
+                            <td class="csv-wrap">{{ record.decision_reason|default:'-' }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="14" class="text-center py-4 text-secondary">No fund request records found for the selected filters.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if records_page.has_other_pages %}
+            <div class="card-footer bg-white d-flex justify-content-between align-items-center print-hide">
+                <small class="text-secondary">Page {{ records_page.number }} of {{ records_page.paginator.num_pages }}</small>
+                <div class="btn-group" role="group" aria-label="Fund records pagination">
+                    {% if records_page.has_previous %}
+                        <a class="btn btn-sm btn-outline-success" href="?q={{ filter_state.query|urlencode }}&request_status={{ filter_state.request_status|urlencode }}&record_date={{ filter_state.record_date|urlencode }}&created_from={{ filter_state.created_from|urlencode }}&created_to={{ filter_state.created_to|urlencode }}&series_from={{ filter_state.series_from|urlencode }}&series_to={{ filter_state.series_to|urlencode }}&amount_min={{ filter_state.amount_min|urlencode }}&amount_max={{ filter_state.amount_max|urlencode }}&page={{ records_page.previous_page_number }}">Previous</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                    {% endif %}
+
+                    {% for page_num in records_page.paginator.page_range %}
+                        {% if page_num == records_page.number %}
+                            <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                        {% else %}
+                            <a class="btn btn-sm btn-outline-success" href="?q={{ filter_state.query|urlencode }}&request_status={{ filter_state.request_status|urlencode }}&record_date={{ filter_state.record_date|urlencode }}&created_from={{ filter_state.created_from|urlencode }}&created_to={{ filter_state.created_to|urlencode }}&series_from={{ filter_state.series_from|urlencode }}&series_to={{ filter_state.series_to|urlencode }}&amount_min={{ filter_state.amount_min|urlencode }}&amount_max={{ filter_state.amount_max|urlencode }}&page={{ page_num }}">{{ page_num }}</a>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if records_page.has_next %}
+                        <a class="btn btn-sm btn-outline-success" href="?q={{ filter_state.query|urlencode }}&request_status={{ filter_state.request_status|urlencode }}&record_date={{ filter_state.record_date|urlencode }}&created_from={{ filter_state.created_from|urlencode }}&created_to={{ filter_state.created_to|urlencode }}&series_from={{ filter_state.series_from|urlencode }}&series_to={{ filter_state.series_to|urlencode }}&amount_min={{ filter_state.amount_min|urlencode }}&amount_max={{ filter_state.amount_max|urlencode }}&page={{ records_page.next_page_number }}">Next</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .fund-records-csv-table {
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: 0.81rem;
+        border-collapse: collapse;
+    }
+
+    .fund-records-csv-table th,
+    .fund-records-csv-table td {
+        border: 1px solid #adb5bd;
+        padding: 0.4rem 0.5rem;
+        white-space: nowrap;
+        vertical-align: top;
+    }
+
+    .fund-records-csv-table thead th {
+        background: #f1f3f5;
+        font-weight: 700;
+    }
+
+    .fund-records-csv-table .csv-wrap {
+        white-space: normal;
+        min-width: 220px;
+    }
+
+    @media print {
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+
+        .print-hide {
+            display: none !important;
+        }
+
+        .fund-records-doc .card {
+            border: 0 !important;
+            box-shadow: none !important;
+        }
+
+        .fund-records-csv-table th,
+        .fund-records-csv-table td {
+            font-size: 11px;
+            padding: 3px 4px;
+        }
+    }
+</style>
+
+{% if auto_print %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    window.print();
+});
+</script>
+{% endif %}
+{% endblock %}

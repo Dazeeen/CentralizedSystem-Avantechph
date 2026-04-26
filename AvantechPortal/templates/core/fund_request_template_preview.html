@@ -1,30 +1,41 @@
 {% extends 'base_app.html' %}
 {% load core_extras %}
 
-{% block title %}Avantech Portal | {{ template_record.name }} Preview{% endblock %}
+{% block title %}Avantech Portal | {% if template_record %}{{ template_record.name }} Preview{% else %}Fund Request Template Guide{% endif %}{% endblock %}
 {% block page_heading %}Fund Request Template Preview{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
     <div>
-        <h2 class="h4 mb-1">{{ template_record.name }}</h2>
+        <h2 class="h4 mb-1">{% if template_record %}{{ template_record.name }}{% else %}Fund Request Template Guide{% endif %}</h2>
         <p class="text-secondary mb-0">
-            Preview type:
-            {% if preview_mode == 'filled_preview' %}
-                Generated PDF with sample values filled into the template.
-            {% elif preview_mode == 'original_pdf' %}
-                Uploaded PDF template shown as-is.
-            {% elif preview_mode == 'converted_original' %}
-                Uploaded file converted to PDF for easier viewing.
+            {% if preview_mode == 'no_template' %}
+                No set/uploaded template available yet. You can still review the placeholder guide below.
             {% else %}
-                Preview not available.
+                Preview type:
+                {% if preview_mode == 'filled_preview' %}
+                    Generated PDF with sample values filled into the template.
+                {% elif preview_mode == 'original_pdf' %}
+                    Uploaded PDF template shown as-is.
+                {% elif preview_mode == 'converted_original' %}
+                    Uploaded file converted to PDF for easier viewing.
+                {% else %}
+                    Preview not available.
+                {% endif %}
             {% endif %}
         </p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
-        <a class="btn btn-outline-success" href="{{ template_record.file.url }}" target="_blank">Open Original File</a>
-        <a class="btn btn-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF</a>
+        {% if template_record %}
+            {% if show_template_page_link %}
+                <a class="btn btn-outline-success" href="{% url 'fund_request_template_preview' template_record.id %}">Open Template Page</a>
+            {% endif %}
+            <a class="btn btn-outline-secondary" href="{{ template_record.file.url }}" target="_blank">Open Original File</a>
+        {% endif %}
+        {% if preview_pdf_url %}
+            <a class="btn btn-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF</a>
+        {% endif %}
     </div>
 </div>
 
@@ -37,10 +48,17 @@
                         <h3 class="h5 mb-1">PDF Preview</h3>
                         <p class="text-secondary mb-0">The preview stays on this page so you can compare the output and the placeholders side by side.</p>
                     </div>
-                    <span class="badge text-bg-light border">{{ template_extension|upper|default:'FILE' }}</span>
+                    <span class="badge text-bg-light border">{{ template_extension|upper|default:'GUIDE' }}</span>
                 </div>
                 <div class="fund-template-preview-frame">
-                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="{{ template_record.name }} PDF preview"></iframe>
+                    {% if preview_pdf_url %}
+                        <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="{% if template_record %}{{ template_record.name }}{% else %}Fund request template guide{% endif %} PDF preview"></iframe>
+                    {% else %}
+                        <div class="fund-template-preview-empty">
+                            <div class="fund-template-preview-empty-title">No set/uploaded template available.</div>
+                            <div class="text-secondary">Upload a template to see its PDF preview here. The placeholder format guide below is still ready to use.</div>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -49,7 +67,7 @@
     <div class="col-xl-4">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body p-4">
-                <h3 class="h5 mb-3">Preview Sample Values</h3>
+                <h3 class="h5 mb-3">{% if template_record %}Preview Sample Values{% else %}Guide Sample Values{% endif %}</h3>
                 <div class="template-preview-meta-list">
                     <div class="template-preview-meta-item">
                         <span class="text-secondary small">Serial Number</span>
@@ -93,6 +111,10 @@
                     <div class="alert alert-info mt-4 mb-0">
                         Uploaded PDF files are shown directly. Placeholder auto-fill preview is intended for `.docx` and `.xlsx` templates.
                     </div>
+                {% elif preview_mode == 'no_template' %}
+                    <div class="alert alert-warning mt-4 mb-0">
+                        No set/uploaded template available. Upload one when you're ready and this page will show its PDF preview automatically.
+                    </div>
                 {% else %}
                     <div class="alert alert-danger mt-4 mb-0">
                         The portal could not generate a PDF preview for this file.
@@ -108,7 +130,7 @@
         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
             <div>
                 <h3 class="h5 mb-1">Placeholder Format Guide</h3>
-                <p class="text-secondary mb-0">Use the exact placeholder text below inside your template. Each row has a copy button and a short description of when to use it.</p>
+                <p class="text-secondary mb-0">Use the exact placeholder text below in uploaded `.docx` or `.xlsx` templates. Spacing and braces must match exactly.</p>
             </div>
             <div class="small text-secondary">{{ placeholder_guide|length }} placeholder format(s)</div>
         </div>
@@ -165,6 +187,21 @@
         min-height: 78vh;
         border: 0;
         background: #fff;
+    }
+
+    .fund-template-preview-empty {
+        min-height: 78vh;
+        display: grid;
+        place-content: center;
+        gap: 0.5rem;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .fund-template-preview-empty-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #1f5133;
     }
 
     .template-preview-meta-list {

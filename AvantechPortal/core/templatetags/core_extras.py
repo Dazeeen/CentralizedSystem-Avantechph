@@ -1,5 +1,6 @@
 from django import template
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 
 register = template.Library()
 
@@ -89,3 +90,14 @@ def choice_label(value, choices):
         if str(option_value) == str(value):
             return option_label
     return value
+
+
+@register.filter(name='comma2')
+def comma2(value):
+    if value in (None, ''):
+        return '0.00'
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return value
+    return f'{amount:,.2f}'

@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group, Permission, User
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.conf import settings
+from django.utils.dateparse import parse_date
 from PIL import Image
 
 from .auth_utils import get_client_ip
@@ -27,6 +28,10 @@ from .models import (
     FundRequestAttachment,
     FundRequestLineItem,
     FundRequestTemplate,
+    Liquidation,
+    LiquidationAttachment,
+    LiquidationLineItem,
+    LiquidationTemplate,
     PatchNote,
     PatchNoteAttachment,
     PatchNoteComment,
@@ -613,10 +618,36 @@ class FundRequestForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self._request_user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
         for _, field in self.fields.items():
             field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['requester_name'].required = False
+        if not self.initial.get('requester_name'):
+            default_name = self._default_requester_name()
+            if default_name:
+                self.fields['requester_name'].initial = default_name
+                self.initial['requester_name'] = default_name
         self._parsed_line_items = []
+
+    def _default_requester_name(self):
+        if not self._request_user:
+            return ''
+        full_name = (self._request_user.get_full_name() or '').strip()
+        if full_name:
+            return full_name
+        return (self._request_user.username or '').strip()
+
+    def clean_requester_name(self):
+        requester_name = (self.cleaned_data.get('requester_name') or '').strip()
+        if requester_name:
+            return requester_name
+
+        default_name = self._default_requester_name()
+        if default_name:
+            return default_name
+
+        raise ValidationError('Name is required.')
 
     def clean_request_images(self):
         files = self.cleaned_data.get('request_images') or []
@@ -662,7 +693,7 @@ class FundRequestForm(forms.ModelForm):
 
             entry_date = (item.get('date') or '').strip()
             particulars = (item.get('particulars') or '').strip()
-            amount_raw = str(item.get('amount') or '').strip()
+            amount_raw = str(item.get('amount') or '').strip().replace(',', '')
 
             if not entry_date:
                 raise ValidationError(f'Line item #{index} is missing a date.')
@@ -712,6 +743,214 @@ class FundRequestForm(forms.ModelForm):
         for upload in self.cleaned_data.get('request_images', []):
             FundRequestAttachment.objects.create(
                 fund_request=fund_request,
+                image=upload,
+                uploaded_by=uploaded_by,
+            )
+
+
+class LiquidationTemplateForm(forms.ModelForm):
+    MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx'}
+
+    class Meta:
+        model = LiquidationTemplate
+        fields = ['name', 'file', 'notes', 'is_active']
+        widgets = {
+            'notes': forms.Textarea(attrs={'rows': 3}),
+            'file': forms.ClearableFileInput(attrs={'accept': '.pdf,.doc,.docx,.xls,.xlsx'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['is_active'].help_text = 'When enabled, new liquidation forms will use this as the preferred template.'
+
+    def clean_file(self):
+        file = self.cleaned_data.get('file')
+        if not file:
+            return file
+        extension = Path(file.name or '').suffix.lower()
+        if extension not in self.ALLOWED_EXTENSIONS:
+            raise ValidationError('Upload a PDF, DOC, DOCX, XLS, or XLSX template file.')
+        if getattr(file, 'size', 0) > self.MAX_FILE_SIZE_BYTES:
+            raise ValidationError('Template file size must be 25MB or less.')
+        return file
+
+
+class LiquidationForm(forms.ModelForm):
+    line_items_payload = forms.CharField(widget=forms.HiddenInput())
+    liquidation_images = MultipleFileField(
+        required=False,
+        widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp', 'multiple': True}),
+        label='Supporting Images',
+        help_text='Optional. Upload one or more supporting images. These will be appended as extra pages after the generated liquidation PDF.',
+    )
+    MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
+    ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+
+    class Meta:
+        model = Liquidation
+        fields = [
+            'name',
+            'liquidation_date',
+            'branch',
+            'position',
+            'requested_by_name',
+            'amount_requested',
+            'returned_or_over_type',
+            'amount_returned_or_over',
+        ]
+        widgets = {
+            'liquidation_date': forms.DateInput(attrs={'type': 'date'}),
+            'returned_or_over_type': forms.RadioSelect(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self._request_user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.RadioSelect):
+                field.widget.attrs.setdefault('class', 'd-flex gap-3 align-items-center')
+            elif isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+
+        profile = getattr(self._request_user, 'profile', None) if self._request_user else None
+        role_names = list(self._request_user.groups.values_list('name', flat=True)) if self._request_user else []
+        default_name = ((self._request_user.get_full_name() or '').strip() if self._request_user else '') or ((self._request_user.username or '').strip() if self._request_user else '')
+        if default_name and not self.initial.get('name'):
+            self.fields['name'].initial = default_name
+        if default_name and not self.initial.get('requested_by_name'):
+            self.fields['requested_by_name'].initial = default_name
+        if profile and profile.branch and not self.initial.get('branch'):
+            self.fields['branch'].initial = profile.branch
+        if role_names and not self.initial.get('position'):
+            self.fields['position'].initial = role_names[0]
+        self._parsed_line_items = []
+
+    def clean_name(self):
+        value = (self.cleaned_data.get('name') or '').strip()
+        if value:
+            return value
+        raise ValidationError('Name is required.')
+
+    def clean_requested_by_name(self):
+        value = (self.cleaned_data.get('requested_by_name') or '').strip()
+        if value:
+            return value
+        raise ValidationError('Requested by is required.')
+
+    def clean_liquidation_images(self):
+        files = self.cleaned_data.get('liquidation_images') or []
+        if not files:
+            return []
+
+        for upload in files:
+            extension = Path(getattr(upload, 'name', '')).suffix.lower()
+            if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
+                raise ValidationError('Upload valid image files only: PNG, JPG, JPEG, or WEBP.')
+            if getattr(upload, 'size', 0) > self.MAX_IMAGE_SIZE_BYTES:
+                raise ValidationError('Each image must be 10MB or less.')
+            try:
+                upload.seek(0)
+                image = Image.open(upload)
+                image.verify()
+            except Exception as exc:
+                raise ValidationError('One of the uploaded files is not a valid image.') from exc
+            finally:
+                try:
+                    upload.seek(0)
+                except Exception:
+                    pass
+        return files
+
+    def clean_line_items_payload(self):
+        raw_payload = (self.cleaned_data.get('line_items_payload') or '').strip()
+        if not raw_payload:
+            raise ValidationError('Select at least one approved line item.')
+        try:
+            parsed = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise ValidationError('Liquidation line items could not be parsed.') from exc
+
+        if not isinstance(parsed, list) or not parsed:
+            raise ValidationError('Select at least one approved line item.')
+
+        cleaned_items = []
+        for index, item in enumerate(parsed, start=1):
+            if not isinstance(item, dict):
+                raise ValidationError(f'Liquidation line item #{index} is invalid.')
+            entry_date = (item.get('date') or '').strip()
+            fund_form_no = (item.get('fund_form_no') or '').strip()
+            description = (item.get('description') or '').strip()
+            amount_raw = str(item.get('amount') or '').strip().replace(',', '')
+            source_line_item_id = str(item.get('source_line_item_id') or '').strip()
+
+            if not entry_date:
+                raise ValidationError(f'Liquidation line item #{index} is missing a date.')
+            if not parse_date(entry_date):
+                raise ValidationError(f'Liquidation line item #{index} has an invalid date.')
+            if not description:
+                raise ValidationError(f'Liquidation line item #{index} is missing a description.')
+
+            try:
+                amount = Decimal(amount_raw)
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValidationError(f'Liquidation line item #{index} has an invalid amount.') from exc
+            if amount <= 0:
+                raise ValidationError(f'Liquidation line item #{index} amount must be greater than zero.')
+
+            cleaned_items.append(
+                {
+                    'entry_date': entry_date,
+                    'fund_form_no': fund_form_no,
+                    'description': description,
+                    'amount': amount.quantize(Decimal('0.01')),
+                    'source_line_item_id': int(source_line_item_id) if source_line_item_id.isdigit() else None,
+                }
+            )
+
+        self._parsed_line_items = cleaned_items
+        return raw_payload
+
+    def get_line_items(self):
+        return list(self._parsed_line_items)
+
+    def save_line_items(self, liquidation):
+        if not liquidation or not liquidation.pk:
+            return
+
+        LiquidationLineItem.objects.filter(liquidation=liquidation).delete()
+        source_ids = [item['source_line_item_id'] for item in self.get_line_items() if item.get('source_line_item_id')]
+        source_map = {
+            source_item.id: source_item
+            for source_item in FundRequestLineItem.objects.select_related('fund_request').filter(id__in=source_ids)
+        }
+        for item in self.get_line_items():
+            source_line_item = source_map.get(item.get('source_line_item_id'))
+            LiquidationLineItem.objects.create(
+                liquidation=liquidation,
+                source_fund_request=getattr(source_line_item, 'fund_request', None),
+                source_line_item=source_line_item,
+                entry_date=item['entry_date'],
+                fund_form_no=item['fund_form_no'],
+                description=item['description'],
+                amount=item['amount'],
+            )
+        liquidation.refresh_total_amount(save=True)
+
+    def save_attachments(self, liquidation, uploaded_by=None):
+        if not liquidation or not liquidation.pk:
+            return
+
+        for upload in self.cleaned_data.get('liquidation_images', []):
+            LiquidationAttachment.objects.create(
+                liquidation=liquidation,
                 image=upload,
                 uploaded_by=uploaded_by,
             )

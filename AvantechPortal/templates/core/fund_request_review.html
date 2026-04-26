@@ -1,4 +1,5 @@
 {% extends 'base_app.html' %}
+{% load core_extras %}
 
 {% block title %}Avantech Portal | Fund Request Review{% endblock %}
 {% block page_heading %}Fund Request Review{% endblock %}
@@ -15,7 +16,7 @@
         <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
         <a class="btn btn-outline-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF Review</a>
         {% if fund_request.request_status == 'approved' %}
-            <a class="btn btn-success" href="{% url 'fund_request_document_download' fund_request.id %}">Download PDF</a>
+            <a class="btn btn-success" href="{% url 'fund_request_document_download' fund_request.id %}" target="_blank">Download PDF</a>
         {% endif %}
     </div>
 </div>
@@ -55,7 +56,7 @@
                     </div>
                     <div class="review-meta-item">
                         <span class="text-secondary small">Total Amount</span>
-                        <strong>PHP {{ fund_request.total_amount }}</strong>
+                        <strong>PHP {{ fund_request.total_amount|comma2 }}</strong>
                     </div>
                     <div class="review-meta-item">
                         <span class="text-secondary small">Prepared By</span>

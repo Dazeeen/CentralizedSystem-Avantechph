@@ -5,16 +5,16 @@
 {% block page_heading %}Fund Request{% endblock %}
 
 {% block content %}
-<div class="row g-3 g-md-4 mb-4">
-    <div class="col-md-4">
+<div class="row g-3 g-md-4 mb-4 fund-record-no-print">
+    <div class="{% if can_manage_templates %}col-md-6 col-xl-3{% else %}col-md-4{% endif %}">
         <div class="card h-100 border-0 dashboard-stat shadow-sm">
             <div class="card-body">
-                <p class="text-secondary mb-2">Total Fund Requests</p>
+                <p class="text-secondary mb-2">Total Approved Requests</p>
                 <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_fund_requests }}</p>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="{% if can_manage_templates %}col-md-6 col-xl-3{% else %}col-md-4{% endif %}">
         <div class="card h-100 border-0 dashboard-stat shadow-sm">
             <div class="card-body">
                 <p class="text-secondary mb-2">Pending Approval</p>
@@ -22,305 +22,239 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="{% if can_manage_templates %}col-md-6 col-xl-3{% else %}col-md-4{% endif %}">
         <div class="card h-100 border-0 dashboard-stat shadow-sm">
             <div class="card-body">
-                <p class="text-secondary mb-2">Total Requested Amount</p>
-                <p class="display-6 fw-bold mb-0 text-success-emphasis">PHP {{ total_fund_amount }}</p>
+                <p class="text-secondary mb-2">Record Actions</p>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{% url 'fund_request_records' %}" class="btn btn-sm btn-success">View Records</a>
+                    <a href="{% url 'fund_request_records' %}?auto_print=1" class="btn btn-sm btn-outline-secondary">Print Record</a>
+                    <a href="{% url 'fund_request_records_pdf' %}" class="btn btn-sm btn-outline-success">Download PDF</a>
+                </div>
+                <div class="small text-secondary mt-2">
+                    {% if can_view_all_request_records %}
+                        Viewing all requests (approved, rejected, cancelled, pending).
+                    {% else %}
+                        Viewing your requests only.
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
+    {% if can_manage_templates %}
+        <div class="col-md-6 col-xl-3">
+            <div class="h-100 d-flex align-items-stretch">
+                <button
+                    type="button"
+                    class="fund-template-launch-btn"
+                    data-bs-toggle="modal"
+                    data-bs-target="#fundRequestTemplateModal"
+                >
+                    <span class="fund-template-launch-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                            <path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                            <path d="M14 3v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                            <path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                    <span class="fund-template-launch-text">
+                        <span class="fund-template-launch-title">Preferred Template</span>
+                        <span class="fund-template-launch-subtitle">Upload and manage form templates</span>
+                    </span>
+                </button>
+            </div>
+        </div>
+    {% endif %}
 </div>
 
 <div class="row g-3">
-    <div class="col-xl-5">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
-                    <div>
-                        <h2 class="h4 mb-1">Create Fund Request</h2>
-                        <p class="text-secondary mb-0">Choose a template, preview it, then encode the request with line items and automatic totals.</p>
-                    </div>
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                        {% if active_template %}
-                            <span class="badge text-bg-light border">Default: {{ active_template.name }}</span>
-                        {% else %}
-                            <span class="badge text-bg-warning">Auto-generated form</span>
-                        {% endif %}
-                        {% if can_add_fund_requests %}
-                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#fundRequestCreateModal">
-                                New Fund Request
-                            </button>
-                        {% endif %}
-                    </div>
-                </div>
-
+    <div class="col-12 fund-record-no-print">
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
                 {% if can_add_fund_requests %}
-                    <div class="border rounded-3 p-3 bg-light-subtle">
-                        <div class="fw-semibold mb-1">Template-driven request form</div>
-                        <p class="text-secondary mb-2">Click <strong>New Fund Request</strong> to select a template and fill out the request data.</p>
-                        <div class="small text-secondary mb-0">Tip: for `.docx` and `.xlsx`, regular placeholders like <code>{% templatetag openvariable %} requester_name {% templatetag closevariable %}</code> work, and dynamic rows now work using <code>{% templatetag openvariable %}#line_items{% templatetag closevariable %}</code> ... <code>{% templatetag openvariable %}/line_items{% templatetag closevariable %}</code>.</div>
-                    </div>
-                {% else %}
-                    <div class="alert alert-warning mb-0">You can view fund requests, but you do not have permission to create one.</div>
+                    <button
+                        type="button"
+                        class="btn btn-success"
+                        data-bs-toggle="modal"
+                        data-bs-target="#fundRequestCreateModal"
+                        {% if not all_templates %}disabled{% endif %}
+                    >
+                        New Fund Request
+                    </button>
                 {% endif %}
             </div>
+            <button
+                type="button"
+                class="btn btn-outline-warning position-relative"
+                data-bs-toggle="modal"
+                data-bs-target="#pendingFundRequestsModal"
+            >
+                Pending Requests
+                {% if total_pending_fund_requests > 0 %}
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill text-bg-danger">{{ total_pending_fund_requests }}</span>
+                {% endif %}
+            </button>
         </div>
-
-        {% if can_manage_templates %}
-            <div class="card border-0 shadow-sm mt-3">
-                <div class="card-body p-4">
-                    <h3 class="h5 mb-1">Preferred Template</h3>
-                    <p class="text-secondary mb-3">Upload templates here. Users can then pick from the template grid when creating a fund request.</p>
-
-                    <form method="post" enctype="multipart/form-data">
-                        {% csrf_token %}
-                        <input type="hidden" name="action_type" value="upload_template">
-
-                        <div class="mb-3">
-                            <label for="{{ template_form.name.id_for_label }}" class="form-label fw-semibold">Template Name</label>
-                            {{ template_form.name }}
-                            {% if template_form.name.errors %}
-                                <div class="text-danger small mt-1">{{ template_form.name.errors|striptags }}</div>
-                            {% endif %}
-                        </div>
-                        <div class="mb-3">
-                            <label for="{{ template_form.file.id_for_label }}" class="form-label fw-semibold">Template File</label>
-                            {{ template_form.file }}
-                            <div class="form-text">Supported uploads: PDF, DOC, DOCX, XLS, XLSX. Auto-fill currently works on `.docx` and `.xlsx` placeholder templates.</div>
-                            {% if template_form.file.errors %}
-                                <div class="text-danger small mt-1">{{ template_form.file.errors|striptags }}</div>
-                            {% endif %}
-                        </div>
-                        <div class="mb-3">
-                            <label for="{{ template_form.notes.id_for_label }}" class="form-label fw-semibold">Notes</label>
-                            {{ template_form.notes }}
-                            {% if template_form.notes.errors %}
-                                <div class="text-danger small mt-1">{{ template_form.notes.errors|striptags }}</div>
-                            {% endif %}
-                        </div>
-                        <div class="form-check mb-3">
-                            {{ template_form.is_active }}
-                            <label for="{{ template_form.is_active.id_for_label }}" class="form-check-label">Set as active template</label>
-                        </div>
-                        <button type="submit" class="btn btn-outline-success">Upload Template</button>
-                    </form>
-
-                    <div class="border rounded-3 p-3 bg-light-subtle mt-4">
-                        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
-                            <div>
-                                <div class="fw-semibold mb-1">Placeholder Guide</div>
-                                <div class="small text-secondary">Open any uploaded template to see a PDF preview plus the full placeholder list with copy buttons and usage notes.</div>
-                            </div>
-                            {% if all_templates %}
-                                <a href="{% url 'fund_request_template_preview' all_templates.0.id %}" class="btn btn-sm btn-outline-success">Open Guide</a>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
+        {% if can_add_fund_requests and not all_templates %}
+            <div class="small text-danger mt-1">Upload at least one template first to enable saving fund requests.</div>
+        {% elif not can_add_fund_requests %}
+            <div class="small text-warning mt-1">You can view fund requests, but you do not have permission to create one.</div>
         {% endif %}
-
-        <div class="card border-0 shadow-sm mt-3">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-                    <div>
-                        <h3 class="h5 mb-1">Template Library</h3>
-                        <p class="text-secondary mb-0">Preview available templates, see who uploaded them, and know which one is the default.</p>
-                    </div>
-                    <div class="small text-secondary">{{ all_templates|length }} template(s)</div>
-                </div>
-
-                {% if all_templates %}
-                    <form method="post" id="fundRequestTemplatesBulkForm">
-                        {% csrf_token %}
-                        <input type="hidden" name="action_type" value="bulk_delete_templates">
-                    <div class="row g-3">
-                        {% for template_record in all_templates %}
-                            <div class="col-md-6">
-                                <div class="border rounded-3 h-100 bg-white overflow-hidden">
-                                    <div class="fund-template-preview-mini border-bottom">
-                                        {% if template_record.file|is_pdf_file %}
-                                            <iframe src="{{ template_record.file.url }}#toolbar=0&navpanes=0&scrollbar=0" title="{{ template_record.name }}" loading="lazy"></iframe>
-                                        {% else %}
-                                            <div class="fund-template-preview-fallback">
-                                                <span class="fund-template-extension">{{ template_record.file|file_extension }}</span>
-                                            </div>
-                                        {% endif %}
-                                    </div>
-                                    <div class="p-3">
-                                        {% if can_manage_templates %}
-                                            <div class="form-check mb-2">
-                                                <input
-                                                    class="form-check-input js-template-checkbox"
-                                                    type="checkbox"
-                                                    name="selected_template_ids"
-                                                    value="{{ template_record.id }}"
-                                                    id="selectedTemplate{{ template_record.id }}"
-                                                >
-                                                <label class="form-check-label small text-secondary" for="selectedTemplate{{ template_record.id }}">
-                                                    Select template
-                                                </label>
-                                            </div>
-                                        {% endif %}
-                                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                            <div class="fw-semibold">{{ template_record.name }}</div>
-                                            {% if template_record.is_active %}
-                                                <span class="badge text-bg-success">Default</span>
-                                            {% endif %}
-                                        </div>
-                                        <div class="small text-secondary">{{ template_record.file|basename }}</div>
-                                        <div class="small text-secondary mt-1">
-                                            Uploaded by
-                                            {% if template_record.uploaded_by %}
-                                                {{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username }}
-                                            {% else %}
-                                                System
-                                            {% endif %}
-                                        </div>
-                                        <div class="small text-secondary">Updated {{ template_record.updated_at|date:'Y-m-d H:i' }}</div>
-                                        <div class="mt-3 d-flex gap-2 flex-wrap">
-                                            <a class="btn btn-sm btn-outline-success" href="{% url 'fund_request_template_preview' template_record.id %}">Open Preview</a>
-                                            <a class="btn btn-sm btn-outline-secondary" href="{{ template_record.file.url }}" target="_blank">Original File</a>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                    {% if can_manage_templates %}
-                        <div class="border-top bg-light-subtle px-3 py-3 mt-3 d-flex justify-content-between align-items-center gap-3 flex-wrap d-none" id="fundRequestTemplatesBulkActionBar">
-                            <div class="small text-secondary">
-                                <strong id="fundRequestTemplatesSelectedCount">0</strong> template(s) selected
-                            </div>
-                            <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete all selected uploaded templates?')">Delete Selected Templates</button>
-                        </div>
-                    {% endif %}
-                    </form>
-                {% else %}
-                    <div class="border rounded-3 p-4 text-center text-secondary">No uploaded templates yet. The system will use the built-in generated form.</div>
-                {% endif %}
-            </div>
-        </div>
     </div>
 
-    <div class="col-xl-7">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body border-bottom">
-                <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap">
-                    <div>
-                        <h2 class="h4 mb-1">Fund Request Records</h2>
-                        <p class="text-secondary mb-0">Submitted requests are tracked here. Only approved requests receive a serial number and printable document.</p>
+    <div class="col-12">
+        <div class="modal fade" id="pendingFundRequestsModal" tabindex="-1" aria-labelledby="pendingFundRequestsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content border-0 shadow-sm">
+                    <div class="modal-header pending-requests-modal-header">
+                        <div class="pending-requests-modal-title-wrap">
+                            <h2 class="h5 mb-1" id="pendingFundRequestsModalLabel">Pending Request</h2>
+                            <p class="text-secondary mb-0">
+                                {% if can_approve_fund_requests or request.user.is_superuser %}
+                                    All pending fund requests are listed here for review.
+                                {% else %}
+                                    Your current pending fund requests are listed here.
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="pending-requests-modal-actions">
+                            <div class="small text-secondary text-nowrap">
+                                {{ pending_requests_page.paginator.count }} pending request(s)
+                            </div>
+                            {% if can_approve_fund_requests %}
+                                <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#fundRequestAutoApproveOptionsModal">
+                                    Options
+                                </button>
+                            {% endif %}
+                        </div>
                     </div>
-                    <form method="get" class="d-flex gap-2 flex-wrap">
-                        <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search serial, name, department, branch">
-                        <button type="submit" class="btn btn-success">Search</button>
-                        <a href="{% url 'fund_requests_list' %}" class="btn btn-outline-secondary">Clear</a>
-                    </form>
+                    <div class="modal-body p-0">
+            <div class="p-3 border-bottom bg-light-subtle">
+                <div class="row g-2">
+                    <div class="col-lg-5">
+                        <label for="pendingRequestsSearchInput" class="form-label small fw-semibold text-secondary mb-1">Search</label>
+                        <input
+                            type="text"
+                            id="pendingRequestsSearchInput"
+                            class="form-control form-control-sm"
+                            placeholder="Search serial no., name, department, or branch"
+                        >
+                    </div>
+                    <div class="col-lg-3">
+                        <label for="pendingRequestsFilterSelect" class="form-label small fw-semibold text-secondary mb-1">Filter</label>
+                        <select id="pendingRequestsFilterSelect" class="form-select form-select-sm">
+                            <option value="all">All Departments / Branches</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6 col-lg-2">
+                        <label for="pendingRequestsDateFromInput" class="form-label small fw-semibold text-secondary mb-1">Date From</label>
+                        <input type="date" id="pendingRequestsDateFromInput" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-sm-6 col-lg-2">
+                        <label for="pendingRequestsDateToInput" class="form-label small fw-semibold text-secondary mb-1">Date To</label>
+                        <input type="date" id="pendingRequestsDateToInput" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-sm-6 col-lg-3">
+                        <label for="pendingRequestsAmountMinInput" class="form-label small fw-semibold text-secondary mb-1">Amount Min</label>
+                        <input type="number" id="pendingRequestsAmountMinInput" class="form-control form-control-sm" placeholder="0.00" min="0" step="0.01">
+                    </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <label for="pendingRequestsAmountMaxInput" class="form-label small fw-semibold text-secondary mb-1">Amount Max</label>
+                        <input type="number" id="pendingRequestsAmountMaxInput" class="form-control form-control-sm" placeholder="0.00" min="0" step="0.01">
+                    </div>
                 </div>
             </div>
-            <form method="post" id="fundRequestsBulkForm">
-                {% csrf_token %}
-                <input type="hidden" name="action_type" value="bulk_delete_requests">
-                <div class="table-responsive">
-                <table class="table align-middle mb-0">
-                    <thead class="table-success">
+            <div class="table-responsive p-3">
+                <table class="table align-middle mb-0" id="pendingFundRequestsTable">
+                    <thead class="table-warning">
                         <tr>
-                            <th style="width: 52px;">
-                                <input class="form-check-input" type="checkbox" id="fundRequestsSelectAll" aria-label="Select all fund requests">
-                            </th>
+                            {% if can_approve_fund_requests %}
+                                <th style="width: 52px;">
+                                    <input type="checkbox" class="form-check-input" id="pendingFundRequestsSelectAll" aria-label="Select all pending requests">
+                                </th>
+                            {% endif %}
                             <th>Serial No.</th>
-                            <th>Status</th>
                             <th>Name</th>
-                            <th>Date</th>
-                            <th>Department / Branch</th>
-                            <th>Total</th>
-                            <th>Prepared By</th>
+                            <th>Amount</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for fund_request in fund_requests_page %}
-                            <tr data-request-row>
-                                <td>
-                                    <input
-                                        class="form-check-input js-fund-request-checkbox"
-                                        type="checkbox"
-                                        name="selected_request_ids"
-                                        value="{{ fund_request.id }}"
-                                        data-open-url="{% if fund_request.request_status == 'approved' %}{% url 'fund_request_document' fund_request.id %}{% endif %}"
-                                        data-download-url="{% if fund_request.request_status == 'approved' %}{% url 'fund_request_document_download' fund_request.id %}{% endif %}"
-                                        aria-label="Select {{ fund_request.serial_number|default:fund_request.requester_name }}"
-                                    >
-                                </td>
+                        {% for fund_request in pending_requests_page %}
+                            <tr
+                                class="fund-request-row-clickable js-fund-request-row js-pending-request-row"
+                                tabindex="0"
+                                role="button"
+                                aria-label="View details for pending fund request {{ fund_request.requester_name }}"
+                                data-request-status="Pending"
+                                data-request-serial="{% if fund_request.serial_number %}{{ fund_request.serial_number }}{% else %}For Approval{% endif %}"
+                                data-request-name="{{ fund_request.requester_name }}"
+                                data-request-amount="PHP {{ fund_request.total_amount|comma2 }}"
+                                data-request-date="{{ fund_request.request_date|date:'F d, Y' }}"
+                                data-request-date-value="{{ fund_request.request_date|date:'Y-m-d' }}"
+                                data-request-amount-value="{{ fund_request.total_amount|default_if_none:'0' }}"
+                                data-request-department="{{ fund_request.department }}"
+                                data-request-branch="{{ fund_request.branch }}"
+                                data-request-prepared-by="{% if fund_request.created_by %}{{ fund_request.created_by.get_full_name|default:fund_request.created_by.username }}{% else %}-{% endif %}"
+                                data-request-line-items="{{ fund_request.items.count }}"
+                                data-request-view-url="{% url 'fund_request_review_pdf' fund_request.id %}"
+                                data-request-view-label="Review File"
+                                data-request-detail-template-id="fundRequestDetailsTemplatePending{{ fund_request.id }}"
+                                data-pending-filter-key="{{ fund_request.department }} | {{ fund_request.branch }}"
+                            >
+                                {% if can_approve_fund_requests %}
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            class="form-check-input js-pending-fund-request-checkbox"
+                                            value="{{ fund_request.id }}"
+                                            aria-label="Select pending request {{ fund_request.id }}"
+                                        >
+                                    </td>
+                                {% endif %}
                                 <td class="fw-semibold">
                                     {% if fund_request.serial_number %}
                                         {{ fund_request.serial_number }}
                                     {% else %}
-                                        <span class="text-secondary">For approval</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if fund_request.request_status == 'approved' %}
-                                        <span class="badge text-bg-success">Approved</span>
-                                    {% elif fund_request.request_status == 'rejected' %}
-                                        <span class="badge text-bg-danger">Rejected</span>
-                                    {% else %}
-                                        <span class="badge text-bg-warning">Pending</span>
-                                    {% endif %}
-                                    {% if fund_request.processed_by %}
-                                        <div class="small text-secondary mt-1">
-                                            By {{ fund_request.processed_by.get_full_name|default:fund_request.processed_by.username }}
-                                        </div>
-                                    {% endif %}
-                                    {% if fund_request.decision_reason %}
-                                        <div class="small text-secondary mt-1">{{ fund_request.decision_reason }}</div>
+                                        <span class="text-secondary">For Approval</span>
                                     {% endif %}
                                 </td>
                                 <td>{{ fund_request.requester_name }}</td>
-                                <td>{{ fund_request.request_date|date:'Y-m-d' }}</td>
-                                <td>
-                                    <div>{{ fund_request.department }}</div>
-                                    <div class="small text-secondary">{{ fund_request.branch }}</div>
-                                    <div class="small text-secondary">{{ fund_request.attachments.count }} image(s)</div>
-                                </td>
-                                <td>PHP {{ fund_request.total_amount }}</td>
-                                <td>
-                                    {% if fund_request.created_by %}
-                                        {% with creator_profile=creator_profiles_map|get_item:fund_request.created_by_id %}
-                                            <div class="list-user-inline">
-                                                {% if creator_profile and creator_profile.avatar %}
-                                                    <img src="{{ creator_profile.avatar.url }}" alt="{{ fund_request.created_by.username }}" class="list-user-avatar">
-                                                {% else %}
-                                                    <span class="list-user-avatar-fallback">{{ fund_request.created_by.get_full_name|default:fund_request.created_by.username|first|upper }}</span>
-                                                {% endif %}
-                                                <button type="button" class="user-name-link js-user-profile-trigger" data-user-id="{{ fund_request.created_by_id }}">
-                                                    {{ fund_request.created_by.get_full_name|default:fund_request.created_by.username }}
-                                                </button>
-                                            </div>
-                                        {% endwith %}
-                                    {% else %}
-                                        <span class="text-secondary">-</span>
-                                    {% endif %}
-                                </td>
+                                <td>PHP {{ fund_request.total_amount|comma2 }}</td>
                                 <td class="text-end">
                                     <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                            Action
+                                        <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Pending fund request actions">
+                                            ...
                                         </button>
                                         <ul class="dropdown-menu dropdown-menu-end">
-                                            {% if fund_request.request_status == 'approved' %}
-                                                <li><a class="dropdown-item" href="{% url 'fund_request_document' fund_request.id %}" target="_blank">Open</a></li>
-                                                <li><a class="dropdown-item" href="{% url 'fund_request_document_download' fund_request.id %}">Download</a></li>
-                                            {% else %}
-                                                <li><a class="dropdown-item" href="{% url 'fund_request_review' fund_request.id %}">Review File</a></li>
+                                            <li><a class="dropdown-item" href="{% url 'fund_request_review_pdf' fund_request.id %}" target="_blank">Review File</a></li>
+                                            {% if fund_request.created_by_id == request.user.id or can_cancel_other_fund_requests %}
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item text-danger"
+                                                        data-fund-request-cancel
+                                                        data-request-id="{{ fund_request.id }}"
+                                                        data-request-label="{{ fund_request.requester_name }}"
+                                                    >
+                                                        Cancel Request
+                                                    </button>
+                                                </li>
                                             {% endif %}
-                                            {% if can_approve_fund_requests and fund_request.request_status == 'pending' %}
+                                            {% if can_approve_fund_requests %}
                                                 <li><hr class="dropdown-divider"></li>
                                                 <li>
-                                                    <a class="dropdown-item text-success" href="{% url 'fund_request_review' fund_request.id %}">
-                                                        Review and Approve
-                                                    </a>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item text-success"
+                                                        data-fund-request-approve
+                                                        data-request-id="{{ fund_request.id }}"
+                                                        data-request-label="{{ fund_request.requester_name }}"
+                                                    >
+                                                        Approve
+                                                    </button>
                                                 </li>
                                                 <li>
                                                     <button
@@ -334,71 +268,412 @@
                                                     </button>
                                                 </li>
                                             {% endif %}
-                                            {% if can_delete_fund_requests %}
-                                                <li><hr class="dropdown-divider"></li>
-                                                <li>
-                                                    <button
-                                                        type="button"
-                                                        class="dropdown-item text-danger"
-                                                        data-fund-request-remove
-                                                        data-request-id="{{ fund_request.id }}"
-                                                        data-request-serial="{{ fund_request.serial_number }}"
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </li>
-                                            {% endif %}
                                         </ul>
                                     </div>
                                 </td>
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="9" class="text-center py-4 text-secondary">No fund requests yet.</td>
+                                <td colspan="{% if can_approve_fund_requests %}5{% else %}4{% endif %}" class="text-center py-4 text-secondary" id="pendingRequestsInitialEmptyRow">No pending requests found.</td>
                             </tr>
                         {% endfor %}
+                        <tr id="pendingRequestsNoResultsRow" class="d-none">
+                            <td colspan="{% if can_approve_fund_requests %}5{% else %}4{% endif %}" class="text-center py-4 text-secondary">No matching pending requests found.</td>
+                        </tr>
                     </tbody>
                 </table>
+            </div>
+            <div class="d-none">
+                {% for fund_request in pending_requests_page %}
+                    <template id="fundRequestDetailsTemplatePending{{ fund_request.id }}">
+                        <hr class="my-4">
+                        <h6 class="mb-3">Line Items</h6>
+                        {% if fund_request.items.all %}
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width: 42px;">#</th>
+                                            <th>Date</th>
+                                            <th>Particulars</th>
+                                            <th class="text-end">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for line_item in fund_request.items.all %}
+                                            <tr>
+                                                <td>{{ forloop.counter }}</td>
+                                                <td>{{ line_item.entry_date|date:'F d, Y' }}</td>
+                                                <td>{{ line_item.particulars }}</td>
+                                                <td class="text-end">PHP {{ line_item.amount|comma2 }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-secondary mb-3">No line items recorded for this request.</div>
+                        {% endif %}
+
+                        <h6 class="mb-3">Uploaded Images</h6>
+                        {% if fund_request.attachments.all %}
+                            <div class="fund-request-image-strip" role="list" aria-label="Uploaded image previews">
+                                {% for attachment in fund_request.attachments.all %}
+                                    <a href="{{ attachment.image.url }}" target="_blank" class="fund-request-image-card" role="listitem" title="Open image: {{ attachment.image|basename }}">
+                                        <span class="fund-request-image-thumb">
+                                            <img src="{{ attachment.image.url }}" alt="Attachment {{ forloop.counter }}">
+                                        </span>
+                                        <span class="fund-request-image-meta">
+                                            <span class="fund-request-image-name">{{ attachment.image|basename }}</span>
+                                            <span class="fund-request-image-date">{{ attachment.created_at|date:'M d, Y h:i A' }}</span>
+                                        </span>
+                                    </a>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="text-secondary">No uploaded images for this request.</div>
+                        {% endif %}
+                    </template>
+                {% endfor %}
+            </div>
+            {% if can_approve_fund_requests %}
+                <div id="pendingFundRequestsBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="Pending fund request bulk actions">
+                    <div class="bulk-action-content">
+                        <span class="bulk-action-count"><span id="pendingFundRequestsSelectedCount">0</span> selected</span>
+                        <button type="button" class="btn btn-sm btn-success d-inline-flex align-items-center justify-content-center" id="pendingFundRequestsBulkApproveBtn" title="Approve selected" aria-label="Approve selected" style="width: 34px; height: 30px;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                                <path d="M9.55 17.52a1 1 0 0 1-.72-.31l-3.5-3.67a1 1 0 1 1 1.44-1.38l2.8 2.93 7.64-7.61a1 1 0 1 1 1.41 1.42l-8.36 8.33a1 1 0 0 1-.71.29z"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center justify-content-center" id="pendingFundRequestsBulkRejectBtn" title="Reject selected" aria-label="Reject selected" style="width: 34px; height: 30px;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                                <path d="M7.7 7.7a1 1 0 0 1 1.4 0L12 10.58l2.9-2.88a1 1 0 1 1 1.4 1.42L13.42 12l2.88 2.9a1 1 0 0 1-1.42 1.4L12 13.42l-2.9 2.88a1 1 0 1 1-1.4-1.42L10.58 12 7.7 9.1a1 1 0 0 1 0-1.4z"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center" id="clearPendingFundRequestSelection" title="Clear selection" aria-label="Clear selection" style="width: 34px; height: 30px;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+                                <path d="M7 7L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <path d="M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
-                <div
-                    class="border-top bg-light-subtle px-3 py-3 d-flex justify-content-between align-items-center gap-3 flex-wrap d-none"
-                    id="fundRequestsBulkActionBar"
-                >
+            {% endif %}
+            {% if pending_requests_page.paginator.num_pages > 1 %}
+                <div class="px-3 py-3 border-top bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <small class="text-secondary">Page {{ pending_requests_page.number }} of {{ pending_requests_page.paginator.num_pages }}</small>
+                    <div class="btn-group flex-wrap" role="group" aria-label="Pending request pagination">
+                        {% if pending_requests_page.has_previous %}
+                            <a class="btn btn-sm btn-outline-warning" href="?q={{ query|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&series_from={{ series_from|urlencode }}&series_to={{ series_to|urlencode }}&amount_min={{ amount_min|urlencode }}&amount_max={{ amount_max|urlencode }}&page={{ fund_requests_page.number }}&pending_page={{ pending_requests_page.previous_page_number }}">Previous</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                        {% endif %}
+
+                        {% for page_num in pending_requests_page.paginator.page_range %}
+                            {% if page_num == pending_requests_page.number %}
+                                <button class="btn btn-sm btn-warning" disabled>{{ page_num }}</button>
+                            {% else %}
+                                <a class="btn btn-sm btn-outline-warning" href="?q={{ query|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&series_from={{ series_from|urlencode }}&series_to={{ series_to|urlencode }}&amount_min={{ amount_min|urlencode }}&amount_max={{ amount_max|urlencode }}&page={{ fund_requests_page.number }}&pending_page={{ page_num }}">{{ page_num }}</a>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if pending_requests_page.has_next %}
+                            <a class="btn btn-sm btn-outline-warning" href="?q={{ query|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&series_from={{ series_from|urlencode }}&series_to={{ series_to|urlencode }}&amount_min={{ amount_min|urlencode }}&amount_max={{ amount_max|urlencode }}&page={{ fund_requests_page.number }}&pending_page={{ pending_requests_page.next_page_number }}">Next</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary ms-auto" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-body border-bottom">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                    <div>
+                        <h2 class="h4 mb-1">Approved Request List</h2>
+                        <p class="text-secondary mb-0">
+                            {% if can_view_all_request_records %}
+                                Showing approved requests from all users.
+                            {% else %}
+                                Showing your approved requests only.
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="small text-secondary">{{ fund_requests_page.paginator.count }} approved request(s)</div>
+                </div>
+                <form method="get" class="approved-filter-form mt-3">
+                    <input type="hidden" name="pending_page" value="{{ pending_requests_page.number }}">
+                    <div class="approved-filter-row approved-filter-row-horizontal">
+                        <div class="input-group input-group-sm approved-filter-search-wrapper">
+                            <span class="input-group-text approved-filter-icon" title="Search">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                                    <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"></circle>
+                                    <path d="M20 20L16.6 16.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                                </svg>
+                            </span>
+                            <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search serial no., requester name, department, or branch">
+                        </div>
+                        <div class="approved-filter-range-group">
+                            <div class="approved-filter-range-label">Date Range</div>
+                            <div class="approved-filter-inline-inputs">
+                                <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm approved-filter-range-input" aria-label="Date from">
+                                <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm approved-filter-range-input" aria-label="Date to">
+                            </div>
+                        </div>
+                        <div class="approved-filter-range-group">
+                            <div class="approved-filter-range-label">Series Range</div>
+                            <div class="approved-filter-inline-inputs">
+                                <input type="text" name="series_from" value="{{ series_from }}" class="form-control form-control-sm approved-filter-range-input" placeholder="From" aria-label="Series from">
+                                <input type="text" name="series_to" value="{{ series_to }}" class="form-control form-control-sm approved-filter-range-input" placeholder="To" aria-label="Series to">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-success" title="Apply filters">Search</button>
+                        <a href="{% url 'fund_requests_list' %}" class="btn btn-sm btn-outline-secondary" title="Clear filters">Clear</a>
+                    </div>
+                </form>
+            </div>
+            <form method="post" id="fundRequestsBulkForm">
+                {% csrf_token %}
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-success">
+                            <tr>
+                                <th style="width: 52px;">
+                                    <input type="checkbox" class="form-check-input" id="fundRequestsSelectAll" aria-label="Select all approved requests">
+                                </th>
+                                <th>Serial No.</th>
+                                <th>Name</th>
+                                <th>Amount</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fund_request in fund_requests_page %}
+                                <tr
+                                    class="fund-request-row-clickable js-fund-request-row"
+                                    tabindex="0"
+                                    role="button"
+                                    aria-label="View details for approved fund request {{ fund_request.requester_name }}"
+                                    data-request-status="Approved"
+                                    data-request-serial="{{ fund_request.serial_number }}"
+                                    data-request-name="{{ fund_request.requester_name }}"
+                                    data-request-amount="PHP {{ fund_request.calculated_total_amount|default:fund_request.total_amount|comma2 }}"
+                                    data-request-date="{{ fund_request.request_date|date:'F d, Y' }}"
+                                    data-request-department="{{ fund_request.department }}"
+                                    data-request-branch="{{ fund_request.branch }}"
+                                    data-request-prepared-by="{% if fund_request.created_by %}{{ fund_request.created_by.get_full_name|default:fund_request.created_by.username }}{% else %}-{% endif %}"
+                                    data-request-line-items="{{ fund_request.items.count }}"
+                                    data-request-view-url="{% url 'fund_request_print' fund_request.id %}"
+                                    data-request-view-label="Print"
+                                    data-request-download-url="{% url 'fund_request_document_download' fund_request.id %}"
+                                    data-request-download-label="Download"
+                                    data-request-detail-template-id="fundRequestDetailsTemplateApproved{{ fund_request.id }}"
+                                >
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            class="form-check-input js-fund-request-checkbox"
+                                            name="selected_request_ids"
+                                            value="{{ fund_request.id }}"
+                                            aria-label="Select approved request {{ fund_request.serial_number }}"
+                                        >
+                                    </td>
+                                    <td class="fw-semibold">{{ fund_request.serial_number }}</td>
+                                    <td>{{ fund_request.requester_name }}</td>
+                                    <td>PHP {{ fund_request.calculated_total_amount|default:fund_request.total_amount|comma2 }}</td>
+                                    <td class="text-end">
+                                        <div class="dropdown">
+                                            <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Approved fund request actions">
+                                                ...
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><a class="dropdown-item" href="{% url 'fund_request_print' fund_request.id %}" target="_blank">Print</a></li>
+                                                <li><a class="dropdown-item" href="{% url 'fund_request_document_download' fund_request.id %}" target="_blank">Download</a></li>
+                                                {% if can_delete_fund_requests %}
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <button
+                                                            type="button"
+                                                            class="dropdown-item text-danger"
+                                                            data-fund-request-remove
+                                                            data-request-id="{{ fund_request.id }}"
+                                                            data-request-serial="{{ fund_request.serial_number }}"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </li>
+                                                {% endif %}
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-secondary">No approved requests found.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-none">
+                    {% for fund_request in fund_requests_page %}
+                        <template id="fundRequestDetailsTemplateApproved{{ fund_request.id }}">
+                            <hr class="my-4">
+                            <h6 class="mb-3">Line Items</h6>
+                            {% if fund_request.items.all %}
+                                <div class="table-responsive mb-3">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 42px;">#</th>
+                                                <th>Date</th>
+                                                <th>Particulars</th>
+                                                <th class="text-end">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line_item in fund_request.items.all %}
+                                                <tr>
+                                                    <td>{{ forloop.counter }}</td>
+                                                    <td>{{ line_item.entry_date|date:'F d, Y' }}</td>
+                                                    <td>{{ line_item.particulars }}</td>
+                                                    <td class="text-end">PHP {{ line_item.amount|comma2 }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {% else %}
+                                <div class="text-secondary mb-3">No line items recorded for this request.</div>
+                            {% endif %}
+
+                            <h6 class="mb-3">Uploaded Images</h6>
+                            {% if fund_request.attachments.all %}
+                                <div class="fund-request-image-strip" role="list" aria-label="Uploaded image previews">
+                                    {% for attachment in fund_request.attachments.all %}
+                                        <a href="{{ attachment.image.url }}" target="_blank" class="fund-request-image-card" role="listitem" title="Open image: {{ attachment.image|basename }}">
+                                            <span class="fund-request-image-thumb">
+                                                <img src="{{ attachment.image.url }}" alt="Attachment {{ forloop.counter }}">
+                                            </span>
+                                            <span class="fund-request-image-meta">
+                                                <span class="fund-request-image-name">{{ attachment.image|basename }}</span>
+                                                <span class="fund-request-image-date">{{ attachment.created_at|date:'M d, Y h:i A' }}</span>
+                                            </span>
+                                        </a>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <div class="text-secondary">No uploaded images for this request.</div>
+                            {% endif %}
+                        </template>
+                    {% endfor %}
+                </div>
+                <div class="border-top bg-light-subtle px-3 py-3 d-flex justify-content-between align-items-center gap-3 flex-wrap d-none" id="fundRequestsBulkActionBar">
                     <div class="small text-secondary">
                         <strong id="fundRequestsSelectedCount">0</strong> request(s) selected
                     </div>
                     <div class="d-flex gap-2 flex-wrap">
-                        <button type="button" class="btn btn-outline-success btn-sm" id="fundRequestsBulkOpenBtn">Open Selected</button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="fundRequestsBulkDownloadBtn">Download Selected</button>
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-success"
+                            id="fundRequestsBulkOpenBtn"
+                            data-bulk-print-url="{% url 'fund_request_bulk_print' %}"
+                        >
+                            Print Selected
+                        </button>
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            id="fundRequestsBulkDownloadBtn"
+                            data-bulk-download-url="{% url 'fund_request_bulk_download' %}"
+                        >
+                            Download Selected
+                        </button>
                         {% if can_delete_fund_requests %}
-                            <button type="submit" class="btn btn-danger btn-sm" id="fundRequestsBulkDeleteBtn" onclick="return confirm('Remove all selected fund requests?')">Remove Selected</button>
+                            <button
+                                type="submit"
+                                class="btn btn-sm btn-danger"
+                                name="action_type"
+                                value="bulk_delete_requests"
+                                id="fundRequestsBulkDeleteBtn"
+                            >
+                                Delete Selected
+                            </button>
                         {% endif %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="fundRequestsClearSelectionBtn">
+                            Unselect All
+                        </button>
                     </div>
                 </div>
             </form>
-            {% if can_delete_fund_requests %}
-                <form method="post" id="fundRequestDeleteForm" class="d-none">
-                    {% csrf_token %}
-                    <input type="hidden" name="action_type" value="delete_request">
-                    <input type="hidden" name="request_id" id="fundRequestDeleteId">
-                </form>
+            {% if fund_requests_page.paginator.num_pages > 1 %}
+                <div class="card-footer bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <small class="text-secondary">Page {{ fund_requests_page.number }} of {{ fund_requests_page.paginator.num_pages }}</small>
+                    <div class="btn-group flex-wrap" role="group" aria-label="Approved request pagination">
+                        {% if fund_requests_page.has_previous %}
+                            <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&series_from={{ series_from|urlencode }}&series_to={{ series_to|urlencode }}&amount_min={{ amount_min|urlencode }}&amount_max={{ amount_max|urlencode }}&page={{ fund_requests_page.previous_page_number }}&pending_page={{ pending_requests_page.number }}">Previous</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                        {% endif %}
+
+                        {% for page_num in fund_requests_page.paginator.page_range %}
+                            {% if page_num == fund_requests_page.number %}
+                                <button class="btn btn-sm btn-success" disabled>{{ page_num }}</button>
+                            {% else %}
+                                <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&series_from={{ series_from|urlencode }}&series_to={{ series_to|urlencode }}&amount_min={{ amount_min|urlencode }}&amount_max={{ amount_max|urlencode }}&page={{ page_num }}&pending_page={{ pending_requests_page.number }}">{{ page_num }}</a>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if fund_requests_page.has_next %}
+                            <a class="btn btn-sm btn-outline-success" href="?q={{ query|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&series_from={{ series_from|urlencode }}&series_to={{ series_to|urlencode }}&amount_min={{ amount_min|urlencode }}&amount_max={{ amount_max|urlencode }}&page={{ fund_requests_page.next_page_number }}&pending_page={{ pending_requests_page.number }}">Next</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                        {% endif %}
+                    </div>
+                </div>
             {% endif %}
-            {% if can_approve_fund_requests %}
-                <form method="post" id="fundRequestApproveForm" class="d-none">
-                    {% csrf_token %}
-                    <input type="hidden" name="action_type" value="approve_request">
-                    <input type="hidden" name="request_id" id="fundRequestApproveId">
-                    <input type="hidden" name="reason" id="fundRequestApproveReason">
-                </form>
-                <form method="post" id="fundRequestRejectForm" class="d-none">
-                    {% csrf_token %}
-                    <input type="hidden" name="action_type" value="reject_request">
-                    <input type="hidden" name="request_id" id="fundRequestRejectId">
-                    <input type="hidden" name="reason" id="fundRequestRejectReason">
-                </form>
-            {% endif %}
-            </div>
         </div>
+        {% if can_delete_fund_requests %}
+            <form method="post" id="fundRequestDeleteForm" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="delete_request">
+                <input type="hidden" name="request_id" id="fundRequestDeleteId">
+            </form>
+        {% endif %}
+        {% if can_approve_fund_requests %}
+            <form method="post" id="fundRequestApproveForm" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="approve_request">
+                <input type="hidden" name="request_id" id="fundRequestApproveId">
+                <input type="hidden" name="reason" id="fundRequestApproveReason">
+            </form>
+            <form method="post" id="fundRequestRejectForm" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="reject_request">
+                <input type="hidden" name="request_id" id="fundRequestRejectId">
+                <input type="hidden" name="reason" id="fundRequestRejectReason">
+            </form>
+            <form method="post" id="fundRequestPendingDecisionForm" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="bulk_decide_pending_requests">
+                <input type="hidden" name="decision" id="fundRequestPendingDecisionAction" value="">
+                <input type="hidden" name="selected_ids" id="fundRequestPendingDecisionSelectedIds" value="">
+                <input type="hidden" name="reason" id="fundRequestPendingDecisionReason" value="">
+            </form>
+        {% endif %}
+        <form method="post" id="fundRequestCancelForm" class="d-none">
+            {% csrf_token %}
+            <input type="hidden" name="action_type" value="cancel_request">
+            <input type="hidden" name="request_id" id="fundRequestCancelId">
+            <input type="hidden" name="reason" id="fundRequestCancelReason">
+        </form>
     </div>
 </div>
 
@@ -427,87 +702,61 @@
                         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
                             <div>
                                 <div class="fw-semibold">Choose Template</div>
-                                <div class="small text-secondary">Select which template to use for this fund request before entering the request details.</div>
+                                <div class="small text-secondary">Select an uploaded template before entering the request details.</div>
                             </div>
                             {% if active_template %}
                                 <span class="badge text-bg-light border">Default template: {{ active_template.name }}</span>
                             {% endif %}
                         </div>
 
-                        <div class="row g-3">
-                            <div class="col-md-6 col-xl-4">
-                                <label class="fund-template-picker-card h-100">
-                                    <input
-                                        type="radio"
-                                        name="selected_template_id"
-                                        value=""
-                                        class="fund-template-picker-input"
-                                        {% if not default_selected_template_id %}checked{% endif %}
-                                    >
-                                    <span class="fund-template-picker-frame">
-                                        <span class="fund-template-preview-mini border-bottom">
-                                            <span class="fund-template-preview-fallback">
-                                                <span class="fund-template-extension">AUTO</span>
-                                            </span>
-                                        </span>
-                                        <span class="d-block p-3">
-                                            <span class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                                <span class="fw-semibold d-block">Generated Form</span>
-                                                <span class="badge text-bg-warning">Built-in</span>
-                                            </span>
-                                            <span class="small text-secondary d-block">Uses the portal's built-in printable document layout.</span>
-                                        </span>
-                                    </span>
-                                </label>
-                            </div>
-                            {% for template_record in all_templates %}
-                                <div class="col-md-6 col-xl-4">
-                                    <label class="fund-template-picker-card h-100">
-                                        <input
-                                            type="radio"
-                                            name="selected_template_id"
-                                            value="{{ template_record.id }}"
-                                            class="fund-template-picker-input"
-                                            {% if default_selected_template_id|stringformat:'s' == template_record.id|stringformat:'s' %}checked{% endif %}
-                                        >
-                                        <span class="fund-template-picker-frame">
-                                            <span class="fund-template-preview-mini border-bottom">
-                                                {% if template_record.file|is_pdf_file %}
-                                                    <iframe src="{{ template_record.file.url }}#toolbar=0&navpanes=0&scrollbar=0" title="{{ template_record.name }}" loading="lazy"></iframe>
-                                                {% else %}
-                                                    <span class="fund-template-preview-fallback">
-                                                        <span class="fund-template-extension">{{ template_record.file|file_extension }}</span>
+                        {% if not all_templates %}
+                            <div class="alert alert-warning mb-0">No uploaded templates available yet. Upload a template first to enable saving fund requests.</div>
+                        {% else %}
+                            <div class="row g-3">
+                                {% for template_record in all_templates %}
+                                    <div class="col-md-6 col-xl-4">
+                                        <label class="fund-template-picker-card h-100">
+                                            <input
+                                                type="radio"
+                                                name="selected_template_id"
+                                                value="{{ template_record.id }}"
+                                                class="fund-template-picker-input"
+                                                {% if default_selected_template_id|stringformat:'s' == template_record.id|stringformat:'s' %}checked{% endif %}
+                                            >
+                                            <span class="fund-template-picker-frame">
+                                                <span class="fund-template-preview-mini border-bottom">
+                                                    <iframe src="{% url 'fund_request_template_preview_pdf' template_record.id %}#toolbar=0&navpanes=0&scrollbar=0" title="{{ template_record.name }}" loading="lazy"></iframe>
+                                                </span>
+                                                <span class="d-block p-3">
+                                                    <span class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                                        <span class="fw-semibold d-block">{{ template_record.name }}</span>
+                                                        {% if template_record.is_active %}
+                                                            <span class="badge text-bg-success">Default</span>
+                                                        {% endif %}
                                                     </span>
-                                                {% endif %}
-                                            </span>
-                                            <span class="d-block p-3">
-                                                <span class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                                    <span class="fw-semibold d-block">{{ template_record.name }}</span>
-                                                    {% if template_record.is_active %}
-                                                        <span class="badge text-bg-success">Default</span>
-                                                    {% endif %}
-                                                </span>
-                                                <span class="small text-secondary d-block">{{ template_record.file|basename }}</span>
-                                                <span class="small text-secondary d-block mt-1">
-                                                    Uploaded by
-                                                    {% if template_record.uploaded_by %}
-                                                        {{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username }}
-                                                    {% else %}
-                                                        System
-                                                    {% endif %}
+                                                    <span class="small text-secondary d-block">{{ template_record.file|basename }}</span>
+                                                    <span class="small text-secondary d-block mt-1">
+                                                        Uploaded by
+                                                        {% if template_record.uploaded_by %}
+                                                            {{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username }}
+                                                        {% else %}
+                                                            System
+                                                        {% endif %}
+                                                    </span>
                                                 </span>
                                             </span>
-                                        </span>
-                                    </label>
-                                </div>
-                            {% endfor %}
-                        </div>
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
                     </div>
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
                             <label for="{{ fund_request_form.requester_name.id_for_label }}" class="form-label fw-semibold">Name</label>
                             {{ fund_request_form.requester_name }}
+                            <div class="form-text">Optional. Auto-filled with your name, but you can replace it with any name.</div>
                             {% if fund_request_form.requester_name.errors %}
                                 <div class="text-danger small mt-1">{{ fund_request_form.requester_name.errors|striptags }}</div>
                             {% endif %}
@@ -564,8 +813,24 @@
 
                     <div class="mt-4">
                         <label for="{{ fund_request_form.request_images.id_for_label }}" class="form-label fw-semibold">Supporting Images</label>
-                        {{ fund_request_form.request_images }}
-                        <div class="form-text">{{ fund_request_form.request_images.help_text }}</div>
+                        <div class="fund-upload-panel">
+                            <input
+                                type="file"
+                                id="{{ fund_request_form.request_images.id_for_label }}"
+                                name="{{ fund_request_form.request_images.html_name }}"
+                                class="fund-upload-input"
+                                accept=".png,.jpg,.jpeg,.webp"
+                                multiple
+                            >
+                            <div class="fund-upload-dropzone" id="fundRequestDropzone" tabindex="0" role="button" aria-controls="{{ fund_request_form.request_images.id_for_label }}">
+                                <div class="fund-upload-dropzone-title">Drag and drop images here</div>
+                                <div class="small text-secondary">or click to browse PNG, JPG, JPEG, or WEBP files</div>
+                            </div>
+                            <div class="fund-upload-alert alert alert-warning py-2 px-3 mt-2 mb-0 d-none" id="fundRequestUploadAlert" role="alert"></div>
+                            <div class="form-text mt-2">{{ fund_request_form.request_images.help_text }}</div>
+                            <div class="fund-upload-preview-strip mt-3 d-none" id="fundRequestPreviewStrip"></div>
+                            <div class="fund-upload-invalid-strip mt-3 d-none" id="fundRequestInvalidStrip"></div>
+                        </div>
                         {% if fund_request_form.request_images.errors %}
                             <div class="text-danger small mt-1">{{ fund_request_form.request_images.errors|striptags }}</div>
                         {% endif %}
@@ -575,7 +840,7 @@
                         <button type="button" class="btn btn-outline-secondary" id="addFundRequestRowBtn">Add Row</button>
                         <div class="d-flex gap-2">
                             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="submit" class="btn btn-success">Save Fund Request</button>
+                            <button type="submit" class="btn btn-success" {% if not all_templates %}disabled{% endif %}>Save Fund Request</button>
                         </div>
                     </div>
                 </form>
@@ -585,9 +850,573 @@
 </div>
 {% endif %}
 
+{% if can_manage_templates %}
+<div class="modal fade" id="fundRequestTemplateModal" tabindex="-1" aria-labelledby="fundRequestTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-white">
+                <div>
+                    <h5 class="modal-title" id="fundRequestTemplateModalLabel">Preferred Template</h5>
+                    <div class="small text-secondary">Upload a template to make it available in the fund request form.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form method="post" id="fundRequestTemplateForm" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="upload_template">
+
+                    {% if template_form.non_field_errors %}
+                        <div class="alert alert-danger">{{ template_form.non_field_errors }}</div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label for="{{ template_form.name.id_for_label }}" class="form-label fw-semibold">Template Name</label>
+                        {{ template_form.name }}
+                        {% if template_form.name.errors %}
+                            <div class="text-danger small mt-1">{{ template_form.name.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ template_form.file.id_for_label }}" class="form-label fw-semibold">Template File</label>
+                        {{ template_form.file }}
+                        <div class="form-text">Supported uploads: PDF, DOC, DOCX, XLS, XLSX. Auto-fill currently works on `.docx` and `.xlsx` placeholder templates.</div>
+                        {% if template_form.file.errors %}
+                            <div class="text-danger small mt-1">{{ template_form.file.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ template_form.notes.id_for_label }}" class="form-label fw-semibold">Notes</label>
+                        {{ template_form.notes }}
+                        {% if template_form.notes.errors %}
+                            <div class="text-danger small mt-1">{{ template_form.notes.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="form-check mb-3">
+                        {{ template_form.is_active }}
+                        <label for="{{ template_form.is_active.id_for_label }}" class="form-check-label">Set as active template</label>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                        <a href="{{ guide_preview_url }}" class="btn btn-outline-secondary btn-sm">Open Placeholder Guide</a>
+                        <button type="submit" class="btn btn-success">Upload Template</button>
+                    </div>
+                </form>
+
+                <hr class="my-4">
+
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                    <div>
+                        <h6 class="mb-1">Template Library</h6>
+                        <p class="text-secondary mb-0 small">Manage and preview templates in a compact horizontal layout.</p>
+                    </div>
+                    <div class="small text-secondary">{{ all_templates|length }} template(s)</div>
+                </div>
+
+                {% if all_templates %}
+                    <form method="post" id="fundRequestTemplatesBulkForm">
+                        {% csrf_token %}
+                        <div class="fund-template-library-scroll">
+                            {% for template_record in all_templates %}
+                                <div class="fund-template-library-card border rounded-3 bg-white overflow-hidden">
+                                    <div class="fund-template-preview-mini border-bottom">
+                                        <iframe src="{% url 'fund_request_template_preview_pdf' template_record.id %}#toolbar=0&navpanes=0&scrollbar=0" title="{{ template_record.name }}" loading="lazy"></iframe>
+                                    </div>
+                                    <div class="p-3">
+                                        <div class="form-check mb-2">
+                                            <input
+                                                class="form-check-input js-template-checkbox"
+                                                type="checkbox"
+                                                name="selected_template_ids"
+                                                value="{{ template_record.id }}"
+                                                id="selectedTemplate{{ template_record.id }}"
+                                            >
+                                            <label class="form-check-label small text-secondary" for="selectedTemplate{{ template_record.id }}">
+                                                Select template
+                                            </label>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                            <div class="fw-semibold">{{ template_record.name }}</div>
+                                            {% if template_record.is_active %}
+                                                <span class="badge text-bg-success">Default</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="small text-secondary">{{ template_record.file|basename }}</div>
+                                        <div class="small text-secondary mt-1">
+                                            Uploaded by
+                                            {% if template_record.uploaded_by %}
+                                                {{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username }}
+                                            {% else %}
+                                                System
+                                            {% endif %}
+                                        </div>
+                                        <div class="small text-secondary">Updated {{ template_record.updated_at|date:'F d, Y h:i A' }}</div>
+                                        <div class="mt-3 d-flex gap-2 flex-wrap">
+                                            <a class="btn btn-sm btn-outline-success" href="{% url 'fund_request_template_preview' template_record.id %}">Open Preview</a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ template_record.file.url }}" download>Download</a>
+                                            {% if template_record.is_active %}
+                                                <button type="button" class="btn btn-sm btn-success" disabled>Default Template</button>
+                                            {% else %}
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-sm btn-outline-primary"
+                                                    name="template_action"
+                                                    value="set_default:{{ template_record.id }}"
+                                                >
+                                                    Set as Default
+                                                </button>
+                                            {% endif %}
+                                            <button
+                                                type="submit"
+                                                class="btn btn-sm btn-outline-danger"
+                                                name="template_action"
+                                                value="delete:{{ template_record.id }}"
+                                                data-template-delete-submit
+                                                data-template-name="{{ template_record.name|escape }}"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+
+                        <div class="border-top bg-light-subtle px-3 py-3 mt-3 d-flex justify-content-between align-items-center gap-3 flex-wrap d-none" id="fundRequestTemplatesBulkActionBar">
+                            <div class="small text-secondary">
+                                <strong id="fundRequestTemplatesSelectedCount">0</strong> template(s) selected
+                            </div>
+                            <button
+                                type="submit"
+                                class="btn btn-danger btn-sm"
+                                name="action_type"
+                                value="bulk_delete_templates"
+                                id="fundRequestTemplatesBulkDeleteBtn"
+                            >
+                                Delete Selected Templates
+                            </button>
+                        </div>
+                    </form>
+                {% else %}
+                    <div class="border rounded-3 p-4 text-center text-secondary">No uploaded templates yet. Upload one to enable saving fund requests.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if rejected_request_modal %}
+<div class="modal fade" id="rejectedFundRequestModal" tabindex="-1" aria-labelledby="rejectedFundRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="rejectedFundRequestModalLabel">Rejected Fund Request Details</h5>
+                    <div class="small text-secondary">
+                        {{ rejected_request_modal.requester_name }} | {{ rejected_request_modal.request_date|date:'F d, Y' }} | {{ rejected_request_modal.department }} / {{ rejected_request_modal.branch }}
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="small text-secondary mb-1">Status</div>
+                            <div><span class="badge text-bg-danger">Rejected</span></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="small text-secondary mb-1">Requested Amount</div>
+                            <div class="fw-semibold">PHP {{ rejected_request_modal_total|default:0|comma2 }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="small text-secondary mb-1">Reason</div>
+                            <div class="fw-semibold">{{ rejected_request_modal.decision_reason|default:'No reason provided.' }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <div class="small text-secondary mb-1">Prepared By</div>
+                            <div class="fw-semibold">{{ rejected_request_modal.created_by.get_full_name|default:rejected_request_modal.created_by.username|default:'-' }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <div class="small text-secondary mb-1">Reviewed By</div>
+                            <div class="fw-semibold">{{ rejected_request_modal.processed_by.get_full_name|default:rejected_request_modal.processed_by.username|default:'-' }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border rounded-3 overflow-hidden mb-4">
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Particulars</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for line_item in rejected_request_modal.items.all %}
+                                    <tr>
+                                        <td>{{ line_item.entry_date|date:'F d, Y' }}</td>
+                                        <td>{{ line_item.particulars }}</td>
+                                        <td class="text-end">PHP {{ line_item.amount|comma2 }}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="3" class="text-center py-4 text-secondary">No line items found.</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="fw-semibold mb-2">Supporting Images</div>
+                    <div class="row g-3">
+                        {% for attachment in rejected_request_modal.attachments.all %}
+                            <div class="col-md-4">
+                                <a href="{{ attachment.image.url }}" target="_blank" class="d-block border rounded-3 overflow-hidden bg-light-subtle">
+                                    <img src="{{ attachment.image.url }}" alt="Supporting image" class="img-fluid w-100" style="height: 220px; object-fit: cover;">
+                                </a>
+                            </div>
+                        {% empty %}
+                            <div class="col-12">
+                                <div class="border rounded-3 p-4 text-center text-secondary">No supporting images uploaded.</div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="modal fade" id="fundRequestRowDetailsModal" tabindex="-1" aria-labelledby="fundRequestRowDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestRowDetailsModalLabel">Fund Request Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="fundRequestRowDetailsModalBody"></div>
+            <div class="modal-footer d-flex justify-content-between gap-2 flex-wrap">
+                <div id="fundRequestRowDetailsModalActions" class="d-flex gap-2 flex-wrap"></div>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fundRequestConfirmModal" tabindex="-1" aria-labelledby="fundRequestConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestConfirmModalLabel">Confirm Action</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="fundRequestConfirmModalMessage">Are you sure you want to continue?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="fundRequestConfirmModalSubmitBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fundRequestApproveModal" tabindex="-1" aria-labelledby="fundRequestApproveModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestApproveModalLabel">Approve Fund Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-secondary mb-2" id="fundRequestApproveModalMeta">Add an approval note if needed, then confirm.</div>
+                <label for="fundRequestApproveModalNote" class="form-label fw-semibold">Approval Note (Optional)</label>
+                <textarea class="form-control" id="fundRequestApproveModalNote" rows="4" placeholder="Enter approval note (optional)"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="fundRequestApproveModalSubmitBtn">Approve Request</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fundRequestRejectModal" tabindex="-1" aria-labelledby="fundRequestRejectModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestRejectModalLabel">Reject Fund Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-secondary mb-2" id="fundRequestRejectModalMeta">Add a reason if needed, then confirm rejection.</div>
+                <label for="fundRequestRejectModalReason" class="form-label fw-semibold">Rejection Reason (Optional)</label>
+                <textarea class="form-control" id="fundRequestRejectModalReason" rows="4" placeholder="Enter rejection reason (optional)"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="fundRequestRejectModalSubmitBtn">Reject Request</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fundRequestCancelModal" tabindex="-1" aria-labelledby="fundRequestCancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestCancelModalLabel">Cancel Fund Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-secondary mb-2" id="fundRequestCancelModalMeta">Cancel this pending fund request. Reason is optional.</div>
+                <label for="fundRequestCancelModalReason" class="form-label fw-semibold">Cancellation Reason (Optional)</label>
+                <textarea class="form-control" id="fundRequestCancelModalReason" rows="4" placeholder="Enter cancellation reason (optional)"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back</button>
+                <button type="button" class="btn btn-danger" id="fundRequestCancelModalSubmitBtn">Cancel Request</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if can_approve_fund_requests %}
+<div class="modal fade" id="fundRequestAutoApproveOptionsModal" tabindex="-1" aria-labelledby="fundRequestAutoApproveOptionsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestAutoApproveOptionsModalLabel">Auto Approve Options</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" id="fundRequestAutoApproveSaveForm">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="save_auto_approve_rule">
+                <div class="modal-body">
+                    <div class="alert alert-warning py-2">
+                        Active rules auto-approve new <strong>pending</strong> fund requests that match the conditions below.
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="autoApproveRuleName" class="form-label fw-semibold">Rule Name</label>
+                            <input type="text" class="form-control" id="autoApproveRuleName" name="auto_rule_name" placeholder="Small cash requests - Main Branch" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="autoApproveRequesterKeyword" class="form-label">Requester Contains</label>
+                            <input type="text" class="form-control" id="autoApproveRequesterKeyword" name="auto_requester_keyword" placeholder="Juan">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="autoApproveDepartmentKeyword" class="form-label">Department Contains</label>
+                            <input type="text" class="form-control" id="autoApproveDepartmentKeyword" name="auto_department_keyword" placeholder="Operations">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="autoApproveBranchKeyword" class="form-label">Branch Contains</label>
+                            <input type="text" class="form-control" id="autoApproveBranchKeyword" name="auto_branch_keyword" placeholder="Main Branch">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="autoApproveRequestDateFrom" class="form-label">Request Date From</label>
+                            <input type="date" class="form-control" id="autoApproveRequestDateFrom" name="auto_request_date_from">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="autoApproveRequestDateTo" class="form-label">Request Date To</label>
+                            <input type="date" class="form-control" id="autoApproveRequestDateTo" name="auto_request_date_to">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="autoApproveMinAmount" class="form-label">Min Total Amount</label>
+                            <input type="number" min="0" step="0.01" class="form-control" id="autoApproveMinAmount" name="auto_min_amount" placeholder="0.00">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="autoApproveMaxAmount" class="form-label">Max Total Amount</label>
+                            <input type="number" min="0" step="0.01" class="form-control" id="autoApproveMaxAmount" name="auto_max_amount" placeholder="50000.00">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="autoApproveRequireAttachments" class="form-label">Attachments</label>
+                            <select class="form-select" id="autoApproveRequireAttachments" name="auto_require_attachments">
+                                <option value="">Any</option>
+                                <option value="1">With attachments only</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label for="autoApproveReason" class="form-label fw-semibold">Approval Note</label>
+                            <textarea class="form-control" id="autoApproveReason" name="auto_reason" rows="3" placeholder="Optional note to store in decision reason"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </form>
+            <div class="px-3 px-md-4 pb-4">
+                <hr class="my-3">
+                <h6 class="mb-2">Saved Rules</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Rule</th>
+                                <th>Status</th>
+                                <th>Conditions</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rule in auto_approve_rules %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">{{ rule.name }}</div>
+                                        <div class="small text-secondary">
+                                            {% if rule.created_by %}
+                                                by {{ rule.created_by.get_full_name|default:rule.created_by.username }}
+                                            {% else %}
+                                                by System
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if rule.is_active %}
+                                            <span class="badge text-bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge text-bg-secondary">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="small text-secondary">
+                                        {% if rule.requester_keyword %}Requester: "{{ rule.requester_keyword }}"{% endif %}
+                                        {% if rule.department_keyword %} | Dept: "{{ rule.department_keyword }}"{% endif %}
+                                        {% if rule.branch_keyword %} | Branch: "{{ rule.branch_keyword }}"{% endif %}
+                                        {% if rule.request_date_from %} | From: {{ rule.request_date_from|date:'Y-m-d' }}{% endif %}
+                                        {% if rule.request_date_to %} | To: {{ rule.request_date_to|date:'Y-m-d' }}{% endif %}
+                                        {% if rule.min_amount %} | Min: {{ rule.min_amount|comma2 }}{% endif %}
+                                        {% if rule.max_amount %} | Max: {{ rule.max_amount|comma2 }}{% endif %}
+                                        {% if rule.require_attachments %} | With attachments{% endif %}
+                                        {% if not rule.requester_keyword and not rule.department_keyword and not rule.branch_keyword and not rule.request_date_from and not rule.request_date_to and not rule.min_amount and not rule.max_amount and not rule.require_attachments %}
+                                            Match all pending requests
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        <form method="post" class="d-inline">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action_type" value="toggle_auto_approve_rule">
+                                            <input type="hidden" name="rule_id" value="{{ rule.id }}">
+                                            <button type="submit" class="btn btn-sm {% if rule.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                                                {% if rule.is_active %}Deactivate{% else %}Activate{% endif %}
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-secondary py-3">No saved auto-approve rules yet.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-success" form="fundRequestAutoApproveSaveForm">Save Rule</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="modal fade" id="fundRequestInfoModal" tabindex="-1" aria-labelledby="fundRequestInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fundRequestInfoModalLabel">Notice</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="fundRequestInfoModalMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-success" data-bs-dismiss="modal">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{ fund_request_form.line_items_payload.value|default:'[]'|json_script:"fund-request-line-items-data" }}
 
 <style>
+    .fund-template-launch-btn {
+        width: 100%;
+        border: 1px solid rgba(25, 135, 84, 0.24);
+        border-radius: 1rem;
+        padding: 0.9rem 1rem;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.16), transparent 48%),
+            linear-gradient(135deg, #f6fbf7 0%, #ecf7ee 100%);
+        color: #14532d;
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        text-align: left;
+        box-shadow: 0 10px 24px rgba(25, 135, 84, 0.1);
+        transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .fund-template-launch-btn:hover,
+    .fund-template-launch-btn:focus {
+        border-color: #198754;
+        color: #0f5132;
+        transform: translateY(-1px);
+        box-shadow: 0 16px 28px rgba(25, 135, 84, 0.16);
+        outline: none;
+    }
+
+    .fund-template-launch-icon {
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 0.7rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(25, 135, 84, 0.2);
+        color: #198754;
+        flex-shrink: 0;
+    }
+
+    .fund-template-launch-text {
+        display: inline-flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .fund-template-launch-title {
+        font-size: 0.98rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .fund-template-launch-subtitle {
+        margin-top: 0.1rem;
+        font-size: 0.78rem;
+        color: #4b6f5b;
+        line-height: 1.25;
+    }
+
     .fund-template-preview-mini {
         display: block;
         height: 140px;
@@ -599,6 +1428,19 @@
         height: 100%;
         border: 0;
         background: #fff;
+    }
+
+    .fund-template-library-scroll {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(280px, 300px);
+        gap: 1rem;
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+    }
+
+    .fund-template-library-card {
+        min-height: 100%;
     }
 
     .fund-template-preview-fallback {
@@ -658,16 +1500,760 @@
         border-color: #198754;
         box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.16);
     }
+
+    .fund-upload-input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .fund-upload-panel {
+        position: relative;
+    }
+
+    .fund-upload-dropzone {
+        border: 2px dashed rgba(25, 135, 84, 0.28);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.08), transparent 35%),
+            linear-gradient(135deg, #fbfefb 0%, #f3faf4 100%);
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .fund-upload-dropzone:hover,
+    .fund-upload-dropzone:focus,
+    .fund-upload-dropzone.is-dragover {
+        border-color: #198754;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.12), transparent 35%),
+            linear-gradient(135deg, #f9fef9 0%, #edf8ef 100%);
+        transform: translateY(-1px);
+        outline: none;
+    }
+
+    .fund-upload-dropzone-title {
+        color: #146c43;
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+    }
+
+    .fund-upload-preview-strip {
+        display: flex;
+        gap: 0.9rem;
+        overflow-x: auto;
+        padding-bottom: 0.35rem;
+    }
+
+    .fund-upload-alert {
+        border-radius: 0.85rem;
+        font-size: 0.88rem;
+    }
+
+    .fund-upload-preview-card {
+        position: relative;
+        flex: 0 0 220px;
+        border: 1px solid rgba(25, 135, 84, 0.14);
+        border-radius: 1rem;
+        background: #fff;
+        box-shadow: 0 12px 28px rgba(25, 135, 84, 0.08);
+        overflow: hidden;
+    }
+
+    .fund-upload-preview-card.is-dragging {
+        opacity: 0.55;
+        transform: scale(0.98);
+    }
+
+    .fund-upload-preview-frame {
+        height: 132px;
+        background: linear-gradient(135deg, #eef7ef 0%, #f9fcf9 100%);
+    }
+
+    .fund-upload-preview-frame img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .fund-upload-remove-btn {
+        position: absolute;
+        top: 0.55rem;
+        right: 0.55rem;
+        width: 30px;
+        height: 30px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(33, 37, 41, 0.78);
+        color: #fff;
+        font-size: 1rem;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
+    }
+
+    .fund-upload-remove-btn:hover {
+        background: rgba(220, 53, 69, 0.92);
+    }
+
+    .fund-upload-preview-meta {
+        padding: 0.85rem 0.9rem 0.95rem;
+    }
+
+    .fund-upload-preview-name {
+        font-size: 0.92rem;
+        font-weight: 600;
+        color: #1f2937;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .fund-upload-preview-size {
+        color: #6c757d;
+        font-size: 0.8rem;
+        margin-top: 0.1rem;
+    }
+
+    .fund-upload-progress {
+        height: 8px;
+        margin-top: 0.75rem;
+        background: #e9f4ea;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .fund-upload-progress-bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #198754 0%, #4bb86d 100%);
+        transition: width 0.18s ease;
+    }
+
+    .fund-upload-progress-label {
+        margin-top: 0.35rem;
+        font-size: 0.76rem;
+        color: #5c6b63;
+    }
+
+    .fund-upload-reorder-hint {
+        margin-top: 0.45rem;
+        font-size: 0.76rem;
+        color: #6c757d;
+    }
+
+    .fund-upload-invalid-strip {
+        display: flex;
+        gap: 0.7rem;
+        overflow-x: auto;
+        padding-bottom: 0.2rem;
+    }
+
+    .fund-upload-invalid-card {
+        flex: 0 0 220px;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        border-radius: 1rem;
+        background: #fff7f7;
+        padding: 0.85rem 0.9rem;
+    }
+
+    .fund-upload-invalid-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: #b02a37;
+        background: rgba(220, 53, 69, 0.12);
+    }
+
+    .fund-upload-invalid-name {
+        margin-top: 0.6rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #412126;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .fund-upload-invalid-reason {
+        margin-top: 0.2rem;
+        color: #8b3a43;
+        font-size: 0.8rem;
+    }
+
+    .fund-template-quick-guide {
+        display: grid;
+        gap: 0.75rem;
+        max-height: 420px;
+        overflow-y: auto;
+    }
+
+    .fund-template-quick-guide-item {
+        padding: 0.9rem 1rem;
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        border-radius: 0.9rem;
+        background: #fff;
+    }
+
+    .fund-template-quick-token {
+        font-size: 0.9rem;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .approved-filter-form {
+        width: 100%;
+        display: grid;
+        gap: 0.55rem;
+    }
+
+    .approved-filter-row {
+        display: flex;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .approved-filter-row-horizontal {
+        align-items: flex-end;
+        justify-content: flex-start;
+    }
+
+    .approved-filter-row-horizontal .approved-filter-search-wrapper {
+        flex: 1 1 420px;
+        min-width: 260px;
+    }
+
+    .approved-filter-row-horizontal > .btn,
+    .approved-filter-row-horizontal > a.btn {
+        height: 31px;
+    }
+
+    .approved-filter-range-group {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.55rem;
+        padding: 0.45rem 0.5rem;
+        background: #fff;
+        min-width: 240px;
+    }
+
+    .approved-filter-range-label {
+        font-size: 0.72rem;
+        color: #6c757d;
+        font-weight: 600;
+        margin-bottom: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+    }
+
+    .approved-filter-inline-inputs {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: nowrap;
+        flex: 1 1 auto;
+    }
+
+    .approved-filter-range-input {
+        min-width: 0;
+        flex: 1 1 0;
+    }
+
+    .approved-filter-icon {
+        background: #f8f9fa;
+        color: #495057;
+        border-color: #ced4da;
+        padding-inline: 0.5rem;
+    }
+
+    .fund-request-row-clickable {
+        cursor: pointer;
+    }
+
+    .fund-request-row-clickable:hover {
+        background-color: rgba(25, 135, 84, 0.06);
+    }
+
+    .fund-request-row-clickable:focus-visible {
+        outline: 2px solid rgba(25, 135, 84, 0.35);
+        outline-offset: -2px;
+    }
+
+    .fund-request-image-strip {
+        display: flex;
+        gap: 0.75rem;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 0.35rem;
+        scroll-snap-type: x proximity;
+    }
+
+    .fund-request-image-card {
+        flex: 0 0 140px;
+        width: 140px;
+        border: 1px solid #dee2e6;
+        border-radius: 0.8rem;
+        background: #fff;
+        color: inherit;
+        text-decoration: none;
+        overflow: hidden;
+        scroll-snap-align: start;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    .fund-request-image-card:hover,
+    .fund-request-image-card:focus-visible {
+        border-color: rgba(25, 135, 84, 0.6);
+        box-shadow: 0 10px 16px rgba(25, 135, 84, 0.14);
+        transform: translateY(-1px);
+        outline: none;
+    }
+
+    .fund-request-image-thumb {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        background: #f8f9fa;
+    }
+
+    .fund-request-image-thumb img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+    }
+
+    .fund-request-image-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        padding: 0.5rem 0.55rem 0.6rem;
+    }
+
+    .fund-request-image-name {
+        font-size: 0.73rem;
+        font-weight: 600;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .fund-request-image-date {
+        font-size: 0.67rem;
+        color: #6c757d;
+        line-height: 1.2;
+    }
+
+    #pendingFundRequestsModal.pending-modal-dimmed .modal-content {
+        filter: brightness(0.68);
+        transition: filter 0.2s ease;
+    }
+
+    .pending-requests-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .pending-requests-modal-title-wrap {
+        min-width: 280px;
+        flex: 1 1 480px;
+    }
+
+    .pending-requests-modal-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    #fundRequestsBulkActionBar:not(.d-none),
+    #pendingFundRequestsBulkActionBar:not(.d-none) {
+        position: fixed;
+        left: 50%;
+        bottom: 1rem;
+        transform: translateX(-50%);
+        z-index: 1085;
+        border: 1px solid rgba(25, 135, 84, 0.2);
+        border-radius: 0.85rem;
+        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.22);
+        backdrop-filter: blur(4px);
+    }
+
+    #fundRequestsBulkActionBar:not(.d-none) {
+        width: min(92vw, 760px);
+    }
+
+    #pendingFundRequestsBulkActionBar:not(.d-none) {
+        width: auto;
+        max-width: 92vw;
+    }
+
+    @media (max-width: 991.98px) {
+        .approved-filter-form {
+            width: 100%;
+        }
+
+        .approved-filter-range-group {
+            width: 100%;
+            min-width: 0;
+        }
+
+        .approved-filter-range-input {
+            flex: 1 1 120px;
+        }
+    }
+
 </style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const copyTextToClipboard = async (value) => {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(value);
+            return;
+        }
+
+        const helper = document.createElement('textarea');
+        helper.value = value;
+        helper.setAttribute('readonly', 'readonly');
+        helper.style.position = 'absolute';
+        helper.style.left = '-9999px';
+        document.body.appendChild(helper);
+        helper.select();
+        document.execCommand('copy');
+        document.body.removeChild(helper);
+    };
+
+    document.querySelectorAll('.js-copy-placeholder').forEach(function (button) {
+        button.addEventListener('click', async function () {
+            const value = button.getAttribute('data-copy-value') || '';
+            const originalLabel = button.textContent;
+            try {
+                await copyTextToClipboard(value);
+                button.textContent = 'Copied';
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-success');
+                window.setTimeout(function () {
+                    button.textContent = originalLabel;
+                    button.classList.remove('btn-success');
+                    button.classList.add('btn-outline-success');
+                }, 1400);
+            } catch (error) {
+                button.textContent = 'Failed';
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-outline-danger');
+            }
+        });
+    });
+
     const modalElement = document.getElementById('fundRequestCreateModal');
+    const templateUploadModalElement = document.getElementById('fundRequestTemplateModal');
+    const fundRequestForm = document.getElementById('fundRequestForm');
     const tbody = document.getElementById('fundRequestItemsBody');
     const addRowButton = document.getElementById('addFundRequestRowBtn');
     const payloadInput = document.getElementById('{{ fund_request_form.line_items_payload.id_for_label }}');
     const totalLabel = document.getElementById('fundRequestTotalLabel');
     const requestDateField = document.getElementById('{{ fund_request_form.request_date.id_for_label }}');
+    const imageInput = document.getElementById('{{ fund_request_form.request_images.id_for_label }}');
+    const dropzone = document.getElementById('fundRequestDropzone');
+    const uploadAlert = document.getElementById('fundRequestUploadAlert');
+    const previewStrip = document.getElementById('fundRequestPreviewStrip');
+    const invalidStrip = document.getElementById('fundRequestInvalidStrip');
+    let selectedImageFiles = [];
+    let invalidImageItems = [];
+    let draggedImageIndex = null;
+    const imageMetaMap = new Map();
+    const maxImageCount = 10;
+    const maxImageSizeBytes = 10 * 1024 * 1024;
+    const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+
+    const formatBytes = (bytes) => {
+        const size = Number(bytes || 0);
+        if (size < 1024) {
+            return `${size} B`;
+        }
+        const units = ['KB', 'MB', 'GB'];
+        let value = size / 1024;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+    };
+
+    const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const showUploadAlert = (message) => {
+        if (!uploadAlert) {
+            return;
+        }
+        uploadAlert.textContent = message;
+        uploadAlert.classList.remove('d-none');
+    };
+
+    const hideUploadAlert = () => {
+        if (!uploadAlert) {
+            return;
+        }
+        uploadAlert.textContent = '';
+        uploadAlert.classList.add('d-none');
+    };
+
+    const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
+
+    const syncImageInputFiles = () => {
+        if (!imageInput || typeof DataTransfer === 'undefined') {
+            return;
+        }
+        const dataTransfer = new DataTransfer();
+        selectedImageFiles.forEach((file) => dataTransfer.items.add(file));
+        imageInput.files = dataTransfer.files;
+    };
+
+    const renderInvalidPreviews = () => {
+        if (!invalidStrip) {
+            return;
+        }
+        invalidStrip.innerHTML = '';
+        invalidStrip.classList.toggle('d-none', invalidImageItems.length === 0);
+        invalidImageItems.forEach((item) => {
+            const card = document.createElement('div');
+            card.className = 'fund-upload-invalid-card';
+            card.innerHTML = `
+                <div class="fund-upload-invalid-badge">Skipped</div>
+                <div class="fund-upload-invalid-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                <div class="fund-upload-invalid-reason">${escapeHtml(item.reason)}</div>
+            `;
+            invalidStrip.appendChild(card);
+        });
+    };
+
+    const renderImagePreviews = () => {
+        if (!previewStrip) {
+            return;
+        }
+
+        previewStrip.innerHTML = '';
+        previewStrip.classList.toggle('d-none', selectedImageFiles.length === 0);
+
+        selectedImageFiles.forEach((file, index) => {
+            const fileKey = getFileKey(file);
+            const fileMeta = imageMetaMap.get(fileKey) || {};
+            const card = document.createElement('div');
+            card.className = 'fund-upload-preview-card';
+            card.draggable = true;
+            card.dataset.imageIndex = String(index);
+            const objectUrl = URL.createObjectURL(file);
+            card.innerHTML = `
+                <div class="fund-upload-preview-frame">
+                    <img src="${objectUrl}" alt="${escapeHtml(file.name)}">
+                </div>
+                <button type="button" class="fund-upload-remove-btn" data-remove-upload="${index}" aria-label="Remove ${escapeHtml(file.name)}">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                </button>
+                <div class="fund-upload-preview-meta">
+                    <div class="fund-upload-preview-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+                    <div class="fund-upload-preview-size">${formatBytes(file.size)}${fileMeta.width && fileMeta.height ? ` | ${fileMeta.width}x${fileMeta.height}` : ' | Reading image size...'}</div>
+                    <div class="fund-upload-progress" aria-hidden="true">
+                        <div class="fund-upload-progress-bar" data-upload-progress></div>
+                    </div>
+                    <div class="fund-upload-progress-label" data-upload-progress-label>Waiting to upload</div>
+                    <div class="fund-upload-reorder-hint">Drag to reorder</div>
+                </div>
+            `;
+            const imageElement = card.querySelector('img');
+            imageElement.addEventListener('load', () => {
+                imageMetaMap.set(fileKey, {
+                    width: imageElement.naturalWidth,
+                    height: imageElement.naturalHeight,
+                });
+                const sizeLabel = card.querySelector('.fund-upload-preview-size');
+                if (sizeLabel) {
+                    sizeLabel.textContent = `${formatBytes(file.size)} | ${imageElement.naturalWidth}x${imageElement.naturalHeight}`;
+                }
+                URL.revokeObjectURL(objectUrl);
+            }, { once: true });
+            previewStrip.appendChild(card);
+        });
+    };
+
+    const mergeSelectedFiles = (incomingFiles) => {
+        const allIncomingFiles = Array.from(incomingFiles || []);
+        if (!allIncomingFiles.length) {
+            return;
+        }
+
+        const acceptedFiles = [];
+        const invalidMessages = [];
+        invalidImageItems = [];
+        allIncomingFiles.forEach((file) => {
+            if (!file) {
+                return;
+            }
+            const lowerName = String(file.name || '').toLowerCase();
+            const extension = lowerName.includes('.') ? lowerName.slice(lowerName.lastIndexOf('.')) : '';
+            if (!allowedImageExtensions.has(extension)) {
+                invalidMessages.push(`${file.name}: invalid file type`);
+                invalidImageItems.push({ name: file.name, reason: 'Invalid file type. Allowed: PNG, JPG, JPEG, WEBP.' });
+                return;
+            }
+            if ((file.size || 0) > maxImageSizeBytes) {
+                invalidMessages.push(`${file.name}: exceeds 10MB limit`);
+                invalidImageItems.push({ name: file.name, reason: 'File is larger than 10MB.' });
+                return;
+            }
+            acceptedFiles.push(file);
+        });
+
+        if (!acceptedFiles.length && invalidMessages.length) {
+            showUploadAlert(invalidMessages.slice(0, 3).join(' | '));
+            return;
+        }
+
+        const existingKeys = new Set(selectedImageFiles.map((file) => getFileKey(file)));
+        let skippedForLimit = 0;
+        acceptedFiles.forEach((file) => {
+            const key = getFileKey(file);
+            if (!existingKeys.has(key)) {
+                if (selectedImageFiles.length >= maxImageCount) {
+                    skippedForLimit += 1;
+                    invalidImageItems.push({ name: file.name, reason: `Only ${maxImageCount} images can be uploaded at once.` });
+                    return;
+                }
+                selectedImageFiles.push(file);
+                existingKeys.add(key);
+            }
+        });
+
+        if (invalidMessages.length || skippedForLimit) {
+            const messages = [...invalidMessages];
+            if (skippedForLimit) {
+                messages.push(`Only ${maxImageCount} images are allowed`);
+            }
+            showUploadAlert(messages.slice(0, 3).join(' | '));
+        } else {
+            hideUploadAlert();
+        }
+
+        syncImageInputFiles();
+        renderImagePreviews();
+        renderInvalidPreviews();
+    };
+
+    if (previewStrip) {
+        previewStrip.addEventListener('click', function (event) {
+            const removeButton = event.target.closest('[data-remove-upload]');
+            if (!removeButton) {
+                return;
+            }
+            const index = Number(removeButton.dataset.removeUpload);
+            if (Number.isNaN(index)) {
+                return;
+            }
+            selectedImageFiles.splice(index, 1);
+            syncImageInputFiles();
+            renderImagePreviews();
+            if (selectedImageFiles.length < maxImageCount) {
+                hideUploadAlert();
+            }
+        });
+        previewStrip.addEventListener('dragstart', function (event) {
+            const card = event.target.closest('[data-image-index]');
+            if (!card) {
+                return;
+            }
+            draggedImageIndex = Number(card.dataset.imageIndex);
+            card.classList.add('is-dragging');
+        });
+        previewStrip.addEventListener('dragend', function (event) {
+            const card = event.target.closest('[data-image-index]');
+            if (card) {
+                card.classList.remove('is-dragging');
+            }
+            draggedImageIndex = null;
+        });
+        previewStrip.addEventListener('dragover', function (event) {
+            event.preventDefault();
+        });
+        previewStrip.addEventListener('drop', function (event) {
+            event.preventDefault();
+            const targetCard = event.target.closest('[data-image-index]');
+            if (!targetCard || draggedImageIndex === null) {
+                return;
+            }
+            const targetIndex = Number(targetCard.dataset.imageIndex);
+            if (Number.isNaN(targetIndex) || targetIndex === draggedImageIndex) {
+                return;
+            }
+            const [movedFile] = selectedImageFiles.splice(draggedImageIndex, 1);
+            selectedImageFiles.splice(targetIndex, 0, movedFile);
+            syncImageInputFiles();
+            renderImagePreviews();
+        });
+    }
+
+    if (imageInput) {
+        imageInput.addEventListener('change', function () {
+            mergeSelectedFiles(imageInput.files);
+        });
+    }
+
+    if (dropzone && imageInput) {
+        dropzone.addEventListener('click', function () {
+            imageInput.click();
+        });
+        dropzone.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                imageInput.click();
+            }
+        });
+        ['dragenter', 'dragover'].forEach((eventName) => {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                dropzone.classList.add('is-dragover');
+            });
+        });
+        ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                dropzone.classList.remove('is-dragover');
+            });
+        });
+        dropzone.addEventListener('drop', function (event) {
+            mergeSelectedFiles(event.dataTransfer ? event.dataTransfer.files : []);
+        });
+    }
+
     if (tbody && addRowButton && payloadInput && totalLabel) {
         const initialPayloadElement = document.getElementById('fund-request-line-items-data');
         let initialRows = [];
@@ -693,6 +2279,22 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const normalizeAmountValue = (rawValue) => String(rawValue || '').replace(/,/g, '').trim();
+        const parseAmountValue = (rawValue) => {
+            const normalized = normalizeAmountValue(rawValue);
+            if (!normalized) {
+                return { normalized: '', numeric: 0, valid: true };
+            }
+            const numeric = Number(normalized);
+            return { normalized, numeric, valid: Number.isFinite(numeric) };
+        };
+        const formatAmountInputValue = (rawValue) => {
+            const parsed = parseAmountValue(rawValue);
+            if (!parsed.normalized || !parsed.valid) {
+                return parsed.normalized || '';
+            }
+            return parsed.numeric.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
 
         const syncRows = () => {
             const payload = [];
@@ -700,8 +2302,9 @@ document.addEventListener('DOMContentLoaded', function () {
             tbody.querySelectorAll('tr').forEach((row) => {
                 const date = row.querySelector('[data-line-item="date"]').value.trim();
                 const particulars = row.querySelector('[data-line-item="particulars"]').value.trim();
-                const amountRaw = row.querySelector('[data-line-item="amount"]').value.trim();
-                const amount = Number(amountRaw || 0);
+                const amountInput = row.querySelector('[data-line-item="amount"]');
+                const parsedAmount = parseAmountValue(amountInput ? amountInput.value : '');
+                const amountRaw = parsedAmount.normalized;
                 if (date || particulars || amountRaw) {
                     payload.push({
                         date,
@@ -709,16 +2312,36 @@ document.addEventListener('DOMContentLoaded', function () {
                         amount: amountRaw,
                     });
                 }
-                total += Number.isFinite(amount) ? amount : 0;
+                total += parsedAmount.valid ? parsedAmount.numeric : 0;
             });
             payloadInput.value = JSON.stringify(payload);
             totalLabel.textContent = formatCurrency(total);
         };
 
         const attachRowEvents = (row) => {
-            row.querySelectorAll('input').forEach((input) => {
-                input.addEventListener('input', syncRows);
-            });
+            const dateInput = row.querySelector('[data-line-item="date"]');
+            const particularsInput = row.querySelector('[data-line-item="particulars"]');
+            const amountInput = row.querySelector('[data-line-item="amount"]');
+
+            if (dateInput) {
+                dateInput.addEventListener('input', syncRows);
+                dateInput.addEventListener('change', syncRows);
+            }
+            if (particularsInput) {
+                particularsInput.addEventListener('input', syncRows);
+            }
+            if (amountInput) {
+                amountInput.addEventListener('focus', function () {
+                    amountInput.value = normalizeAmountValue(amountInput.value);
+                });
+                amountInput.addEventListener('input', syncRows);
+                amountInput.addEventListener('blur', function () {
+                    amountInput.value = formatAmountInputValue(amountInput.value);
+                    syncRows();
+                });
+                amountInput.value = formatAmountInputValue(amountInput.value);
+            }
+
             row.querySelector('[data-remove-row]').addEventListener('click', function () {
                 row.remove();
                 if (!tbody.children.length) {
@@ -733,7 +2356,7 @@ document.addEventListener('DOMContentLoaded', function () {
             row.innerHTML = `
                 <td><input type="date" class="form-control" data-line-item="date" value="${values.entry_date || values.date || getDefaultDate()}"></td>
                 <td><input type="text" class="form-control" data-line-item="particulars" placeholder="Enter particulars" value="${values.particulars || ''}"></td>
-                <td><input type="number" class="form-control" data-line-item="amount" min="0" step="0.01" placeholder="0.00" value="${values.amount || ''}"></td>
+                <td><input type="text" class="form-control" data-line-item="amount" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${values.amount || ''}"></td>
                 <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Remove</button></td>
             `;
             tbody.appendChild(row);
@@ -765,18 +2388,124 @@ document.addEventListener('DOMContentLoaded', function () {
         syncRows();
     }
 
+    if (fundRequestForm && imageInput) {
+        fundRequestForm.addEventListener('submit', function (event) {
+            if (!window.XMLHttpRequest || fundRequestForm.dataset.submitting === 'true') {
+                return;
+            }
+
+            if (selectedImageFiles.length === 0 && imageInput.files && imageInput.files.length) {
+                mergeSelectedFiles(imageInput.files);
+            }
+            syncImageInputFiles();
+            if (!selectedImageFiles.length) {
+                showUploadAlert('Upload at least one supporting image.');
+                return;
+            }
+            hideUploadAlert();
+
+            event.preventDefault();
+            fundRequestForm.dataset.submitting = 'true';
+            const submitButtons = Array.from(fundRequestForm.querySelectorAll('button[type="submit"]'));
+            submitButtons.forEach((button) => {
+                button.disabled = true;
+                button.textContent = 'Uploading...';
+            });
+
+            const progressBars = Array.from(fundRequestForm.querySelectorAll('[data-upload-progress]'));
+            const progressLabels = Array.from(fundRequestForm.querySelectorAll('[data-upload-progress-label]'));
+            const totalBytes = selectedImageFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+            const cumulativeSizes = [];
+            let runningTotal = 0;
+            selectedImageFiles.forEach((file) => {
+                runningTotal += file.size || 0;
+                cumulativeSizes.push(runningTotal);
+            });
+
+            const setProgressFromLoaded = (loadedBytes) => {
+                selectedImageFiles.forEach((file, index) => {
+                    const previousCutoff = index === 0 ? 0 : cumulativeSizes[index - 1];
+                    const currentCutoff = cumulativeSizes[index];
+                    const fileLoaded = Math.max(0, Math.min((loadedBytes || 0) - previousCutoff, file.size || 0));
+                    const percent = file.size ? Math.round((fileLoaded / file.size) * 100) : 100;
+                    if (progressBars[index]) {
+                        progressBars[index].style.width = `${percent}%`;
+                    }
+                    if (progressLabels[index]) {
+                        progressLabels[index].textContent = percent >= 100 ? 'Upload complete' : `Uploading... ${percent}%`;
+                    }
+                });
+            };
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', fundRequestForm.action || window.location.href);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+            xhr.upload.addEventListener('progress', function (progressEvent) {
+                if (!progressEvent.lengthComputable || !totalBytes) {
+                    return;
+                }
+                const estimatedLoaded = Math.min(progressEvent.loaded, totalBytes);
+                setProgressFromLoaded(estimatedLoaded);
+            });
+
+            xhr.addEventListener('load', function () {
+                setProgressFromLoaded(totalBytes);
+                fundRequestForm.dataset.submitting = 'false';
+                document.open();
+                document.write(xhr.responseText);
+                document.close();
+            });
+
+            xhr.addEventListener('error', function () {
+                fundRequestForm.dataset.submitting = 'false';
+                submitButtons.forEach((button) => {
+                    button.disabled = false;
+                    button.textContent = 'Save Fund Request';
+                });
+                progressLabels.forEach((label) => {
+                    label.textContent = 'Upload failed';
+                });
+                showInfoModal('Upload Failed', 'Upload failed. Please try again.');
+            });
+
+            const formData = new FormData(fundRequestForm);
+            xhr.send(formData);
+        });
+    }
+
     const hasErrors = {{ fund_request_form.errors|yesno:"true,false" }};
     if (hasErrors && modalElement && window.bootstrap && window.bootstrap.Modal) {
         const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
         modal.show();
     }
+    const templateFormHasErrors = {{ template_form.errors|yesno:"true,false" }};
+    if (templateFormHasErrors && templateUploadModalElement && window.bootstrap && window.bootstrap.Modal) {
+        const templateModal = window.bootstrap.Modal.getOrCreateInstance(templateUploadModalElement);
+        templateModal.show();
+    }
 
-    const selectAllCheckbox = document.getElementById('fundRequestsSelectAll');
-    const requestCheckboxes = Array.from(document.querySelectorAll('.js-fund-request-checkbox'));
-    const bulkActionBar = document.getElementById('fundRequestsBulkActionBar');
-    const selectedCountLabel = document.getElementById('fundRequestsSelectedCount');
+    const rejectedFundRequestModal = document.getElementById('rejectedFundRequestModal');
+    if (rejectedFundRequestModal && window.bootstrap && window.bootstrap.Modal) {
+        const rejectedModalInstance = window.bootstrap.Modal.getOrCreateInstance(rejectedFundRequestModal);
+        rejectedModalInstance.show();
+    }
+
+    const approvedSelectAllCheckbox = document.getElementById('fundRequestsSelectAll');
+    const approvedRequestCheckboxes = Array.from(document.querySelectorAll('.js-fund-request-checkbox'));
+    const approvedBulkActionBar = document.getElementById('fundRequestsBulkActionBar');
+    const approvedSelectedCountLabel = document.getElementById('fundRequestsSelectedCount');
     const bulkOpenButton = document.getElementById('fundRequestsBulkOpenBtn');
     const bulkDownloadButton = document.getElementById('fundRequestsBulkDownloadBtn');
+    const bulkDeleteRequestsButton = document.getElementById('fundRequestsBulkDeleteBtn');
+    const clearApprovedSelectionButton = document.getElementById('fundRequestsClearSelectionBtn');
+    const pendingSelectAllCheckbox = document.getElementById('pendingFundRequestsSelectAll');
+    const pendingRequestCheckboxes = Array.from(document.querySelectorAll('.js-pending-fund-request-checkbox'));
+    const pendingBulkActionBar = document.getElementById('pendingFundRequestsBulkActionBar');
+    const pendingSelectedCountLabel = document.getElementById('pendingFundRequestsSelectedCount');
+    const pendingBulkApproveButton = document.getElementById('pendingFundRequestsBulkApproveBtn');
+    const pendingBulkRejectButton = document.getElementById('pendingFundRequestsBulkRejectBtn');
+    const clearPendingSelectionButton = document.getElementById('clearPendingFundRequestSelection');
     const deleteForm = document.getElementById('fundRequestDeleteForm');
     const deleteIdInput = document.getElementById('fundRequestDeleteId');
     const removeButtons = Array.from(document.querySelectorAll('[data-fund-request-remove]'));
@@ -786,82 +2515,753 @@ document.addEventListener('DOMContentLoaded', function () {
     const rejectForm = document.getElementById('fundRequestRejectForm');
     const rejectIdInput = document.getElementById('fundRequestRejectId');
     const rejectReasonInput = document.getElementById('fundRequestRejectReason');
+    const cancelForm = document.getElementById('fundRequestCancelForm');
+    const cancelIdInput = document.getElementById('fundRequestCancelId');
+    const cancelReasonInput = document.getElementById('fundRequestCancelReason');
+    const pendingDecisionForm = document.getElementById('fundRequestPendingDecisionForm');
+    const pendingDecisionActionInput = document.getElementById('fundRequestPendingDecisionAction');
+    const pendingDecisionSelectedIdsInput = document.getElementById('fundRequestPendingDecisionSelectedIds');
+    const pendingDecisionReasonInput = document.getElementById('fundRequestPendingDecisionReason');
     const approveButtons = Array.from(document.querySelectorAll('[data-fund-request-approve]'));
     const rejectButtons = Array.from(document.querySelectorAll('[data-fund-request-reject]'));
+    const cancelButtons = Array.from(document.querySelectorAll('[data-fund-request-cancel]'));
     const templateCheckboxes = Array.from(document.querySelectorAll('.js-template-checkbox'));
     const templatesBulkActionBar = document.getElementById('fundRequestTemplatesBulkActionBar');
     const templatesSelectedCountLabel = document.getElementById('fundRequestTemplatesSelectedCount');
+    const templatesBulkDeleteButton = document.getElementById('fundRequestTemplatesBulkDeleteBtn');
+    const templateDeleteSubmitButtons = Array.from(document.querySelectorAll('[data-template-delete-submit]'));
+    const confirmModalElement = document.getElementById('fundRequestConfirmModal');
+    const confirmModalLabel = document.getElementById('fundRequestConfirmModalLabel');
+    const confirmModalMessage = document.getElementById('fundRequestConfirmModalMessage');
+    const confirmModalSubmitButton = document.getElementById('fundRequestConfirmModalSubmitBtn');
+    const pendingRequestsModalElement = document.getElementById('pendingFundRequestsModal');
+    const rowDetailsRows = Array.from(document.querySelectorAll('.js-fund-request-row'));
+    const rowDetailsModalElement = document.getElementById('fundRequestRowDetailsModal');
+    const rowDetailsModalLabel = document.getElementById('fundRequestRowDetailsModalLabel');
+    const rowDetailsModalBody = document.getElementById('fundRequestRowDetailsModalBody');
+    const rowDetailsModalActions = document.getElementById('fundRequestRowDetailsModalActions');
+    const approveModalElement = document.getElementById('fundRequestApproveModal');
+    const approveModalMeta = document.getElementById('fundRequestApproveModalMeta');
+    const approveModalNote = document.getElementById('fundRequestApproveModalNote');
+    const approveModalSubmitButton = document.getElementById('fundRequestApproveModalSubmitBtn');
+    const rejectModalElement = document.getElementById('fundRequestRejectModal');
+    const rejectModalMeta = document.getElementById('fundRequestRejectModalMeta');
+    const rejectModalReason = document.getElementById('fundRequestRejectModalReason');
+    const rejectModalSubmitButton = document.getElementById('fundRequestRejectModalSubmitBtn');
+    const cancelModalElement = document.getElementById('fundRequestCancelModal');
+    const cancelModalMeta = document.getElementById('fundRequestCancelModalMeta');
+    const cancelModalReason = document.getElementById('fundRequestCancelModalReason');
+    const cancelModalSubmitButton = document.getElementById('fundRequestCancelModalSubmitBtn');
+    const pendingRequestsSearchInput = document.getElementById('pendingRequestsSearchInput');
+    const pendingRequestsFilterSelect = document.getElementById('pendingRequestsFilterSelect');
+    const pendingRequestsDateFromInput = document.getElementById('pendingRequestsDateFromInput');
+    const pendingRequestsDateToInput = document.getElementById('pendingRequestsDateToInput');
+    const pendingRequestsAmountMinInput = document.getElementById('pendingRequestsAmountMinInput');
+    const pendingRequestsAmountMaxInput = document.getElementById('pendingRequestsAmountMaxInput');
+    const pendingRequestRows = Array.from(document.querySelectorAll('.js-pending-request-row'));
+    const pendingRequestsNoResultsRow = document.getElementById('pendingRequestsNoResultsRow');
+    const pendingRequestsInitialEmptyRow = document.getElementById('pendingRequestsInitialEmptyRow');
+    const infoModalElement = document.getElementById('fundRequestInfoModal');
+    const infoModalLabel = document.getElementById('fundRequestInfoModalLabel');
+    const infoModalMessage = document.getElementById('fundRequestInfoModalMessage');
 
-    const getSelectedCheckboxes = () => requestCheckboxes.filter((checkbox) => checkbox.checked);
+    const bootstrapAvailable = Boolean(window.bootstrap && window.bootstrap.Modal);
+    const confirmModal = bootstrapAvailable && confirmModalElement ? window.bootstrap.Modal.getOrCreateInstance(confirmModalElement) : null;
+    const rowDetailsModal = bootstrapAvailable && rowDetailsModalElement ? window.bootstrap.Modal.getOrCreateInstance(rowDetailsModalElement) : null;
+    const approveModal = bootstrapAvailable && approveModalElement ? window.bootstrap.Modal.getOrCreateInstance(approveModalElement) : null;
+    const rejectModal = bootstrapAvailable && rejectModalElement ? window.bootstrap.Modal.getOrCreateInstance(rejectModalElement) : null;
+    const cancelModal = bootstrapAvailable && cancelModalElement ? window.bootstrap.Modal.getOrCreateInstance(cancelModalElement) : null;
+    const infoModal = bootstrapAvailable && infoModalElement ? window.bootstrap.Modal.getOrCreateInstance(infoModalElement) : null;
+    const confirmButtonClassOptions = ['btn-danger', 'btn-success', 'btn-primary', 'btn-warning', 'btn-outline-danger', 'btn-outline-primary'];
+    let confirmModalAction = null;
+    let approveModalMode = 'single';
+    let approveModalRequestId = '';
+    let approveModalSelectedIds = [];
+    let rejectModalRequestId = '';
+    let rejectModalRequestLabel = '';
+    let rejectModalMode = 'single';
+    let rejectModalSelectedIds = [];
+    let cancelModalRequestId = '';
+    let cancelModalRequestLabel = '';
+    const pendingModalDimSources = new Set();
 
-    const syncFundRequestSelection = () => {
-        if (!requestCheckboxes.length) {
-            if (selectAllCheckbox) {
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = false;
+    const syncPendingModalDimState = () => {
+        if (!pendingRequestsModalElement) {
+            return;
+        }
+        pendingRequestsModalElement.classList.toggle('pending-modal-dimmed', pendingModalDimSources.size > 0);
+    };
+
+    const setPendingModalDim = (source, shouldDim) => {
+        if (!pendingRequestsModalElement || !source) {
+            return;
+        }
+        if (shouldDim) {
+            pendingModalDimSources.add(source);
+        } else {
+            pendingModalDimSources.delete(source);
+        }
+        syncPendingModalDimState();
+    };
+
+    const submitFormWithSubmitter = (submitter) => {
+        if (!submitter || !submitter.form) {
+            return;
+        }
+        const form = submitter.form;
+        if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit(submitter);
+            return;
+        }
+
+        const hiddenSubmitter = document.createElement('input');
+        hiddenSubmitter.type = 'hidden';
+        hiddenSubmitter.name = submitter.name;
+        hiddenSubmitter.value = submitter.value;
+        form.appendChild(hiddenSubmitter);
+        form.submit();
+    };
+
+    function showInfoModal(title, message) {
+        if (infoModalLabel) {
+            infoModalLabel.textContent = title || 'Notice';
+        }
+        if (infoModalMessage) {
+            infoModalMessage.textContent = message || '';
+        }
+        if (!infoModal) {
+            return;
+        }
+        infoModal.show();
+    }
+
+    const openRowDetailsModal = (row) => {
+        if (!row) {
+            return;
+        }
+        if (!rowDetailsModal || !rowDetailsModalBody || !rowDetailsModalActions) {
+            showInfoModal('Details Unavailable', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+            return;
+        }
+
+        const status = row.dataset.requestStatus || 'Fund Request';
+        const serial = row.dataset.requestSerial || '-';
+        const requesterName = row.dataset.requestName || '-';
+        const amount = row.dataset.requestAmount || '-';
+        const requestDate = row.dataset.requestDate || '-';
+        const department = row.dataset.requestDepartment || '-';
+        const branch = row.dataset.requestBranch || '-';
+        const preparedBy = row.dataset.requestPreparedBy || '-';
+        const lineItems = row.dataset.requestLineItems || '-';
+        const viewUrl = row.dataset.requestViewUrl || '';
+        const viewLabel = row.dataset.requestViewLabel || 'Open';
+        const downloadUrl = row.dataset.requestDownloadUrl || '';
+        const downloadLabel = row.dataset.requestDownloadLabel || 'Download';
+        const detailTemplateId = row.dataset.requestDetailTemplateId || '';
+        const detailTemplateElement = detailTemplateId ? document.getElementById(detailTemplateId) : null;
+        const detailTemplateHtml = detailTemplateElement ? detailTemplateElement.innerHTML : '';
+
+        if (rowDetailsModalLabel) {
+            rowDetailsModalLabel.textContent = `${status} Request Details`;
+        }
+
+        rowDetailsModalBody.innerHTML = `
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="small text-secondary">Serial No.</div>
+                    <div class="fw-semibold">${escapeHtml(serial)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Status</div>
+                    <div class="fw-semibold">${escapeHtml(status)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Requester</div>
+                    <div class="fw-semibold">${escapeHtml(requesterName)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Amount</div>
+                    <div class="fw-semibold">${escapeHtml(amount)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Request Date</div>
+                    <div class="fw-semibold">${escapeHtml(requestDate)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Prepared By</div>
+                    <div class="fw-semibold">${escapeHtml(preparedBy)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Department</div>
+                    <div class="fw-semibold">${escapeHtml(department)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Branch</div>
+                    <div class="fw-semibold">${escapeHtml(branch)}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-secondary">Line Items</div>
+                    <div class="fw-semibold">${escapeHtml(lineItems)}</div>
+                </div>
+            </div>
+            ${detailTemplateHtml}
+        `;
+
+        const actionButtons = [];
+        if (viewUrl) {
+            actionButtons.push(`<a href="${escapeHtml(viewUrl)}" class="btn btn-sm btn-success" target="_blank">${escapeHtml(viewLabel)}</a>`);
+        }
+        if (downloadUrl) {
+            actionButtons.push(`<a href="${escapeHtml(downloadUrl)}" class="btn btn-sm btn-outline-success" target="_blank">${escapeHtml(downloadLabel)}</a>`);
+        }
+        rowDetailsModalActions.innerHTML = actionButtons.join('');
+
+        const openedFromPendingModal = Boolean(
+            pendingRequestsModalElement
+            && pendingRequestsModalElement.classList.contains('show')
+        );
+        setPendingModalDim('details', openedFromPendingModal);
+
+        rowDetailsModal.show();
+    };
+
+    const openConfirmModal = ({
+        title = 'Confirm Action',
+        message = 'Are you sure you want to continue?',
+        confirmLabel = 'Confirm',
+        confirmButtonClass = 'btn-danger',
+        onConfirm = null,
+    }) => {
+        confirmModalAction = onConfirm;
+        if (confirmModalLabel) {
+            confirmModalLabel.textContent = title;
+        }
+        if (confirmModalMessage) {
+            confirmModalMessage.textContent = message;
+        }
+        if (confirmModalSubmitButton) {
+            confirmModalSubmitButton.textContent = confirmLabel;
+            confirmModalSubmitButton.classList.remove(...confirmButtonClassOptions);
+            confirmModalSubmitButton.classList.add(confirmButtonClass);
+        }
+        if (confirmModal) {
+            confirmModal.show();
+            return;
+        }
+        if (typeof onConfirm === 'function') {
+            onConfirm();
+        }
+    };
+
+    const openApproveModal = ({ mode = 'single', requestId = '', label = 'this fund request', selectedIds = [] } = {}) => {
+        approveModalMode = mode === 'bulk' ? 'bulk' : 'single';
+        approveModalRequestId = requestId || '';
+        approveModalSelectedIds = Array.isArray(selectedIds) ? selectedIds.filter((value) => String(value || '').trim()) : [];
+        if (approveModalMeta) {
+            if (approveModalMode === 'bulk') {
+                const selectedCount = approveModalSelectedIds.length;
+                approveModalMeta.textContent = `Approve ${selectedCount} selected fund request(s). Approval note is optional.`;
+            } else {
+                approveModalMeta.textContent = `Approve fund request for ${label || 'this fund request'}. Approval note is optional.`;
             }
-            if (bulkActionBar) {
-                bulkActionBar.classList.add('d-none');
+        }
+        if (approveModalSubmitButton) {
+            approveModalSubmitButton.textContent = approveModalMode === 'bulk' ? 'Approve Selected' : 'Approve Request';
+        }
+        if (approveModalNote) {
+            approveModalNote.value = '';
+            approveModalNote.classList.remove('is-invalid');
+        }
+        if (approveModal) {
+            const openedFromPendingModal = Boolean(
+                pendingRequestsModalElement
+                && pendingRequestsModalElement.classList.contains('show')
+            );
+            setPendingModalDim('approve', openedFromPendingModal);
+            approveModal.show();
+            if (approveModalNote) {
+                window.setTimeout(() => approveModalNote.focus(), 150);
+            }
+            return;
+        }
+        showInfoModal('Approve Fund Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+    };
+
+    const openRejectModal = ({ mode = 'single', requestId = '', label = 'this fund request', selectedIds = [] } = {}) => {
+        rejectModalMode = mode === 'bulk' ? 'bulk' : 'single';
+        rejectModalSelectedIds = Array.isArray(selectedIds) ? selectedIds.filter((value) => String(value || '').trim()) : [];
+        rejectModalRequestId = requestId || '';
+        rejectModalRequestLabel = label || 'this fund request';
+        if (rejectModalMeta) {
+            if (rejectModalMode === 'bulk') {
+                rejectModalMeta.textContent = `Reject ${rejectModalSelectedIds.length} selected fund request(s). Reason is optional.`;
+            } else {
+                rejectModalMeta.textContent = `Reject fund request for ${rejectModalRequestLabel}. Reason is optional.`;
+            }
+        }
+        if (rejectModalSubmitButton) {
+            rejectModalSubmitButton.textContent = rejectModalMode === 'bulk' ? 'Reject Selected' : 'Reject Request';
+        }
+        if (rejectModalReason) {
+            rejectModalReason.value = '';
+            rejectModalReason.classList.remove('is-invalid');
+        }
+        if (rejectModal) {
+            const openedFromPendingModal = Boolean(
+                pendingRequestsModalElement
+                && pendingRequestsModalElement.classList.contains('show')
+            );
+            setPendingModalDim('reject', openedFromPendingModal);
+            rejectModal.show();
+            if (rejectModalReason) {
+                window.setTimeout(() => rejectModalReason.focus(), 150);
+            }
+            return;
+        }
+        showInfoModal('Reject Fund Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+    };
+
+    const openCancelModal = ({ requestId = '', label = 'this fund request' } = {}) => {
+        cancelModalRequestId = requestId || '';
+        cancelModalRequestLabel = label || 'this fund request';
+        if (cancelModalMeta) {
+            cancelModalMeta.textContent = `Cancel fund request for ${cancelModalRequestLabel}. Reason is optional.`;
+        }
+        if (cancelModalReason) {
+            cancelModalReason.value = '';
+            cancelModalReason.classList.remove('is-invalid');
+        }
+        if (cancelModal) {
+            cancelModal.show();
+            if (cancelModalReason) {
+                window.setTimeout(() => cancelModalReason.focus(), 150);
+            }
+            return;
+        }
+        showInfoModal('Cancel Fund Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+    };
+
+    if (confirmModalSubmitButton) {
+        confirmModalSubmitButton.addEventListener('click', function () {
+            if (typeof confirmModalAction === 'function') {
+                confirmModalAction();
+            }
+            confirmModalAction = null;
+            if (confirmModal) {
+                confirmModal.hide();
+            }
+        });
+    }
+
+    if (confirmModalElement) {
+        confirmModalElement.addEventListener('hidden.bs.modal', function () {
+            confirmModalAction = null;
+        });
+    }
+
+    if (approveModalSubmitButton) {
+        approveModalSubmitButton.addEventListener('click', function () {
+            if (!approveModalNote) {
+                return;
+            }
+            const reason = (approveModalNote.value || '').trim();
+
+            if (approveModalMode === 'bulk') {
+                if (!pendingDecisionForm || !pendingDecisionActionInput || !pendingDecisionSelectedIdsInput || !pendingDecisionReasonInput) {
+                    return;
+                }
+                if (!approveModalSelectedIds.length) {
+                    showInfoModal('No Selection', 'Select at least one pending request before approving.');
+                    return;
+                }
+                pendingDecisionActionInput.value = 'approve';
+                pendingDecisionSelectedIdsInput.value = approveModalSelectedIds.join(',');
+                pendingDecisionReasonInput.value = reason;
+                if (approveModal) {
+                    approveModal.hide();
+                }
+                pendingDecisionForm.submit();
+                return;
+            }
+
+            if (!approveForm || !approveIdInput || !approveReasonInput || !approveModalRequestId) {
+                return;
+            }
+            approveIdInput.value = approveModalRequestId;
+            approveReasonInput.value = reason;
+            if (approveModal) {
+                approveModal.hide();
+            }
+            approveForm.submit();
+        });
+    }
+
+    if (approveModalNote) {
+        approveModalNote.addEventListener('input', function () {
+            if (approveModalNote.value.trim()) {
+                approveModalNote.classList.remove('is-invalid');
+            }
+        });
+    }
+
+    if (approveModalElement) {
+        approveModalElement.addEventListener('hidden.bs.modal', function () {
+            setPendingModalDim('approve', false);
+            approveModalMode = 'single';
+            approveModalRequestId = '';
+            approveModalSelectedIds = [];
+            if (approveModalNote) {
+                approveModalNote.value = '';
+                approveModalNote.classList.remove('is-invalid');
+            }
+        });
+    }
+
+    if (rejectModalSubmitButton) {
+        rejectModalSubmitButton.addEventListener('click', function () {
+            if (!rejectModalReason) {
+                return;
+            }
+            const reason = (rejectModalReason.value || '').trim();
+
+            if (rejectModalMode === 'bulk') {
+                if (!pendingDecisionForm || !pendingDecisionActionInput || !pendingDecisionSelectedIdsInput || !pendingDecisionReasonInput) {
+                    return;
+                }
+                if (!rejectModalSelectedIds.length) {
+                    showInfoModal('No Selection', 'Select at least one pending request before rejecting.');
+                    return;
+                }
+                pendingDecisionActionInput.value = 'reject';
+                pendingDecisionSelectedIdsInput.value = rejectModalSelectedIds.join(',');
+                pendingDecisionReasonInput.value = reason;
+                if (rejectModal) {
+                    rejectModal.hide();
+                }
+                pendingDecisionForm.submit();
+                return;
+            }
+
+            if (!rejectForm || !rejectIdInput || !rejectReasonInput || !rejectModalRequestId) {
+                return;
+            }
+            rejectIdInput.value = rejectModalRequestId;
+            rejectReasonInput.value = reason;
+            if (rejectModal) {
+                rejectModal.hide();
+            }
+            rejectForm.submit();
+        });
+    }
+
+    if (rejectModalReason) {
+        rejectModalReason.addEventListener('input', function () {
+            if (rejectModalReason.value.trim()) {
+                rejectModalReason.classList.remove('is-invalid');
+            }
+        });
+    }
+
+    if (rejectModalElement) {
+        rejectModalElement.addEventListener('hidden.bs.modal', function () {
+            setPendingModalDim('reject', false);
+            rejectModalRequestId = '';
+            rejectModalRequestLabel = '';
+            rejectModalMode = 'single';
+            rejectModalSelectedIds = [];
+            if (rejectModalReason) {
+                rejectModalReason.value = '';
+                rejectModalReason.classList.remove('is-invalid');
+            }
+        });
+    }
+
+    if (cancelModalSubmitButton) {
+        cancelModalSubmitButton.addEventListener('click', function () {
+            if (!cancelForm || !cancelIdInput || !cancelReasonInput || !cancelModalRequestId) {
+                return;
+            }
+            const reason = cancelModalReason ? (cancelModalReason.value || '').trim() : '';
+            cancelIdInput.value = cancelModalRequestId;
+            cancelReasonInput.value = reason;
+            if (cancelModal) {
+                cancelModal.hide();
+            }
+            cancelForm.submit();
+        });
+    }
+
+    if (cancelModalElement) {
+        cancelModalElement.addEventListener('hidden.bs.modal', function () {
+            cancelModalRequestId = '';
+            cancelModalRequestLabel = '';
+            if (cancelModalReason) {
+                cancelModalReason.value = '';
+                cancelModalReason.classList.remove('is-invalid');
+            }
+        });
+    }
+
+    rowDetailsRows.forEach((row) => {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('a, button, input, label, [data-bs-toggle], [data-bs-dismiss], .dropdown-menu')) {
+                return;
+            }
+            openRowDetailsModal(row);
+        });
+
+        row.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') {
+                return;
+            }
+            event.preventDefault();
+            openRowDetailsModal(row);
+        });
+    });
+
+    if (rowDetailsModalElement) {
+        rowDetailsModalElement.addEventListener('hidden.bs.modal', function () {
+            setPendingModalDim('details', false);
+        });
+    }
+
+    const normalizeText = (value) => String(value || '').toLowerCase().trim();
+    const pendingFilterValueForRow = (row) => normalizeText(row.dataset.pendingFilterKey || '');
+    const parseNumber = (value) => {
+        const parsed = Number.parseFloat(String(value || '').trim());
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const populatePendingFilterOptions = () => {
+        if (!pendingRequestsFilterSelect || !pendingRequestRows.length) {
+            return;
+        }
+        const uniqueValues = Array.from(new Set(
+            pendingRequestRows
+                .map((row) => row.dataset.pendingFilterKey || '')
+                .map((value) => value.trim())
+                .filter((value) => value.length > 0)
+        )).sort((a, b) => a.localeCompare(b));
+
+        uniqueValues.forEach((value) => {
+            const option = document.createElement('option');
+            option.value = normalizeText(value);
+            option.textContent = value;
+            pendingRequestsFilterSelect.appendChild(option);
+        });
+    };
+
+    const filterPendingRequestsTable = () => {
+        if (!pendingRequestRows.length) {
+            if (pendingRequestsNoResultsRow) {
+                pendingRequestsNoResultsRow.classList.add('d-none');
             }
             return;
         }
 
-        const selectedCheckboxes = getSelectedCheckboxes();
-        const selectedCount = selectedCheckboxes.length;
+        const keyword = normalizeText(pendingRequestsSearchInput ? pendingRequestsSearchInput.value : '');
+        const selectedFilter = normalizeText(pendingRequestsFilterSelect ? pendingRequestsFilterSelect.value : 'all');
+        const dateFrom = pendingRequestsDateFromInput ? (pendingRequestsDateFromInput.value || '').trim() : '';
+        const dateTo = pendingRequestsDateToInput ? (pendingRequestsDateToInput.value || '').trim() : '';
+        const amountMin = parseNumber(pendingRequestsAmountMinInput ? pendingRequestsAmountMinInput.value : '');
+        const amountMax = parseNumber(pendingRequestsAmountMaxInput ? pendingRequestsAmountMaxInput.value : '');
+        let visibleCount = 0;
 
-        if (selectedCountLabel) {
-            selectedCountLabel.textContent = String(selectedCount);
+        pendingRequestRows.forEach((row) => {
+            const searchBase = normalizeText([
+                row.dataset.requestSerial,
+                row.dataset.requestName,
+                row.dataset.requestDepartment,
+                row.dataset.requestBranch,
+            ].join(' '));
+            const matchesSearch = !keyword || searchBase.includes(keyword);
+            const matchesFilter = selectedFilter === 'all' || pendingFilterValueForRow(row) === selectedFilter;
+            const rowDateValue = (row.dataset.requestDateValue || '').trim();
+            const rowAmountValue = parseNumber(row.dataset.requestAmountValue || '');
+            const matchesDateFrom = !dateFrom || (rowDateValue && rowDateValue >= dateFrom);
+            const matchesDateTo = !dateTo || (rowDateValue && rowDateValue <= dateTo);
+            const matchesAmountMin = amountMin === null || (rowAmountValue !== null && rowAmountValue >= amountMin);
+            const matchesAmountMax = amountMax === null || (rowAmountValue !== null && rowAmountValue <= amountMax);
+            const isVisible = matchesSearch && matchesFilter && matchesDateFrom && matchesDateTo && matchesAmountMin && matchesAmountMax;
+            row.classList.toggle('d-none', !isVisible);
+            if (isVisible) {
+                visibleCount += 1;
+            }
+        });
+
+        if (pendingRequestsNoResultsRow) {
+            pendingRequestsNoResultsRow.classList.toggle('d-none', visibleCount > 0);
         }
-        if (bulkActionBar) {
-            bulkActionBar.classList.toggle('d-none', selectedCount === 0);
-        }
-        if (selectAllCheckbox) {
-            selectAllCheckbox.checked = selectedCount > 0 && selectedCount === requestCheckboxes.length;
-            selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < requestCheckboxes.length;
+        if (pendingRequestsInitialEmptyRow) {
+            pendingRequestsInitialEmptyRow.classList.add('d-none');
         }
     };
 
-    if (selectAllCheckbox) {
-        selectAllCheckbox.addEventListener('change', function () {
-            requestCheckboxes.forEach((checkbox) => {
-                checkbox.checked = selectAllCheckbox.checked;
+    populatePendingFilterOptions();
+    filterPendingRequestsTable();
+
+    if (pendingRequestsSearchInput) {
+        pendingRequestsSearchInput.addEventListener('input', filterPendingRequestsTable);
+    }
+    if (pendingRequestsFilterSelect) {
+        pendingRequestsFilterSelect.addEventListener('change', filterPendingRequestsTable);
+    }
+    if (pendingRequestsDateFromInput) {
+        pendingRequestsDateFromInput.addEventListener('change', filterPendingRequestsTable);
+    }
+    if (pendingRequestsDateToInput) {
+        pendingRequestsDateToInput.addEventListener('change', filterPendingRequestsTable);
+    }
+    if (pendingRequestsAmountMinInput) {
+        pendingRequestsAmountMinInput.addEventListener('input', filterPendingRequestsTable);
+    }
+    if (pendingRequestsAmountMaxInput) {
+        pendingRequestsAmountMaxInput.addEventListener('input', filterPendingRequestsTable);
+    }
+
+    const getSelectedApprovedCheckboxes = () => approvedRequestCheckboxes.filter((checkbox) => checkbox.checked);
+    const getSelectedPendingCheckboxes = () => pendingRequestCheckboxes.filter((checkbox) => checkbox.checked);
+    const clearApprovedSelection = () => {
+        approvedRequestCheckboxes.forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        if (approvedSelectAllCheckbox) {
+            approvedSelectAllCheckbox.checked = false;
+            approvedSelectAllCheckbox.indeterminate = false;
+        }
+        syncApprovedRequestSelection();
+    };
+    const clearPendingSelection = () => {
+        pendingRequestCheckboxes.forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        if (pendingSelectAllCheckbox) {
+            pendingSelectAllCheckbox.checked = false;
+            pendingSelectAllCheckbox.indeterminate = false;
+        }
+        syncPendingRequestSelection();
+    };
+
+    const syncApprovedRequestSelection = () => {
+        if (!approvedRequestCheckboxes.length) {
+            if (approvedSelectAllCheckbox) {
+                approvedSelectAllCheckbox.checked = false;
+                approvedSelectAllCheckbox.indeterminate = false;
+            }
+            if (approvedBulkActionBar) {
+                approvedBulkActionBar.classList.add('d-none');
+            }
+            return;
+        }
+
+        const selectedCheckboxes = getSelectedApprovedCheckboxes();
+        const selectedCount = selectedCheckboxes.length;
+
+        if (approvedSelectedCountLabel) {
+            approvedSelectedCountLabel.textContent = String(selectedCount);
+        }
+        if (approvedBulkActionBar) {
+            approvedBulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (approvedSelectAllCheckbox) {
+            approvedSelectAllCheckbox.checked = selectedCount > 0 && selectedCount === approvedRequestCheckboxes.length;
+            approvedSelectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < approvedRequestCheckboxes.length;
+        }
+    };
+
+    const syncPendingRequestSelection = () => {
+        if (!pendingRequestCheckboxes.length) {
+            if (pendingSelectAllCheckbox) {
+                pendingSelectAllCheckbox.checked = false;
+                pendingSelectAllCheckbox.indeterminate = false;
+            }
+            if (pendingBulkActionBar) {
+                pendingBulkActionBar.classList.add('d-none');
+            }
+            return;
+        }
+
+        const selectedCheckboxes = getSelectedPendingCheckboxes();
+        const selectedCount = selectedCheckboxes.length;
+
+        if (pendingSelectedCountLabel) {
+            pendingSelectedCountLabel.textContent = String(selectedCount);
+        }
+        if (pendingBulkActionBar) {
+            pendingBulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (pendingSelectAllCheckbox) {
+            pendingSelectAllCheckbox.checked = selectedCount > 0 && selectedCount === pendingRequestCheckboxes.length;
+            pendingSelectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < pendingRequestCheckboxes.length;
+        }
+    };
+
+    if (approvedSelectAllCheckbox) {
+        approvedSelectAllCheckbox.addEventListener('change', function () {
+            approvedRequestCheckboxes.forEach((checkbox) => {
+                checkbox.checked = approvedSelectAllCheckbox.checked;
             });
-            syncFundRequestSelection();
+            syncApprovedRequestSelection();
         });
     }
 
-    requestCheckboxes.forEach((checkbox) => {
-        checkbox.addEventListener('change', syncFundRequestSelection);
+    if (pendingSelectAllCheckbox) {
+        pendingSelectAllCheckbox.addEventListener('change', function () {
+            pendingRequestCheckboxes.forEach((checkbox) => {
+                checkbox.checked = pendingSelectAllCheckbox.checked;
+            });
+            syncPendingRequestSelection();
+        });
+    }
+
+    approvedRequestCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', syncApprovedRequestSelection);
     });
+
+    pendingRequestCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', syncPendingRequestSelection);
+    });
+
+    syncApprovedRequestSelection();
+    syncPendingRequestSelection();
 
     if (bulkOpenButton) {
         bulkOpenButton.addEventListener('click', function () {
-            getSelectedCheckboxes().forEach((checkbox) => {
-                const url = checkbox.dataset.openUrl;
-                if (url) {
-                    window.open(url, '_blank');
-                }
-            });
+            const selectedIds = getSelectedApprovedCheckboxes().map((checkbox) => checkbox.value);
+            if (!selectedIds.length) {
+                showInfoModal('No Selection', 'Select at least one approved request before printing.');
+                return;
+            }
+            const baseUrl = bulkOpenButton.dataset.bulkPrintUrl || '';
+            if (!baseUrl) {
+                showInfoModal('Print Unavailable', 'Bulk print endpoint is not configured.');
+                return;
+            }
+            const printUrl = `${baseUrl}?selected_ids=${encodeURIComponent(selectedIds.join(','))}`;
+            const openedWindow = window.open(printUrl, '_blank');
+            if (!openedWindow) {
+                showInfoModal('Popup Blocked', 'Please allow popups for this site to print selected requests.');
+            }
         });
     }
 
     if (bulkDownloadButton) {
         bulkDownloadButton.addEventListener('click', function () {
-            getSelectedCheckboxes().forEach((checkbox, index) => {
-                const url = checkbox.dataset.downloadUrl;
-                if (!url) {
-                    return;
-                }
-
-                window.setTimeout(() => {
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    link.remove();
-                }, index * 150);
-            });
+            const selectedIds = getSelectedApprovedCheckboxes().map((checkbox) => checkbox.value);
+            if (!selectedIds.length) {
+                showInfoModal('No Selection', 'Select at least one approved request before downloading.');
+                return;
+            }
+            const baseUrl = bulkDownloadButton.dataset.bulkDownloadUrl || '';
+            if (!baseUrl) {
+                showInfoModal('Download Unavailable', 'Bulk download endpoint is not configured.');
+                return;
+            }
+            const downloadUrl = `${baseUrl}?selected_ids=${encodeURIComponent(selectedIds.join(','))}`;
+            const openedWindow = window.open(downloadUrl, '_blank');
+            if (!openedWindow) {
+                showInfoModal('Popup Blocked', 'Please allow popups for this site to download selected requests.');
+            }
         });
     }
 
@@ -877,35 +3277,190 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            if (window.confirm(`Remove fund request ${serialNumber}?`)) {
-                deleteIdInput.value = requestId;
-                deleteForm.submit();
-            }
+            openConfirmModal({
+                title: 'Remove Fund Request',
+                message: `Remove fund request ${serialNumber}?`,
+                confirmLabel: 'Remove',
+                confirmButtonClass: 'btn-danger',
+                onConfirm: function () {
+                    deleteIdInput.value = requestId;
+                    deleteForm.submit();
+                },
+            });
         });
     });
 
-    rejectButtons.forEach((button) => {
+    approveButtons.forEach((button) => {
         button.addEventListener('click', function () {
-            if (!rejectForm || !rejectIdInput || !rejectReasonInput) {
-                return;
-            }
-
             const requestId = button.dataset.requestId;
             const label = button.dataset.requestLabel || 'this fund request';
             if (!requestId) {
                 return;
             }
 
-            const reason = window.prompt(`Reject fund request for ${label}.\nPlease enter the reason:`) || '';
-            if (!reason.trim()) {
+            openApproveModal({
+                mode: 'single',
+                requestId,
+                label,
+            });
+        });
+    });
+
+    rejectButtons.forEach((button) => {
+        button.addEventListener('click', function () {
+            const requestId = button.dataset.requestId;
+            const label = button.dataset.requestLabel || 'this fund request';
+            if (!requestId) {
                 return;
             }
 
-            rejectIdInput.value = requestId;
-            rejectReasonInput.value = reason.trim();
-            rejectForm.submit();
+            openRejectModal({
+                mode: 'single',
+                requestId,
+                label,
+            });
         });
     });
+
+    cancelButtons.forEach((button) => {
+        button.addEventListener('click', function () {
+            const requestId = button.dataset.requestId;
+            const label = button.dataset.requestLabel || 'this fund request';
+            if (!requestId) {
+                return;
+            }
+            openCancelModal({
+                requestId,
+                label,
+            });
+        });
+    });
+
+    if (pendingBulkApproveButton) {
+        pendingBulkApproveButton.addEventListener('click', function () {
+            const selectedIds = getSelectedPendingCheckboxes().map((checkbox) => checkbox.value);
+            if (!selectedIds.length) {
+                showInfoModal('No Selection', 'Select at least one pending request before approving.');
+                return;
+            }
+            openApproveModal({
+                mode: 'bulk',
+                selectedIds,
+            });
+        });
+    }
+
+    if (pendingBulkRejectButton) {
+        pendingBulkRejectButton.addEventListener('click', function () {
+            const selectedIds = getSelectedPendingCheckboxes().map((checkbox) => checkbox.value);
+            if (!selectedIds.length) {
+                showInfoModal('No Selection', 'Select at least one pending request before rejecting.');
+                return;
+            }
+            openRejectModal({
+                mode: 'bulk',
+                selectedIds,
+            });
+        });
+    }
+
+    if (clearPendingSelectionButton) {
+        clearPendingSelectionButton.addEventListener('click', function () {
+            clearPendingSelection();
+        });
+    }
+
+    if (bulkDeleteRequestsButton) {
+        bulkDeleteRequestsButton.addEventListener('click', function (event) {
+            event.preventDefault();
+            const selectedCount = getSelectedApprovedCheckboxes().length;
+            if (!selectedCount) {
+                showInfoModal('No Selection', 'Select at least one approved request before deleting.');
+                return;
+            }
+            openConfirmModal({
+                title: 'Delete Approved Requests',
+                message: `Delete ${selectedCount} selected approved request(s)?`,
+                confirmLabel: 'Delete Selected',
+                confirmButtonClass: 'btn-danger',
+                onConfirm: function () {
+                    submitFormWithSubmitter(bulkDeleteRequestsButton);
+                },
+            });
+        });
+    }
+
+    if (clearApprovedSelectionButton) {
+        clearApprovedSelectionButton.addEventListener('click', function () {
+            clearApprovedSelection();
+        });
+    }
+
+    document.addEventListener('click', function (event) {
+        const target = event.target;
+        if (!target) {
+            return;
+        }
+
+        const interactiveTarget = target.closest('button, a, [role="button"], .dropdown-item, input, label');
+        if (!interactiveTarget) {
+            return;
+        }
+
+        const keepApprovedSelection = Boolean(
+            target.closest('#fundRequestsBulkActionBar')
+            || target.closest('#fundRequestsSelectAll')
+            || target.closest('.js-fund-request-checkbox')
+        );
+        const keepPendingSelection = Boolean(
+            target.closest('#pendingFundRequestsBulkActionBar')
+            || target.closest('#pendingFundRequestsSelectAll')
+            || target.closest('.js-pending-fund-request-checkbox')
+        );
+
+        if (!keepApprovedSelection && getSelectedApprovedCheckboxes().length) {
+            clearApprovedSelection();
+        }
+        if (!keepPendingSelection && getSelectedPendingCheckboxes().length) {
+            clearPendingSelection();
+        }
+    });
+
+    templateDeleteSubmitButtons.forEach((button) => {
+        button.addEventListener('click', function (event) {
+            event.preventDefault();
+            const templateName = button.dataset.templateName || 'this template';
+            openConfirmModal({
+                title: 'Delete Template',
+                message: `Delete template "${templateName}"?`,
+                confirmLabel: 'Delete',
+                confirmButtonClass: 'btn-danger',
+                onConfirm: function () {
+                    submitFormWithSubmitter(button);
+                },
+            });
+        });
+    });
+
+    if (templatesBulkDeleteButton) {
+        templatesBulkDeleteButton.addEventListener('click', function (event) {
+            event.preventDefault();
+            const selectedCount = templateCheckboxes.filter((checkbox) => checkbox.checked).length;
+            if (!selectedCount) {
+                showInfoModal('No Selection', 'Select at least one uploaded template before deleting.');
+                return;
+            }
+            openConfirmModal({
+                title: 'Delete Uploaded Templates',
+                message: `Delete ${selectedCount} selected uploaded template(s)?`,
+                confirmLabel: 'Delete Templates',
+                confirmButtonClass: 'btn-danger',
+                onConfirm: function () {
+                    submitFormWithSubmitter(templatesBulkDeleteButton);
+                },
+            });
+        });
+    }
 
     const syncTemplateSelection = () => {
         const selectedCount = templateCheckboxes.filter((checkbox) => checkbox.checked).length;
@@ -921,8 +3476,10 @@ document.addEventListener('DOMContentLoaded', function () {
         checkbox.addEventListener('change', syncTemplateSelection);
     });
 
-    syncFundRequestSelection();
+    syncApprovedRequestSelection();
+    syncPendingRequestSelection();
     syncTemplateSelection();
 });
 </script>
 {% endblock %}
+

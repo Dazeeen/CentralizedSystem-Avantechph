@@ -1,4 +1,5 @@
 {% extends 'base_app.html' %}
+{% load core_extras %}
 
 {% block title %}Avantech Portal | Fund Request {{ fund_request.serial_number }}{% endblock %}
 {% block page_heading %}Fund Request{% endblock %}
@@ -79,9 +80,9 @@
                 <tbody>
                     {% for item in line_items %}
                         <tr>
-                            <td>{{ item.entry_date|date:'Y-m-d' }}</td>
+                            <td>{{ item.entry_date|date:'m/d/Y' }}</td>
                             <td>{{ item.particulars }}</td>
-                            <td>PHP {{ item.amount }}</td>
+                            <td>PHP {{ item.amount|comma2 }}</td>
                         </tr>
                     {% empty %}
                         <tr>
@@ -92,7 +93,7 @@
                 <tfoot>
                     <tr>
                         <th colspan="2" class="text-end">Total Amount</th>
-                        <th>PHP {{ fund_request.total_amount }}</th>
+                        <th>PHP {{ fund_request.total_amount|comma2 }}</th>
                     </tr>
                 </tfoot>
             </table>
@@ -152,4 +153,13 @@
         }
     }
 </style>
+{% if auto_print %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    window.setTimeout(function () {
+        window.print();
+    }, 250);
+});
+</script>
+{% endif %}
 {% endblock %}

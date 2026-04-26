@@ -1,0 +1,2477 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Liquidation{% endblock %}
+{% block page_heading %}Liquidation{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Saved Liquidations</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_saved_liquidations }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Available Approved Items</p>
+                <p class="display-6 fw-bold mb-0 text-primary-emphasis">{{ available_source_items|length }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Actions</p>
+                <div class="d-flex gap-2 flex-wrap">
+                    {% if can_add_liquidation %}
+                        <div class="position-relative d-inline-block liquidation-new-btn-wrap">
+                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#liquidationCreateModal" {% if not all_templates %}disabled{% endif %}>New Liquidation</button>
+                            {% if available_source_items|length > 0 %}
+                                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger liquidation-new-btn-badge">
+                                    {% if available_source_items|length > 99 %}99+{% else %}{{ available_source_items|length }}{% endif %}
+                                </span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                    {% if can_manage_templates %}
+                        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#liquidationTemplateModal">Upload Template</button>
+                        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#liquidationSettingsModal">Settings</button>
+                    {% endif %}
+                </div>
+                <div class="small text-secondary mt-2">
+                    {% if can_view_all_request_records %}Viewing all approved fund request items.{% else %}Viewing your approved fund request items only.{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-7">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body border-bottom">
+                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                    <h2 class="h5 mb-0">Pending Approvals</h2>
+                    <div class="small text-secondary">{{ total_pending_liquidations }} record(s)</div>
+                </div>
+                <form method="get" class="row g-2 mt-3">
+                    <input type="hidden" name="saved_q" value="{{ saved_q }}">
+                    <input type="hidden" name="saved_branch" value="{{ saved_branch }}">
+                    <input type="hidden" name="saved_status" value="{{ saved_status }}">
+                    <input type="hidden" name="saved_page" value="{{ saved_liquidations_page.number }}">
+                    <div class="col-md-5">
+                        <input type="text" name="pending_q" class="form-control form-control-sm" value="{{ pending_q }}" placeholder="Search name, branch, position, requester">
+                    </div>
+                    <div class="col-md-3">
+                        <select name="pending_branch" class="form-select form-select-sm">
+                            <option value="">All branches</option>
+                            {% for branch_option in liquidation_branch_filter_options %}
+                                <option value="{{ branch_option }}" {% if pending_branch == branch_option %}selected{% endif %}>{{ branch_option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex gap-2">
+                        <button type="submit" class="btn btn-sm btn-outline-warning">Search</button>
+                        <a
+                            class="btn btn-sm btn-outline-secondary"
+                            href="?saved_q={{ saved_q|urlencode }}&saved_branch={{ saved_branch|urlencode }}&saved_status={{ saved_status|urlencode }}&saved_page={{ saved_liquidations_page.number }}"
+                        >
+                            Clear
+                        </a>
+                    </div>
+                </form>
+            </div>
+            <form method="post" id="pendingLiquidationBulkDecisionForm">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="bulk_pending_liquidation_decision">
+                <input type="hidden" name="decision" id="pendingLiquidationDecisionInput">
+                <input type="hidden" name="decision_reason" id="pendingLiquidationReasonInput">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-warning">
+                            <tr>
+                                {% if can_approve_liquidations %}
+                                    <th style="width: 48px;">
+                                        <input type="checkbox" class="form-check-input" id="pendingLiquidationSelectAll" aria-label="Select all pending liquidation forms">
+                                    </th>
+                                {% endif %}
+                                <th>Name</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Branch / Position</th>
+                                <th>Total</th>
+                                <th>Requested By</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for liquidation in pending_liquidations_page %}
+                                <tr class="js-liquidation-detail-row liquidation-detail-row" role="button" tabindex="0" data-liquidation-modal-id="liquidationDetailModal{{ liquidation.id }}">
+                                    {% if can_approve_liquidations %}
+                                        <td class="js-liquidation-row-action-cell">
+                                            <input
+                                                type="checkbox"
+                                                class="form-check-input js-pending-liquidation-checkbox"
+                                                name="selected_pending_liquidation_ids"
+                                                value="{{ liquidation.id }}"
+                                                aria-label="Select pending liquidation {{ liquidation.id }}"
+                                            >
+                                        </td>
+                                    {% endif %}
+                                    <td class="fw-semibold">{{ liquidation.name }}</td>
+                                    <td>{{ liquidation.liquidation_date|date:'F d, Y' }}</td>
+                                    <td><span class="badge text-bg-warning">For Approval</span></td>
+                                    <td>
+                                        <div>{{ liquidation.branch }}</div>
+                                        <div class="small text-secondary">{{ liquidation.position|default:'-' }}</div>
+                                    </td>
+                                    <td>PHP {{ liquidation.total_amount|comma2 }}</td>
+                                    <td>{{ liquidation.requested_by_name }}</td>
+                                    <td class="text-end js-liquidation-row-action-cell">
+                                        <div class="dropdown d-inline-block">
+                                            <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Pending liquidation actions">
+                                                ...
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><a class="dropdown-item" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">Preview</a></li>
+                                                {% if liquidation.created_by_id == request.user.id %}
+                                                    <li>
+                                                        <button
+                                                            type="button"
+                                                            class="dropdown-item text-warning js-liquidation-decision-btn"
+                                                            data-action="cancel_pending_liquidation"
+                                                            data-id="{{ liquidation.id }}"
+                                                            data-label="{{ liquidation.name }}"
+                                                        >
+                                                            Cancel Request
+                                                        </button>
+                                                    </li>
+                                                {% endif %}
+                                                {% if can_approve_liquidations %}
+                                                    {% if liquidation.created_by_id == request.user.id %}
+                                                        <li><hr class="dropdown-divider"></li>
+                                                    {% endif %}
+                                                    <li>
+                                                        <button
+                                                            type="button"
+                                                            class="dropdown-item text-success js-liquidation-decision-btn"
+                                                            data-action="approve_liquidation"
+                                                            data-id="{{ liquidation.id }}"
+                                                            data-label="{{ liquidation.name }}"
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                    </li>
+                                                    <li>
+                                                        <button
+                                                            type="button"
+                                                            class="dropdown-item text-danger js-liquidation-decision-btn"
+                                                            data-action="reject_liquidation"
+                                                            data-id="{{ liquidation.id }}"
+                                                            data-label="{{ liquidation.name }}"
+                                                        >
+                                                            Reject
+                                                        </button>
+                                                    </li>
+                                                {% endif %}
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="{% if can_approve_liquidations %}8{% else %}7{% endif %}" class="text-center py-4 text-secondary">No pending liquidation forms.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </form>
+            {% if pending_liquidations_page.paginator.num_pages > 1 %}
+                <div class="card-footer bg-white d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                    <small class="text-secondary">Page {{ pending_liquidations_page.number }} of {{ pending_liquidations_page.paginator.num_pages }}</small>
+                    <div class="btn-group flex-wrap" role="group" aria-label="Pending liquidation pagination">
+                        {% if pending_liquidations_page.has_previous %}
+                            <a class="btn btn-sm btn-outline-secondary" href="?pending_page={{ pending_liquidations_page.previous_page_number }}{% if pending_page_query %}&{{ pending_page_query }}{% endif %}">Previous</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                        {% endif %}
+                        {% for page_num in pending_liquidations_page.paginator.page_range %}
+                            {% if page_num == pending_liquidations_page.number %}
+                                <button class="btn btn-sm btn-secondary" disabled>{{ page_num }}</button>
+                            {% else %}
+                                <a class="btn btn-sm btn-outline-secondary" href="?pending_page={{ page_num }}{% if pending_page_query %}&{{ pending_page_query }}{% endif %}">{{ page_num }}</a>
+                            {% endif %}
+                        {% endfor %}
+                        {% if pending_liquidations_page.has_next %}
+                            <a class="btn btn-sm btn-outline-secondary" href="?pending_page={{ pending_liquidations_page.next_page_number }}{% if pending_page_query %}&{{ pending_page_query }}{% endif %}">Next</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body border-bottom">
+                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                    <h2 class="h5 mb-0">Saved Liquidation Forms</h2>
+                    <div class="small text-secondary">{{ total_saved_liquidations }} record(s)</div>
+                </div>
+                <form method="get" class="row g-2 mt-3">
+                    <input type="hidden" name="pending_q" value="{{ pending_q }}">
+                    <input type="hidden" name="pending_branch" value="{{ pending_branch }}">
+                    <input type="hidden" name="pending_page" value="{{ pending_liquidations_page.number }}">
+                    <div class="col-md-4">
+                        <input type="text" name="saved_q" class="form-control form-control-sm" value="{{ saved_q }}" placeholder="Search control no, name, branch">
+                    </div>
+                    <div class="col-md-3">
+                        <select name="saved_branch" class="form-select form-select-sm">
+                            <option value="">All branches</option>
+                            {% for branch_option in liquidation_branch_filter_options %}
+                                <option value="{{ branch_option }}" {% if saved_branch == branch_option %}selected{% endif %}>{{ branch_option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select name="saved_status" class="form-select form-select-sm">
+                            <option value="">All status</option>
+                            <option value="approved" {% if saved_status == 'approved' %}selected{% endif %}>Approved</option>
+                            <option value="rejected" {% if saved_status == 'rejected' %}selected{% endif %}>Rejected</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-sm btn-outline-success">Search</button>
+                        <a
+                            class="btn btn-sm btn-outline-secondary"
+                            href="?pending_q={{ pending_q|urlencode }}&pending_branch={{ pending_branch|urlencode }}&pending_page={{ pending_liquidations_page.number }}"
+                        >
+                            Clear
+                        </a>
+                    </div>
+                </form>
+            </div>
+            <form method="post" id="liquidationBulkDeleteForm">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" value="bulk_delete_liquidations">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-success">
+                            <tr>
+                                <th style="width: 48px;">
+                                    <input type="checkbox" class="form-check-input" id="liquidationSelectAll" aria-label="Select all liquidation forms">
+                                </th>
+                                <th>Control No.</th>
+                                <th>Name</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Branch / Position</th>
+                                <th>Total</th>
+                                <th>Requested By</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for liquidation in saved_liquidations_page %}
+                                <tr class="js-liquidation-detail-row liquidation-detail-row" role="button" tabindex="0" data-liquidation-modal-id="liquidationDetailModal{{ liquidation.id }}">
+                                    <td class="js-liquidation-row-action-cell">
+                                        <input
+                                            type="checkbox"
+                                            class="form-check-input js-liquidation-checkbox"
+                                            name="selected_liquidation_ids"
+                                            value="{{ liquidation.id }}"
+                                            aria-label="Select liquidation {{ liquidation.control_number|default:liquidation.id }}"
+                                        >
+                                    </td>
+                                    <td class="fw-semibold">{{ liquidation.control_number|default:'-' }}</td>
+                                    <td class="fw-semibold">{{ liquidation.name }}</td>
+                                    <td>{{ liquidation.liquidation_date|date:'F d, Y' }}</td>
+                                    <td>
+                                        {% if liquidation.request_status == 'approved' %}
+                                            <span class="badge text-bg-success">Approved</span>
+                                        {% else %}
+                                            <span class="badge text-bg-danger">Rejected</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div>{{ liquidation.branch }}</div>
+                                        <div class="small text-secondary">{{ liquidation.position|default:'-' }}</div>
+                                    </td>
+                                    <td>PHP {{ liquidation.total_amount|comma2 }}</td>
+                                    <td>{{ liquidation.requested_by_name }}</td>
+                                    <td class="text-end js-liquidation-row-action-cell">
+                                        <div class="dropdown d-inline-block">
+                                            <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Saved liquidation actions">
+                                                ...
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><a class="dropdown-item" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">View PDF</a></li>
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item js-liquidation-print-btn"
+                                                        data-print-url="{% url 'liquidation_pdf' liquidation.id %}"
+                                                    >
+                                                        Print
+                                                    </button>
+                                                </li>
+                                                <li><a class="dropdown-item" href="{% url 'liquidation_download' liquidation.id %}">Download</a></li>
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="9" class="text-center py-4 text-secondary">No liquidation forms saved yet.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </form>
+            <form method="post" id="liquidationDecisionForm" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="action_type" id="liquidationDecisionActionInput">
+                <input type="hidden" name="liquidation_id" id="liquidationDecisionIdInput">
+                <input type="hidden" name="decision_reason" id="liquidationDecisionReasonInput">
+            </form>
+            {% if saved_liquidations_page.paginator.num_pages > 1 %}
+                <div class="card-footer bg-white d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                    <small class="text-secondary">Page {{ saved_liquidations_page.number }} of {{ saved_liquidations_page.paginator.num_pages }}</small>
+                    <div class="btn-group flex-wrap" role="group" aria-label="Liquidation pagination">
+                        {% if saved_liquidations_page.has_previous %}
+                            <a class="btn btn-sm btn-outline-secondary" href="?saved_page={{ saved_liquidations_page.previous_page_number }}{% if saved_page_query %}&{{ saved_page_query }}{% endif %}">Previous</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                        {% endif %}
+                        {% for page_num in saved_liquidations_page.paginator.page_range %}
+                            {% if page_num == saved_liquidations_page.number %}
+                                <button class="btn btn-sm btn-secondary" disabled>{{ page_num }}</button>
+                            {% else %}
+                                <a class="btn btn-sm btn-outline-secondary" href="?saved_page={{ page_num }}{% if saved_page_query %}&{{ saved_page_query }}{% endif %}">{{ page_num }}</a>
+                            {% endif %}
+                        {% endfor %}
+                        {% if saved_liquidations_page.has_next %}
+                            <a class="btn btn-sm btn-outline-secondary" href="?saved_page={{ saved_liquidations_page.next_page_number }}{% if saved_page_query %}&{{ saved_page_query }}{% endif %}">Next</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-xl-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Liquidation Templates</h2>
+                {% if active_template %}
+                    <div class="alert alert-success py-2">Default template: <strong>{{ active_template.name }}</strong></div>
+                {% endif %}
+                {% if all_templates %}
+                    <form method="post" class="d-grid gap-3">
+                        {% csrf_token %}
+                        {% for template_record in all_templates %}
+                            <div class="border rounded-3 p-3">
+                                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                    <div class="fw-semibold">{{ template_record.name }}</div>
+                                    {% if template_record.is_active %}<span class="badge text-bg-success">Default</span>{% endif %}
+                                </div>
+                                <div class="small text-secondary">{{ template_record.file|basename }}</div>
+                                <div class="small text-secondary mt-1">Updated {{ template_record.updated_at|date:'F d, Y h:i A' }}</div>
+                                {% if can_manage_templates %}
+                                    <div class="mt-2 d-flex gap-2 flex-wrap">
+                                        {% if not template_record.is_active %}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary" name="template_action" value="set_default:{{ template_record.id }}">Set Default</button>
+                                        {% endif %}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" name="template_action" value="delete:{{ template_record.id }}">Delete</button>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </form>
+                {% else %}
+                    <div class="text-secondary">No uploaded liquidation templates yet.</div>
+                {% endif %}
+
+                <div class="mt-4">
+                    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#liquidationPlaceholderGuideModal">
+                        Open Liquidation Placeholder Guide
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if can_approve_liquidations %}
+<div id="pendingLiquidationBulkActionBar" class="liquidation-bulk-action-bar d-none" role="region" aria-label="Pending liquidation bulk actions">
+    <div class="liquidation-bulk-action-content">
+        <span class="small text-secondary"><strong id="pendingLiquidationSelectedCount">0</strong> selected</span>
+        <button type="button" class="btn btn-sm btn-success" id="pendingBulkApproveBtn">Bulk Approve</button>
+        <button type="button" class="btn btn-sm btn-danger" id="pendingBulkRejectBtn">Bulk Reject</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="pendingBulkClearBtn">Clear</button>
+    </div>
+</div>
+{% endif %}
+
+<div id="liquidationBulkActionBar" class="liquidation-bulk-action-bar d-none" role="region" aria-label="Liquidation bulk actions">
+    <div class="liquidation-bulk-action-content">
+        <span class="small text-secondary"><strong id="liquidationSelectedCount">0</strong> selected</span>
+        <button type="button" class="btn btn-sm btn-outline-success" id="liquidationBulkPrintBtn" data-bulk-print-url="{% url 'liquidation_bulk_print' %}">Print Selected</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="liquidationBulkDownloadBtn" data-bulk-download-url="{% url 'liquidation_bulk_download' %}">Download Selected</button>
+        {% if can_delete_liquidation %}
+            <button type="button" class="btn btn-sm btn-danger" id="liquidationBulkDeleteBtn">Delete Selected</button>
+        {% endif %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="liquidationBulkClearBtn">Clear</button>
+    </div>
+</div>
+
+<div class="modal fade" id="liquidationActionModal" tabindex="-1" aria-labelledby="liquidationActionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="liquidationActionModalLabel">Notice</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="liquidationActionModalMessage">Message</p>
+                <div class="mt-3 d-none" id="liquidationActionModalInputWrap">
+                    <label class="form-label fw-semibold" for="liquidationActionModalInput" id="liquidationActionModalInputLabel">Reason</label>
+                    <textarea class="form-control" id="liquidationActionModalInput" rows="3" placeholder="Optional"></textarea>
+                    <div class="invalid-feedback" id="liquidationActionModalInputFeedback">Please complete this field.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="liquidationActionModalCancelBtn" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="liquidationActionModalConfirmBtn">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% for liquidation in pending_liquidations_page %}
+<div class="modal fade" id="liquidationDetailModal{{ liquidation.id }}" tabindex="-1" aria-labelledby="liquidationDetailModalLabel{{ liquidation.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="liquidationDetailModalLabel{{ liquidation.id }}">Liquidation Details{% if liquidation.control_number %} - {{ liquidation.control_number }}{% endif %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Control No.</div>
+                        <div class="fw-semibold">{{ liquidation.control_number|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Status</div>
+                        <div><span class="badge text-bg-warning">For Approval</span></div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Date</div>
+                        <div class="fw-semibold">{{ liquidation.liquidation_date|date:'F d, Y' }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Requested By</div>
+                        <div class="fw-semibold">{{ liquidation.requested_by_name }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Name</div>
+                        <div class="fw-semibold">{{ liquidation.name }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Branch</div>
+                        <div class="fw-semibold">{{ liquidation.branch|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Position</div>
+                        <div class="fw-semibold">{{ liquidation.position|default:'-' }}</div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Amount Requested</div>
+                        <div class="fw-semibold">PHP {{ liquidation.amount_requested|comma2 }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">{{ liquidation.get_returned_or_over_type_display }} Amount</div>
+                        <div class="fw-semibold">PHP {{ liquidation.amount_returned_or_over|comma2 }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Total Amount</div>
+                        <div class="fw-bold text-success">PHP {{ liquidation.total_amount|comma2 }}</div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="small text-secondary">Template</div>
+                        <div class="fw-semibold">{{ liquidation.template.name|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="small text-secondary">Created By</div>
+                        <div class="fw-semibold">{{ liquidation.created_by.get_full_name|default:liquidation.created_by.username|default:'-' }}</div>
+                    </div>
+                </div>
+
+                <div class="border rounded-3 overflow-hidden mb-3">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Fund Form No.</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in liquidation.items.all %}
+                                    <tr>
+                                        <td>{{ item.entry_date|date:'Y-m-d' }}</td>
+                                        <td>{{ item.fund_form_no|default:'-' }}</td>
+                                        <td>{{ item.description }}</td>
+                                        <td class="text-end">PHP {{ item.amount|comma2 }}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="4" class="text-center text-secondary py-3">No line items available.</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="small text-secondary mb-2">Supporting Images</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for attachment in liquidation.attachments.all %}
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ attachment.image.url }}" target="_blank">{{ attachment.image.name|basename }}</a>
+                        {% empty %}
+                            <span class="text-secondary small">No supporting images uploaded.</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a class="btn btn-outline-secondary" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">Preview PDF</a>
+                <a class="btn btn-outline-primary" href="{% url 'liquidation_download' liquidation.id %}">Download</a>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% for liquidation in saved_liquidations_page %}
+<div class="modal fade" id="liquidationDetailModal{{ liquidation.id }}" tabindex="-1" aria-labelledby="liquidationDetailModalLabel{{ liquidation.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="liquidationDetailModalLabel{{ liquidation.id }}">Liquidation Details{% if liquidation.control_number %} - {{ liquidation.control_number }}{% endif %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Control No.</div>
+                        <div class="fw-semibold">{{ liquidation.control_number|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Status</div>
+                        <div>
+                            {% if liquidation.request_status == 'approved' %}
+                                <span class="badge text-bg-success">Approved</span>
+                            {% else %}
+                                <span class="badge text-bg-danger">Rejected</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Date</div>
+                        <div class="fw-semibold">{{ liquidation.liquidation_date|date:'F d, Y' }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">Requested By</div>
+                        <div class="fw-semibold">{{ liquidation.requested_by_name }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Name</div>
+                        <div class="fw-semibold">{{ liquidation.name }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Branch</div>
+                        <div class="fw-semibold">{{ liquidation.branch|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Position</div>
+                        <div class="fw-semibold">{{ liquidation.position|default:'-' }}</div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Amount Requested</div>
+                        <div class="fw-semibold">PHP {{ liquidation.amount_requested|comma2 }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">{{ liquidation.get_returned_or_over_type_display }} Amount</div>
+                        <div class="fw-semibold">PHP {{ liquidation.amount_returned_or_over|comma2 }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Total Amount</div>
+                        <div class="fw-bold text-success">PHP {{ liquidation.total_amount|comma2 }}</div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Template</div>
+                        <div class="fw-semibold">{{ liquidation.template.name|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Processed By</div>
+                        <div class="fw-semibold">{{ liquidation.processed_by.get_full_name|default:liquidation.processed_by.username|default:'-' }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Processed At</div>
+                        <div class="fw-semibold">{{ liquidation.processed_at|date:'F d, Y h:i A'|default:'-' }}</div>
+                    </div>
+                    <div class="col-12">
+                        <div class="small text-secondary">Decision Reason</div>
+                        <div class="border rounded-3 p-2 bg-light-subtle">{{ liquidation.decision_reason|default:'-' }}</div>
+                    </div>
+                </div>
+
+                <div class="border rounded-3 overflow-hidden mb-3">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Fund Form No.</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in liquidation.items.all %}
+                                    <tr>
+                                        <td>{{ item.entry_date|date:'Y-m-d' }}</td>
+                                        <td>{{ item.fund_form_no|default:'-' }}</td>
+                                        <td>{{ item.description }}</td>
+                                        <td class="text-end">PHP {{ item.amount|comma2 }}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="4" class="text-center text-secondary py-3">No line items available.</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="small text-secondary mb-2">Supporting Images</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for attachment in liquidation.attachments.all %}
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ attachment.image.url }}" target="_blank">{{ attachment.image.name|basename }}</a>
+                        {% empty %}
+                            <span class="text-secondary small">No supporting images uploaded.</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a class="btn btn-outline-secondary" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">Preview PDF</a>
+                <a class="btn btn-outline-primary" href="{% url 'liquidation_download' liquidation.id %}">Download</a>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% if can_add_liquidation %}
+<div class="modal fade" id="liquidationCreateModal" tabindex="-1" aria-labelledby="liquidationCreateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-white">
+                <h5 class="modal-title" id="liquidationCreateModalLabel">Create Liquidation</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form method="post" id="liquidationForm" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="create_liquidation">
+                    {{ liquidation_form.line_items_payload }}
+
+                    {% if liquidation_form.non_field_errors %}
+                        <div class="alert alert-danger">{{ liquidation_form.non_field_errors }}</div>
+                    {% endif %}
+
+                    <div class="border rounded-3 p-3 mb-3 bg-light-subtle">
+                        <div class="fw-semibold mb-2">Choose Liquidation Template</div>
+                        {% if all_templates %}
+                            <div class="row g-2">
+                                {% for template_record in all_templates %}
+                                    <div class="col-md-6">
+                                        <label class="border rounded-3 p-2 w-100 d-flex justify-content-between align-items-center">
+                                            <span>{{ template_record.name }}</span>
+                                            <input
+                                                type="radio"
+                                                name="selected_template_id"
+                                                value="{{ template_record.id }}"
+                                                {% if default_selected_template_id|stringformat:'s' == template_record.id|stringformat:'s' %}checked{% endif %}
+                                            >
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="alert alert-warning mb-0">No uploaded liquidation template found.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="{{ liquidation_form.name.id_for_label }}" class="form-label fw-semibold">Name</label>
+                            {{ liquidation_form.name }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ liquidation_form.liquidation_date.id_for_label }}" class="form-label fw-semibold">Date</label>
+                            {{ liquidation_form.liquidation_date }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ liquidation_form.branch.id_for_label }}" class="form-label fw-semibold">Branch</label>
+                            {{ liquidation_form.branch }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ liquidation_form.position.id_for_label }}" class="form-label fw-semibold">Position</label>
+                            {{ liquidation_form.position }}
+                        </div>
+                    </div>
+
+                    <div class="border rounded-0 overflow-hidden mb-3">
+                        <div class="table-responsive liquidation-source-table-wrap">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th style="width:40px;">
+                                            <input type="checkbox" class="form-check-input" id="liquidationSourceSelectAll" aria-label="Select all source line items">
+                                        </th>
+                                        <th>Date</th>
+                                        <th>Fund Form No.</th>
+                                        <th>Description</th>
+                                        <th class="text-end">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="liquidationSourceItemsBody">
+                                    {% for item in available_source_items %}
+                                        <tr class="js-liquidation-source-row">
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    class="form-check-input js-liquidation-source-checkbox"
+                                                    value="{{ item.id }}"
+                                                    data-entry-date="{{ item.entry_date|date:'Y-m-d' }}"
+                                                    data-fund-form-no="{{ item.fund_request.serial_number|default:'For Approval' }}"
+                                                    data-description="{{ item.particulars|escape }}"
+                                                    data-amount="{{ item.amount }}"
+                                                >
+                                            </td>
+                                            <td>{{ item.entry_date|date:'Y-m-d' }}</td>
+                                            <td>{{ item.fund_request.serial_number|default:'For Approval' }}</td>
+                                            <td>{{ item.particulars }}</td>
+                                            <td class="text-end">PHP {{ item.amount|comma2 }}</td>
+                                        </tr>
+                                    {% empty %}
+                                        <tr><td colspan="5" class="text-center py-3 text-secondary">No available approved line items.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="small text-secondary">Max selectable items: <strong>{{ liquidation_max_selectable_rows }}</strong></div>
+                        <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <small class="text-secondary" id="liquidationSourcePaginationMeta">Page 1</small>
+                            <div class="btn-group btn-group-sm" id="liquidationSourcePagination" role="group" aria-label="Source items pagination"></div>
+                        </div>
+                    </div>
+                    {% if liquidation_form.line_items_payload.errors %}
+                        <div class="text-danger small mb-3">{{ liquidation_form.line_items_payload.errors|striptags }}</div>
+                    {% endif %}
+
+                    <div class="border rounded-3 overflow-hidden mb-3">
+                        <div class="table-responsive">
+                            <table class="table align-middle mb-0">
+                                <thead class="table-success">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Fund Form No.</th>
+                                        <th>Description</th>
+                                        <th class="text-end">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="liquidationSelectedItemsBody">
+                                    <tr><td colspan="4" class="text-center text-secondary py-3">Select item(s) above.</td></tr>
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <th colspan="3" class="text-end">Total</th>
+                                        <th class="text-end" id="liquidationSelectedTotalLabel">PHP 0.00</th>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="{{ liquidation_form.amount_requested.id_for_label }}" class="form-label fw-semibold">Amount Requested</label>
+                            {{ liquidation_form.amount_requested }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold d-block mb-2">Returned / Over</label>
+                            {{ liquidation_form.returned_or_over_type }}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ liquidation_form.amount_returned_or_over.id_for_label }}" class="form-label fw-semibold">Amount (Returned/Over)</label>
+                            {{ liquidation_form.amount_returned_or_over }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ liquidation_form.requested_by_name.id_for_label }}" class="form-label fw-semibold">Requested By</label>
+                            {{ liquidation_form.requested_by_name }}
+                        </div>
+                        <div class="col-12">
+                            <div class="border rounded-3 p-3 bg-light-subtle">
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <div class="small text-secondary">Total Amount Requested</div>
+                                        <div class="fw-semibold" id="liquidationAmountRequestedSummary">PHP 0.00</div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="small text-secondary" id="liquidationReturnedOverSummaryLabel">Total Returned Amount</div>
+                                        <div class="fw-semibold" id="liquidationReturnedOverSummaryValue">PHP 0.00</div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="small text-secondary" id="liquidationComputedTotalLabel">Computed Liquidation Total</div>
+                                        <div class="fw-bold text-success" id="liquidationComputedTotalValue">PHP 0.00</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 mb-3">
+                        <label for="{{ liquidation_form.liquidation_images.id_for_label }}" class="form-label fw-semibold">Supporting Images</label>
+                        <div class="liquidation-upload-panel">
+                            <input
+                                type="file"
+                                id="{{ liquidation_form.liquidation_images.id_for_label }}"
+                                name="{{ liquidation_form.liquidation_images.html_name }}"
+                                class="liquidation-upload-input"
+                                accept=".png,.jpg,.jpeg,.webp"
+                                multiple
+                            >
+                            <div class="liquidation-upload-dropzone" id="liquidationImageDropzone" tabindex="0" role="button" aria-controls="{{ liquidation_form.liquidation_images.id_for_label }}">
+                                <div class="liquidation-upload-dropzone-title">Drag and drop images here</div>
+                                <div class="small text-secondary">or click to browse PNG, JPG, JPEG, or WEBP files</div>
+                            </div>
+                            <div class="liquidation-upload-alert alert alert-warning py-2 px-3 mt-2 mb-0 d-none" id="liquidationImageUploadAlert" role="alert"></div>
+                            <div class="form-text mt-2">{{ liquidation_form.liquidation_images.help_text }}</div>
+                            <div class="liquidation-upload-preview-strip mt-3 d-none" id="liquidationImagePreviewStrip"></div>
+                            <div class="liquidation-upload-invalid-strip mt-3 d-none" id="liquidationImageInvalidStrip"></div>
+                        </div>
+                        {% if liquidation_form.liquidation_images.errors %}
+                            <div class="text-danger small mt-1">{{ liquidation_form.liquidation_images.errors|striptags }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-success">Save Liquidation</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if can_manage_templates %}
+<div class="modal fade" id="liquidationTemplateModal" tabindex="-1" aria-labelledby="liquidationTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="liquidationTemplateModalLabel">Upload Liquidation Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" enctype="multipart/form-data" id="liquidationTemplateForm">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="upload_template">
+                    <div class="mb-3">
+                        <label for="{{ template_form.name.id_for_label }}" class="form-label fw-semibold">Template Name</label>
+                        {{ template_form.name }}
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ template_form.file.id_for_label }}" class="form-label fw-semibold">Template File</label>
+                        {{ template_form.file }}
+                        <div class="form-text">Supported: PDF, DOC, DOCX, XLS, XLSX</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ template_form.notes.id_for_label }}" class="form-label fw-semibold">Notes</label>
+                        {{ template_form.notes }}
+                    </div>
+                    <div class="form-check mb-3">
+                        {{ template_form.is_active }}
+                        <label class="form-check-label" for="{{ template_form.is_active.id_for_label }}">Set as active template</label>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary">Upload Template</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if can_manage_templates %}
+<div class="modal fade" id="liquidationSettingsModal" tabindex="-1" aria-labelledby="liquidationSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="liquidationSettingsModalLabel">Liquidation Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="update_liquidation_settings">
+                    <div class="mb-2">
+                        <label for="id_liquidation_max_selectable_rows" class="form-label fw-semibold">Max Row Items</label>
+                        <input
+                            type="number"
+                            class="form-control"
+                            id="id_liquidation_max_selectable_rows"
+                            name="max_selectable_rows"
+                            min="1"
+                            max="200"
+                            value="{{ liquidation_max_selectable_rows }}"
+                            required
+                        >
+                        <div class="form-text">Limit how many source line items can be selected in Create Liquidation (1 to 200).</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="modal fade" id="liquidationPlaceholderGuideModal" tabindex="-1" aria-labelledby="liquidationPlaceholderGuideModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="liquidationPlaceholderGuideModalLabel">Liquidation Placeholder Guide</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-2">
+                    <div class="small text-secondary">Use these exact placeholders in uploaded `.docx` or `.xlsx` liquidation templates for auto fill.</div>
+                    <span class="small text-secondary">{{ liquidation_placeholder_guide|length }} placeholder(s)</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="min-width: 220px;">Placeholder</th>
+                                <th style="min-width: 280px;">Description</th>
+                                <th style="min-width: 240px;">Usage</th>
+                                <th style="width: 90px;" class="text-end">Copy</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in liquidation_placeholder_guide %}
+                                <tr>
+                                    <td><code>{{ item.placeholder }}</code></td>
+                                    <td class="small">{{ item.description }}</td>
+                                    <td class="small text-secondary">{{ item.use_case }}</td>
+                                    <td class="text-end">
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-outline-success js-copy-liquidation-placeholder"
+                                            data-copy-value="{{ item.placeholder }}"
+                                        >
+                                            Copy
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .liquidation-upload-input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .liquidation-source-table-wrap {
+        max-height: 290px;
+        overflow-y: auto;
+        overflow-x: auto;
+    }
+
+    .liquidation-upload-panel {
+        position: relative;
+    }
+
+    .liquidation-upload-dropzone {
+        border: 2px dashed rgba(25, 135, 84, 0.28);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.08), transparent 35%),
+            linear-gradient(135deg, #fbfefb 0%, #f3faf4 100%);
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .liquidation-upload-dropzone:hover,
+    .liquidation-upload-dropzone:focus,
+    .liquidation-upload-dropzone.is-dragover {
+        border-color: #198754;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.12), transparent 35%),
+            linear-gradient(135deg, #f9fef9 0%, #edf8ef 100%);
+        transform: translateY(-1px);
+        outline: none;
+    }
+
+    .liquidation-upload-dropzone-title {
+        color: #146c43;
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+    }
+
+    .liquidation-upload-preview-strip {
+        display: flex;
+        gap: 0.9rem;
+        overflow-x: auto;
+        padding-bottom: 0.35rem;
+    }
+
+    .liquidation-upload-alert {
+        border-radius: 0.85rem;
+        font-size: 0.88rem;
+    }
+
+    .liquidation-upload-preview-card {
+        position: relative;
+        flex: 0 0 220px;
+        border: 1px solid rgba(25, 135, 84, 0.14);
+        border-radius: 1rem;
+        background: #fff;
+        box-shadow: 0 12px 28px rgba(25, 135, 84, 0.08);
+        overflow: hidden;
+    }
+
+    .liquidation-upload-preview-frame {
+        height: 132px;
+        background: linear-gradient(135deg, #eef7ef 0%, #f9fcf9 100%);
+    }
+
+    .liquidation-upload-preview-frame img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .liquidation-upload-remove-btn {
+        position: absolute;
+        top: 0.55rem;
+        right: 0.55rem;
+        width: 30px;
+        height: 30px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(33, 37, 41, 0.78);
+        color: #fff;
+        font-size: 0.88rem;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
+    }
+
+    .liquidation-upload-remove-btn:hover {
+        background: rgba(220, 53, 69, 0.92);
+    }
+
+    .liquidation-upload-preview-meta {
+        padding: 0.85rem 0.9rem 0.95rem;
+    }
+
+    .liquidation-upload-preview-name {
+        font-size: 0.92rem;
+        font-weight: 600;
+        color: #1f2937;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .liquidation-upload-preview-size {
+        color: #6c757d;
+        font-size: 0.8rem;
+        margin-top: 0.1rem;
+    }
+
+    .liquidation-upload-progress {
+        height: 8px;
+        margin-top: 0.75rem;
+        background: #e9f4ea;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .liquidation-upload-progress-bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #198754 0%, #4bb86d 100%);
+        transition: width 0.18s ease;
+    }
+
+    .liquidation-upload-progress-label {
+        margin-top: 0.35rem;
+        font-size: 0.76rem;
+        color: #5c6b63;
+    }
+
+    .liquidation-upload-invalid-strip {
+        display: flex;
+        gap: 0.7rem;
+        overflow-x: auto;
+        padding-bottom: 0.2rem;
+    }
+
+    .liquidation-upload-invalid-card {
+        flex: 0 0 220px;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        border-radius: 1rem;
+        background: #fff7f7;
+        padding: 0.85rem 0.9rem;
+    }
+
+    .liquidation-upload-invalid-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: #b02a37;
+        background: rgba(220, 53, 69, 0.12);
+    }
+
+    .liquidation-upload-invalid-name {
+        margin-top: 0.6rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #412126;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .liquidation-upload-invalid-reason {
+        margin-top: 0.2rem;
+        color: #8b3a43;
+        font-size: 0.8rem;
+    }
+
+    .liquidation-bulk-action-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        z-index: 1080;
+        background: rgba(255, 255, 255, 0.98);
+        border: 1px solid rgba(25, 135, 84, 0.18);
+        border-radius: 999px;
+        padding: 8px 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    }
+
+    .liquidation-bulk-action-content {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    #pendingLiquidationBulkActionBar {
+        bottom: 74px;
+    }
+
+    .liquidation-detail-row {
+        cursor: pointer;
+    }
+
+    .liquidation-detail-row:hover {
+        background-color: rgba(25, 135, 84, 0.05);
+    }
+
+    .liquidation-new-btn-badge {
+        font-size: 0.68rem;
+        min-width: 22px;
+        height: 22px;
+        line-height: 22px;
+        padding: 0 0.35rem;
+        box-shadow: 0 2px 8px rgba(220, 53, 69, 0.35);
+        pointer-events: none;
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const liquidationForm = document.getElementById('liquidationForm');
+    const payloadInput = document.getElementById('id_line_items_payload');
+    const imageInput = document.getElementById('{{ liquidation_form.liquidation_images.id_for_label }}');
+    const imageDropzone = document.getElementById('liquidationImageDropzone');
+    const imageUploadAlert = document.getElementById('liquidationImageUploadAlert');
+    const imagePreviewStrip = document.getElementById('liquidationImagePreviewStrip');
+    const imageInvalidStrip = document.getElementById('liquidationImageInvalidStrip');
+    const sourceCheckboxes = Array.from(document.querySelectorAll('.js-liquidation-source-checkbox'));
+    const sourceSelectAllCheckbox = document.getElementById('liquidationSourceSelectAll');
+    const sourceItemsBody = document.getElementById('liquidationSourceItemsBody');
+    const sourceRows = sourceItemsBody
+        ? Array.from(sourceItemsBody.querySelectorAll('.js-liquidation-source-row'))
+        : [];
+    const sourcePaginationMeta = document.getElementById('liquidationSourcePaginationMeta');
+    const sourcePaginationWrap = document.getElementById('liquidationSourcePagination');
+    const selectedItemsBody = document.getElementById('liquidationSelectedItemsBody');
+    const selectedTotalLabel = document.getElementById('liquidationSelectedTotalLabel');
+    const amountRequestedInput = document.getElementById('id_amount_requested');
+    const amountReturnedOverInput = document.getElementById('id_amount_returned_or_over');
+    const returnedOverTypeInputs = Array.from(document.querySelectorAll('input[name="returned_or_over_type"]'));
+    const amountRequestedSummary = document.getElementById('liquidationAmountRequestedSummary');
+    const returnedOverSummaryLabel = document.getElementById('liquidationReturnedOverSummaryLabel');
+    const returnedOverSummaryValue = document.getElementById('liquidationReturnedOverSummaryValue');
+    const computedTotalLabel = document.getElementById('liquidationComputedTotalLabel');
+    const computedTotalValue = document.getElementById('liquidationComputedTotalValue');
+    const createModalElement = document.getElementById('liquidationCreateModal');
+    const templateModalElement = document.getElementById('liquidationTemplateModal');
+    const liquidationSelectAll = document.getElementById('liquidationSelectAll');
+    const liquidationCheckboxes = Array.from(document.querySelectorAll('.js-liquidation-checkbox'));
+    const liquidationBulkActionBar = document.getElementById('liquidationBulkActionBar');
+    const liquidationSelectedCount = document.getElementById('liquidationSelectedCount');
+    const liquidationPrintButtons = Array.from(document.querySelectorAll('.js-liquidation-print-btn'));
+    const liquidationBulkPrintBtn = document.getElementById('liquidationBulkPrintBtn');
+    const liquidationBulkDownloadBtn = document.getElementById('liquidationBulkDownloadBtn');
+    const liquidationBulkDeleteBtn = document.getElementById('liquidationBulkDeleteBtn');
+    const liquidationBulkClearBtn = document.getElementById('liquidationBulkClearBtn');
+    const liquidationBulkDeleteForm = document.getElementById('liquidationBulkDeleteForm');
+    const liquidationDecisionButtons = Array.from(document.querySelectorAll('.js-liquidation-decision-btn'));
+    const liquidationDecisionForm = document.getElementById('liquidationDecisionForm');
+    const liquidationDecisionActionInput = document.getElementById('liquidationDecisionActionInput');
+    const liquidationDecisionIdInput = document.getElementById('liquidationDecisionIdInput');
+    const liquidationDecisionReasonInput = document.getElementById('liquidationDecisionReasonInput');
+    const pendingSelectAll = document.getElementById('pendingLiquidationSelectAll');
+    const pendingCheckboxes = Array.from(document.querySelectorAll('.js-pending-liquidation-checkbox'));
+    const pendingBulkActionBar = document.getElementById('pendingLiquidationBulkActionBar');
+    const pendingSelectedCount = document.getElementById('pendingLiquidationSelectedCount');
+    const pendingBulkApproveBtn = document.getElementById('pendingBulkApproveBtn');
+    const pendingBulkRejectBtn = document.getElementById('pendingBulkRejectBtn');
+    const pendingBulkClearBtn = document.getElementById('pendingBulkClearBtn');
+    const pendingBulkDecisionForm = document.getElementById('pendingLiquidationBulkDecisionForm');
+    const pendingBulkDecisionInput = document.getElementById('pendingLiquidationDecisionInput');
+    const pendingBulkReasonInput = document.getElementById('pendingLiquidationReasonInput');
+    const liquidationDetailRows = Array.from(document.querySelectorAll('.js-liquidation-detail-row'));
+    const actionModalElement = document.getElementById('liquidationActionModal');
+    const actionModalTitle = document.getElementById('liquidationActionModalLabel');
+    const actionModalMessage = document.getElementById('liquidationActionModalMessage');
+    const actionModalInputWrap = document.getElementById('liquidationActionModalInputWrap');
+    const actionModalInputLabel = document.getElementById('liquidationActionModalInputLabel');
+    const actionModalInput = document.getElementById('liquidationActionModalInput');
+    const actionModalInputFeedback = document.getElementById('liquidationActionModalInputFeedback');
+    const actionModalCancelBtn = document.getElementById('liquidationActionModalCancelBtn');
+    const actionModalConfirmBtn = document.getElementById('liquidationActionModalConfirmBtn');
+    const sourceItemsPerPage = 10;
+    const maxSelectableRows = Number('{{ liquidation_max_selectable_rows|default:20 }}') || 20;
+    let sourceCurrentPage = 1;
+    let selectedImageFiles = [];
+    let invalidImageItems = [];
+    const imageMetaMap = new Map();
+    const maxImageCount = 10;
+    const maxImageSizeBytes = 10 * 1024 * 1024;
+    const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+    const actionModal = (actionModalElement && window.bootstrap && window.bootstrap.Modal)
+        ? window.bootstrap.Modal.getOrCreateInstance(actionModalElement)
+        : null;
+
+    const formatCurrency = (value) => {
+        const amount = Number(value || 0);
+        return `PHP ${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const parseNumericInput = (value) => {
+        const normalized = String(value || '').replace(/,/g, '').trim();
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const getReturnedOrOverType = () => {
+        const selected = returnedOverTypeInputs.find((input) => input.checked);
+        return selected ? selected.value : 'returned';
+    };
+
+    const updateLiquidationAmountSummaries = () => {
+        const requestedAmount = parseNumericInput(amountRequestedInput ? amountRequestedInput.value : 0);
+        const returnedOverAmount = parseNumericInput(amountReturnedOverInput ? amountReturnedOverInput.value : 0);
+        const mode = getReturnedOrOverType();
+        const isOver = mode === 'over';
+        const computedAmount = isOver ? (requestedAmount + returnedOverAmount) : (requestedAmount - returnedOverAmount);
+
+        if (amountRequestedSummary) {
+            amountRequestedSummary.textContent = formatCurrency(requestedAmount);
+        }
+        if (returnedOverSummaryLabel) {
+            returnedOverSummaryLabel.textContent = isOver ? 'Total Over Amount' : 'Total Returned Amount';
+        }
+        if (returnedOverSummaryValue) {
+            returnedOverSummaryValue.textContent = formatCurrency(returnedOverAmount);
+        }
+        if (computedTotalLabel) {
+            computedTotalLabel.textContent = isOver ? 'Computed Total (Requested + Over)' : 'Computed Total (Requested - Returned)';
+        }
+        if (computedTotalValue) {
+            computedTotalValue.textContent = formatCurrency(computedAmount);
+            computedTotalValue.classList.toggle('text-danger', computedAmount < 0);
+            computedTotalValue.classList.toggle('text-success', computedAmount >= 0);
+        }
+    };
+
+    const formatBytes = (bytes) => {
+        const size = Number(bytes || 0);
+        if (size < 1024) {
+            return `${size} B`;
+        }
+        const units = ['KB', 'MB', 'GB'];
+        let value = size / 1024;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+    };
+
+    const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const showLiquidationAlertModal = async (message, options = {}) => {
+        const title = options.title || 'Notice';
+        const confirmLabel = options.confirmLabel || 'OK';
+        if (!actionModal || !actionModalMessage || !actionModalTitle || !actionModalConfirmBtn) {
+            window.alert(message || '');
+            return;
+        }
+
+        actionModalTitle.textContent = title;
+        actionModalMessage.textContent = message || '';
+        actionModalConfirmBtn.textContent = confirmLabel;
+        actionModalConfirmBtn.className = `btn ${options.confirmClass || 'btn-primary'}`;
+        if (actionModalCancelBtn) {
+            actionModalCancelBtn.classList.add('d-none');
+        }
+        if (actionModalInputWrap) {
+            actionModalInputWrap.classList.add('d-none');
+        }
+
+        await new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+                if (done) {
+                    return;
+                }
+                done = true;
+                actionModalConfirmBtn.removeEventListener('click', onConfirm);
+                if (actionModalElement) {
+                    actionModalElement.removeEventListener('hidden.bs.modal', onHidden);
+                }
+                resolve();
+            };
+            const onConfirm = () => {
+                finish();
+                actionModal.hide();
+            };
+            const onHidden = () => finish();
+
+            actionModalConfirmBtn.addEventListener('click', onConfirm);
+            if (actionModalElement) {
+                actionModalElement.addEventListener('hidden.bs.modal', onHidden);
+            }
+            actionModal.show();
+        });
+    };
+
+    const showLiquidationConfirmModal = async (options = {}) => {
+        const message = options.message || 'Please confirm this action.';
+        const title = options.title || 'Confirm Action';
+        if (!actionModal || !actionModalMessage || !actionModalTitle || !actionModalConfirmBtn) {
+            const confirmed = window.confirm(message);
+            const value = confirmed && options.includeInput
+                ? (window.prompt(options.inputLabel || 'Optional note:') || '')
+                : '';
+            return { confirmed, value: value.trim() };
+        }
+
+        actionModalTitle.textContent = title;
+        actionModalMessage.textContent = message;
+        actionModalConfirmBtn.textContent = options.confirmLabel || 'Confirm';
+        actionModalConfirmBtn.className = `btn ${options.confirmClass || 'btn-primary'}`;
+        if (actionModalCancelBtn) {
+            actionModalCancelBtn.classList.remove('d-none');
+            actionModalCancelBtn.textContent = options.cancelLabel || 'Cancel';
+            actionModalCancelBtn.className = `btn ${options.cancelClass || 'btn-outline-secondary'}`;
+        }
+
+        const includeInput = Boolean(options.includeInput);
+        if (actionModalInputWrap && actionModalInput && actionModalInputLabel) {
+            actionModalInputWrap.classList.toggle('d-none', !includeInput);
+            actionModalInputLabel.textContent = options.inputLabel || 'Note';
+            actionModalInput.placeholder = options.inputPlaceholder || 'Optional';
+            actionModalInput.value = options.inputValue || '';
+            actionModalInput.classList.remove('is-invalid');
+        }
+        if (actionModalInputFeedback) {
+            actionModalInputFeedback.textContent = options.inputInvalidMessage || 'Please complete this field.';
+        }
+
+        return await new Promise((resolve) => {
+            let done = false;
+            const finish = (result) => {
+                if (done) {
+                    return;
+                }
+                done = true;
+                actionModalConfirmBtn.removeEventListener('click', onConfirm);
+                if (actionModalCancelBtn) {
+                    actionModalCancelBtn.removeEventListener('click', onCancel);
+                }
+                if (actionModalElement) {
+                    actionModalElement.removeEventListener('hidden.bs.modal', onHidden);
+                }
+                resolve(result);
+            };
+            const onConfirm = () => {
+                let value = '';
+                if (includeInput && actionModalInput) {
+                    value = (actionModalInput.value || '').trim();
+                    if (options.inputRequired && !value) {
+                        actionModalInput.classList.add('is-invalid');
+                        actionModalInput.focus();
+                        return;
+                    }
+                    actionModalInput.classList.remove('is-invalid');
+                }
+                finish({ confirmed: true, value });
+                actionModal.hide();
+            };
+            const onCancel = () => {
+                finish({ confirmed: false, value: '' });
+            };
+            const onHidden = () => {
+                finish({ confirmed: false, value: '' });
+            };
+
+            actionModalConfirmBtn.addEventListener('click', onConfirm);
+            if (actionModalCancelBtn) {
+                actionModalCancelBtn.addEventListener('click', onCancel);
+            }
+            if (actionModalElement) {
+                actionModalElement.addEventListener('hidden.bs.modal', onHidden);
+            }
+            actionModal.show();
+            if (includeInput && actionModalInput) {
+                window.setTimeout(() => actionModalInput.focus(), 140);
+            }
+        });
+    };
+
+    const showImageUploadAlert = (message) => {
+        if (!imageUploadAlert) {
+            return;
+        }
+        imageUploadAlert.textContent = message;
+        imageUploadAlert.classList.remove('d-none');
+    };
+
+    const hideImageUploadAlert = () => {
+        if (!imageUploadAlert) {
+            return;
+        }
+        imageUploadAlert.textContent = '';
+        imageUploadAlert.classList.add('d-none');
+    };
+
+    const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
+
+    const syncImageInputFiles = () => {
+        if (!imageInput || typeof DataTransfer === 'undefined') {
+            return;
+        }
+        const dataTransfer = new DataTransfer();
+        selectedImageFiles.forEach((file) => dataTransfer.items.add(file));
+        imageInput.files = dataTransfer.files;
+    };
+
+    const renderInvalidImagePreviews = () => {
+        if (!imageInvalidStrip) {
+            return;
+        }
+        imageInvalidStrip.innerHTML = '';
+        imageInvalidStrip.classList.toggle('d-none', invalidImageItems.length === 0);
+        invalidImageItems.forEach((item) => {
+            const card = document.createElement('div');
+            card.className = 'liquidation-upload-invalid-card';
+            card.innerHTML = `
+                <div class="liquidation-upload-invalid-badge">Skipped</div>
+                <div class="liquidation-upload-invalid-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                <div class="liquidation-upload-invalid-reason">${escapeHtml(item.reason)}</div>
+            `;
+            imageInvalidStrip.appendChild(card);
+        });
+    };
+
+    const renderImagePreviews = () => {
+        if (!imagePreviewStrip) {
+            return;
+        }
+
+        imagePreviewStrip.innerHTML = '';
+        imagePreviewStrip.classList.toggle('d-none', selectedImageFiles.length === 0);
+
+        selectedImageFiles.forEach((file, index) => {
+            const fileKey = getFileKey(file);
+            const fileMeta = imageMetaMap.get(fileKey) || {};
+            const card = document.createElement('div');
+            card.className = 'liquidation-upload-preview-card';
+            const objectUrl = URL.createObjectURL(file);
+            card.innerHTML = `
+                <div class="liquidation-upload-preview-frame">
+                    <img src="${objectUrl}" alt="${escapeHtml(file.name)}">
+                </div>
+                <button type="button" class="liquidation-upload-remove-btn" data-remove-upload="${index}" aria-label="Remove ${escapeHtml(file.name)}">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                </button>
+                <div class="liquidation-upload-preview-meta">
+                    <div class="liquidation-upload-preview-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+                    <div class="liquidation-upload-preview-size">${formatBytes(file.size)}${fileMeta.width && fileMeta.height ? ` | ${fileMeta.width}x${fileMeta.height}` : ' | Reading image size...'}</div>
+                    <div class="liquidation-upload-progress" aria-hidden="true">
+                        <div class="liquidation-upload-progress-bar" data-upload-progress></div>
+                    </div>
+                    <div class="liquidation-upload-progress-label" data-upload-progress-label>Waiting to upload</div>
+                </div>
+            `;
+            const imageElement = card.querySelector('img');
+            imageElement.addEventListener('load', () => {
+                imageMetaMap.set(fileKey, {
+                    width: imageElement.naturalWidth,
+                    height: imageElement.naturalHeight,
+                });
+                const sizeLabel = card.querySelector('.liquidation-upload-preview-size');
+                if (sizeLabel) {
+                    sizeLabel.textContent = `${formatBytes(file.size)} | ${imageElement.naturalWidth}x${imageElement.naturalHeight}`;
+                }
+                URL.revokeObjectURL(objectUrl);
+            }, { once: true });
+            imagePreviewStrip.appendChild(card);
+        });
+    };
+
+    const mergeSelectedFiles = (incomingFiles) => {
+        const allIncomingFiles = Array.from(incomingFiles || []);
+        if (!allIncomingFiles.length) {
+            return;
+        }
+
+        const acceptedFiles = [];
+        const invalidMessages = [];
+        invalidImageItems = [];
+        allIncomingFiles.forEach((file) => {
+            if (!file) {
+                return;
+            }
+            const lowerName = String(file.name || '').toLowerCase();
+            const extension = lowerName.includes('.') ? lowerName.slice(lowerName.lastIndexOf('.')) : '';
+            if (!allowedImageExtensions.has(extension)) {
+                invalidMessages.push(`${file.name}: invalid file type`);
+                invalidImageItems.push({ name: file.name, reason: 'Invalid file type. Allowed: PNG, JPG, JPEG, WEBP.' });
+                return;
+            }
+            if ((file.size || 0) > maxImageSizeBytes) {
+                invalidMessages.push(`${file.name}: exceeds 10MB limit`);
+                invalidImageItems.push({ name: file.name, reason: 'File is larger than 10MB.' });
+                return;
+            }
+            acceptedFiles.push(file);
+        });
+
+        if (!acceptedFiles.length && invalidMessages.length) {
+            showImageUploadAlert(invalidMessages.slice(0, 3).join(' | '));
+            renderInvalidImagePreviews();
+            return;
+        }
+
+        const existingKeys = new Set(selectedImageFiles.map((file) => getFileKey(file)));
+        let skippedForLimit = 0;
+        acceptedFiles.forEach((file) => {
+            const key = getFileKey(file);
+            if (!existingKeys.has(key)) {
+                if (selectedImageFiles.length >= maxImageCount) {
+                    skippedForLimit += 1;
+                    invalidImageItems.push({ name: file.name, reason: `Only ${maxImageCount} images can be uploaded at once.` });
+                    return;
+                }
+                selectedImageFiles.push(file);
+                existingKeys.add(key);
+            }
+        });
+
+        if (invalidMessages.length || skippedForLimit) {
+            const messages = [...invalidMessages];
+            if (skippedForLimit) {
+                messages.push(`Only ${maxImageCount} images are allowed`);
+            }
+            showImageUploadAlert(messages.slice(0, 3).join(' | '));
+        } else {
+            hideImageUploadAlert();
+        }
+
+        syncImageInputFiles();
+        renderImagePreviews();
+        renderInvalidImagePreviews();
+    };
+
+    const getSelectedRowsFromCheckboxes = () => sourceCheckboxes
+        .filter((checkbox) => checkbox.checked)
+        .map((checkbox) => ({
+            source_line_item_id: checkbox.value,
+            date: checkbox.dataset.entryDate || '',
+            fund_form_no: checkbox.dataset.fundFormNo || '',
+            description: checkbox.dataset.description || '',
+            amount: checkbox.dataset.amount || '0',
+        }));
+
+    const getVisibleSourceCheckboxes = () => sourceCheckboxes.filter((checkbox) => {
+        const row = checkbox.closest('.js-liquidation-source-row');
+        return row && !row.classList.contains('d-none');
+    });
+
+    const syncSourceSelectAllState = () => {
+        if (!sourceSelectAllCheckbox) {
+            return;
+        }
+        const visibleCheckboxes = getVisibleSourceCheckboxes();
+        if (!visibleCheckboxes.length) {
+            sourceSelectAllCheckbox.checked = false;
+            sourceSelectAllCheckbox.indeterminate = false;
+            sourceSelectAllCheckbox.disabled = true;
+            return;
+        }
+        const checkedCount = visibleCheckboxes.filter((checkbox) => checkbox.checked).length;
+        sourceSelectAllCheckbox.disabled = false;
+        sourceSelectAllCheckbox.checked = checkedCount > 0 && checkedCount === visibleCheckboxes.length;
+        sourceSelectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
+    };
+
+    const enforceMaxSelectableRows = (targetCheckbox) => {
+        const selectedCount = sourceCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectedCount <= maxSelectableRows) {
+            return true;
+        }
+        if (targetCheckbox) {
+            targetCheckbox.checked = false;
+        }
+        showLiquidationAlertModal(`You can only select up to ${maxSelectableRows} item(s).`, {
+            title: 'Selection Limit',
+        });
+        return false;
+    };
+
+    const buildPayloadFromRenderedSelectedRows = () => {
+        if (!selectedItemsBody) {
+            return [];
+        }
+        const rows = Array.from(selectedItemsBody.querySelectorAll('tr[data-source-line-item-id]'));
+        return rows.map((row) => ({
+            source_line_item_id: row.dataset.sourceLineItemId || '',
+            date: (row.querySelector('.js-liquidation-selected-date') || {}).value || row.dataset.defaultDate || '',
+            fund_form_no: row.dataset.fundFormNo || '',
+            description: row.dataset.description || '',
+            amount: row.dataset.amount || '0',
+        }));
+    };
+
+    const syncPayloadFromSelectedTable = () => {
+        if (!payloadInput) {
+            return;
+        }
+        const payloadRows = buildPayloadFromRenderedSelectedRows();
+        payloadInput.value = JSON.stringify(payloadRows);
+    };
+
+    const syncSelectedItems = () => {
+        if (!payloadInput || !selectedItemsBody || !selectedTotalLabel) {
+            return;
+        }
+        const selectedRows = getSelectedRowsFromCheckboxes();
+
+        if (!selectedRows.length) {
+            selectedItemsBody.innerHTML = '<tr><td colspan="4" class="text-center text-secondary py-3">Select item(s) above.</td></tr>';
+            selectedTotalLabel.textContent = formatCurrency(0);
+            payloadInput.value = '[]';
+            if (amountRequestedInput) {
+                amountRequestedInput.value = '0.00';
+            }
+            return;
+        }
+
+        let total = 0;
+        selectedItemsBody.innerHTML = selectedRows.map((item) => {
+            const amount = Number((item.amount || '0').toString().replace(/,/g, '')) || 0;
+            total += amount;
+            return `
+                <tr
+                    data-source-line-item-id="${item.source_line_item_id || ''}"
+                    data-default-date="${item.date || ''}"
+                    data-fund-form-no="${item.fund_form_no || ''}"
+                    data-description="${item.description || ''}"
+                    data-amount="${item.amount || '0'}"
+                >
+                    <td><input type="date" class="form-control form-control-sm js-liquidation-selected-date" value="${item.date || ''}"></td>
+                    <td>${item.fund_form_no || '-'}</td>
+                    <td>${item.description || '-'}</td>
+                    <td class="text-end">${formatCurrency(amount)}</td>
+                </tr>
+            `;
+        }).join('');
+
+        selectedItemsBody.querySelectorAll('.js-liquidation-selected-date').forEach((input) => {
+            input.addEventListener('change', syncPayloadFromSelectedTable);
+            input.addEventListener('input', syncPayloadFromSelectedTable);
+        });
+
+        syncPayloadFromSelectedTable();
+        selectedTotalLabel.textContent = formatCurrency(total);
+        if (amountRequestedInput) {
+            amountRequestedInput.value = total.toFixed(2);
+        }
+        updateLiquidationAmountSummaries();
+    };
+
+    const renderSourceItemsPage = (page) => {
+        if (!sourceRows.length) {
+            if (sourcePaginationMeta) {
+                sourcePaginationMeta.textContent = 'Page 0 of 0';
+            }
+            if (sourcePaginationWrap) {
+                sourcePaginationWrap.innerHTML = '';
+            }
+            return;
+        }
+        const totalPages = Math.max(1, Math.ceil(sourceRows.length / sourceItemsPerPage));
+        sourceCurrentPage = Math.max(1, Math.min(page, totalPages));
+        const start = (sourceCurrentPage - 1) * sourceItemsPerPage;
+        const end = start + sourceItemsPerPage;
+
+        sourceRows.forEach((row, index) => {
+            const isOnCurrentPage = index >= start && index < end;
+            row.classList.toggle('d-none', !isOnCurrentPage);
+            row.hidden = !isOnCurrentPage;
+            row.style.display = isOnCurrentPage ? '' : 'none';
+        });
+
+        if (sourcePaginationMeta) {
+            const visibleFrom = sourceRows.length ? (start + 1) : 0;
+            const visibleTo = Math.min(end, sourceRows.length);
+            sourcePaginationMeta.textContent = `Page ${sourceCurrentPage} of ${totalPages} • Showing ${visibleFrom}-${visibleTo} of ${sourceRows.length}`;
+        }
+
+        if (sourcePaginationWrap) {
+            let html = '';
+            html += sourceCurrentPage > 1
+                ? `<button type="button" class="btn btn-outline-secondary js-source-page-btn" data-page="${sourceCurrentPage - 1}">Prev</button>`
+                : '<button type="button" class="btn btn-outline-secondary" disabled>Prev</button>';
+
+            for (let pageNum = 1; pageNum <= totalPages; pageNum += 1) {
+                if (pageNum === sourceCurrentPage) {
+                    html += `<button type="button" class="btn btn-secondary" disabled>${pageNum}</button>`;
+                } else {
+                    html += `<button type="button" class="btn btn-outline-secondary js-source-page-btn" data-page="${pageNum}">${pageNum}</button>`;
+                }
+            }
+
+            html += sourceCurrentPage < totalPages
+                ? `<button type="button" class="btn btn-outline-secondary js-source-page-btn" data-page="${sourceCurrentPage + 1}">Next</button>`
+                : '<button type="button" class="btn btn-outline-secondary" disabled>Next</button>';
+
+            sourcePaginationWrap.innerHTML = html;
+            sourcePaginationWrap.querySelectorAll('.js-source-page-btn').forEach((button) => {
+                button.addEventListener('click', function () {
+                    const targetPage = Number(button.dataset.page || 1);
+                    renderSourceItemsPage(targetPage);
+                });
+            });
+        }
+        syncSourceSelectAllState();
+    };
+
+    const getSelectedLiquidationCheckboxes = () => liquidationCheckboxes.filter((checkbox) => checkbox.checked);
+    const getSelectedPendingCheckboxes = () => pendingCheckboxes.filter((checkbox) => checkbox.checked);
+    const openLiquidationPrintWindow = async (printUrl) => {
+        if (!printUrl) {
+            await showLiquidationAlertModal('Print endpoint is not configured.', {
+                title: 'Print Unavailable',
+            });
+            return false;
+        }
+        const openedWindow = window.open(printUrl, '_blank');
+        if (!openedWindow) {
+            await showLiquidationAlertModal('Please allow popups for this site to print selected liquidation forms.', {
+                title: 'Popup Blocked',
+            });
+            return false;
+        }
+        try {
+            openedWindow.focus();
+            window.setTimeout(() => {
+                try {
+                    openedWindow.print();
+                } catch (error) {
+                    // Keep silent; browser may restrict auto-print for PDF viewers.
+                }
+            }, 600);
+        } catch (error) {
+            // Keep silent; popup is already opened with printable PDF.
+        }
+        return true;
+    };
+
+    const syncLiquidationBulkSelection = () => {
+        const selected = getSelectedLiquidationCheckboxes();
+        const selectedCount = selected.length;
+
+        if (liquidationSelectedCount) {
+            liquidationSelectedCount.textContent = String(selectedCount);
+        }
+        if (liquidationBulkActionBar) {
+            liquidationBulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (liquidationSelectAll) {
+            liquidationSelectAll.checked = selectedCount > 0 && selectedCount === liquidationCheckboxes.length;
+            liquidationSelectAll.indeterminate = selectedCount > 0 && selectedCount < liquidationCheckboxes.length;
+        }
+    };
+
+    const syncPendingBulkSelection = () => {
+        const selected = getSelectedPendingCheckboxes();
+        const selectedCount = selected.length;
+
+        if (pendingSelectedCount) {
+            pendingSelectedCount.textContent = String(selectedCount);
+        }
+        if (pendingBulkActionBar) {
+            pendingBulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (pendingSelectAll) {
+            pendingSelectAll.checked = selectedCount > 0 && selectedCount === pendingCheckboxes.length;
+            pendingSelectAll.indeterminate = selectedCount > 0 && selectedCount < pendingCheckboxes.length;
+        }
+    };
+
+    if (liquidationSelectAll) {
+        liquidationSelectAll.addEventListener('change', function () {
+            liquidationCheckboxes.forEach((checkbox) => {
+                checkbox.checked = liquidationSelectAll.checked;
+            });
+            syncLiquidationBulkSelection();
+        });
+    }
+
+    liquidationCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', syncLiquidationBulkSelection);
+    });
+
+    if (liquidationBulkClearBtn) {
+        liquidationBulkClearBtn.addEventListener('click', function () {
+            liquidationCheckboxes.forEach((checkbox) => {
+                checkbox.checked = false;
+            });
+            if (liquidationSelectAll) {
+                liquidationSelectAll.checked = false;
+                liquidationSelectAll.indeterminate = false;
+            }
+            syncLiquidationBulkSelection();
+        });
+    }
+
+    if (liquidationPrintButtons.length) {
+        liquidationPrintButtons.forEach((button) => {
+            button.addEventListener('click', async function () {
+                const printUrl = button.dataset.printUrl || '';
+                await openLiquidationPrintWindow(printUrl);
+            });
+        });
+    }
+
+    if (liquidationBulkPrintBtn) {
+        liquidationBulkPrintBtn.addEventListener('click', async function () {
+            const selectedIds = getSelectedLiquidationCheckboxes().map((checkbox) => checkbox.value);
+            if (!selectedIds.length) {
+                await showLiquidationAlertModal('Select at least one liquidation form before printing.', {
+                    title: 'No Selected Records',
+                });
+                return;
+            }
+            const baseUrl = liquidationBulkPrintBtn.dataset.bulkPrintUrl || '';
+            if (!baseUrl) {
+                await showLiquidationAlertModal('Bulk print endpoint is not configured.', {
+                    title: 'Print Unavailable',
+                });
+                return;
+            }
+            const printUrl = `${baseUrl}?selected_ids=${encodeURIComponent(selectedIds.join(','))}`;
+            await openLiquidationPrintWindow(printUrl);
+        });
+    }
+
+    if (liquidationBulkDownloadBtn) {
+        liquidationBulkDownloadBtn.addEventListener('click', async function () {
+            const selectedIds = getSelectedLiquidationCheckboxes().map((checkbox) => checkbox.value);
+            if (!selectedIds.length) {
+                await showLiquidationAlertModal('Select at least one liquidation form before downloading.', {
+                    title: 'No Selected Records',
+                });
+                return;
+            }
+            const baseUrl = liquidationBulkDownloadBtn.dataset.bulkDownloadUrl || '';
+            if (!baseUrl) {
+                return;
+            }
+            const downloadUrl = `${baseUrl}?selected_ids=${encodeURIComponent(selectedIds.join(','))}`;
+            window.open(downloadUrl, '_blank');
+        });
+    }
+
+    if (liquidationBulkDeleteBtn) {
+        liquidationBulkDeleteBtn.addEventListener('click', async function () {
+            if (!liquidationBulkDeleteForm) {
+                return;
+            }
+            const selectedCount = getSelectedLiquidationCheckboxes().length;
+            if (!selectedCount) {
+                await showLiquidationAlertModal('Select at least one liquidation form before deleting.', {
+                    title: 'No Selected Records',
+                });
+                return;
+            }
+            const { confirmed } = await showLiquidationConfirmModal({
+                title: 'Delete Liquidations',
+                message: `Delete ${selectedCount} selected liquidation form(s)?`,
+                confirmLabel: 'Delete',
+                confirmClass: 'btn-danger',
+            });
+            if (!confirmed) {
+                return;
+            }
+            liquidationBulkDeleteForm.submit();
+        });
+    }
+
+    if (pendingSelectAll) {
+        pendingSelectAll.addEventListener('change', function () {
+            pendingCheckboxes.forEach((checkbox) => {
+                checkbox.checked = pendingSelectAll.checked;
+            });
+            syncPendingBulkSelection();
+        });
+    }
+
+    pendingCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', syncPendingBulkSelection);
+    });
+
+    if (pendingBulkClearBtn) {
+        pendingBulkClearBtn.addEventListener('click', function () {
+            pendingCheckboxes.forEach((checkbox) => {
+                checkbox.checked = false;
+            });
+            if (pendingSelectAll) {
+                pendingSelectAll.checked = false;
+                pendingSelectAll.indeterminate = false;
+            }
+            syncPendingBulkSelection();
+        });
+    }
+
+    const submitPendingBulkDecision = async (decision) => {
+        if (!pendingBulkDecisionForm || !pendingBulkDecisionInput || !pendingBulkReasonInput) {
+            return;
+        }
+        const selected = getSelectedPendingCheckboxes();
+        if (!selected.length) {
+            await showLiquidationAlertModal('Select at least one pending liquidation form.', {
+                title: 'No Selected Records',
+            });
+            return;
+        }
+        const isApprove = decision === 'approve';
+        const decisionLabel = isApprove ? 'Approve' : 'Reject';
+        const confirmationMessage = isApprove
+            ? `Approve ${selected.length} selected pending liquidation form(s)?`
+            : `Reject ${selected.length} selected pending liquidation form(s)?`;
+        const { confirmed, value } = await showLiquidationConfirmModal({
+            title: `Bulk ${decisionLabel}`,
+            message: confirmationMessage,
+            confirmLabel: decisionLabel,
+            confirmClass: isApprove ? 'btn-success' : 'btn-danger',
+            includeInput: true,
+            inputLabel: isApprove ? 'Optional approval note' : 'Optional rejection reason',
+            inputPlaceholder: isApprove ? 'Type optional approval note' : 'Type optional rejection reason',
+        });
+        if (!confirmed) {
+            return;
+        }
+        pendingBulkDecisionInput.value = decision;
+        pendingBulkReasonInput.value = value.trim();
+        pendingBulkDecisionForm.submit();
+    };
+
+    if (pendingBulkApproveBtn) {
+        pendingBulkApproveBtn.addEventListener('click', function () {
+            submitPendingBulkDecision('approve');
+        });
+    }
+
+    if (pendingBulkRejectBtn) {
+        pendingBulkRejectBtn.addEventListener('click', function () {
+            submitPendingBulkDecision('reject');
+        });
+    }
+
+    liquidationDecisionButtons.forEach((button) => {
+        button.addEventListener('click', async function () {
+            if (!liquidationDecisionForm || !liquidationDecisionActionInput || !liquidationDecisionIdInput || !liquidationDecisionReasonInput) {
+                return;
+            }
+            const actionType = button.dataset.action || '';
+            const liquidationId = button.dataset.id || '';
+            const label = button.dataset.label || 'this liquidation';
+            if (!actionType || !liquidationId) {
+                return;
+            }
+
+            let decisionMessage = 'Proceed with this decision?';
+            let modalTitle = 'Confirm Liquidation Action';
+            let confirmLabel = 'Confirm';
+            let confirmClass = 'btn-primary';
+            let inputLabel = 'Optional note';
+            let inputPlaceholder = 'Type optional note';
+
+            if (actionType === 'approve_liquidation') {
+                decisionMessage = `Approve liquidation "${label}"?`;
+                modalTitle = 'Approve Liquidation';
+                confirmLabel = 'Approve';
+                confirmClass = 'btn-success';
+                inputLabel = 'Optional approval note';
+                inputPlaceholder = 'Type optional approval note';
+            } else if (actionType === 'reject_liquidation') {
+                decisionMessage = `Reject liquidation "${label}"?`;
+                modalTitle = 'Reject Liquidation';
+                confirmLabel = 'Reject';
+                confirmClass = 'btn-danger';
+                inputLabel = 'Optional rejection reason';
+                inputPlaceholder = 'Type optional rejection reason';
+            } else if (actionType === 'cancel_pending_liquidation') {
+                decisionMessage = `Cancel liquidation request "${label}"?`;
+                modalTitle = 'Cancel Liquidation Request';
+                confirmLabel = 'Cancel Request';
+                confirmClass = 'btn-warning';
+                inputLabel = 'Optional cancellation note';
+                inputPlaceholder = 'Type optional cancellation note';
+            }
+
+            const { confirmed, value } = await showLiquidationConfirmModal({
+                title: modalTitle,
+                message: decisionMessage,
+                confirmLabel,
+                confirmClass,
+                includeInput: true,
+                inputLabel,
+                inputPlaceholder,
+            });
+            if (!confirmed) {
+                return;
+            }
+
+            liquidationDecisionActionInput.value = actionType;
+            liquidationDecisionIdInput.value = liquidationId;
+            liquidationDecisionReasonInput.value = value.trim();
+            liquidationDecisionForm.submit();
+        });
+    });
+
+    liquidationDetailRows.forEach((row) => {
+        const openDetailModal = () => {
+            const modalId = row.dataset.liquidationModalId || '';
+            if (!modalId || !window.bootstrap || !window.bootstrap.Modal) {
+                return;
+            }
+            const modalElement = document.getElementById(modalId);
+            if (!modalElement) {
+                return;
+            }
+            window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+        };
+
+        row.addEventListener('click', function (event) {
+            const interactiveElement = event.target.closest('a, button, input, select, textarea, label, .js-liquidation-row-action-cell');
+            if (interactiveElement) {
+                return;
+            }
+            openDetailModal();
+        });
+
+        row.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') {
+                return;
+            }
+            event.preventDefault();
+            openDetailModal();
+        });
+    });
+
+    sourceCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', function () {
+            enforceMaxSelectableRows(checkbox);
+            syncSelectedItems();
+            syncSourceSelectAllState();
+        });
+    });
+
+    if (sourceSelectAllCheckbox) {
+        sourceSelectAllCheckbox.addEventListener('change', function () {
+            if (!sourceSelectAllCheckbox.checked) {
+                sourceCheckboxes.forEach((checkbox) => {
+                    checkbox.checked = false;
+                });
+                syncSelectedItems();
+                syncSourceSelectAllState();
+                return;
+            }
+
+            const visibleCheckboxes = getVisibleSourceCheckboxes();
+            let selectedCount = sourceCheckboxes.filter((checkbox) => checkbox.checked).length;
+            visibleCheckboxes.forEach((checkbox) => {
+                if (checkbox.checked) {
+                    return;
+                }
+                if (selectedCount >= maxSelectableRows) {
+                    return;
+                }
+                checkbox.checked = true;
+                selectedCount += 1;
+            });
+
+            syncSelectedItems();
+            syncSourceSelectAllState();
+            if (selectedCount >= maxSelectableRows && visibleCheckboxes.some((checkbox) => !checkbox.checked)) {
+                showLiquidationAlertModal(`Selection stopped at ${maxSelectableRows} item(s), based on your settings.`, {
+                    title: 'Selection Limit',
+                });
+            }
+        });
+    }
+
+    if (amountRequestedInput) {
+        amountRequestedInput.readOnly = true;
+        amountRequestedInput.addEventListener('input', updateLiquidationAmountSummaries);
+        amountRequestedInput.addEventListener('change', updateLiquidationAmountSummaries);
+    }
+    if (amountReturnedOverInput) {
+        amountReturnedOverInput.addEventListener('input', updateLiquidationAmountSummaries);
+        amountReturnedOverInput.addEventListener('change', updateLiquidationAmountSummaries);
+    }
+    returnedOverTypeInputs.forEach((input) => {
+        input.addEventListener('change', updateLiquidationAmountSummaries);
+    });
+
+    if (imagePreviewStrip) {
+        imagePreviewStrip.addEventListener('click', function (event) {
+            const removeButton = event.target.closest('[data-remove-upload]');
+            if (!removeButton) {
+                return;
+            }
+            const index = Number(removeButton.dataset.removeUpload);
+            if (Number.isNaN(index)) {
+                return;
+            }
+            selectedImageFiles.splice(index, 1);
+            syncImageInputFiles();
+            renderImagePreviews();
+            if (selectedImageFiles.length < maxImageCount) {
+                hideImageUploadAlert();
+            }
+        });
+    }
+
+    if (imageInput) {
+        imageInput.addEventListener('change', function () {
+            mergeSelectedFiles(imageInput.files);
+        });
+    }
+
+    if (imageDropzone && imageInput) {
+        imageDropzone.addEventListener('click', function () {
+            imageInput.click();
+        });
+        imageDropzone.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                imageInput.click();
+            }
+        });
+        ['dragenter', 'dragover'].forEach((eventName) => {
+            imageDropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                imageDropzone.classList.add('is-dragover');
+            });
+        });
+        ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+            imageDropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                imageDropzone.classList.remove('is-dragover');
+            });
+        });
+        imageDropzone.addEventListener('drop', function (event) {
+            mergeSelectedFiles(event.dataTransfer ? event.dataTransfer.files : []);
+        });
+    }
+
+    if (liquidationForm) {
+        liquidationForm.addEventListener('submit', function (event) {
+            syncPayloadFromSelectedTable();
+            if (!payloadInput || !payloadInput.value || payloadInput.value === '[]') {
+                event.preventDefault();
+                showLiquidationAlertModal('Select at least one approved line item.', {
+                    title: 'No Selected Items',
+                });
+                return;
+            }
+
+            if (liquidationForm.dataset.submitting === 'true') {
+                event.preventDefault();
+                return;
+            }
+
+            if (selectedImageFiles.length === 0 && imageInput && imageInput.files && imageInput.files.length) {
+                mergeSelectedFiles(imageInput.files);
+            }
+            syncImageInputFiles();
+
+            const filesForProgress = selectedImageFiles.length
+                ? selectedImageFiles.slice()
+                : Array.from((imageInput && imageInput.files) ? imageInput.files : []);
+            const hasImageUploads = filesForProgress.length > 0;
+
+            liquidationForm.dataset.submitting = 'true';
+            const submitButtons = Array.from(liquidationForm.querySelectorAll('button[type="submit"]'));
+            submitButtons.forEach((button) => {
+                button.disabled = true;
+                button.textContent = hasImageUploads ? 'Uploading...' : 'Saving...';
+            });
+
+            if (!hasImageUploads || !window.XMLHttpRequest) {
+                return;
+            }
+
+            event.preventDefault();
+            const progressBars = Array.from(liquidationForm.querySelectorAll('[data-upload-progress]'));
+            const progressLabels = Array.from(liquidationForm.querySelectorAll('[data-upload-progress-label]'));
+            const totalBytes = filesForProgress.reduce((sum, file) => sum + (file.size || 0), 0);
+            const cumulativeSizes = [];
+            let runningTotal = 0;
+            filesForProgress.forEach((file) => {
+                runningTotal += file.size || 0;
+                cumulativeSizes.push(runningTotal);
+            });
+
+            const setProgressFromLoaded = (loadedBytes) => {
+                filesForProgress.forEach((file, index) => {
+                    const previousCutoff = index === 0 ? 0 : cumulativeSizes[index - 1];
+                    const fileLoaded = Math.max(0, Math.min((loadedBytes || 0) - previousCutoff, file.size || 0));
+                    const percent = file.size ? Math.round((fileLoaded / file.size) * 100) : 100;
+                    if (progressBars[index]) {
+                        progressBars[index].style.width = `${percent}%`;
+                    }
+                    if (progressLabels[index]) {
+                        progressLabels[index].textContent = percent >= 100 ? 'Upload complete' : `Uploading... ${percent}%`;
+                    }
+                });
+            };
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', liquidationForm.action || window.location.href);
+            xhr.upload.addEventListener('progress', function (progressEvent) {
+                if (!progressEvent.lengthComputable || !totalBytes) {
+                    return;
+                }
+                const estimatedLoaded = Math.min(progressEvent.loaded, totalBytes);
+                setProgressFromLoaded(estimatedLoaded);
+            });
+
+            xhr.addEventListener('load', function () {
+                if (xhr.status >= 200 && xhr.status < 400) {
+                    setProgressFromLoaded(totalBytes);
+                    const nextUrl = xhr.responseURL || window.location.href;
+                    window.location.href = nextUrl;
+                    return;
+                }
+
+                liquidationForm.dataset.submitting = 'false';
+                submitButtons.forEach((button) => {
+                    button.disabled = false;
+                    button.textContent = 'Save Liquidation';
+                });
+                progressLabels.forEach((label) => {
+                    label.textContent = 'Upload failed';
+                });
+                showLiquidationAlertModal('Upload failed. Please try again.', {
+                    title: 'Upload Failed',
+                    confirmClass: 'btn-danger',
+                });
+            });
+
+            xhr.addEventListener('error', function () {
+                liquidationForm.dataset.submitting = 'false';
+                submitButtons.forEach((button) => {
+                    button.disabled = false;
+                    button.textContent = 'Save Liquidation';
+                });
+                progressLabels.forEach((label) => {
+                    label.textContent = 'Upload failed';
+                });
+                showLiquidationAlertModal('Upload failed. Please try again.', {
+                    title: 'Upload Failed',
+                    confirmClass: 'btn-danger',
+                });
+            });
+
+            const formData = new FormData(liquidationForm);
+            xhr.send(formData);
+        });
+    }
+
+    renderSourceItemsPage(1);
+    if (createModalElement) {
+        createModalElement.addEventListener('shown.bs.modal', function () {
+            renderSourceItemsPage(sourceCurrentPage || 1);
+        });
+    }
+    syncLiquidationBulkSelection();
+    syncPendingBulkSelection();
+    updateLiquidationAmountSummaries();
+
+    const hasLiquidationErrors = {{ liquidation_form.errors|yesno:"true,false" }};
+    if (hasLiquidationErrors && createModalElement && window.bootstrap && window.bootstrap.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(createModalElement).show();
+    }
+
+    const hasTemplateErrors = {{ template_form.errors|yesno:"true,false" }};
+    if (hasTemplateErrors && templateModalElement && window.bootstrap && window.bootstrap.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(templateModalElement).show();
+    }
+
+    document.querySelectorAll('.js-copy-liquidation-placeholder').forEach(function (button) {
+        button.addEventListener('click', async function () {
+            const value = button.getAttribute('data-copy-value') || '';
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const helper = document.createElement('textarea');
+                    helper.value = value;
+                    helper.setAttribute('readonly', 'readonly');
+                    helper.style.position = 'absolute';
+                    helper.style.left = '-9999px';
+                    document.body.appendChild(helper);
+                    helper.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(helper);
+                }
+                const originalLabel = button.textContent;
+                button.textContent = 'Copied';
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-success');
+                window.setTimeout(function () {
+                    button.textContent = originalLabel;
+                    button.classList.remove('btn-success');
+                    button.classList.add('btn-outline-success');
+                }, 1400);
+            } catch (error) {
+                button.textContent = 'Failed';
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-outline-danger');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,346 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Client-side Conversion{% endblock %}
+{% block page_heading %}Fund Request Client-side Conversion{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+    <div>
+        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Approved Fund Request" }}</h2>
+        <p class="text-secondary mb-0">
+            Server conversion failed. The portal is now running a browser conversion fallback for <strong>{{ template_extension|upper }}</strong>.
+        </p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <button type="button" class="btn btn-success" id="clientPrintBtn">Print / Save as PDF</button>
+        <a class="btn btn-outline-secondary" href="{% url 'fund_request_document' fund_request.id %}" target="_blank">Open Original File</a>
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-3 p-lg-4">
+        <div id="clientConversionStatus" class="alert alert-info mb-3">Converting on browser...</div>
+        <div id="clientConversionOutput" class="client-conversion-output"></div>
+    </div>
+</div>
+
+<style>
+    .client-conversion-output {
+        min-height: 60vh;
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        border-radius: 0.9rem;
+        background: #fff;
+        padding: 1rem;
+        overflow: auto;
+    }
+
+    .client-sheet-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1rem;
+    }
+
+    .client-sheet-table td,
+    .client-sheet-table th {
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        padding: 0.35rem 0.45rem;
+        vertical-align: top;
+        font-size: 0.88rem;
+    }
+
+    .client-sheet-title {
+        margin: 1rem 0 0.5rem;
+        font-weight: 600;
+    }
+
+    .client-docx-paragraph {
+        margin-bottom: 0.75rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    @media print {
+        .btn,
+        .app-sidebar,
+        .app-header {
+            display: none !important;
+        }
+
+        .client-conversion-output {
+            border: 0;
+            padding: 0;
+            min-height: auto;
+        }
+    }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+    (function () {
+        const extension = '{{ template_extension|lower }}';
+        const fileName = '{{ source_filename|escapejs }}';
+        const base64Payload = '{{ source_content_b64 }}';
+        const statusEl = document.getElementById('clientConversionStatus');
+        const outputEl = document.getElementById('clientConversionOutput');
+        const printBtn = document.getElementById('clientPrintBtn');
+        const toastContainer = document.getElementById('appBottomToastContainer');
+
+        const showToast = (message) => {
+            if (!toastContainer || !window.bootstrap || !window.bootstrap.Toast) {
+                return;
+            }
+            const toast = document.createElement('div');
+            toast.className = 'toast align-items-center text-bg-danger border-0 mb-2';
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            `;
+            toastContainer.appendChild(toast);
+            const instance = window.bootstrap.Toast.getOrCreateInstance(toast, { delay: 5200 });
+            toast.addEventListener('hidden.bs.toast', () => toast.remove());
+            instance.show();
+        };
+
+        const decodeBase64ToBytes = (b64) => {
+            const clean = (b64 || '').replace(/\s+/g, '');
+            const binary = window.atob(clean);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        };
+
+        const parseXml = (text) => {
+            const parser = new DOMParser();
+            return parser.parseFromString(text, 'application/xml');
+        };
+
+        const getAttrBySuffix = (element, suffix) => {
+            if (!element || !element.attributes) {
+                return '';
+            }
+            for (const attr of Array.from(element.attributes)) {
+                if ((attr.name || '').toLowerCase().endsWith(suffix.toLowerCase())) {
+                    return attr.value || '';
+                }
+            }
+            return '';
+        };
+
+        const renderDocx = async (zip) => {
+            const documentFile = zip.file('word/document.xml');
+            if (!documentFile) {
+                throw new Error('Missing word/document.xml');
+            }
+            const xml = parseXml(await documentFile.async('string'));
+            const paragraphs = Array.from(xml.getElementsByTagNameNS('*', 'p'));
+            const visibleText = [];
+
+            paragraphs.forEach((paragraph) => {
+                const parts = Array.from(paragraph.getElementsByTagNameNS('*', 't'))
+                    .map((node) => node.textContent || '')
+                    .join('')
+                    .trim();
+                if (parts) {
+                    visibleText.push(parts);
+                }
+            });
+
+            if (visibleText.length === 0) {
+                throw new Error('No visible text was found in this DOCX file.');
+            }
+
+            const title = document.createElement('div');
+            title.className = 'client-sheet-title';
+            title.textContent = `DOCX: ${fileName}`;
+            outputEl.appendChild(title);
+
+            visibleText.forEach((line) => {
+                const p = document.createElement('p');
+                p.className = 'client-docx-paragraph';
+                p.textContent = line;
+                outputEl.appendChild(p);
+            });
+        };
+
+        const getXlsxSharedStrings = async (zip) => {
+            const shared = zip.file('xl/sharedStrings.xml');
+            if (!shared) {
+                return [];
+            }
+            const xml = parseXml(await shared.async('string'));
+            return Array.from(xml.getElementsByTagNameNS('*', 'si')).map((siNode) => {
+                return Array.from(siNode.getElementsByTagNameNS('*', 't'))
+                    .map((textNode) => textNode.textContent || '')
+                    .join('');
+            });
+        };
+
+        const getWorkbookSheetTargets = async (zip) => {
+            const workbookFile = zip.file('xl/workbook.xml');
+            const relsFile = zip.file('xl/_rels/workbook.xml.rels');
+            if (!workbookFile || !relsFile) {
+                throw new Error('Missing workbook structure files.');
+            }
+
+            const workbookXml = parseXml(await workbookFile.async('string'));
+            const relsXml = parseXml(await relsFile.async('string'));
+            const relMap = {};
+
+            Array.from(relsXml.getElementsByTagNameNS('*', 'Relationship')).forEach((relNode) => {
+                const relId = relNode.getAttribute('Id') || '';
+                const relTarget = relNode.getAttribute('Target') || '';
+                if (!relId || !relTarget) {
+                    return;
+                }
+                if (relTarget.startsWith('xl/')) {
+                    relMap[relId] = relTarget;
+                } else if (relTarget.startsWith('/')) {
+                    relMap[relId] = relTarget.slice(1);
+                } else {
+                    relMap[relId] = `xl/${relTarget}`;
+                }
+            });
+
+            const sheets = [];
+            Array.from(workbookXml.getElementsByTagNameNS('*', 'sheet')).forEach((sheetNode, index) => {
+                const name = sheetNode.getAttribute('name') || `Sheet ${index + 1}`;
+                const relId = getAttrBySuffix(sheetNode, ':id');
+                const target = relMap[relId];
+                if (target) {
+                    sheets.push({ name, target });
+                }
+            });
+            return sheets;
+        };
+
+        const resolveXlsxCellValue = (cellNode, sharedStrings) => {
+            const type = cellNode.getAttribute('t') || '';
+            const valueNode = cellNode.getElementsByTagNameNS('*', 'v')[0];
+            if (!valueNode) {
+                return '';
+            }
+            const raw = (valueNode.textContent || '').trim();
+            if (!raw) {
+                return '';
+            }
+            if (type === 's') {
+                const idx = Number(raw);
+                return Number.isInteger(idx) && idx >= 0 ? (sharedStrings[idx] || raw) : raw;
+            }
+            if (type === 'b') {
+                return raw === '1' ? 'TRUE' : 'FALSE';
+            }
+            return raw;
+        };
+
+        const renderXlsx = async (zip) => {
+            const sharedStrings = await getXlsxSharedStrings(zip);
+            const sheets = await getWorkbookSheetTargets(zip);
+            if (!sheets.length) {
+                throw new Error('No worksheets found in this XLSX file.');
+            }
+
+            const workbookTitle = document.createElement('div');
+            workbookTitle.className = 'client-sheet-title';
+            workbookTitle.textContent = `XLSX: ${fileName}`;
+            outputEl.appendChild(workbookTitle);
+
+            for (const sheet of sheets) {
+                const sheetFile = zip.file(sheet.target);
+                if (!sheetFile) {
+                    continue;
+                }
+                const sheetXml = parseXml(await sheetFile.async('string'));
+                const rows = Array.from(sheetXml.getElementsByTagNameNS('*', 'row'));
+
+                const title = document.createElement('div');
+                title.className = 'client-sheet-title';
+                title.textContent = sheet.name;
+                outputEl.appendChild(title);
+
+                const table = document.createElement('table');
+                table.className = 'client-sheet-table';
+                const tbody = document.createElement('tbody');
+
+                rows.forEach((rowNode) => {
+                    const tr = document.createElement('tr');
+                    const cells = Array.from(rowNode.getElementsByTagNameNS('*', 'c'));
+                    let hasVisibleCell = false;
+                    cells.forEach((cellNode) => {
+                        const td = document.createElement('td');
+                        const value = resolveXlsxCellValue(cellNode, sharedStrings);
+                        td.textContent = value;
+                        if (value) {
+                            hasVisibleCell = true;
+                        }
+                        tr.appendChild(td);
+                    });
+                    if (hasVisibleCell) {
+                        tbody.appendChild(tr);
+                    }
+                });
+
+                if (!tbody.children.length) {
+                    const emptyRow = document.createElement('tr');
+                    const emptyCell = document.createElement('td');
+                    emptyCell.textContent = 'No visible values found in this sheet.';
+                    emptyRow.appendChild(emptyCell);
+                    tbody.appendChild(emptyRow);
+                }
+
+                table.appendChild(tbody);
+                outputEl.appendChild(table);
+            }
+        };
+
+        const markSuccess = () => {
+            statusEl.className = 'alert alert-success mb-3';
+            statusEl.textContent = 'Client-side conversion completed. You can now print or Save as PDF.';
+        };
+
+        const markFailure = (error) => {
+            statusEl.className = 'alert alert-danger mb-3';
+            statusEl.textContent = 'Client-side conversion failed.';
+            showToast('Conversion failed on client-side. Please install Microsoft Office/libreoffice/soffice on server or open original file.');
+            const details = document.createElement('div');
+            details.className = 'text-danger small';
+            details.textContent = `Details: ${error && error.message ? error.message : 'Unknown conversion error.'}`;
+            outputEl.innerHTML = '';
+            outputEl.appendChild(details);
+        };
+
+        if (printBtn) {
+            printBtn.addEventListener('click', () => window.print());
+        }
+
+        const run = async () => {
+            try {
+                const bytes = decodeBase64ToBytes(base64Payload);
+                const zip = await window.JSZip.loadAsync(bytes);
+                outputEl.innerHTML = '';
+
+                if (extension === '.docx') {
+                    await renderDocx(zip);
+                } else if (extension === '.xlsx') {
+                    await renderXlsx(zip);
+                } else {
+                    throw new Error(`Unsupported extension for client conversion: ${extension}`);
+                }
+                markSuccess();
+            } catch (error) {
+                markFailure(error);
+            }
+        };
+
+        run();
+    })();
+</script>
+{% endblock %}

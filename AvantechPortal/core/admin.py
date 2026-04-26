@@ -18,8 +18,13 @@ from .models import (
 	DevelopmentFeedbackComment,
 	EmailVerificationToken,
 	FundRequest,
+	FundRequestAutoApproveRule,
 	FundRequestLineItem,
 	FundRequestTemplate,
+	Liquidation,
+	LiquidationAttachment,
+	LiquidationLineItem,
+	LiquidationTemplate,
 	LoginEvent,
 	Notification,
 	PatchNote,
@@ -166,6 +171,42 @@ class FundRequestLineItemAdmin(admin.ModelAdmin):
 	list_display = ('fund_request', 'entry_date', 'particulars', 'amount')
 	list_filter = ('entry_date',)
 	search_fields = ('fund_request__serial_number', 'particulars')
+
+
+@admin.register(FundRequestAutoApproveRule)
+class FundRequestAutoApproveRuleAdmin(admin.ModelAdmin):
+	list_display = ('name', 'is_active', 'created_by', 'updated_at')
+	list_filter = ('is_active', 'updated_at')
+	search_fields = ('name', 'requester_keyword', 'department_keyword', 'branch_keyword', 'reason')
+
+
+@admin.register(LiquidationTemplate)
+class LiquidationTemplateAdmin(admin.ModelAdmin):
+	list_display = ('name', 'is_active', 'uploaded_by', 'updated_at')
+	list_filter = ('is_active', 'updated_at')
+	search_fields = ('name', 'notes', 'uploaded_by__username', 'uploaded_by__email')
+
+
+@admin.register(Liquidation)
+class LiquidationAdmin(admin.ModelAdmin):
+	list_display = ('control_number', 'name', 'liquidation_date', 'branch', 'position', 'returned_or_over_type', 'total_amount', 'created_by')
+	list_filter = ('liquidation_date', 'branch', 'position')
+	search_fields = ('control_number', 'name', 'branch', 'position', 'requested_by_name')
+	readonly_fields = ('control_number', 'request_year', 'control_sequence', 'total_amount', 'created_at', 'updated_at')
+
+
+@admin.register(LiquidationLineItem)
+class LiquidationLineItemAdmin(admin.ModelAdmin):
+	list_display = ('liquidation', 'entry_date', 'fund_form_no', 'description', 'amount')
+	list_filter = ('entry_date',)
+	search_fields = ('liquidation__name', 'fund_form_no', 'description')
+
+
+@admin.register(LiquidationAttachment)
+class LiquidationAttachmentAdmin(admin.ModelAdmin):
+	list_display = ('liquidation', 'uploaded_by', 'created_at')
+	list_filter = ('created_at',)
+	search_fields = ('liquidation__control_number', 'liquidation__name', 'image')
 
 
 @admin.register(AssetDepartment)

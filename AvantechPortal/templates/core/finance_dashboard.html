@@ -1,0 +1,92 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Finance Dashboard{% endblock %}
+{% block page_heading %}Finance Dashboard{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="text-secondary small">Approved Fund Requests</div>
+                <div class="display-6 fw-bold text-success-emphasis">{{ approved_fund_request_count }}</div>
+            </div>
+            <div class="card-footer bg-white">
+                <a class="btn btn-sm btn-outline-success" href="{% url 'fund_requests_list' %}">Open Fund Requests</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="text-secondary small">Approved Liquidations</div>
+                <div class="display-6 fw-bold text-primary-emphasis">{{ approved_liquidation_count }}</div>
+            </div>
+            <div class="card-footer bg-white">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'liquidation_page' %}">Open Liquidation</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 g-md-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Recent Approved Fund Requests</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Serial</th>
+                                <th>Name</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in recent_fund_requests %}
+                                <tr>
+                                    <td>{{ row.serial_number|default:'-' }}</td>
+                                    <td>{{ row.requester_name }}</td>
+                                    <td>{{ row.request_date|date:'F d, Y' }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="3" class="text-center text-secondary py-3">No approved fund requests yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Recent Approved Liquidations</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Control</th>
+                                <th>Name</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in recent_liquidations %}
+                                <tr>
+                                    <td>{{ row.control_number|default:'-' }}</td>
+                                    <td>{{ row.name }}</td>
+                                    <td>{{ row.liquidation_date|date:'F d, Y' }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="3" class="text-center text-secondary py-3">No approved liquidation records yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

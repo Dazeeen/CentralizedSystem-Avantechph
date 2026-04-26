@@ -108,7 +108,7 @@
             <div class="muted">Generated on {{ fund_request.created_at|date:'Y-m-d H:i' }}</div>
         </div>
         <div class="header-col is-right">
-            <div><strong>Serial No.:</strong> {{ fund_request.serial_number|default:'Pending Approval' }}</div>
+            <div><strong>Serial No.:</strong> {{ fund_request.serial_number|default:'For Approval' }}</div>
             <div><strong>Request Date:</strong> {{ fund_request.request_date|date:'Y-m-d' }}</div>
             <div><strong>Template:</strong> {{ template_record.name|default:'Auto-generated' }}</div>
         </div>
@@ -142,7 +142,7 @@
         <tbody>
             {% for item in line_items %}
                 <tr>
-                    <td>{{ item.entry_date|date:'Y-m-d' }}</td>
+                    <td>{{ item.entry_date|date:'m/d/Y' }}</td>
                     <td>{{ item.particulars }}</td>
                     <td>PHP {{ item.amount }}</td>
                 </tr>

@@ -1,5 +1,8 @@
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
+import base64
 import csv
+from functools import lru_cache
 from io import BytesIO
 from json import dumps
 import os
@@ -12,6 +15,8 @@ from urllib.parse import quote
 import zipfile
 from xml.sax.saxutils import escape
 import re
+import textwrap
+import xml.etree.ElementTree as ET
 
 from django.conf import settings
 from django.contrib import messages
@@ -22,7 +27,7 @@ from django.contrib.auth.views import PasswordChangeView, PasswordResetConfirmVi
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.utils import OperationalError
 from django.db.models import Count, Max, Sum
 from django.db.models import Q
@@ -33,7 +38,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.dateparse import parse_date
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.http import urlencode
 from django.views import View
@@ -43,7 +48,12 @@ from axes.models import AccessAttempt, AccessFailureLog
 from axes.utils import reset as axes_reset
 from django_otp import devices_for_user
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+try:
+	from pypdf import PdfReader, PdfWriter
+except Exception:
+	PdfReader = None
+	PdfWriter = None
 
 try:
 	import qrcode
@@ -67,6 +77,8 @@ from .forms import (
 	EmailVerificationOTPForm,
 	FundRequestForm,
 	FundRequestTemplateForm,
+	LiquidationForm,
+	LiquidationTemplateForm,
 	PatchNoteCommentForm,
 	PatchNoteForm,
 	LockoutResetForm,
@@ -97,7 +109,14 @@ from .models import (
 	EmailVerificationToken,
 	FundRequest,
 	FundRequestAttachment,
+	FundRequestAutoApproveRule,
+	FundRequestLineItem,
 	FundRequestTemplate,
+	Liquidation,
+	LiquidationAttachment,
+	LiquidationLineItem,
+	LiquidationSettings,
+	LiquidationTemplate,
 	LoginEvent,
 	Notification,
 	PatchNote,
@@ -989,7 +1008,19 @@ def _can_manage_fund_request_templates(user):
 	return user.is_superuser or user.has_perm('core.add_fundrequesttemplate') or user.has_perm('core.change_fundrequesttemplate')
 
 
+def _can_manage_liquidation_templates(user):
+	return user.is_superuser or user.has_perm('core.add_liquidationtemplate') or user.has_perm('core.change_liquidationtemplate')
+
+
 def _can_approve_fund_requests(user):
+	return user.is_superuser or user.has_perm('core.change_fundrequest')
+
+
+def _can_approve_liquidations(user):
+	return user.is_superuser or user.has_perm('core.change_liquidation')
+
+
+def _can_cancel_other_fund_requests(user):
 	return user.is_superuser or user.has_perm('core.change_fundrequest')
 
 
@@ -1008,7 +1039,7 @@ def _fund_request_approvers_queryset():
 def _notify_fund_request_approvers(fund_request):
 	approval_link = reverse('fund_requests_list')
 	requester_name = fund_request.requester_name or 'Unknown requester'
-	total_label = f'PHP {fund_request.total_amount:.2f}'
+	total_label = f'PHP {_format_fund_request_amount(fund_request.total_amount)}'
 	for approver in _fund_request_approvers_queryset():
 		if fund_request.created_by_id and approver.pk == fund_request.created_by_id:
 			continue
@@ -1027,23 +1058,103 @@ def _notify_fund_request_requester(fund_request):
 	if fund_request.request_status == 'approved':
 		title = 'Fund Request Approved'
 		message = f'Your fund request was approved with serial number {fund_request.serial_number}.'
+		link_url = reverse('fund_requests_list')
+	elif fund_request.request_status == 'cancelled':
+		title = 'Fund Request Cancelled'
+		reason_suffix = f' Reason: {fund_request.decision_reason}' if fund_request.decision_reason else ''
+		message = f'Your fund request was cancelled.{reason_suffix}'
+		link_url = reverse('fund_requests_list')
 	else:
 		title = 'Fund Request Rejected'
 		reason_suffix = f' Reason: {fund_request.decision_reason}' if fund_request.decision_reason else ''
 		message = f'Your fund request was rejected.{reason_suffix}'
+		link_url = f"{reverse('fund_requests_list')}?{urlencode({'rejected_request': fund_request.pk})}"
 
 	create_notification(
 		user=fund_request.created_by,
 		title=title,
 		message=message,
-		link_url=reverse('fund_requests_list'),
+		link_url=link_url,
 	)
+
+
+def _fund_request_matches_auto_approve_rule(fund_request, rule):
+	if not fund_request or not rule:
+		return False
+
+	requester_keyword = (rule.requester_keyword or '').strip()
+	if requester_keyword and requester_keyword.lower() not in (fund_request.requester_name or '').lower():
+		return False
+
+	department_keyword = (rule.department_keyword or '').strip()
+	if department_keyword and department_keyword.lower() not in (fund_request.department or '').lower():
+		return False
+
+	branch_keyword = (rule.branch_keyword or '').strip()
+	if branch_keyword and branch_keyword.lower() not in (fund_request.branch or '').lower():
+		return False
+
+	if rule.request_date_from and (not fund_request.request_date or fund_request.request_date < rule.request_date_from):
+		return False
+	if rule.request_date_to and (not fund_request.request_date or fund_request.request_date > rule.request_date_to):
+		return False
+
+	try:
+		total_amount = Decimal(str(fund_request.total_amount or 0))
+	except (InvalidOperation, TypeError, ValueError):
+		total_amount = Decimal('0')
+	if rule.min_amount is not None and total_amount < rule.min_amount:
+		return False
+	if rule.max_amount is not None and total_amount > rule.max_amount:
+		return False
+
+	if rule.require_attachments and not fund_request.attachments.exists():
+		return False
+	return True
+
+
+def _get_matching_auto_approve_rule_for_fund_request(fund_request):
+	active_rules = FundRequestAutoApproveRule.objects.filter(is_active=True).order_by('-updated_at', '-created_at')
+	for rule in active_rules:
+		if _fund_request_matches_auto_approve_rule(fund_request, rule):
+			return rule
+	return None
+
+
+def _parse_optional_amount(raw_value):
+	raw_text = (raw_value or '').strip()
+	if not raw_text:
+		return None
+	try:
+		return Decimal(raw_text)
+	except (InvalidOperation, TypeError, ValueError):
+		return None
 
 
 def _fund_request_template_extension(template_record):
 	if not template_record or not getattr(template_record, 'file', None):
 		return ''
 	return Path(getattr(template_record.file, 'name', '') or '').suffix.lower()
+
+
+def _format_fund_request_date(date_value):
+	if not date_value:
+		return ''
+	return date_value.strftime('%B %d, %Y')
+
+
+def _format_fund_request_item_date(date_value):
+	if not date_value:
+		return ''
+	return date_value.strftime('%m/%d/%Y')
+
+
+def _format_fund_request_amount(amount_value):
+	try:
+		amount = Decimal(str(amount_value or 0))
+	except (InvalidOperation, ValueError, TypeError):
+		amount = Decimal('0')
+	return f'{amount:,.2f}'
 
 
 def _build_fund_request_template_placeholders_from_values(
@@ -1063,11 +1174,11 @@ def _build_fund_request_template_placeholders_from_values(
 	placeholders = {
 		'{{ serial_number }}': serial_number or '',
 		'{{ requester_name }}': requester_name or '',
-		'{{ request_date }}': request_date.strftime('%Y-%m-%d') if request_date else '',
+		'{{ request_date }}': _format_fund_request_date(request_date),
 		'{{ department }}': department or '',
 		'{{ branch }}': branch or '',
-		'{{ total_amount }}': f'{total_amount:.2f}',
-		'{{ total_amount_php }}': f'PHP {total_amount:.2f}',
+		'{{ total_amount }}': _format_fund_request_amount(total_amount),
+		'{{ total_amount_php }}': f'PHP {_format_fund_request_amount(total_amount)}',
 		'{{ prepared_by }}': prepared_by or '-',
 		'{{ created_at }}': timezone.localtime(created_at).strftime('%Y-%m-%d %H:%M') if created_at else '',
 		'{{ template_name }}': template_name or '',
@@ -1078,12 +1189,12 @@ def _build_fund_request_template_placeholders_from_values(
 		item_date = item.get('entry_date')
 		item_particulars = item.get('particulars') or ''
 		item_amount = item.get('amount') or 0
-		item_date_label = item_date.strftime('%Y-%m-%d') if item_date else ''
+		item_date_label = _format_fund_request_item_date(item_date)
 		placeholders[f'{{{{ item_{index}_date }}}}'] = item_date_label
 		placeholders[f'{{{{ item_{index}_particulars }}}}'] = item_particulars
 		placeholders[f'{{{{ item_{index}_amount }}}}'] = f'{item_amount:.2f}'
-		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = f'PHP {item_amount:.2f}'
-		line_items_lines.append(f'{index}. {item_date_label} | {item_particulars} | PHP {item_amount:.2f}')
+		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = f'PHP {_format_fund_request_amount(item_amount)}'
+		line_items_lines.append(f'{index}. {item_date_label} | {item_particulars} | PHP {_format_fund_request_amount(item_amount)}')
 
 	for index in range(len(line_items) + 1, 21):
 		placeholders[f'{{{{ item_{index}_date }}}}'] = ''
@@ -1130,10 +1241,10 @@ def _build_fund_request_line_items_context_from_values(line_items=None):
 		context_items.append(
 			{
 				'index': index,
-				'entry_date': item_date.strftime('%Y-%m-%d') if item_date else '',
+				'entry_date': _format_fund_request_item_date(item_date),
 				'particulars': item.get('particulars') or '',
 				'amount': f'{item_amount:.2f}',
-				'amount_php': f'PHP {item_amount:.2f}',
+				'amount_php': f'PHP {_format_fund_request_amount(item_amount)}',
 			}
 		)
 	return context_items
@@ -1274,11 +1385,11 @@ def _build_sample_fund_request_preview_context(template_record):
 		'sample_summary': {
 			'serial_number': '2026-0001',
 			'requester_name': 'Juan Dela Cruz',
-			'request_date': request_date.strftime('%Y-%m-%d'),
+			'request_date': _format_fund_request_date(request_date),
 			'department': 'Operations',
 			'branch': 'Main Branch',
 			'prepared_by': 'Portal Demo User',
-			'total_amount_php': f'PHP {total_amount:.2f}',
+			'total_amount_php': f'PHP {_format_fund_request_amount(total_amount)}',
 		},
 		'placeholders': _build_fund_request_template_placeholders_from_values(
 			serial_number='2026-0001',
@@ -1300,7 +1411,7 @@ def _build_fund_request_template_placeholder_guide():
 	return [
 		{
 			'placeholder': '{{ serial_number }}',
-			'description': 'Shows the approved fund request serial number.',
+			'description': 'Shows the approved fund request serial number (blank while pending).',
 			'use_case': 'Use in the document header, title bar, or control number area.',
 		},
 		{
@@ -1310,7 +1421,7 @@ def _build_fund_request_template_placeholder_guide():
 		},
 		{
 			'placeholder': '{{ request_date }}',
-			'description': 'Outputs the request date in `YYYY-MM-DD` format.',
+			'description': 'Outputs the request date in `MMMM DD, YYYY` format (example: April 25, 2026).',
 			'use_case': 'Use for the request date field in forms and approval sheets.',
 		},
 		{
@@ -1325,12 +1436,12 @@ def _build_fund_request_template_placeholder_guide():
 		},
 		{
 			'placeholder': '{{ total_amount }}',
-			'description': 'Outputs the computed total amount as a numeric value only.',
+			'description': 'Outputs the computed total amount as a numeric value with thousands separators.',
 			'use_case': 'Use inside formulas or cells that should not include the `PHP` prefix.',
 		},
 		{
 			'placeholder': '{{ total_amount_php }}',
-			'description': 'Outputs the computed total amount with the `PHP` currency prefix.',
+			'description': 'Outputs the computed total amount with the `PHP` currency prefix and thousands separators.',
 			'use_case': 'Use for grand total labels in printed fund request forms.',
 		},
 		{
@@ -1354,8 +1465,13 @@ def _build_fund_request_template_placeholder_guide():
 			'use_case': 'Use when the template only needs one paragraph or text box summary.',
 		},
 		{
+			'placeholder': '{{ line_items_table }}',
+			'description': 'Alias of `{{ line_items }}` that outputs the same multi-line summary text.',
+			'use_case': 'Use in legacy templates that already use `line_items_table` naming.',
+		},
+		{
 			'placeholder': '{{ item_1_date }}',
-			'description': 'Outputs the first line item date. The same format works for `item_2_...` up to `item_20_...`.',
+			'description': 'Outputs the first line item date in `MM/DD/YYYY` format. The same format works for `item_2_...` up to `item_20_...`.',
 			'use_case': 'Use for fixed-row templates where each row is mapped manually.',
 		},
 		{
@@ -1365,17 +1481,17 @@ def _build_fund_request_template_placeholder_guide():
 		},
 		{
 			'placeholder': '{{ item_1_amount_php }}',
-			'description': 'Outputs the first line item amount with the `PHP` prefix. Use `{{ item_1_amount }}` for numeric-only values.',
+			'description': 'Outputs the first line item amount with the `PHP` prefix and thousands separators. Use `{{ item_1_amount }}` for numeric-only values.',
 			'use_case': 'Use for fixed-row amount cells or static print layouts.',
 		},
 		{
 			'placeholder': '{{#line_items}} ... {{/line_items}}',
-			'description': 'Dynamic repeating block for `.docx` and `.xlsx` templates. Everything inside the block repeats once per line item.',
+			'description': 'Dynamic repeating block for uploaded `.docx` and `.xlsx` templates. Everything inside the block repeats once per line item.',
 			'use_case': 'Use when the number of rows can change and the template should expand automatically.',
 		},
 		{
 			'placeholder': '{{ entry_date }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row date.',
+			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row date in `MM/DD/YYYY` format.',
 			'use_case': 'Use inside dynamic table rows for each expense date.',
 		},
 		{
@@ -1384,66 +1500,626 @@ def _build_fund_request_template_placeholder_guide():
 			'use_case': 'Use inside dynamic rows for item descriptions or expense details.',
 		},
 		{
+			'placeholder': '{{ amount }}',
+			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount as numeric-only.',
+			'use_case': 'Use in numeric cells or formulas that should not include the `PHP` prefix.',
+		},
+		{
 			'placeholder': '{{ amount_php }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount with the `PHP` prefix.',
+			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount with the `PHP` prefix and thousands separators.',
 			'use_case': 'Use inside dynamic rows when the amount should already be display-formatted.',
 		},
 	]
 
 
-def _convert_office_bytes_to_pdf(file_bytes, filename):
-	soffice_path = shutil.which('soffice')
-	if not soffice_path:
+def _build_fund_request_template_quick_placeholder_guide():
+	placeholder_guide = _build_fund_request_template_placeholder_guide()
+	placeholder_map = {
+		item['placeholder']: item
+		for item in placeholder_guide
+	}
+	featured_placeholders = [
+		'{{ serial_number }}',
+		'{{ requester_name }}',
+		'{{ request_date }}',
+		'{{ department }}',
+		'{{ branch }}',
+		'{{ total_amount_php }}',
+		'{{ prepared_by }}',
+		'{{#line_items}} ... {{/line_items}}',
+	]
+	return [
+		placeholder_map[placeholder]
+		for placeholder in featured_placeholders
+		if placeholder in placeholder_map
+	]
+
+
+def _ensure_active_fund_request_template():
+	if FundRequestTemplate.objects.filter(is_active=True).exists():
+		return
+	fallback_template = FundRequestTemplate.objects.order_by('-updated_at', '-created_at').first()
+	if not fallback_template:
+		return
+	fallback_template.is_active = True
+	fallback_template.save(update_fields=['is_active'])
+
+
+def _ensure_active_liquidation_template():
+	if LiquidationTemplate.objects.filter(is_active=True).exists():
+		return
+	fallback_template = LiquidationTemplate.objects.order_by('-updated_at', '-created_at').first()
+	if not fallback_template:
+		return
+	fallback_template.is_active = True
+	fallback_template.save(update_fields=['is_active'])
+
+
+def _build_text_pdf_bytes(lines):
+	try:
+		page_width = 1240
+		page_height = 1754
+		margin = 96
+		line_height = 28
+		lines_per_page = max(1, (page_height - (margin * 2)) // line_height)
+		font = ImageFont.load_default()
+		prepared_lines = []
+		for raw_line in lines or []:
+			text = str(raw_line or '').rstrip()
+			if not text:
+				prepared_lines.append('')
+				continue
+			prepared_lines.extend(textwrap.wrap(text, width=90) or [''])
+
+		if not prepared_lines:
+			prepared_lines = ['No preview content available.']
+
+		pages = []
+		for start in range(0, len(prepared_lines), lines_per_page):
+			page_lines = prepared_lines[start:start + lines_per_page]
+			canvas = Image.new('RGB', (page_width, page_height), 'white')
+			draw = ImageDraw.Draw(canvas)
+			current_y = margin
+			for line in page_lines:
+				draw.text((margin, current_y), line, fill='black', font=font)
+				current_y += line_height
+			pages.append(canvas)
+
+		output = BytesIO()
+		first_page, *other_pages = pages
+		first_page.save(output, format='PDF', resolution=150.0, save_all=True, append_images=other_pages)
+		return output.getvalue()
+	except Exception:
 		return None
 
-	safe_name = Path(filename or 'preview').name or 'preview'
+
+def _build_notice_pdf_bytes(title, message_lines):
+	lines = [str(title or 'Preview Notice'), '']
+	lines.extend(message_lines or [])
+	return _build_text_pdf_bytes(lines)
+
+
+def _xlsx_shared_strings_from_archive(source_zip):
+	try:
+		shared_strings_xml = source_zip.read('xl/sharedStrings.xml')
+	except KeyError:
+		return []
+
+	root = ET.fromstring(shared_strings_xml)
+	shared_strings = []
+	for string_item in root.findall('.//{*}si'):
+		text_value = ''.join(node.text or '' for node in string_item.findall('.//{*}t'))
+		shared_strings.append(text_value)
+	return shared_strings
+
+
+def _xlsx_sheet_targets_from_archive(source_zip):
+	try:
+		workbook_xml = source_zip.read('xl/workbook.xml')
+		rels_xml = source_zip.read('xl/_rels/workbook.xml.rels')
+	except KeyError:
+		return []
+
+	workbook_root = ET.fromstring(workbook_xml)
+	rels_root = ET.fromstring(rels_xml)
+	relationships = {}
+	for relationship in rels_root.findall('.//{*}Relationship'):
+		relationship_id = relationship.attrib.get('Id') or ''
+		target = relationship.attrib.get('Target') or ''
+		if not target:
+			continue
+		if target.startswith('/'):
+			normalized_target = target.lstrip('/')
+		elif target.startswith('xl/'):
+			normalized_target = target
+		else:
+			normalized_target = f'xl/{target}'
+		relationships[relationship_id] = normalized_target
+
+	sheets = []
+	for sheet in workbook_root.findall('.//{*}sheet'):
+		sheet_name = sheet.attrib.get('name') or 'Sheet'
+		relationship_id = (
+			sheet.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+			or sheet.attrib.get('{http://purl.oclc.org/ooxml/officeDocument/relationships}id')
+			or ''
+		)
+		target = relationships.get(relationship_id)
+		if target:
+			sheets.append({'name': sheet_name, 'target': target})
+	return sheets
+
+
+def _xlsx_cell_display_value(cell_node, shared_strings):
+	cell_type = cell_node.attrib.get('t') or ''
+	if cell_type == 'inlineStr':
+		return ''.join(node.text or '' for node in cell_node.findall('.//{*}t')).strip()
+
+	value_node = cell_node.find('{*}v')
+	if value_node is None:
+		formula_node = cell_node.find('{*}f')
+		return (formula_node.text or '').strip() if formula_node is not None and formula_node.text else ''
+
+	raw_value = (value_node.text or '').strip()
+	if not raw_value:
+		return ''
+	if cell_type == 's':
+		try:
+			return shared_strings[int(raw_value)]
+		except (ValueError, IndexError):
+			return raw_value
+	if cell_type == 'b':
+		return 'TRUE' if raw_value == '1' else 'FALSE'
+	return raw_value
+
+
+def _convert_xlsx_bytes_to_pdf(file_bytes, filename):
+	try:
+		lines = [f'Workbook Preview: {Path(filename or "workbook").name}', '']
+		with zipfile.ZipFile(BytesIO(file_bytes), 'r') as source_zip:
+			shared_strings = _xlsx_shared_strings_from_archive(source_zip)
+			sheets = _xlsx_sheet_targets_from_archive(source_zip)
+			if not sheets:
+				return None
+
+			for sheet_index, sheet in enumerate(sheets, start=1):
+				lines.append(f'Sheet {sheet_index}: {sheet["name"]}')
+				lines.append('')
+				try:
+					sheet_xml = source_zip.read(sheet['target'])
+				except KeyError:
+					lines.append('Sheet data could not be loaded.')
+					lines.append('')
+					continue
+
+				sheet_root = ET.fromstring(sheet_xml)
+				sheet_data = sheet_root.find('.//{*}sheetData')
+				rendered_row_count = 0
+				if sheet_data is not None:
+					for row in sheet_data.findall('{*}row'):
+						row_number = row.attrib.get('r') or str(rendered_row_count + 1)
+						cells = []
+						for cell in row.findall('{*}c'):
+							cell_ref = cell.attrib.get('r') or ''
+							cell_value = _xlsx_cell_display_value(cell, shared_strings)
+							if cell_value:
+								cells.append(f'{cell_ref}: {cell_value}')
+						if cells:
+							lines.append(f'Row {row_number} | ' + ' | '.join(cells))
+							rendered_row_count += 1
+						if rendered_row_count >= 120:
+							lines.append('...')
+							lines.append('Preview truncated after 120 non-empty rows.')
+							break
+				if rendered_row_count == 0:
+					lines.append('No visible cell values found in this sheet.')
+				lines.append('')
+
+		return _build_text_pdf_bytes(lines)
+	except Exception:
+		return None
+
+
+def _convert_docx_bytes_to_pdf(file_bytes, filename):
+	try:
+		lines = [f'Document Preview: {Path(filename or "document").name}', '']
+		with zipfile.ZipFile(BytesIO(file_bytes), 'r') as source_zip:
+			document_xml = source_zip.read('word/document.xml')
+		document_root = ET.fromstring(document_xml)
+		paragraph_count = 0
+		for paragraph in document_root.findall('.//{*}p'):
+			text_value = ''.join(node.text or '' for node in paragraph.findall('.//{*}t')).strip()
+			if not text_value:
+				continue
+			lines.append(text_value)
+			lines.append('')
+			paragraph_count += 1
+			if paragraph_count >= 180:
+				lines.append('Preview truncated after 180 text paragraphs.')
+				break
+		if paragraph_count == 0:
+			lines.append('No visible text content found in this document.')
+		return _build_text_pdf_bytes(lines)
+	except Exception:
+		return None
+
+
+@lru_cache(maxsize=1)
+def _detect_microsoft_office_com_availability():
+	powershell_path = shutil.which('powershell') or shutil.which('pwsh')
+	if not powershell_path:
+		return {'word': False, 'excel': False}
+
+	script = r"""
+$word = $false
+$excel = $false
+
+function Release-ComObject([object]$comObject) {
+    if ($null -ne $comObject) {
+        try {
+            [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+        } catch {}
+    }
+}
+
+$wordApp = $null
+try {
+    $wordApp = New-Object -ComObject Word.Application
+    $word = $true
+    $wordApp.Quit()
+} catch {} finally {
+    if ($null -ne $wordApp) {
+        try { $wordApp.Quit() } catch {}
+    }
+    Release-ComObject $wordApp
+}
+
+$excelApp = $null
+try {
+    $excelApp = New-Object -ComObject Excel.Application
+    $excel = $true
+    $excelApp.Quit()
+} catch {} finally {
+    if ($null -ne $excelApp) {
+        try { $excelApp.Quit() } catch {}
+    }
+    Release-ComObject $excelApp
+}
+
+[GC]::Collect()
+[GC]::WaitForPendingFinalizers()
+Write-Output ("WORD=" + $(if ($word) { '1' } else { '0' }))
+Write-Output ("EXCEL=" + $(if ($excel) { '1' } else { '0' }))
+"""
+	try:
+		completed = subprocess.run(
+			[powershell_path, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+			capture_output=True,
+			text=True,
+			check=False,
+			timeout=20,
+		)
+	except Exception:
+		return {'word': False, 'excel': False}
+
+	if completed.returncode != 0:
+		return {'word': False, 'excel': False}
+
+	word_available = False
+	excel_available = False
+	for line in (completed.stdout or '').splitlines():
+		normalized = line.strip().upper()
+		if normalized == 'WORD=1':
+			word_available = True
+		elif normalized == 'EXCEL=1':
+			excel_available = True
+
+	return {'word': word_available, 'excel': excel_available}
+
+
+def _office_conversion_backend_status(extension):
+	word_supported_extensions = {'.doc', '.docx', '.docm', '.rtf', '.txt', '.htm', '.html'}
+	excel_supported_extensions = {'.xls', '.xlsx', '.xlsm', '.xlsb', '.csv'}
+	ms_apps = _detect_microsoft_office_com_availability()
+
+	microsoft_office_available = False
+	if extension in word_supported_extensions:
+		microsoft_office_available = ms_apps.get('word', False)
+	elif extension in excel_supported_extensions:
+		microsoft_office_available = ms_apps.get('excel', False)
+	else:
+		microsoft_office_available = ms_apps.get('word', False) or ms_apps.get('excel', False)
+
+	return {
+		'microsoft_office': microsoft_office_available,
+		'libreoffice': bool(shutil.which('libreoffice')),
+		'soffice': bool(shutil.which('soffice')),
+	}
+
+
+def _convert_with_microsoft_office(file_bytes, safe_name, extension):
+	powershell_path = shutil.which('powershell') or shutil.which('pwsh')
+	if not powershell_path:
+		return None
+
+	word_supported_extensions = {'.doc', '.docx', '.docm', '.rtf', '.txt', '.htm', '.html'}
+	excel_supported_extensions = {'.xls', '.xlsx', '.xlsm', '.xlsb', '.csv'}
+	if extension not in word_supported_extensions and extension not in excel_supported_extensions:
+		return None
+
 	with tempfile.TemporaryDirectory(prefix='fund-template-preview-') as temp_dir:
 		temp_path = Path(temp_dir)
 		source_path = temp_path / safe_name
-		profile_path = temp_path / 'libreoffice-profile'
-		runtime_path = temp_path / 'xdg-runtime'
+		pdf_path = temp_path / f'{source_path.stem}.pdf'
 		source_path.write_bytes(file_bytes)
-		runtime_path.mkdir(parents=True, exist_ok=True)
-		env = os.environ.copy()
-		env['HOME'] = str(temp_path)
-		env['XDG_RUNTIME_DIR'] = str(runtime_path)
-		env['SAL_USE_VCLPLUGIN'] = 'svp'
+
+		def _ps_escape(value):
+			return str(value).replace("'", "''")
+
+		ps_script = f"""
+$ErrorActionPreference = 'Stop'
+$sourcePath = '{_ps_escape(source_path)}'
+$targetPath = '{_ps_escape(pdf_path)}'
+$extension = '{_ps_escape(extension)}'
+
+function Release-ComObject([object]$comObject) {{
+    if ($null -ne $comObject) {{
+        try {{
+            [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+        }} catch {{}}
+    }}
+}}
+
+if ($extension -in @('.doc', '.docx', '.docm', '.rtf', '.txt', '.htm', '.html')) {{
+    $word = $null
+    $document = $null
+    try {{
+        $word = New-Object -ComObject Word.Application
+        $word.Visible = $false
+        $word.DisplayAlerts = 0
+        $document = $word.Documents.Open($sourcePath, [ref]$false, [ref]$true)
+        $document.ExportAsFixedFormat($targetPath, 17)
+        $document.Close([ref]$false)
+        $document = $null
+        $word.Quit()
+        $word = $null
+    }} finally {{
+        if ($null -ne $document) {{
+            try {{ $document.Close([ref]$false) }} catch {{}}
+        }}
+        if ($null -ne $word) {{
+            try {{ $word.Quit() }} catch {{}}
+        }}
+        Release-ComObject $document
+        Release-ComObject $word
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+    }}
+}} elseif ($extension -in @('.xls', '.xlsx', '.xlsm', '.xlsb', '.csv')) {{
+    $excel = $null
+    $workbook = $null
+    try {{
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false
+        $excel.DisplayAlerts = $false
+        $workbook = $excel.Workbooks.Open($sourcePath, 0, $true)
+        $workbook.ExportAsFixedFormat(0, $targetPath)
+        $workbook.Close($false)
+        $workbook = $null
+        $excel.Quit()
+        $excel = $null
+    }} finally {{
+        if ($null -ne $workbook) {{
+            try {{ $workbook.Close($false) }} catch {{}}
+        }}
+        if ($null -ne $excel) {{
+            try {{ $excel.Quit() }} catch {{}}
+        }}
+        Release-ComObject $workbook
+        Release-ComObject $excel
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+    }}
+}} else {{
+    throw "Unsupported extension for Microsoft Office conversion: $extension"
+}}
+
+if (-not (Test-Path -LiteralPath $targetPath)) {{
+    throw "Microsoft Office did not produce a PDF output."
+}}
+"""
+		completed = subprocess.run(
+			[powershell_path, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
+			capture_output=True,
+			text=True,
+			check=False,
+		)
+		if completed.returncode == 0 and pdf_path.exists():
+			return pdf_path.read_bytes()
+	return None
+
+
+def _convert_with_libreoffice_command(file_bytes, safe_name, command_name):
+	command_path = shutil.which(command_name)
+	if not command_path:
+		return None
+
+	with tempfile.TemporaryDirectory(prefix='fund-template-preview-') as temp_dir:
+		temp_path = Path(temp_dir)
+		source_path = temp_path / safe_name
+		pdf_path = temp_path / f'{source_path.stem}.pdf'
+		profile_path = temp_path / 'libreoffice-profile'
+		source_path.write_bytes(file_bytes)
+		profile_uri = profile_path.resolve().as_uri()
 		command = [
-			soffice_path,
+			command_path,
 			'--headless',
-			f'-env:UserInstallation=file://{profile_path}',
+			f'-env:UserInstallation={profile_uri}',
 			'--convert-to',
 			'pdf',
 			'--outdir',
 			str(temp_path),
 			str(source_path),
 		]
-		completed = subprocess.run(command, capture_output=True, text=True, check=False, env=env)
-		if completed.returncode != 0:
-			return None
-		pdf_path = temp_path / f'{source_path.stem}.pdf'
-		if not pdf_path.exists():
-			return None
-		return pdf_path.read_bytes()
+		completed = subprocess.run(command, capture_output=True, text=True, check=False)
+		if completed.returncode == 0 and pdf_path.exists():
+			return pdf_path.read_bytes()
+	return None
+
+
+def _convert_with_libreoffice(file_bytes, safe_name):
+	return _convert_with_libreoffice_command(file_bytes, safe_name, 'libreoffice')
+
+
+def _convert_with_soffice(file_bytes, safe_name):
+	return _convert_with_libreoffice_command(file_bytes, safe_name, 'soffice')
+
+
+def _convert_office_bytes_to_pdf(file_bytes, filename, allow_structured_preview_fallback=False):
+	safe_name = Path(filename or 'preview').name or 'preview'
+	extension = Path(safe_name).suffix.lower()
+	backend_status = _office_conversion_backend_status(extension)
+	pdf_bytes = None
+
+	# Enforce strict priority order: Microsoft Office -> libreoffice -> soffice.
+	# Attempt Microsoft Office first for supported document extensions even when the
+	# availability probe is uncertain, then fall back to libreoffice/soffice.
+	word_supported_extensions = {'.doc', '.docx', '.docm', '.rtf', '.txt', '.htm', '.html'}
+	excel_supported_extensions = {'.xls', '.xlsx', '.xlsm', '.xlsb', '.csv'}
+	if extension in word_supported_extensions or extension in excel_supported_extensions:
+		pdf_bytes = _convert_with_microsoft_office(file_bytes, safe_name, extension)
+	if not pdf_bytes and backend_status['libreoffice']:
+		pdf_bytes = _convert_with_libreoffice(file_bytes, safe_name)
+	if not pdf_bytes and backend_status['soffice']:
+		pdf_bytes = _convert_with_soffice(file_bytes, safe_name)
+	if pdf_bytes:
+		return pdf_bytes
+
+	if not allow_structured_preview_fallback:
+		return None
+
+	if extension == '.xlsx':
+		return _convert_xlsx_bytes_to_pdf(file_bytes, safe_name)
+	if extension == '.docx':
+		return _convert_docx_bytes_to_pdf(file_bytes, safe_name)
+	return None
 
 
 def _render_html_bytes_to_pdf(html_bytes, filename='fund-request.html'):
-	return _convert_office_bytes_to_pdf(html_bytes, filename)
+	return _convert_office_bytes_to_pdf(html_bytes, filename, allow_structured_preview_fallback=False)
 
 
-def _convert_image_to_pdf_bytes(image_field):
-	if not image_field:
+def _normalize_image_for_pdf(source_image):
+	normalized = ImageOps.exif_transpose(source_image)
+	if normalized.mode in {'RGBA', 'LA'} or (normalized.mode == 'P' and 'transparency' in normalized.info):
+		rgba_image = normalized.convert('RGBA')
+		background = Image.new('RGB', rgba_image.size, 'white')
+		background.paste(rgba_image, mask=rgba_image.getchannel('A'))
+		return background
+	return normalized.convert('RGB')
+
+
+def _build_fund_request_attachments_pdf_bytes(attachments):
+	attachment_list = [attachment for attachment in attachments if getattr(attachment, 'image', None)]
+	if not attachment_list:
 		return None
 
-	try:
-		with image_field.open('rb') as image_file:
-			with Image.open(image_file) as image:
-				pil_image = image.convert('RGB')
-				output = BytesIO()
-				pil_image.save(output, format='PDF', resolution=150.0)
-				return output.getvalue()
-	except Exception:
+	page_width = 1240
+	page_height = 1754
+	page_margin = 52
+	item_gap = 22
+	content_width = page_width - (page_margin * 2)
+	content_height = page_height - (page_margin * 2)
+	half_width = max(1, (content_width - item_gap) // 2)
+	half_max_height = max(1, int(content_height * 0.62))
+	wide_aspect_threshold = 1.55
+	resample = Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
+	pages = []
+	current_page = None
+	cursor_x = page_margin
+	cursor_y = page_margin
+	row_height = 0
+	items_on_page = 0
+
+	def start_page():
+		nonlocal current_page, cursor_x, cursor_y, row_height, items_on_page
+		current_page = Image.new('RGB', (page_width, page_height), 'white')
+		cursor_x = page_margin
+		cursor_y = page_margin
+		row_height = 0
+		items_on_page = 0
+
+	def commit_page():
+		nonlocal current_page
+		if current_page is not None and items_on_page > 0:
+			pages.append(current_page)
+		current_page = None
+
+	for attachment in attachment_list:
+		try:
+			if current_page is None:
+				start_page()
+
+			with attachment.image.open('rb') as image_file:
+				with Image.open(image_file) as source_image:
+					normalized = _normalize_image_for_pdf(source_image)
+					source_width, source_height = normalized.size
+					if source_width <= 0 or source_height <= 0:
+						continue
+
+					aspect_ratio = source_width / max(source_height, 1)
+					use_full_width = aspect_ratio >= wide_aspect_threshold
+					target_width = content_width if use_full_width else half_width
+					target_max_height = content_height if use_full_width else half_max_height
+					scale = min(target_width / source_width, target_max_height / source_height, 1.0)
+					rendered_width = max(1, int(source_width * scale))
+					rendered_height = max(1, int(source_height * scale))
+					if scale < 1.0:
+						rendered_image = normalized.resize((rendered_width, rendered_height), resample=resample)
+					else:
+						rendered_image = normalized.copy()
+
+					placed = False
+					while not placed:
+						if cursor_x != page_margin and (cursor_x + rendered_width) > (page_margin + content_width):
+							cursor_x = page_margin
+							cursor_y += row_height + item_gap
+							row_height = 0
+
+						if (cursor_y + rendered_height) > (page_margin + content_height):
+							commit_page()
+							start_page()
+							continue
+
+						current_page.paste(rendered_image, (cursor_x, cursor_y))
+						items_on_page += 1
+
+						if use_full_width:
+							cursor_x = page_margin
+							cursor_y += max(row_height, rendered_height) + item_gap
+							row_height = 0
+						else:
+							cursor_x += rendered_width + item_gap
+							row_height = max(row_height, rendered_height)
+						placed = True
+		except Exception:
+			# Skip unreadable attachments so valid images are still appended.
+			continue
+
+	commit_page()
+	if not pages:
 		return None
+
+	output = BytesIO()
+	first_page, *remaining_pages = pages
+	first_page.save(
+		output,
+		format='PDF',
+		resolution=150.0,
+		save_all=True,
+		append_images=remaining_pages,
+	)
+	return output.getvalue()
 
 
 def _merge_pdf_parts(pdf_parts):
@@ -1452,6 +2128,19 @@ def _merge_pdf_parts(pdf_parts):
 		return None
 	if len(valid_parts) == 1:
 		return valid_parts[0]
+
+	if PdfReader and PdfWriter:
+		try:
+			writer = PdfWriter()
+			for content in valid_parts:
+				reader = PdfReader(BytesIO(content))
+				for page in reader.pages:
+					writer.add_page(page)
+			output = BytesIO()
+			writer.write(output)
+			return output.getvalue()
+		except Exception:
+			pass
 
 	pdfunite_path = shutil.which('pdfunite')
 	if not pdfunite_path:
@@ -1473,7 +2162,7 @@ def _merge_pdf_parts(pdf_parts):
 		return output_path.read_bytes()
 
 
-def _build_fund_request_base_pdf_payload(fund_request):
+def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_fallback=False):
 	template_record = fund_request.template
 	template_extension = _fund_request_template_extension(template_record)
 
@@ -1488,7 +2177,11 @@ def _build_fund_request_base_pdf_payload(fund_request):
 
 		rendered_template = _render_fund_request_template_binary(fund_request)
 		if rendered_template:
-			pdf_bytes = _convert_office_bytes_to_pdf(rendered_template['content'], rendered_template['filename'])
+			pdf_bytes = _convert_office_bytes_to_pdf(
+				rendered_template['content'],
+				rendered_template['filename'],
+				allow_structured_preview_fallback=allow_structured_preview_fallback,
+			)
 			if pdf_bytes:
 				return {
 					'content': pdf_bytes,
@@ -1498,7 +2191,11 @@ def _build_fund_request_base_pdf_payload(fund_request):
 
 		if template_extension in {'.doc', '.xls'}:
 			with template_record.file.open('rb') as template_file:
-				pdf_bytes = _convert_office_bytes_to_pdf(template_file.read(), Path(template_record.file.name).name)
+				pdf_bytes = _convert_office_bytes_to_pdf(
+					template_file.read(),
+					Path(template_record.file.name).name,
+					allow_structured_preview_fallback=allow_structured_preview_fallback,
+				)
 			if pdf_bytes:
 				return {
 					'content': pdf_bytes,
@@ -1517,7 +2214,35 @@ def _build_fund_request_base_pdf_payload(fund_request):
 	)
 	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), f'fund-request-{fund_request.serial_number or fund_request.pk}.html')
 	if not pdf_bytes:
-		return None
+		prepared_by = '-'
+		if fund_request.created_by:
+			prepared_by = fund_request.created_by.get_full_name() or fund_request.created_by.username
+		summary_lines = [
+			f'Serial Number: {fund_request.serial_number or "For Approval"}',
+			f'Requester Name: {fund_request.requester_name or "-"}',
+			f'Request Date: {_format_fund_request_date(fund_request.request_date) or "-"}',
+			f'Department: {fund_request.department or "-"}',
+			f'Branch: {fund_request.branch or "-"}',
+			f'Prepared By: {prepared_by}',
+			f'Total Amount: PHP {_format_fund_request_amount(fund_request.total_amount)}',
+			'',
+			'Line Items:',
+		]
+		for index, line_item in enumerate(fund_request.items.all(), start=1):
+			line_date = _format_fund_request_item_date(line_item.entry_date) or '-'
+			summary_lines.append(
+				f'{index}. {line_date} | {line_item.particulars} | PHP {_format_fund_request_amount(line_item.amount)}'
+			)
+		if not fund_request.items.exists():
+			summary_lines.append('No line items recorded.')
+		pdf_bytes = _build_notice_pdf_bytes('Fund Request Document Summary', summary_lines)
+		if not pdf_bytes:
+			return None
+		return {
+			'content': pdf_bytes,
+			'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+			'source': 'generated_summary_pdf',
+		}
 
 	return {
 		'content': pdf_bytes,
@@ -1526,22 +2251,88 @@ def _build_fund_request_base_pdf_payload(fund_request):
 	}
 
 
-def _build_fund_request_pdf_payload(fund_request):
-	base_payload = _build_fund_request_base_pdf_payload(fund_request)
+def _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False):
+	base_payload = _build_fund_request_base_pdf_payload(
+		fund_request,
+		allow_structured_preview_fallback=allow_structured_preview_fallback,
+	)
 	if not base_payload:
 		return None
 
-	image_pdf_parts = [
-		_convert_image_to_pdf_bytes(attachment.image)
-		for attachment in fund_request.attachments.all()
-	]
-	merged_pdf = _merge_pdf_parts([base_payload['content'], *image_pdf_parts]) or base_payload['content']
+	attachments_pdf = _build_fund_request_attachments_pdf_bytes(fund_request.attachments.all())
+	merged_pdf = _merge_pdf_parts([base_payload['content'], attachments_pdf]) or base_payload['content']
 	return {
 		'content': merged_pdf,
 		'filename': base_payload['filename'],
 		'source': base_payload['source'],
-		'has_image_attachments': bool(image_pdf_parts),
+		'has_image_attachments': bool(attachments_pdf),
 	}
+
+
+def _build_fund_request_client_side_conversion_payload(fund_request):
+	template_record = getattr(fund_request, 'template', None)
+	template_extension = _fund_request_template_extension(template_record)
+	if template_extension not in {'.docx', '.xlsx'}:
+		return None
+
+	rendered_template_payload = _build_fund_request_rendered_template_payload(fund_request)
+	if rendered_template_payload and Path(rendered_template_payload['filename']).suffix.lower() == template_extension:
+		source_bytes = rendered_template_payload['content']
+		source_filename = rendered_template_payload['filename']
+	else:
+		if not template_record or not getattr(template_record, 'file', None):
+			return None
+		with template_record.file.open('rb') as template_file:
+			source_bytes = template_file.read()
+		source_filename = Path(template_record.file.name).name or f'fund-request-client-source{template_extension}'
+
+	if not source_bytes:
+		return None
+
+	return {
+		'extension': template_extension,
+		'filename': source_filename,
+		'content_b64': base64.b64encode(source_bytes).decode('ascii'),
+	}
+
+
+def _build_fund_request_rendered_template_payload(fund_request):
+	rendered_template = _render_fund_request_template_binary(fund_request)
+	if not rendered_template:
+		return None
+
+	return {
+		'content': rendered_template['content'],
+		'filename': rendered_template['filename'],
+		'content_type': rendered_template['content_type'],
+		'source': 'template_generated_file',
+	}
+
+
+def _build_fund_request_template_file_payload(fund_request):
+	template_record = fund_request.template
+	if not template_record or not getattr(template_record, 'file', None):
+		return None
+
+	rendered_payload = _build_fund_request_rendered_template_payload(fund_request)
+	if rendered_payload:
+		return rendered_payload
+
+	template_extension = _fund_request_template_extension(template_record)
+	content_type_map = {
+		'.pdf': 'application/pdf',
+		'.doc': 'application/msword',
+		'.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+		'.xls': 'application/vnd.ms-excel',
+		'.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+	}
+	with template_record.file.open('rb') as template_file:
+		return {
+			'content': template_file.read(),
+			'filename': Path(template_record.file.name).name or f'fund-request-template{template_extension or ""}',
+			'content_type': content_type_map.get(template_extension, 'application/octet-stream'),
+			'source': 'template_original_file',
+		}
 
 
 def _build_template_preview_pdf_payload(template_record):
@@ -1568,7 +2359,11 @@ def _build_template_preview_pdf_payload(template_record):
 			f'{Path(template_record.file.name).stem or "fund-request-template"}-filled{extension}',
 		)
 		if rendered_template:
-			pdf_bytes = _convert_office_bytes_to_pdf(rendered_template['content'], rendered_template['filename'])
+			pdf_bytes = _convert_office_bytes_to_pdf(
+				rendered_template['content'],
+				rendered_template['filename'],
+				allow_structured_preview_fallback=True,
+			)
 			if pdf_bytes:
 				return {
 					'content': pdf_bytes,
@@ -1577,7 +2372,11 @@ def _build_template_preview_pdf_payload(template_record):
 				}
 
 	if extension in {'.doc', '.docx', '.xls', '.xlsx'}:
-		pdf_bytes = _convert_office_bytes_to_pdf(original_bytes, Path(template_record.file.name).name)
+		pdf_bytes = _convert_office_bytes_to_pdf(
+			original_bytes,
+			Path(template_record.file.name).name,
+			allow_structured_preview_fallback=True,
+		)
 		if pdf_bytes:
 			return {
 				'content': pdf_bytes,
@@ -1586,6 +2385,404 @@ def _build_template_preview_pdf_payload(template_record):
 			}
 
 	return None
+
+
+def _build_fund_request_template_preview_page_context(template_record, show_template_page_link=False):
+	sample_context = _build_sample_fund_request_preview_context(template_record)
+	template_extension = ''
+	preview_mode = 'no_template'
+	preview_pdf_url = ''
+	if template_record:
+		template_extension = _fund_request_template_extension(template_record)
+		if template_extension == '.pdf':
+			preview_mode = 'original_pdf'
+		elif template_extension in {'.docx', '.xlsx'}:
+			preview_mode = 'filled_preview'
+		elif template_extension in {'.doc', '.xls'}:
+			preview_mode = 'converted_original'
+		else:
+			preview_mode = 'unavailable'
+		preview_pdf_url = reverse('fund_request_template_preview_pdf', args=[template_record.pk])
+
+	return {
+		'template_record': template_record,
+		'template_extension': template_extension,
+		'placeholder_guide': _build_fund_request_template_placeholder_guide(),
+		'preview_pdf_url': preview_pdf_url,
+		'preview_mode': preview_mode,
+		'sample_summary': sample_context['sample_summary'],
+		'show_template_page_link': show_template_page_link and bool(template_record),
+	}
+
+
+def _build_liquidation_line_items_context_from_values(line_items=None):
+	context_items = []
+	for index, item in enumerate(line_items or [], start=1):
+		item_date = item.get('entry_date')
+		item_amount = item.get('amount') or 0
+		context_items.append(
+			{
+				'index': index,
+				'entry_date': _format_fund_request_item_date(item_date),
+				'entry_date_long': _format_fund_request_date(item_date),
+				'fund_form_no': item.get('fund_form_no') or '',
+				'description': item.get('description') or '',
+				'amount': f'{item_amount:.2f}',
+				'amount_php': f'PHP {_format_fund_request_amount(item_amount)}',
+			}
+		)
+	return context_items
+
+
+def _build_liquidation_line_items_context(liquidation):
+	return _build_liquidation_line_items_context_from_values(
+		[
+			{
+				'entry_date': item.entry_date,
+				'fund_form_no': item.fund_form_no,
+				'description': item.description,
+				'amount': item.amount,
+			}
+			for item in liquidation.items.all()
+		]
+	)
+
+
+def _build_liquidation_template_placeholders(liquidation):
+	line_items = [
+		{
+			'entry_date': item.entry_date,
+			'fund_form_no': item.fund_form_no,
+			'description': item.description,
+			'amount': item.amount,
+		}
+		for item in liquidation.items.all()
+	]
+	line_items_text_lines = [
+		f'{index}. {_format_fund_request_item_date(item.get("entry_date"))} | {item.get("fund_form_no") or "-"} | {item.get("description") or "-"} | PHP {_format_fund_request_amount(item.get("amount") or 0)}'
+		for index, item in enumerate(line_items, start=1)
+	]
+	if not line_items_text_lines:
+		line_items_text_lines.append('No line items selected.')
+
+	amount_requested = Decimal(liquidation.amount_requested or 0)
+	amount_returned_or_over = Decimal(liquidation.amount_returned_or_over or 0)
+	is_over = (liquidation.returned_or_over_type or '').lower() == 'over'
+	computed_amount = (amount_requested + amount_returned_or_over) if is_over else (amount_requested - amount_returned_or_over)
+
+	placeholders = {
+		'{{ control_number }}': liquidation.control_number or '',
+		'{{ name }}': liquidation.name or '',
+		'{{ liquidation_date }}': _format_fund_request_date(liquidation.liquidation_date),
+		'{{ liquidation_date_mmddyyyy }}': _format_fund_request_item_date(liquidation.liquidation_date),
+		'{{ branch }}': liquidation.branch or '',
+		'{{ position }}': liquidation.position or '',
+		'{{ total_amount }}': _format_fund_request_amount(liquidation.total_amount),
+		'{{ total_amount_php }}': f'PHP {_format_fund_request_amount(liquidation.total_amount)}',
+		'{{ amount_requested }}': _format_fund_request_amount(liquidation.amount_requested),
+		'{{ amount_requested_php }}': f'PHP {_format_fund_request_amount(liquidation.amount_requested)}',
+		'{{ returned_or_over_type }}': liquidation.get_returned_or_over_type_display() if hasattr(liquidation, 'get_returned_or_over_type_display') else (liquidation.returned_or_over_type or ''),
+		'{{ amount_returned_or_over }}': _format_fund_request_amount(liquidation.amount_returned_or_over),
+		'{{ amount_returned_or_over_php }}': f'PHP {_format_fund_request_amount(liquidation.amount_returned_or_over)}',
+		'{{ computed_amount }}': _format_fund_request_amount(computed_amount),
+		'{{ computed_amount_php }}': f'PHP {_format_fund_request_amount(computed_amount)}',
+		'{{ requested_by }}': liquidation.requested_by_name or '',
+		'{{ template_name }}': liquidation.template.name if liquidation.template else '',
+		'{{ line_items }}': '\n'.join(line_items_text_lines),
+		'{{ line_items_table }}': '\n'.join(line_items_text_lines),
+	}
+
+	for index, item in enumerate(line_items, start=1):
+		item_date = item.get('entry_date')
+		item_amount = item.get('amount') or 0
+		placeholders[f'{{{{ item_{index}_entry_date }}}}'] = _format_fund_request_item_date(item_date)
+		placeholders[f'{{{{ item_{index}_entry_date_long }}}}'] = _format_fund_request_date(item_date)
+		placeholders[f'{{{{ item_{index}_fund_form_no }}}}'] = item.get('fund_form_no') or ''
+		placeholders[f'{{{{ item_{index}_description }}}}'] = item.get('description') or ''
+		placeholders[f'{{{{ item_{index}_amount }}}}'] = _format_fund_request_amount(item_amount)
+		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = f'PHP {_format_fund_request_amount(item_amount)}'
+
+	for index in range(len(line_items) + 1, 21):
+		placeholders[f'{{{{ item_{index}_entry_date }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_entry_date_long }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_fund_form_no }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_description }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_amount }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = ''
+
+	return placeholders
+
+
+def _build_liquidation_template_placeholder_guide():
+	return [
+		{
+			'placeholder': '{{ control_number }}',
+			'description': 'Shows the liquidation control number.',
+			'use_case': 'Use in document headers and control reference blocks.',
+		},
+		{
+			'placeholder': '{{ name }}',
+			'description': 'Displays the liquidation name.',
+			'use_case': 'Use for the main title or prepared-by name section.',
+		},
+		{
+			'placeholder': '{{ liquidation_date }}',
+			'description': 'Outputs liquidation date in `MMMM DD, YYYY` format.',
+			'use_case': 'Use in the date field of the template.',
+		},
+		{
+			'placeholder': '{{ liquidation_date_mmddyyyy }}',
+			'description': 'Outputs liquidation date in `MM/DD/YYYY` format.',
+			'use_case': 'Use when your template date fields require numeric month/day format.',
+		},
+		{
+			'placeholder': '{{ branch }}',
+			'description': 'Shows the selected branch.',
+			'use_case': 'Use under office/branch labels.',
+		},
+		{
+			'placeholder': '{{ position }}',
+			'description': 'Shows the selected position.',
+			'use_case': 'Use beside designation/role labels.',
+		},
+		{
+			'placeholder': '{{ requested_by }}',
+			'description': 'Shows the Requested By field value.',
+			'use_case': 'Use in signature and accountability sections.',
+		},
+		{
+			'placeholder': '{{ returned_or_over_type }}',
+			'description': 'Shows `Returned` or `Over` based on the selected option.',
+			'use_case': 'Use in liquidation summary labels and totals section.',
+		},
+		{
+			'placeholder': '{{ amount_requested }}',
+			'description': 'Outputs amount requested as numeric-only.',
+			'use_case': 'Use in numeric cells or formulas (no currency prefix).',
+		},
+		{
+			'placeholder': '{{ amount_requested_php }}',
+			'description': 'Outputs amount requested with `PHP` prefix.',
+			'use_case': 'Use in display totals with formatted currency text.',
+		},
+		{
+			'placeholder': '{{ amount_returned_or_over }}',
+			'description': 'Outputs returned/over amount as numeric-only.',
+			'use_case': 'Use in numeric cells or formulas (no currency prefix).',
+		},
+		{
+			'placeholder': '{{ amount_returned_or_over_php }}',
+			'description': 'Outputs returned/over amount with `PHP` prefix.',
+			'use_case': 'Use in display totals with formatted currency text.',
+		},
+		{
+			'placeholder': '{{ computed_amount }}',
+			'description': 'Computed amount based on selection: `Amount Requested - Returned` or `Amount Requested + Over`.',
+			'use_case': 'Use in numeric result cells that should not include `PHP` prefix.',
+		},
+		{
+			'placeholder': '{{ computed_amount_php }}',
+			'description': 'Computed amount with `PHP` prefix based on returned/over type.',
+			'use_case': 'Use for final liquidation amount display in printable templates.',
+		},
+		{
+			'placeholder': '{{ total_amount }}',
+			'description': 'Outputs line-item total as numeric-only.',
+			'use_case': 'Use for arithmetic formulas or numeric table totals.',
+		},
+		{
+			'placeholder': '{{ total_amount_php }}',
+			'description': 'Outputs line-item total with `PHP` prefix.',
+			'use_case': 'Use for printed totals and grand total labels.',
+		},
+		{
+			'placeholder': '{{ template_name }}',
+			'description': 'Outputs the selected liquidation template name.',
+			'use_case': 'Use in footer metadata or internal reference section.',
+		},
+		{
+			'placeholder': '{{ line_items }}',
+			'description': 'Outputs all selected line items as plain multi-line text.',
+			'use_case': 'Use in text areas when you need summary rows only.',
+		},
+		{
+			'placeholder': '{{ line_items_table }}',
+			'description': 'Alias of `{{ line_items }}` with same output.',
+			'use_case': 'Use for legacy templates using `line_items_table` naming.',
+		},
+		{
+			'placeholder': '{{ item_1_entry_date }}',
+			'description': 'Outputs first selected item date in `MM/DD/YYYY` format. Repeat number for `item_2_...` to `item_20_...`.',
+			'use_case': 'Use in fixed-row templates where rows are manually mapped.',
+		},
+		{
+			'placeholder': '{{ item_1_entry_date_long }}',
+			'description': 'Outputs first selected item date in `MMMM DD, YYYY` format.',
+			'use_case': 'Use for fixed-row templates requiring long-form dates.',
+		},
+		{
+			'placeholder': '{{ item_1_fund_form_no }}',
+			'description': 'Outputs first selected item fund form number.',
+			'use_case': 'Use in fixed-row templates for source reference columns.',
+		},
+		{
+			'placeholder': '{{ item_1_description }}',
+			'description': 'Outputs first selected item description.',
+			'use_case': 'Use in fixed-row templates for particulars/description columns.',
+		},
+		{
+			'placeholder': '{{ item_1_amount_php }}',
+			'description': 'Outputs first selected item amount with `PHP` prefix. Use `{{ item_1_amount }}` for numeric-only.',
+			'use_case': 'Use in fixed-row amount cells or printable totals.',
+		},
+		{
+			'placeholder': '{{#line_items}} ... {{/line_items}}',
+			'description': 'Dynamic repeating block for `.docx` and `.xlsx` templates. Content inside repeats per selected line item.',
+			'use_case': 'Use when row count is variable and should expand automatically.',
+		},
+		{
+			'placeholder': '{{ entry_date }}',
+			'description': 'Available only inside `{{#line_items}}` block. Current row date (`MM/DD/YYYY`).',
+			'use_case': 'Use in the Date column of dynamic row blocks.',
+		},
+		{
+			'placeholder': '{{ entry_date_long }}',
+			'description': 'Available only inside `{{#line_items}}` block. Current row date (`MMMM DD, YYYY`).',
+			'use_case': 'Use when dynamic row dates need long text format.',
+		},
+		{
+			'placeholder': '{{ fund_form_no }}',
+			'description': 'Available only inside `{{#line_items}}` block. Current row fund form number.',
+			'use_case': 'Use in fund form/control number columns.',
+		},
+		{
+			'placeholder': '{{ description }}',
+			'description': 'Available only inside `{{#line_items}}` block. Current row description.',
+			'use_case': 'Use in particulars/description columns.',
+		},
+		{
+			'placeholder': '{{ amount }}',
+			'description': 'Available only inside `{{#line_items}}` block. Current row amount as numeric-only.',
+			'use_case': 'Use in formula cells that should not include `PHP` prefix.',
+		},
+		{
+			'placeholder': '{{ amount_php }}',
+			'description': 'Available only inside `{{#line_items}}` block. Current row amount with `PHP` prefix.',
+			'use_case': 'Use in display-formatted amount cells.',
+		},
+	]
+
+
+def _render_liquidation_template_binary(liquidation):
+	template_record = liquidation.template
+	if not template_record or not getattr(template_record, 'file', None):
+		return None
+
+	extension = _fund_request_template_extension(template_record)
+	placeholders = _build_liquidation_template_placeholders(liquidation)
+	line_items = _build_liquidation_line_items_context(liquidation)
+	control_label = liquidation.control_number or liquidation.pk
+	output_name = f'liquidation-{control_label}{extension}'
+	return _render_fund_request_template_binary_from_template(template_record, placeholders, line_items, output_name)
+
+
+def _build_liquidation_pdf_payload(liquidation, allow_structured_preview_fallback=False):
+	template_record = liquidation.template
+	template_extension = _fund_request_template_extension(template_record)
+
+	base_payload = None
+	if template_record and getattr(template_record, 'file', None):
+		if template_extension == '.pdf':
+			with template_record.file.open('rb') as template_file:
+				base_payload = {
+					'content': template_file.read(),
+					'filename': f'liquidation-{liquidation.control_number or liquidation.pk}.pdf',
+				}
+				if base_payload:
+					attachments_pdf = _build_fund_request_attachments_pdf_bytes(liquidation.attachments.all())
+					merged_pdf = _merge_pdf_parts([base_payload['content'], attachments_pdf]) or base_payload['content']
+					return {
+						'content': merged_pdf,
+						'filename': base_payload['filename'],
+					}
+
+		rendered_template = _render_liquidation_template_binary(liquidation)
+		if rendered_template:
+			pdf_bytes = _convert_office_bytes_to_pdf(
+				rendered_template['content'],
+				rendered_template['filename'],
+				allow_structured_preview_fallback=allow_structured_preview_fallback,
+			)
+			if pdf_bytes:
+				base_payload = {
+					'content': pdf_bytes,
+					'filename': f'{Path(rendered_template["filename"]).stem}.pdf',
+				}
+				attachments_pdf = _build_fund_request_attachments_pdf_bytes(liquidation.attachments.all())
+				merged_pdf = _merge_pdf_parts([base_payload['content'], attachments_pdf]) or base_payload['content']
+				return {
+					'content': merged_pdf,
+					'filename': base_payload['filename'],
+				}
+
+		if template_extension in {'.doc', '.xls'}:
+			with template_record.file.open('rb') as template_file:
+				pdf_bytes = _convert_office_bytes_to_pdf(
+					template_file.read(),
+					Path(template_record.file.name).name,
+					allow_structured_preview_fallback=allow_structured_preview_fallback,
+				)
+			if pdf_bytes:
+				base_payload = {
+					'content': pdf_bytes,
+					'filename': f'{Path(template_record.file.name).stem}.pdf',
+				}
+				attachments_pdf = _build_fund_request_attachments_pdf_bytes(liquidation.attachments.all())
+				merged_pdf = _merge_pdf_parts([base_payload['content'], attachments_pdf]) or base_payload['content']
+				return {
+					'content': merged_pdf,
+					'filename': base_payload['filename'],
+				}
+
+	content = render_to_string(
+		'core/liquidation_document_pdf.html',
+		{
+			'liquidation': liquidation,
+			'line_items': liquidation.items.all(),
+			'template_record': liquidation.template,
+			'template_extension': template_extension,
+		},
+	)
+	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), f'liquidation-{liquidation.control_number or liquidation.pk}.html')
+	if not pdf_bytes:
+		summary_lines = [
+			f'Name: {liquidation.name or "-"}',
+			f'Date: {_format_fund_request_date(liquidation.liquidation_date) or "-"}',
+			f'Branch: {liquidation.branch or "-"}',
+			f'Position: {liquidation.position or "-"}',
+			f'Total: PHP {_format_fund_request_amount(liquidation.total_amount)}',
+			f'Amount Requested: PHP {_format_fund_request_amount(liquidation.amount_requested)}',
+			f'{liquidation.get_returned_or_over_type_display() if hasattr(liquidation, "get_returned_or_over_type_display") else "Amount Returned/Over"}: PHP {_format_fund_request_amount(liquidation.amount_returned_or_over)}',
+			f'Requested By: {liquidation.requested_by_name or "-"}',
+			'',
+			'Line Items:',
+		]
+		for index, line_item in enumerate(liquidation.items.all(), start=1):
+			line_date = _format_fund_request_item_date(line_item.entry_date) or '-'
+			summary_lines.append(
+				f'{index}. {line_date} | {line_item.fund_form_no or "-"} | {line_item.description} | PHP {_format_fund_request_amount(line_item.amount)}'
+			)
+		if not liquidation.items.exists():
+			summary_lines.append('No line items recorded.')
+		pdf_bytes = _build_notice_pdf_bytes('Liquidation Summary', summary_lines)
+		if not pdf_bytes:
+			return None
+	attachments_pdf = _build_fund_request_attachments_pdf_bytes(liquidation.attachments.all())
+	merged_pdf = _merge_pdf_parts([pdf_bytes, attachments_pdf]) or pdf_bytes
+	return {
+		'content': merged_pdf,
+		'filename': f'liquidation-{liquidation.control_number or liquidation.pk}.pdf',
+	}
 
 
 def _client_deletion_approvers_queryset():
@@ -2158,6 +3355,109 @@ def clients_list(request):
 	return render(request, 'core/clients_list.html', context)
 
 
+def _get_fund_request_records_context_data(request):
+	query = (request.GET.get('q') or '').strip()
+	record_date_raw = (request.GET.get('record_date') or '').strip()
+	record_date = parse_date(record_date_raw) if record_date_raw else None
+	request_status_filter = (request.GET.get('request_status') or '').strip().lower()
+	created_from = (request.GET.get('created_from') or '').strip()
+	created_to = (request.GET.get('created_to') or '').strip()
+	series_from = (request.GET.get('series_from') or '').strip()
+	series_to = (request.GET.get('series_to') or '').strip()
+	amount_min = (request.GET.get('amount_min') or '').strip()
+	amount_max = (request.GET.get('amount_max') or '').strip()
+
+	can_view_all_request_records = request.user.is_superuser or _can_approve_fund_requests(request.user)
+	base_queryset = FundRequest.objects.select_related('created_by', 'created_by__profile', 'template', 'processed_by')
+	visible_queryset = base_queryset if can_view_all_request_records else base_queryset.filter(created_by=request.user)
+
+	def parse_local_datetime(value):
+		if not value:
+			return None
+		datetime_value = parse_datetime(value)
+		if not datetime_value:
+			return None
+		if timezone.is_naive(datetime_value):
+			datetime_value = timezone.make_aware(datetime_value, timezone.get_current_timezone())
+		return datetime_value
+
+	created_from_datetime = parse_local_datetime(created_from)
+	created_to_datetime = parse_local_datetime(created_to)
+	valid_status_values = {status_value for status_value, _status_label in FundRequest.REQUEST_STATUS_CHOICES}
+	status_label_map = {value: label for value, label in FundRequest.REQUEST_STATUS_CHOICES}
+
+	filtered_queryset = visible_queryset
+	if request_status_filter in valid_status_values:
+		filtered_queryset = filtered_queryset.filter(request_status=request_status_filter)
+	if record_date:
+		filtered_queryset = filtered_queryset.filter(request_date=record_date)
+	if created_from_datetime:
+		filtered_queryset = filtered_queryset.filter(created_at__gte=created_from_datetime)
+	if created_to_datetime:
+		filtered_queryset = filtered_queryset.filter(created_at__lte=created_to_datetime)
+	if query:
+		filtered_queryset = filtered_queryset.filter(
+			Q(serial_number__icontains=query)
+			| Q(requester_name__icontains=query)
+			| Q(department__icontains=query)
+			| Q(branch__icontains=query)
+		)
+	if series_from:
+		filtered_queryset = filtered_queryset.filter(serial_number__gte=series_from)
+	if series_to:
+		filtered_queryset = filtered_queryset.filter(serial_number__lte=series_to)
+	if amount_min:
+		try:
+			filtered_queryset = filtered_queryset.filter(total_amount__gte=Decimal(amount_min))
+		except (InvalidOperation, TypeError, ValueError):
+			pass
+	if amount_max:
+		try:
+			filtered_queryset = filtered_queryset.filter(total_amount__lte=Decimal(amount_max))
+		except (InvalidOperation, TypeError, ValueError):
+			pass
+
+	filter_parts = []
+	if query:
+		filter_parts.append(f'Search: {query}')
+	if request_status_filter in status_label_map:
+		filter_parts.append(f'Status: {status_label_map[request_status_filter]}')
+	if record_date:
+		filter_parts.append(f'Request Date: {record_date.isoformat()}')
+	if created_from_datetime:
+		filter_parts.append(f'Created From: {timezone.localtime(created_from_datetime).strftime("%Y-%m-%d %H:%M")}')
+	if created_to_datetime:
+		filter_parts.append(f'Created To: {timezone.localtime(created_to_datetime).strftime("%Y-%m-%d %H:%M")}')
+	if series_from:
+		filter_parts.append(f'Series From: {series_from}')
+	if series_to:
+		filter_parts.append(f'Series To: {series_to}')
+	if amount_min:
+		filter_parts.append(f'Min Amount: {amount_min}')
+	if amount_max:
+		filter_parts.append(f'Max Amount: {amount_max}')
+
+	filter_state = {
+		'query': query,
+		'request_status': request_status_filter if request_status_filter in valid_status_values else '',
+		'record_date': record_date.isoformat() if record_date else '',
+		'created_from': created_from,
+		'created_to': created_to,
+		'series_from': series_from,
+		'series_to': series_to,
+		'amount_min': amount_min,
+		'amount_max': amount_max,
+	}
+	return {
+		'can_view_all_request_records': can_view_all_request_records,
+		'visible_queryset': visible_queryset,
+		'filtered_queryset': filtered_queryset,
+		'filter_state': filter_state,
+		'filter_summary': ' | '.join(filter_parts) if filter_parts else 'No filters applied.',
+		'status_label_map': status_label_map,
+	}
+
+
 @login_required
 def fund_requests_list(request):
 	restricted_response = _require_permission(request, 'core.view_fundrequest')
@@ -2165,33 +3465,70 @@ def fund_requests_list(request):
 		return restricted_response
 
 	query = (request.GET.get('q') or '').strip()
+	date_from_raw = (request.GET.get('date_from') or '').strip()
+	date_to_raw = (request.GET.get('date_to') or '').strip()
+	date_from = parse_date(date_from_raw) if date_from_raw else None
+	date_to = parse_date(date_to_raw) if date_to_raw else None
+	record_date_raw = (request.GET.get('record_date') or '').strip()
+	record_date = parse_date(record_date_raw) if record_date_raw else None
+	request_status_filter = (request.GET.get('request_status') or '').strip().lower()
+	created_from = (request.GET.get('created_from') or '').strip()
+	created_to = (request.GET.get('created_to') or '').strip()
+	series_from = (request.GET.get('series_from') or '').strip()
+	series_to = (request.GET.get('series_to') or '').strip()
+	amount_min = (request.GET.get('amount_min') or '').strip()
+	amount_max = (request.GET.get('amount_max') or '').strip()
 	selected_template_id = ''
 	can_add_fund_requests = request.user.is_superuser or request.user.has_perm('core.add_fundrequest')
 	can_delete_fund_requests = request.user.is_superuser or request.user.has_perm('core.delete_fundrequest')
 	can_approve_fund_requests = _can_approve_fund_requests(request.user)
+	can_cancel_other_fund_requests = _can_cancel_other_fund_requests(request.user)
+	can_view_all_request_records = request.user.is_superuser or can_approve_fund_requests
 	can_manage_templates = _can_manage_fund_request_templates(request.user)
+	auto_approve_rules = list(FundRequestAutoApproveRule.objects.select_related('created_by').order_by('-is_active', '-updated_at', '-created_at'))
 	active_template = FundRequestTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
 	all_templates = list(
 		FundRequestTemplate.objects.select_related('uploaded_by', 'uploaded_by__profile').order_by('-is_active', '-updated_at', '-created_at')
 	)
-	fund_requests_queryset = FundRequest.objects.select_related('created_by', 'created_by__profile', 'template', 'processed_by').prefetch_related('items', 'attachments')
-	if query:
-		fund_requests_queryset = fund_requests_queryset.filter(
-			Q(serial_number__icontains=query)
-			| Q(requester_name__icontains=query)
-			| Q(department__icontains=query)
-			| Q(branch__icontains=query)
-			| Q(request_status__icontains=query)
-		)
+	guide_template = active_template or (all_templates[0] if all_templates else None)
+	all_fund_requests_queryset = FundRequest.objects.select_related('created_by', 'created_by__profile', 'template', 'processed_by').prefetch_related('items', 'attachments')
+	visible_fund_requests_queryset = all_fund_requests_queryset
+	if not can_view_all_request_records:
+		visible_fund_requests_queryset = visible_fund_requests_queryset.filter(created_by=request.user)
+
+	def parse_local_datetime(value):
+		if not value:
+			return None
+		datetime_value = parse_datetime(value)
+		if not datetime_value:
+			return None
+		if timezone.is_naive(datetime_value):
+			datetime_value = timezone.make_aware(datetime_value, timezone.get_current_timezone())
+		return datetime_value
+
+	created_from_datetime = parse_local_datetime(created_from)
+	created_to_datetime = parse_local_datetime(created_to)
+	valid_status_values = {status_value for status_value, _status_label in FundRequest.REQUEST_STATUS_CHOICES}
 
 	if request.method == 'POST':
-		action_type = (request.POST.get('action_type') or 'create_request').strip()
+		action_type = (request.POST.get('action_type') or '').strip()
+		template_action = (request.POST.get('template_action') or '').strip()
+		template_action_id = ''
+		if template_action:
+			action_name, _, action_id = template_action.partition(':')
+			template_action_id = action_id.strip()
+			if action_name == 'set_default':
+				action_type = 'set_default_template'
+			elif action_name == 'delete':
+				action_type = 'delete_template'
+		if not action_type:
+			action_type = 'create_request'
 		if action_type == 'upload_template':
 			if not can_manage_templates:
 				return _permission_denied_response(request, 'You do not have permission to upload fund request templates.')
 
 			template_form = FundRequestTemplateForm(request.POST, request.FILES)
-			request_form = FundRequestForm(initial={'request_date': timezone.localdate()})
+			request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
 			if template_form.is_valid():
 				template_record = template_form.save(commit=False)
 				template_record.uploaded_by = request.user
@@ -2203,7 +3540,7 @@ def fund_requests_list(request):
 				return _permission_denied_response(request, 'You do not have permission to remove fund requests.')
 
 			request_id = request.POST.get('request_id')
-			fund_request = get_object_or_404(FundRequest, pk=request_id)
+			fund_request = get_object_or_404(visible_fund_requests_queryset, pk=request_id)
 			record_label = fund_request.serial_number or fund_request.requester_name or f'#{fund_request.pk}'
 			fund_request.delete()
 			messages.success(request, f'Fund request {record_label} removed successfully.')
@@ -2221,9 +3558,12 @@ def fund_requests_list(request):
 				messages.warning(request, 'Select at least one fund request to remove.')
 				return redirect('fund_requests_list')
 
-			fund_requests_to_delete = list(FundRequest.objects.filter(pk__in=selected_ids))
+			fund_requests_to_delete = list(visible_fund_requests_queryset.filter(pk__in=selected_ids, request_status='approved'))
 			deleted_count = len(fund_requests_to_delete)
-			FundRequest.objects.filter(pk__in=selected_ids).delete()
+			visible_fund_requests_queryset.filter(pk__in=selected_ids, request_status='approved').delete()
+			if deleted_count == 0:
+				messages.warning(request, 'No approved fund requests matched the selected records.')
+				return redirect('fund_requests_list')
 			messages.success(request, f'{deleted_count} fund request(s) removed successfully.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_delete_templates':
@@ -2241,19 +3581,54 @@ def fund_requests_list(request):
 
 			template_count = FundRequestTemplate.objects.filter(pk__in=selected_template_ids).count()
 			FundRequestTemplate.objects.filter(pk__in=selected_template_ids).delete()
+			_ensure_active_fund_request_template()
 			messages.success(request, f'{template_count} uploaded template(s) removed successfully.')
+			return redirect('fund_requests_list')
+		elif action_type == 'set_default_template':
+			if not can_manage_templates:
+				return _permission_denied_response(request, 'You do not have permission to update fund request templates.')
+
+			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
+			if not template_id.isdigit():
+				messages.warning(request, 'Select a valid template to set as default.')
+				return redirect('fund_requests_list')
+
+			template_record = get_object_or_404(FundRequestTemplate, pk=int(template_id))
+			if template_record.is_active:
+				messages.info(request, f'"{template_record.name}" is already the default template.')
+				return redirect('fund_requests_list')
+
+			template_record.is_active = True
+			template_record.save(update_fields=['is_active'])
+			messages.success(request, f'"{template_record.name}" is now the default template.')
+			return redirect('fund_requests_list')
+		elif action_type == 'delete_template':
+			if not can_manage_templates:
+				return _permission_denied_response(request, 'You do not have permission to remove fund request templates.')
+
+			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
+			if not template_id.isdigit():
+				messages.warning(request, 'Select a valid template to remove.')
+				return redirect('fund_requests_list')
+
+			template_record = get_object_or_404(FundRequestTemplate, pk=int(template_id))
+			template_name = template_record.name
+			template_record.delete()
+			_ensure_active_fund_request_template()
+			messages.success(request, f'Template "{template_name}" removed successfully.')
 			return redirect('fund_requests_list')
 		elif action_type == 'approve_request':
 			if not can_approve_fund_requests:
 				return _permission_denied_response(request, 'You do not have permission to approve fund requests.')
 
 			request_id = request.POST.get('request_id')
+			reason = (request.POST.get('reason') or '').strip()
+
 			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
 			if fund_request.request_status != 'pending':
 				messages.info(request, 'This fund request has already been reviewed.')
 				return redirect('fund_requests_list')
 
-			reason = (request.POST.get('reason') or '').strip()
 			with transaction.atomic():
 				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
 				if fund_request.request_status != 'pending':
@@ -2269,9 +3644,6 @@ def fund_requests_list(request):
 
 			request_id = request.POST.get('request_id')
 			reason = (request.POST.get('reason') or '').strip()
-			if not reason:
-				messages.error(request, 'Reason is required when rejecting a fund request.')
-				return redirect('fund_requests_list')
 
 			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
 			if fund_request.request_status != 'pending':
@@ -2287,17 +3659,175 @@ def fund_requests_list(request):
 			_notify_fund_request_requester(fund_request)
 			messages.info(request, 'Fund request rejected.')
 			return redirect('fund_requests_list')
+		elif action_type == 'cancel_request':
+			request_id = request.POST.get('request_id')
+			reason = (request.POST.get('reason') or '').strip()
+
+			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
+			can_cancel_request = (
+				fund_request.created_by_id == request.user.id
+				or can_cancel_other_fund_requests
+			)
+			if not can_cancel_request:
+				return _permission_denied_response(request, 'You do not have permission to cancel this fund request.')
+			if fund_request.request_status != 'pending':
+				messages.info(request, 'Only pending fund requests can be cancelled.')
+				return redirect('fund_requests_list')
+
+			with transaction.atomic():
+				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+				can_cancel_request = (
+					fund_request.created_by_id == request.user.id
+					or can_cancel_other_fund_requests
+				)
+				if not can_cancel_request:
+					return _permission_denied_response(request, 'You do not have permission to cancel this fund request.')
+				if fund_request.request_status != 'pending':
+					messages.info(request, 'Only pending fund requests can be cancelled.')
+					return redirect('fund_requests_list')
+				fund_request.mark_cancelled(processed_by=request.user, reason=reason)
+
+			if fund_request.created_by_id and fund_request.created_by_id != request.user.id:
+				_notify_fund_request_requester(fund_request)
+			if fund_request.created_by_id == request.user.id:
+				messages.success(request, 'Your fund request has been cancelled.')
+			else:
+				request_label = fund_request.requester_name or f'#{fund_request.pk}'
+				messages.success(request, f'Fund request for {request_label} has been cancelled.')
+			return redirect('fund_requests_list')
+		elif action_type == 'bulk_decide_pending_requests':
+			if not can_approve_fund_requests:
+				return _permission_denied_response(request, 'You do not have permission to review pending fund requests.')
+
+			decision = (request.POST.get('decision') or '').strip().lower()
+			if decision not in {'approve', 'reject'}:
+				messages.error(request, 'Invalid pending request bulk action.')
+				return redirect('fund_requests_list')
+
+			reason = (request.POST.get('reason') or '').strip()
+
+			request_ids = request.POST.getlist('pending_request_ids')
+			if not request_ids:
+				request_ids = request.POST.getlist('request_ids')
+			if not request_ids:
+				request_ids = request.POST.getlist('selected_request_ids')
+			if not request_ids:
+				raw_selected_ids = (request.POST.get('selected_ids') or '').strip()
+				if raw_selected_ids:
+					request_ids = [segment.strip() for segment in raw_selected_ids.split(',') if segment.strip()]
+
+			parsed_ids = []
+			for raw_id in request_ids:
+				raw_text = str(raw_id).strip()
+				if raw_text.isdigit():
+					parsed_ids.append(int(raw_text))
+			parsed_ids = sorted(set(parsed_ids))
+
+			if not parsed_ids:
+				messages.warning(request, 'No pending fund requests selected.')
+				return redirect('fund_requests_list')
+
+			pending_queryset = FundRequest.objects.select_related('created_by').filter(
+				pk__in=parsed_ids,
+				request_status='pending',
+			)
+			if not can_view_all_request_records:
+				pending_queryset = pending_queryset.filter(created_by=request.user)
+
+			processed_requests = []
+			with transaction.atomic():
+				for fund_request in pending_queryset.select_for_update():
+					if decision == 'approve':
+						fund_request.mark_approved(processed_by=request.user, reason=reason)
+					else:
+						fund_request.mark_rejected(processed_by=request.user, reason=reason)
+					processed_requests.append(fund_request)
+
+			processed_count = len(processed_requests)
+			for processed_request in processed_requests:
+				_notify_fund_request_requester(processed_request)
+
+			if processed_count:
+				if decision == 'approve':
+					messages.success(request, f'{processed_count} pending fund request(s) approved successfully.')
+				else:
+					messages.info(request, f'{processed_count} pending fund request(s) rejected.')
+			else:
+				messages.warning(request, 'No pending fund requests matched the selected records.')
+
+			skipped_count = max(0, len(parsed_ids) - processed_count)
+			if skipped_count:
+				messages.warning(request, f'{skipped_count} selected request(s) were skipped because they were already reviewed or unavailable.')
+			return redirect('fund_requests_list')
+		elif action_type == 'save_auto_approve_rule':
+			if not can_approve_fund_requests:
+				return _permission_denied_response(request, 'You do not have permission to auto approve pending fund requests.')
+
+			rule_name = (request.POST.get('auto_rule_name') or '').strip()
+			if not rule_name:
+				messages.warning(request, 'Rule name is required.')
+				return redirect('fund_requests_list')
+
+			requester_keyword = (request.POST.get('auto_requester_keyword') or '').strip()
+			department_keyword = (request.POST.get('auto_department_keyword') or '').strip()
+			branch_keyword = (request.POST.get('auto_branch_keyword') or '').strip()
+			request_date_from = parse_date((request.POST.get('auto_request_date_from') or '').strip() or '')
+			request_date_to = parse_date((request.POST.get('auto_request_date_to') or '').strip() or '')
+			reason = (request.POST.get('auto_reason') or '').strip()
+			require_attachments = (request.POST.get('auto_require_attachments') or '').strip() == '1'
+
+			min_amount = _parse_optional_amount(request.POST.get('auto_min_amount'))
+			max_amount = _parse_optional_amount(request.POST.get('auto_max_amount'))
+			if min_amount is not None and max_amount is not None and min_amount > max_amount:
+				messages.warning(request, 'Min amount cannot be greater than max amount.')
+				return redirect('fund_requests_list')
+
+			FundRequestAutoApproveRule.objects.create(
+				name=rule_name[:120],
+				requester_keyword=requester_keyword,
+				department_keyword=department_keyword,
+				branch_keyword=branch_keyword,
+				request_date_from=request_date_from,
+				request_date_to=request_date_to,
+				min_amount=min_amount,
+				max_amount=max_amount,
+				require_attachments=require_attachments,
+				reason=reason,
+				is_active=True,
+				created_by=request.user,
+			)
+			messages.success(request, f'Auto-approve rule "{rule_name}" saved and activated.')
+			return redirect('fund_requests_list')
+		elif action_type == 'toggle_auto_approve_rule':
+			if not can_approve_fund_requests:
+				return _permission_denied_response(request, 'You do not have permission to update auto-approve rules.')
+
+			rule_id = (request.POST.get('rule_id') or '').strip()
+			if not rule_id.isdigit():
+				messages.warning(request, 'Select a valid auto-approve rule.')
+				return redirect('fund_requests_list')
+			rule = get_object_or_404(FundRequestAutoApproveRule, pk=int(rule_id))
+			rule.is_active = not rule.is_active
+			rule.save(update_fields=['is_active', 'updated_at'])
+			state_label = 'activated' if rule.is_active else 'deactivated'
+			messages.success(request, f'Auto-approve rule "{rule.name}" {state_label}.')
+			return redirect('fund_requests_list')
 		else:
 			if not can_add_fund_requests:
 				return _permission_denied_response(request, 'You do not have permission to create fund requests.')
 
-			request_form = FundRequestForm(request.POST, request.FILES)
+			request_form = FundRequestForm(request.POST, request.FILES, user=request.user)
 			template_form = FundRequestTemplateForm()
 			selected_template_id = (request.POST.get('selected_template_id') or '').strip()
-			if request_form.is_valid():
-				selected_template = active_template
-				if selected_template_id.isdigit():
-					selected_template = FundRequestTemplate.objects.filter(pk=int(selected_template_id)).first() or active_template
+			is_request_form_valid = request_form.is_valid()
+			selected_template = None
+			if selected_template_id.isdigit():
+				selected_template = FundRequestTemplate.objects.filter(pk=int(selected_template_id)).first()
+
+			if not selected_template:
+				request_form.add_error(None, 'Select an uploaded template before saving the fund request.')
+
+			if is_request_form_valid and selected_template:
 				fund_request = request_form.save(commit=False)
 				fund_request.created_by = request.user
 				fund_request.template = selected_template
@@ -2305,39 +3835,755 @@ def fund_requests_list(request):
 				fund_request.save()
 				request_form.save_line_items(fund_request)
 				request_form.save_attachments(fund_request, uploaded_by=request.user)
-				_notify_fund_request_approvers(fund_request)
-				messages.success(request, 'Fund request submitted for admin approval.')
+				matching_auto_rule = _get_matching_auto_approve_rule_for_fund_request(fund_request)
+				if matching_auto_rule:
+					approval_reason = (matching_auto_rule.reason or '').strip() or f'Auto-approved by rule: {matching_auto_rule.name}'
+					auto_processor = matching_auto_rule.created_by if matching_auto_rule.created_by_id else None
+					fund_request.mark_approved(processed_by=auto_processor, reason=approval_reason)
+					messages.success(request, f'Fund request auto-approved by rule "{matching_auto_rule.name}".')
+				else:
+					_notify_fund_request_approvers(fund_request)
+					messages.success(request, 'Fund request submitted for admin approval.')
 				return redirect('fund_requests_list')
 	else:
-		request_form = FundRequestForm(initial={'request_date': timezone.localdate()})
+		request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
 		template_form = FundRequestTemplateForm()
 
-	fund_requests_page = Paginator(fund_requests_queryset.order_by('-created_at'), 20).get_page(request.GET.get('page'))
+	pending_requests_queryset = visible_fund_requests_queryset.filter(request_status='pending')
+
+	rejected_request_modal = None
+	rejected_request_id = (request.GET.get('rejected_request') or '').strip()
+	if rejected_request_id.isdigit():
+		rejected_request_modal = visible_fund_requests_queryset.filter(pk=int(rejected_request_id), request_status='rejected').first()
+
+	fund_requests_queryset = visible_fund_requests_queryset.filter(request_status='approved')
+	if query:
+		fund_requests_queryset = fund_requests_queryset.filter(
+			Q(serial_number__icontains=query)
+			| Q(requester_name__icontains=query)
+			| Q(department__icontains=query)
+			| Q(branch__icontains=query)
+		)
+	if date_from:
+		fund_requests_queryset = fund_requests_queryset.filter(request_date__gte=date_from)
+	if date_to:
+		fund_requests_queryset = fund_requests_queryset.filter(request_date__lte=date_to)
+	if series_from:
+		fund_requests_queryset = fund_requests_queryset.filter(serial_number__gte=series_from)
+	if series_to:
+		fund_requests_queryset = fund_requests_queryset.filter(serial_number__lte=series_to)
+	if amount_min:
+		try:
+			fund_requests_queryset = fund_requests_queryset.filter(total_amount__gte=Decimal(amount_min))
+		except (InvalidOperation, TypeError, ValueError):
+			pass
+	if amount_max:
+		try:
+			fund_requests_queryset = fund_requests_queryset.filter(total_amount__lte=Decimal(amount_max))
+		except (InvalidOperation, TypeError, ValueError):
+			pass
+
+	pending_requests_page = Paginator(
+		pending_requests_queryset.order_by('-created_at'),
+		10,
+	).get_page(request.GET.get('pending_page'))
+	fund_requests_page = Paginator(fund_requests_queryset.order_by('-created_at', '-id'), 10).get_page(request.GET.get('page'))
 	page_requests = list(fund_requests_page.object_list)
-	created_by_ids = [fund_request.created_by_id for fund_request in page_requests if fund_request.created_by_id]
+	pending_page_requests = list(pending_requests_page.object_list)
+	for fund_request in page_requests:
+		fund_request.calculated_total_amount = sum(
+			((line_item.amount or Decimal('0.00')) for line_item in fund_request.items.all()),
+			Decimal('0.00'),
+		)
+	created_by_ids = {
+		fund_request.created_by_id
+		for fund_request in [*page_requests, *pending_page_requests]
+		if fund_request.created_by_id
+	}
 	creator_profiles_map = {
 		profile.user_id: profile
 		for profile in UserProfile.objects.filter(user_id__in=created_by_ids)
 	}
+	status_label_map = {value: label for value, label in FundRequest.REQUEST_STATUS_CHOICES}
+	records_filter_parts = []
+	if query:
+		records_filter_parts.append(f'Search: {query}')
+	if date_from:
+		records_filter_parts.append(f'Date From: {date_from.isoformat()}')
+	if date_to:
+		records_filter_parts.append(f'Date To: {date_to.isoformat()}')
+	if request_status_filter in status_label_map:
+		records_filter_parts.append(f'Status: {status_label_map[request_status_filter]}')
+	if record_date:
+		records_filter_parts.append(f'Request Date: {record_date.isoformat()}')
+	if created_from_datetime:
+		records_filter_parts.append(f'Created From: {timezone.localtime(created_from_datetime).strftime("%Y-%m-%d %H:%M")}')
+	if created_to_datetime:
+		records_filter_parts.append(f'Created To: {timezone.localtime(created_to_datetime).strftime("%Y-%m-%d %H:%M")}')
+	if series_from:
+		records_filter_parts.append(f'Series From: {series_from}')
+	if series_to:
+		records_filter_parts.append(f'Series To: {series_to}')
+	if amount_min:
+		records_filter_parts.append(f'Min Amount: {amount_min}')
+	if amount_max:
+		records_filter_parts.append(f'Max Amount: {amount_max}')
+	records_filter_summary = ' | '.join(records_filter_parts) if records_filter_parts else 'No filters applied.'
+	total_visible_approved_requests = visible_fund_requests_queryset.filter(request_status='approved').count()
+	total_visible_pending_requests = visible_fund_requests_queryset.filter(request_status='pending').count()
 
 	context = {
+		'pending_requests_page': pending_requests_page,
 		'fund_requests_page': fund_requests_page,
 		'creator_profiles_map': creator_profiles_map,
 		'fund_request_form': request_form,
 		'template_form': template_form,
+		'quick_placeholder_guide': _build_fund_request_template_quick_placeholder_guide(),
 		'all_templates': all_templates,
+		'guide_template': guide_template,
+		'guide_preview_url': reverse('fund_request_template_guide'),
 		'default_selected_template_id': selected_template_id or (active_template.id if active_template else ''),
 		'query': query,
+		'date_from': date_from.isoformat() if date_from else '',
+		'date_to': date_to.isoformat() if date_to else '',
+		'record_date': record_date.isoformat() if record_date else '',
+		'request_status': request_status_filter if request_status_filter in valid_status_values else '',
+		'request_status_choices': FundRequest.REQUEST_STATUS_CHOICES,
+		'created_from': created_from,
+		'created_to': created_to,
+		'series_from': series_from,
+		'series_to': series_to,
+		'amount_min': amount_min,
+		'amount_max': amount_max,
 		'active_template': active_template,
 		'can_add_fund_requests': can_add_fund_requests,
 		'can_delete_fund_requests': can_delete_fund_requests,
 		'can_approve_fund_requests': can_approve_fund_requests,
+		'can_cancel_other_fund_requests': can_cancel_other_fund_requests,
+		'can_view_all_request_records': can_view_all_request_records,
 		'can_manage_templates': can_manage_templates,
-		'total_fund_requests': fund_requests_queryset.count(),
-		'total_fund_amount': fund_requests_queryset.aggregate(total=Sum('total_amount')).get('total') or 0,
-		'total_pending_fund_requests': fund_requests_queryset.filter(request_status='pending').count(),
+		'total_fund_requests': total_visible_approved_requests,
+		'total_pending_fund_requests': total_visible_pending_requests,
+		'records_filter_summary': records_filter_summary,
+		'print_generated_at': timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S'),
+		'rejected_request_modal': rejected_request_modal,
+		'rejected_request_modal_total': rejected_request_modal.items.aggregate(total=Sum('amount')).get('total') if rejected_request_modal else None,
+		'auto_approve_rules': auto_approve_rules,
 	}
 	return render(request, 'core/fund_requests_list.html', context)
+
+
+@login_required
+def fund_request_template_guide(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	template_record = (
+		FundRequestTemplate.objects.select_related('uploaded_by', 'uploaded_by__profile')
+		.filter(is_active=True)
+		.order_by('-updated_at', '-created_at')
+		.first()
+	)
+	if not template_record:
+		template_record = (
+			FundRequestTemplate.objects.select_related('uploaded_by', 'uploaded_by__profile')
+			.order_by('-updated_at', '-created_at')
+			.first()
+		)
+
+	return render(
+		request,
+		'core/fund_request_template_preview.html',
+		_build_fund_request_template_preview_page_context(template_record, show_template_page_link=True),
+	)
+
+
+@login_required
+def fund_request_records(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	records_context = _get_fund_request_records_context_data(request)
+	records_queryset = records_context['filtered_queryset'].order_by('-created_at', '-id')
+	records_page = Paginator(records_queryset, 30).get_page(request.GET.get('page'))
+	context = {
+		'records_page': records_page,
+		'filter_state': records_context['filter_state'],
+		'filter_summary': records_context['filter_summary'],
+		'request_status_choices': FundRequest.REQUEST_STATUS_CHOICES,
+		'status_label_map': records_context['status_label_map'],
+		'can_view_all_request_records': records_context['can_view_all_request_records'],
+		'generated_at': timezone.localtime(timezone.now()),
+		'generated_by_label': request.user.get_full_name() or request.user.username,
+		'auto_print': (request.GET.get('auto_print') or '').strip() == '1',
+	}
+	return render(request, 'core/fund_request_records.html', context)
+
+
+@login_required
+def fund_request_records_pdf(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	records_context = _get_fund_request_records_context_data(request)
+	records_queryset = records_context['filtered_queryset'].order_by('-created_at', '-id')
+	generated_at = timezone.localtime(timezone.now())
+	generated_by_label = request.user.get_full_name() or request.user.username
+	filename_stamp = generated_at.strftime('%Y%m%d_%H%M%S')
+
+	scope_label = 'All requests' if records_context['can_view_all_request_records'] else 'My requests only'
+	content = render_to_string(
+		'core/fund_request_records_pdf.html',
+		{
+			'records': records_queryset,
+			'generated_at': generated_at,
+			'generated_by_label': generated_by_label,
+			'scope_label': scope_label,
+			'filter_summary': records_context['filter_summary'],
+		},
+	)
+	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), 'fund-request-records.html')
+	if not pdf_bytes:
+		return HttpResponse('PDF download is not available for this report right now.', content_type='text/plain; charset=utf-8', status=415)
+
+	response = HttpResponse(pdf_bytes, content_type='application/pdf')
+	response['Content-Disposition'] = f'attachment; filename="fund_request_records_{filename_stamp}.pdf"'
+	return response
+
+
+@login_required
+def fund_request_records_csv(request):
+	return fund_request_records_pdf(request)
+
+
+@login_required
+def finance_dashboard(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	can_approve_fund_requests = _can_approve_fund_requests(request.user)
+	can_approve_liquidations = _can_approve_liquidations(request.user)
+
+	approved_fund_requests_queryset = FundRequest.objects.select_related('created_by', 'processed_by').filter(request_status='approved')
+	if not can_approve_fund_requests:
+		approved_fund_requests_queryset = approved_fund_requests_queryset.filter(created_by=request.user)
+
+	approved_liquidations_queryset = Liquidation.objects.select_related('created_by', 'processed_by').filter(request_status='approved')
+	if not can_approve_liquidations:
+		approved_liquidations_queryset = approved_liquidations_queryset.filter(created_by=request.user)
+
+	context = {
+		'approved_fund_request_count': approved_fund_requests_queryset.count(),
+		'approved_liquidation_count': approved_liquidations_queryset.count(),
+		'recent_fund_requests': approved_fund_requests_queryset.order_by('-created_at')[:5],
+		'recent_liquidations': approved_liquidations_queryset.order_by('-created_at')[:5],
+	}
+	return render(request, 'core/finance_dashboard.html', context)
+
+
+@login_required
+def finance_reimburstment(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+	return render(request, 'core/finance_reimburstment.html')
+
+
+@login_required
+def finance_summary_request(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+	return render(request, 'core/finance_summary_request.html')
+
+
+@login_required
+def liquidation_page(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	can_approve_liquidations = _can_approve_liquidations(request.user)
+	can_view_all_request_records = can_approve_liquidations
+	can_add_liquidation = request.user.is_superuser or request.user.has_perm('core.add_liquidation')
+	can_delete_liquidation = request.user.is_superuser or request.user.has_perm('core.delete_liquidation')
+	can_manage_templates = _can_manage_liquidation_templates(request.user)
+	liquidation_settings = LiquidationSettings.load()
+	max_selectable_rows = int(liquidation_settings.max_selectable_rows or 20)
+
+	active_template = LiquidationTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
+	all_templates = list(
+		LiquidationTemplate.objects.select_related('uploaded_by', 'uploaded_by__profile').order_by('-is_active', '-updated_at', '-created_at')
+	)
+
+	if request.method == 'POST':
+		action_type = (request.POST.get('action_type') or '').strip()
+		template_action = (request.POST.get('template_action') or '').strip()
+		template_action_id = ''
+		if template_action:
+			action_name, _, action_id = template_action.partition(':')
+			template_action_id = action_id.strip()
+			if action_name == 'set_default':
+				action_type = 'set_default_template'
+			elif action_name == 'delete':
+				action_type = 'delete_template'
+		if not action_type:
+			action_type = 'create_liquidation'
+
+		if action_type == 'upload_template':
+			if not can_manage_templates:
+				return _permission_denied_response(request, 'You do not have permission to upload liquidation templates.')
+			template_form = LiquidationTemplateForm(request.POST, request.FILES)
+			liquidation_form = LiquidationForm(initial={'liquidation_date': timezone.localdate()}, user=request.user)
+			if template_form.is_valid():
+				template_record = template_form.save(commit=False)
+				template_record.uploaded_by = request.user
+				template_record.save()
+				messages.success(request, f'Liquidation template "{template_record.name}" uploaded successfully.')
+				return redirect('liquidation_page')
+		elif action_type == 'set_default_template':
+			if not can_manage_templates:
+				return _permission_denied_response(request, 'You do not have permission to update liquidation templates.')
+			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
+			if not template_id.isdigit():
+				messages.warning(request, 'Select a valid liquidation template.')
+				return redirect('liquidation_page')
+			template_record = get_object_or_404(LiquidationTemplate, pk=int(template_id))
+			if template_record.is_active:
+				messages.info(request, f'"{template_record.name}" is already the default liquidation template.')
+				return redirect('liquidation_page')
+			template_record.is_active = True
+			template_record.save(update_fields=['is_active'])
+			messages.success(request, f'"{template_record.name}" is now the default liquidation template.')
+			return redirect('liquidation_page')
+		elif action_type == 'delete_template':
+			if not can_manage_templates:
+				return _permission_denied_response(request, 'You do not have permission to remove liquidation templates.')
+			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
+			if not template_id.isdigit():
+				messages.warning(request, 'Select a valid liquidation template.')
+				return redirect('liquidation_page')
+			template_record = get_object_or_404(LiquidationTemplate, pk=int(template_id))
+			template_name = template_record.name
+			template_record.delete()
+			_ensure_active_liquidation_template()
+			messages.success(request, f'Liquidation template "{template_name}" removed successfully.')
+			return redirect('liquidation_page')
+		elif action_type == 'bulk_delete_liquidations':
+			if not can_delete_liquidation:
+				return _permission_denied_response(request, 'You do not have permission to delete saved liquidation forms.')
+
+			selected_ids = [
+				int(value)
+				for value in request.POST.getlist('selected_liquidation_ids')
+				if str(value).isdigit()
+			]
+			if not selected_ids:
+				messages.warning(request, 'Select at least one liquidation form to delete.')
+				return redirect('liquidation_page')
+
+			deletable_queryset = Liquidation.objects.exclude(request_status='pending')
+			if not can_view_all_request_records:
+				deletable_queryset = deletable_queryset.filter(created_by=request.user)
+
+			liquidations_to_delete = list(deletable_queryset.filter(pk__in=selected_ids))
+			deleted_count = len(liquidations_to_delete)
+			deletable_queryset.filter(pk__in=selected_ids).delete()
+
+			if not deleted_count:
+				messages.warning(request, 'No saved liquidation forms matched the selected records.')
+				return redirect('liquidation_page')
+
+			messages.success(request, f'{deleted_count} saved liquidation form(s) deleted successfully.')
+			return redirect('liquidation_page')
+		elif action_type == 'approve_liquidation':
+			if not can_approve_liquidations:
+				return _permission_denied_response(request, 'You do not have permission to approve liquidation forms.')
+			liquidation_id = (request.POST.get('liquidation_id') or '').strip()
+			reason = (request.POST.get('decision_reason') or '').strip()
+			if not liquidation_id.isdigit():
+				messages.warning(request, 'Select a valid liquidation form.')
+				return redirect('liquidation_page')
+			liquidation = get_object_or_404(Liquidation, pk=int(liquidation_id))
+			if liquidation.request_status != 'pending':
+				messages.warning(request, 'Only pending liquidation forms can be approved.')
+				return redirect('liquidation_page')
+			with transaction.atomic():
+				liquidation.refresh_from_db()
+				if liquidation.request_status != 'pending':
+					messages.warning(request, 'Only pending liquidation forms can be approved.')
+					return redirect('liquidation_page')
+				liquidation.mark_approved(processed_by=request.user, reason=reason)
+			messages.success(request, f'Liquidation approved with control number {liquidation.control_number}.')
+			return redirect('liquidation_page')
+		elif action_type == 'reject_liquidation':
+			if not can_approve_liquidations:
+				return _permission_denied_response(request, 'You do not have permission to reject liquidation forms.')
+			liquidation_id = (request.POST.get('liquidation_id') or '').strip()
+			reason = (request.POST.get('decision_reason') or '').strip()
+			if not liquidation_id.isdigit():
+				messages.warning(request, 'Select a valid liquidation form.')
+				return redirect('liquidation_page')
+			liquidation = get_object_or_404(Liquidation, pk=int(liquidation_id))
+			if liquidation.request_status != 'pending':
+				messages.warning(request, 'Only pending liquidation forms can be rejected.')
+				return redirect('liquidation_page')
+			with transaction.atomic():
+				liquidation.refresh_from_db()
+				if liquidation.request_status != 'pending':
+					messages.warning(request, 'Only pending liquidation forms can be rejected.')
+					return redirect('liquidation_page')
+				liquidation.mark_rejected(processed_by=request.user, reason=reason)
+			messages.success(request, 'Liquidation form rejected.')
+			return redirect('liquidation_page')
+		elif action_type == 'cancel_pending_liquidation':
+			liquidation_id = (request.POST.get('liquidation_id') or '').strip()
+			reason = (request.POST.get('decision_reason') or '').strip()
+			if not liquidation_id.isdigit():
+				messages.warning(request, 'Select a valid liquidation form.')
+				return redirect('liquidation_page')
+			liquidation = get_object_or_404(Liquidation, pk=int(liquidation_id))
+			if liquidation.request_status != 'pending':
+				messages.warning(request, 'Only pending liquidation forms can be cancelled.')
+				return redirect('liquidation_page')
+			if liquidation.created_by_id != request.user.id and not can_approve_liquidations:
+				return _permission_denied_response(request, 'You do not have permission to cancel this liquidation form.')
+			with transaction.atomic():
+				liquidation.refresh_from_db()
+				if liquidation.request_status != 'pending':
+					messages.warning(request, 'Only pending liquidation forms can be cancelled.')
+					return redirect('liquidation_page')
+				cancel_reason = reason or 'Cancelled by requester.'
+				liquidation.mark_rejected(processed_by=request.user, reason=cancel_reason)
+			messages.success(request, 'Pending liquidation request cancelled.')
+			return redirect('liquidation_page')
+		elif action_type == 'bulk_pending_liquidation_decision':
+			if not can_approve_liquidations:
+				return _permission_denied_response(request, 'You do not have permission to process pending liquidation forms.')
+			decision = (request.POST.get('decision') or '').strip().lower()
+			if decision not in {'approve', 'reject'}:
+				messages.warning(request, 'Select a valid bulk decision.')
+				return redirect('liquidation_page')
+			selected_ids = [
+				int(value)
+				for value in request.POST.getlist('selected_pending_liquidation_ids')
+				if str(value).isdigit()
+			]
+			if not selected_ids:
+				fallback_ids = (request.POST.get('selected_pending_ids') or '').strip()
+				selected_ids = [int(value) for value in fallback_ids.split(',') if value.strip().isdigit()]
+			if not selected_ids:
+				messages.warning(request, 'Select at least one pending liquidation form.')
+				return redirect('liquidation_page')
+
+			reason = (request.POST.get('decision_reason') or '').strip()
+			pending_queryset = Liquidation.objects.filter(pk__in=selected_ids, request_status='pending')
+			processed_count = 0
+			with transaction.atomic():
+				for liquidation in pending_queryset.select_for_update():
+					if liquidation.request_status != 'pending':
+						continue
+					if decision == 'approve':
+						liquidation.mark_approved(processed_by=request.user, reason=reason)
+					else:
+						liquidation.mark_rejected(processed_by=request.user, reason=reason)
+					processed_count += 1
+
+			if not processed_count:
+				messages.warning(request, 'No pending liquidation forms were processed.')
+				return redirect('liquidation_page')
+			if decision == 'approve':
+				messages.success(request, f'{processed_count} pending liquidation form(s) approved.')
+			else:
+				messages.success(request, f'{processed_count} pending liquidation form(s) rejected.')
+			return redirect('liquidation_page')
+		elif action_type == 'update_liquidation_settings':
+			if not can_manage_templates:
+				return _permission_denied_response(request, 'You do not have permission to update liquidation settings.')
+			raw_limit = (request.POST.get('max_selectable_rows') or '').strip()
+			try:
+				parsed_limit = int(raw_limit)
+			except (TypeError, ValueError):
+				messages.warning(request, 'Enter a valid max row limit.')
+				return redirect('liquidation_page')
+
+			if parsed_limit < 1 or parsed_limit > 200:
+				messages.warning(request, 'Max row limit must be between 1 and 200.')
+				return redirect('liquidation_page')
+
+			liquidation_settings.max_selectable_rows = parsed_limit
+			liquidation_settings.save(update_fields=['max_selectable_rows', 'updated_at'])
+			messages.success(request, f'Liquidation max row limit updated to {parsed_limit}.')
+			return redirect('liquidation_page')
+		else:
+			if not can_add_liquidation:
+				return _permission_denied_response(request, 'You do not have permission to create liquidation forms.')
+
+			liquidation_form = LiquidationForm(request.POST, request.FILES, user=request.user)
+			template_form = LiquidationTemplateForm()
+			selected_template_id = (request.POST.get('selected_template_id') or '').strip()
+			selected_template = LiquidationTemplate.objects.filter(pk=int(selected_template_id)).first() if selected_template_id.isdigit() else None
+			if not selected_template:
+				liquidation_form.add_error(None, 'Select an uploaded liquidation template before saving.')
+			elif len(liquidation_form.get_line_items()) > max_selectable_rows:
+				liquidation_form.add_error('line_items_payload', f'You can select up to {max_selectable_rows} item(s) only.')
+
+			if liquidation_form.is_valid() and selected_template:
+				try:
+					with transaction.atomic():
+						liquidation = liquidation_form.save(commit=False)
+						liquidation.created_by = request.user
+						liquidation.template = selected_template
+						liquidation.request_status = 'pending'
+						liquidation.save()
+						liquidation_form.save_line_items(liquidation)
+						liquidation_form.save_attachments(liquidation, uploaded_by=request.user)
+				except IntegrityError:
+					liquidation_form.add_error(None, 'One or more selected line items were already used in another liquidation.')
+				else:
+					messages.success(request, 'Liquidation form submitted for approval.')
+					return redirect('liquidation_page')
+	else:
+		liquidation_form = LiquidationForm(initial={'liquidation_date': timezone.localdate()}, user=request.user)
+		template_form = LiquidationTemplateForm()
+
+	visible_approved_requests = FundRequest.objects.select_related('created_by', 'created_by__profile').filter(request_status='approved')
+	if not can_view_all_request_records:
+		visible_approved_requests = visible_approved_requests.filter(created_by=request.user)
+
+	# Safety cleanup for historical rejected/cancelled records created before source-line release logic existed.
+	LiquidationLineItem.objects.filter(
+		liquidation__request_status__in=['rejected', 'cancelled']
+	).exclude(
+		source_line_item_id__isnull=True
+	).update(source_line_item=None)
+
+	used_source_ids = set(
+		LiquidationLineItem.objects.filter(
+			liquidation__request_status__in=['pending', 'approved']
+		).exclude(
+			source_line_item_id__isnull=True
+		).values_list('source_line_item_id', flat=True)
+	)
+	available_source_items = list(
+		FundRequestLineItem.objects.select_related('fund_request')
+		.filter(fund_request__in=visible_approved_requests)
+		.exclude(id__in=used_source_ids)
+		.order_by('-fund_request__created_at', 'id')
+	)
+
+	liquidations_queryset = Liquidation.objects.select_related('template', 'created_by', 'created_by__profile').prefetch_related('items', 'attachments')
+	if not can_view_all_request_records:
+		liquidations_queryset = liquidations_queryset.filter(created_by=request.user)
+
+	branch_filter_options = sorted(
+		{
+			(branch or '').strip()
+			for branch in liquidations_queryset.values_list('branch', flat=True)
+			if (branch or '').strip()
+		}
+	)
+
+	pending_query = (request.GET.get('pending_q') or '').strip()
+	pending_branch_filter = (request.GET.get('pending_branch') or '').strip()
+	saved_query = (request.GET.get('saved_q') or '').strip()
+	saved_branch_filter = (request.GET.get('saved_branch') or '').strip()
+	saved_status_filter = (request.GET.get('saved_status') or '').strip().lower()
+	if saved_status_filter not in {'approved', 'rejected'}:
+		saved_status_filter = ''
+
+	pending_liquidations_queryset = liquidations_queryset.filter(request_status='pending')
+	if pending_query:
+		pending_liquidations_queryset = pending_liquidations_queryset.filter(
+			Q(name__icontains=pending_query)
+			| Q(branch__icontains=pending_query)
+			| Q(position__icontains=pending_query)
+			| Q(requested_by_name__icontains=pending_query)
+		)
+	if pending_branch_filter:
+		pending_liquidations_queryset = pending_liquidations_queryset.filter(branch=pending_branch_filter)
+
+	saved_liquidations_queryset = liquidations_queryset.exclude(request_status='pending')
+	if saved_query:
+		saved_liquidations_queryset = saved_liquidations_queryset.filter(
+			Q(control_number__icontains=saved_query)
+			| Q(name__icontains=saved_query)
+			| Q(branch__icontains=saved_query)
+			| Q(position__icontains=saved_query)
+			| Q(requested_by_name__icontains=saved_query)
+		)
+	if saved_branch_filter:
+		saved_liquidations_queryset = saved_liquidations_queryset.filter(branch=saved_branch_filter)
+	if saved_status_filter:
+		saved_liquidations_queryset = saved_liquidations_queryset.filter(request_status=saved_status_filter)
+
+	pending_liquidations_queryset = pending_liquidations_queryset.order_by('-created_at')
+	saved_liquidations_queryset = saved_liquidations_queryset.order_by('-created_at')
+	pending_liquidations_page = Paginator(pending_liquidations_queryset, 10).get_page(request.GET.get('pending_page'))
+	saved_liquidations_page = Paginator(saved_liquidations_queryset, 10).get_page(request.GET.get('saved_page'))
+
+	pending_page_query = request.GET.copy()
+	if 'pending_page' in pending_page_query:
+		del pending_page_query['pending_page']
+	saved_page_query = request.GET.copy()
+	if 'saved_page' in saved_page_query:
+		del saved_page_query['saved_page']
+
+	context = {
+		'liquidation_form': liquidation_form,
+		'template_form': template_form,
+		'all_templates': all_templates,
+		'active_template': active_template,
+		'default_selected_template_id': active_template.id if active_template else '',
+		'available_source_items': available_source_items,
+		'pending_liquidations_page': pending_liquidations_page,
+		'saved_liquidations_page': saved_liquidations_page,
+		'total_pending_liquidations': pending_liquidations_queryset.count(),
+		'total_saved_liquidations': saved_liquidations_queryset.count(),
+		'pending_q': pending_query,
+		'pending_branch': pending_branch_filter,
+		'saved_q': saved_query,
+		'saved_branch': saved_branch_filter,
+		'saved_status': saved_status_filter,
+		'liquidation_branch_filter_options': branch_filter_options,
+		'pending_page_query': pending_page_query.urlencode(),
+		'saved_page_query': saved_page_query.urlencode(),
+		'can_add_liquidation': can_add_liquidation,
+		'can_delete_liquidation': can_delete_liquidation,
+		'can_manage_templates': can_manage_templates,
+		'can_approve_liquidations': can_approve_liquidations,
+		'can_view_all_request_records': can_view_all_request_records,
+		'liquidation_max_selectable_rows': max_selectable_rows,
+		'liquidation_placeholder_guide': _build_liquidation_template_placeholder_guide(),
+	}
+	return render(request, 'core/liquidation.html', context)
+
+
+@login_required
+def liquidation_pdf(request, liquidation_id):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	can_view_all_request_records = _can_approve_liquidations(request.user)
+	queryset = Liquidation.objects.select_related('template', 'created_by').prefetch_related('items', 'attachments')
+	if not can_view_all_request_records:
+		queryset = queryset.filter(created_by=request.user)
+	liquidation = get_object_or_404(queryset, pk=liquidation_id)
+
+	payload = _build_liquidation_pdf_payload(liquidation, allow_structured_preview_fallback=True)
+	if not payload:
+		return HttpResponse('PDF preview is not available for this liquidation form.', content_type='text/plain; charset=utf-8', status=415)
+
+	response = HttpResponse(payload['content'], content_type='application/pdf')
+	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
+	return response
+
+
+@login_required
+def liquidation_download(request, liquidation_id):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	can_view_all_request_records = _can_approve_liquidations(request.user)
+	queryset = Liquidation.objects.select_related('template', 'created_by').prefetch_related('items', 'attachments')
+	if not can_view_all_request_records:
+		queryset = queryset.filter(created_by=request.user)
+	liquidation = get_object_or_404(queryset, pk=liquidation_id)
+
+	payload = _build_liquidation_pdf_payload(liquidation, allow_structured_preview_fallback=False)
+	if not payload:
+		messages.error(request, 'Unable to convert this liquidation form to PDF right now.', extra_tags='toast')
+		return redirect('liquidation_page')
+
+	response = HttpResponse(payload['content'], content_type='application/pdf')
+	response['Content-Disposition'] = f'attachment; filename="{payload["filename"]}"'
+	return response
+
+
+@login_required
+def liquidation_bulk_download(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	raw_selected_ids = (request.GET.get('selected_ids') or '').strip()
+	selected_ids = [
+		int(segment.strip())
+		for segment in raw_selected_ids.split(',')
+		if segment.strip().isdigit()
+	]
+	if not selected_ids:
+		return HttpResponse('No liquidation forms selected for download.', content_type='text/plain; charset=utf-8', status=400)
+
+	can_view_all_request_records = _can_approve_liquidations(request.user)
+	queryset = Liquidation.objects.select_related('template', 'created_by').prefetch_related('items', 'attachments').filter(pk__in=selected_ids)
+	if not can_view_all_request_records:
+		queryset = queryset.filter(created_by=request.user)
+	liquidation_map = {entry.pk: entry for entry in queryset}
+	visible_liquidations = [liquidation_map[entry_id] for entry_id in selected_ids if entry_id in liquidation_map]
+	if not visible_liquidations:
+		return HttpResponse('No accessible liquidation forms were selected for download.', content_type='text/plain; charset=utf-8', status=404)
+
+	pdf_parts = []
+	for liquidation in visible_liquidations:
+		payload = _build_liquidation_pdf_payload(liquidation, allow_structured_preview_fallback=False)
+		if payload and payload.get('content'):
+			pdf_parts.append(payload['content'])
+
+	merged_pdf = _merge_pdf_parts(pdf_parts)
+	if not merged_pdf:
+		return HttpResponse('Unable to generate a downloadable PDF for the selected liquidation forms.', content_type='text/plain; charset=utf-8', status=415)
+
+	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	response = HttpResponse(merged_pdf, content_type='application/pdf')
+	response['Content-Disposition'] = f'attachment; filename="liquidations_selected_{filename_stamp}.pdf"'
+	return response
+
+
+@login_required
+def liquidation_bulk_print(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	raw_selected_ids = (request.GET.get('selected_ids') or '').strip()
+	selected_ids = [
+		int(segment.strip())
+		for segment in raw_selected_ids.split(',')
+		if segment.strip().isdigit()
+	]
+	if not selected_ids:
+		return HttpResponse('No liquidation forms selected for print.', content_type='text/plain; charset=utf-8', status=400)
+
+	can_view_all_request_records = _can_approve_liquidations(request.user)
+	queryset = Liquidation.objects.select_related('template', 'created_by').prefetch_related('items', 'attachments').filter(pk__in=selected_ids)
+	if not can_view_all_request_records:
+		queryset = queryset.filter(created_by=request.user)
+	liquidation_map = {entry.pk: entry for entry in queryset}
+	visible_liquidations = [liquidation_map[entry_id] for entry_id in selected_ids if entry_id in liquidation_map]
+	if not visible_liquidations:
+		return HttpResponse('No accessible liquidation forms were selected for print.', content_type='text/plain; charset=utf-8', status=404)
+
+	pdf_parts = []
+	for liquidation in visible_liquidations:
+		payload = _build_liquidation_pdf_payload(liquidation, allow_structured_preview_fallback=False)
+		if payload and payload.get('content'):
+			pdf_parts.append(payload['content'])
+
+	merged_pdf = _merge_pdf_parts(pdf_parts)
+	if not merged_pdf:
+		return HttpResponse('Unable to generate a printable PDF for the selected liquidation forms.', content_type='text/plain; charset=utf-8', status=415)
+
+	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	response = HttpResponse(merged_pdf, content_type='application/pdf')
+	response['Content-Disposition'] = f'inline; filename="liquidations_selected_{filename_stamp}.pdf"'
+	return response
 
 
 @login_required
@@ -2346,20 +4592,8 @@ def fund_request_review(request, request_id):
 	if restricted_response:
 		return restricted_response
 
-	fund_request = get_object_or_404(
-		FundRequest.objects.select_related('created_by', 'created_by__profile', 'template', 'processed_by').prefetch_related('items', 'attachments'),
-		pk=request_id,
-	)
-	context = {
-		'fund_request': fund_request,
-		'line_items': fund_request.items.all(),
-		'attachments': fund_request.attachments.all(),
-		'template_record': fund_request.template,
-		'template_extension': _fund_request_template_extension(fund_request.template),
-		'preview_pdf_url': reverse('fund_request_review_pdf', args=[fund_request.pk]),
-		'can_approve_this_request': _can_approve_fund_requests(request.user) and fund_request.request_status == 'pending',
-	}
-	return render(request, 'core/fund_request_review.html', context)
+	get_object_or_404(FundRequest, pk=request_id)
+	return redirect('fund_request_review_pdf', request_id=request_id)
 
 
 @login_required
@@ -2372,7 +4606,7 @@ def fund_request_review_pdf(request, request_id):
 		FundRequest.objects.select_related('created_by', 'created_by__profile', 'template').prefetch_related('items', 'attachments'),
 		pk=request_id,
 	)
-	payload = _build_fund_request_pdf_payload(fund_request)
+	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=True)
 	if not payload:
 		return HttpResponse('PDF preview is not available for this fund request.', content_type='text/plain; charset=utf-8', status=415)
 
@@ -2394,14 +4628,98 @@ def fund_request_document(request, request_id):
 	if fund_request.request_status != 'approved':
 		messages.warning(request, 'Only approved fund requests can be opened or printed.')
 		return redirect('fund_requests_list')
-	payload = _build_fund_request_pdf_payload(fund_request)
-	if not payload:
-		messages.error(request, 'The PDF version of this fund request is not available right now.')
+	template_payload = _build_fund_request_template_file_payload(fund_request)
+	if template_payload:
+		response = HttpResponse(template_payload['content'], content_type=template_payload['content_type'])
+		response['Content-Disposition'] = f'inline; filename="{template_payload["filename"]}"'
+		return response
+
+	messages.error(request, 'No template file is attached to this approved fund request.')
+	return redirect('fund_requests_list')
+
+
+@login_required
+def fund_request_print(request, request_id):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	fund_request = get_object_or_404(
+		FundRequest.objects.select_related('created_by', 'created_by__profile', 'template').prefetch_related('items', 'attachments'),
+		pk=request_id,
+	)
+	if fund_request.request_status != 'approved':
+		messages.warning(request, 'Only approved fund requests can be printed.')
+		return redirect('fund_requests_list')
+	template_record = fund_request.template
+	if not template_record or not getattr(template_record, 'file', None):
+		messages.error(request, 'No preferred template file is attached to this approved fund request.')
 		return redirect('fund_requests_list')
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
+	if payload:
+		response = HttpResponse(payload['content'], content_type='application/pdf')
+		response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
+		return response
+
+	client_side_payload = _build_fund_request_client_side_conversion_payload(fund_request)
+	if client_side_payload:
+		return redirect('fund_request_client_side_preview', request_id=fund_request.pk)
+
+	template_extension = _fund_request_template_extension(template_record)
+	convertible_extensions = {'.doc', '.docx', '.docm', '.rtf', '.txt', '.htm', '.html', '.xls', '.xlsx', '.xlsm', '.xlsb', '.csv'}
+	if template_extension in convertible_extensions:
+		backend_status = _office_conversion_backend_status(template_extension)
+		if not any(backend_status.values()):
+			messages.error(
+				request,
+				'No server-side converter is available. Install at least one of: (1) Microsoft Office, (2) libreoffice, (3) soffice.',
+				extra_tags='toast',
+			)
+			return redirect('fund_requests_list')
+
+	messages.error(
+		request,
+		'Unable to convert the filled template to PDF on the server. Checked sequence: (1) Microsoft Office, (2) libreoffice, (3) soffice.',
+		extra_tags='toast',
+	)
+	return redirect('fund_requests_list')
+
+
+@login_required
+def fund_request_client_side_preview(request, request_id):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	fund_request = get_object_or_404(
+		FundRequest.objects.select_related('created_by', 'created_by__profile', 'template').prefetch_related('items', 'attachments'),
+		pk=request_id,
+	)
+	if fund_request.request_status != 'approved':
+		messages.warning(request, 'Only approved fund requests can be opened or printed.')
+		return redirect('fund_requests_list')
+
+	client_payload = _build_fund_request_client_side_conversion_payload(fund_request)
+	if not client_payload:
+		messages.error(
+			request,
+			'Client-side conversion fallback is currently available for DOCX and XLSX templates only.',
+			extra_tags='toast',
+		)
+		return redirect('fund_requests_list')
+
+	return render(
+		request,
+		'core/fund_request_client_side_preview.html',
+		{
+			'fund_request': fund_request,
+			'template_record': fund_request.template,
+			'template_extension': client_payload['extension'],
+			'source_filename': client_payload['filename'],
+			'source_content_b64': client_payload['content_b64'],
+		},
+	)
 
 
 @login_required
@@ -2414,25 +4732,11 @@ def fund_request_template_preview(request, template_id):
 		FundRequestTemplate.objects.select_related('uploaded_by', 'uploaded_by__profile'),
 		pk=template_id,
 	)
-	template_extension = _fund_request_template_extension(template_record)
-	sample_context = _build_sample_fund_request_preview_context(template_record)
-	preview_mode = 'unavailable'
-	if template_extension == '.pdf':
-		preview_mode = 'original_pdf'
-	elif template_extension in {'.docx', '.xlsx'}:
-		preview_mode = 'filled_preview'
-	elif template_extension in {'.doc', '.xls'}:
-		preview_mode = 'converted_original'
-
-	context = {
-		'template_record': template_record,
-		'template_extension': template_extension,
-		'placeholder_guide': _build_fund_request_template_placeholder_guide(),
-		'preview_pdf_url': reverse('fund_request_template_preview_pdf', args=[template_record.pk]),
-		'preview_mode': preview_mode,
-		'sample_summary': sample_context['sample_summary'],
-	}
-	return render(request, 'core/fund_request_template_preview.html', context)
+	return render(
+		request,
+		'core/fund_request_template_preview.html',
+		_build_fund_request_template_preview_page_context(template_record),
+	)
 
 
 @login_required
@@ -2444,7 +4748,24 @@ def fund_request_template_preview_pdf(request, template_id):
 	template_record = get_object_or_404(FundRequestTemplate, pk=template_id)
 	payload = _build_template_preview_pdf_payload(template_record)
 	if not payload:
-		return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
+		template_name = template_record.name or Path(getattr(template_record.file, 'name', '')).stem or 'Fund Request Template'
+		original_name = Path(getattr(template_record.file, 'name', '')).name or 'uploaded template'
+		notice_pdf = _build_notice_pdf_bytes(
+			f'{template_name} Preview Unavailable',
+			[
+				f'The portal could not generate a PDF preview for {original_name}.',
+				'This usually means the file could not be converted to PDF on the server.',
+				'You can still use Open Original File on the template preview page.',
+				'For the most reliable preview, use PDF, DOCX, or XLSX templates.',
+			],
+		)
+		if notice_pdf:
+			payload = {
+				'content': notice_pdf,
+				'filename': f'{Path(original_name).stem or "fund-request-template"}-preview-unavailable.pdf',
+			}
+		else:
+			return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
 
 	response = HttpResponse(payload['content'], content_type='application/pdf')
 	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
@@ -2464,13 +4785,116 @@ def fund_request_document_download(request, request_id):
 	if fund_request.request_status != 'approved':
 		messages.warning(request, 'Only approved fund requests can be downloaded.')
 		return redirect('fund_requests_list')
-	payload = _build_fund_request_pdf_payload(fund_request)
+
+	is_forced_download = (request.GET.get('download') or '').strip() == '1'
+	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
 	if not payload:
-		messages.error(request, 'The PDF version of this fund request is not available right now.')
+		client_side_payload = _build_fund_request_client_side_conversion_payload(fund_request)
+		if client_side_payload:
+			return redirect('fund_request_client_side_preview', request_id=fund_request.pk)
+
+		template_extension = _fund_request_template_extension(fund_request.template)
+		convertible_extensions = {'.doc', '.docx', '.docm', '.rtf', '.txt', '.htm', '.html', '.xls', '.xlsx', '.xlsm', '.xlsb', '.csv'}
+		if template_extension in convertible_extensions:
+			backend_status = _office_conversion_backend_status(template_extension)
+			if not any(backend_status.values()):
+				messages.error(
+					request,
+					'No server-side converter is available. Install at least one of: (1) Microsoft Office, (2) libreoffice, (3) soffice.',
+					extra_tags='toast',
+				)
+				return redirect('fund_requests_list')
+
+		messages.error(
+			request,
+			'Unable to convert the filled template to PDF on the server. Checked sequence: (1) Microsoft Office, (2) libreoffice, (3) soffice.',
+			extra_tags='toast',
+		)
 		return redirect('fund_requests_list')
 
+	disposition = 'attachment' if is_forced_download else 'inline'
 	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'attachment; filename="{payload["filename"]}"'
+	response['Content-Disposition'] = f'{disposition}; filename="{payload["filename"]}"'
+	return response
+
+
+def _parse_fund_request_selected_ids(raw_selected_ids):
+	if not raw_selected_ids:
+		return []
+	return [
+		int(segment.strip())
+		for segment in str(raw_selected_ids).split(',')
+		if str(segment).strip().isdigit()
+	]
+
+
+def _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids):
+	can_view_all_request_records = request.user.is_superuser or _can_approve_fund_requests(request.user)
+	queryset = FundRequest.objects.select_related('created_by', 'created_by__profile', 'template').prefetch_related('items', 'attachments')
+	queryset = queryset.filter(request_status='approved', pk__in=selected_ids)
+	if not can_view_all_request_records:
+		queryset = queryset.filter(created_by=request.user)
+	request_map = {entry.pk: entry for entry in queryset}
+	return [request_map[request_id] for request_id in selected_ids if request_id in request_map]
+
+
+@login_required
+def fund_request_bulk_print(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	selected_ids = _parse_fund_request_selected_ids((request.GET.get('selected_ids') or '').strip())
+	if not selected_ids:
+		return HttpResponse('No approved fund requests selected for print.', content_type='text/plain; charset=utf-8', status=400)
+
+	visible_requests = _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids)
+	if not visible_requests:
+		return HttpResponse('No accessible approved fund requests were selected for print.', content_type='text/plain; charset=utf-8', status=404)
+
+	pdf_parts = []
+	for fund_request in visible_requests:
+		payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
+		if payload and payload.get('content'):
+			pdf_parts.append(payload['content'])
+
+	merged_pdf = _merge_pdf_parts(pdf_parts)
+	if not merged_pdf:
+		return HttpResponse('Unable to generate a printable PDF for the selected requests.', content_type='text/plain; charset=utf-8', status=415)
+
+	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	response = HttpResponse(merged_pdf, content_type='application/pdf')
+	response['Content-Disposition'] = f'inline; filename="fund_requests_selected_{filename_stamp}.pdf"'
+	return response
+
+
+@login_required
+def fund_request_bulk_download(request):
+	restricted_response = _require_permission(request, 'core.view_fundrequest')
+	if restricted_response:
+		return restricted_response
+
+	selected_ids = _parse_fund_request_selected_ids((request.GET.get('selected_ids') or '').strip())
+	if not selected_ids:
+		return HttpResponse('No approved fund requests selected for download.', content_type='text/plain; charset=utf-8', status=400)
+
+	visible_requests = _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids)
+	if not visible_requests:
+		return HttpResponse('No accessible approved fund requests were selected for download.', content_type='text/plain; charset=utf-8', status=404)
+
+	pdf_parts = []
+	for fund_request in visible_requests:
+		payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
+		if payload and payload.get('content'):
+			pdf_parts.append(payload['content'])
+
+	merged_pdf = _merge_pdf_parts(pdf_parts)
+	if not merged_pdf:
+		return HttpResponse('Unable to generate a downloadable PDF for the selected requests.', content_type='text/plain; charset=utf-8', status=415)
+
+	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	response = HttpResponse(merged_pdf, content_type='application/pdf')
+	response['Content-Disposition'] = f'attachment; filename="fund_requests_selected_{filename_stamp}.pdf"'
 	return response
 
 

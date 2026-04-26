@@ -1,0 +1,115 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Fund Request PDF Preview{% endblock %}
+{% block page_heading %}Fund Request PDF Preview{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+    <div>
+        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Approved Fund Request" }}</h2>
+        <p class="text-secondary mb-0">Preview the generated PDF before downloading.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
+        <a class="btn btn-success" href="{{ download_pdf_url }}">Download PDF</a>
+    </div>
+</div>
+
+<div class="row g-3 g-xl-4">
+    <div class="col-xl-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-3 p-lg-4">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
+                    <div>
+                        <h3 class="h5 mb-1">PDF Preview</h3>
+                        <p class="text-secondary mb-0">This preview is generated on the server from the filled template.</p>
+                    </div>
+                    <span class="badge text-bg-light border">{{ template_extension|upper|default:'PDF' }}</span>
+                </div>
+                <div class="fund-pdf-preview-frame">
+                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="Fund request PDF preview"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h3 class="h5 mb-3">Document Details</h3>
+                <div class="template-preview-meta-list">
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Serial Number</span>
+                        <strong>{{ fund_request.serial_number|default:"-" }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Requester</span>
+                        <strong>{{ fund_request.requester_name|default:"-" }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Request Date</span>
+                        <strong>{{ fund_request.request_date|date:'F d, Y' }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Total Amount</span>
+                        <strong>PHP {{ fund_request.total_amount|floatformat:2 }}</strong>
+                    </div>
+                    <div class="template-preview-meta-item">
+                        <span class="text-secondary small">Template</span>
+                        {% if template_record %}
+                            <strong>{{ template_record.name }}</strong>
+                        {% else %}
+                            <strong>Auto-generated PDF</strong>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="alert alert-success mt-3 mb-0">
+                    Download uses the same server-generated PDF shown in the preview.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .fund-pdf-preview-frame {
+        min-height: 78vh;
+        border: 1px solid rgba(25, 135, 84, 0.16);
+        border-radius: 1rem;
+        overflow: hidden;
+        background:
+            radial-gradient(circle at top left, rgba(25, 135, 84, 0.08), transparent 35%),
+            linear-gradient(180deg, #eef6f0 0%, #f8fbf9 100%);
+    }
+
+    .fund-pdf-preview-frame iframe {
+        width: 100%;
+        min-height: 78vh;
+        border: 0;
+        background: #fff;
+    }
+
+    .template-preview-meta-list {
+        display: grid;
+        gap: 0.85rem;
+    }
+
+    .template-preview-meta-item {
+        padding: 0.9rem 1rem;
+        border-radius: 0.9rem;
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        background: linear-gradient(180deg, #ffffff 0%, #f9fcfa 100%);
+    }
+
+    .template-preview-meta-item strong {
+        display: block;
+        margin-top: 0.15rem;
+    }
+
+    @media (max-width: 991.98px) {
+        .fund-pdf-preview-frame,
+        .fund-pdf-preview-frame iframe {
+            min-height: 60vh;
+        }
+    }
+</style>
+{% endblock %}

@@ -73,6 +73,24 @@ def fund_request_attachment_upload_to(instance, filename):
 	return f'fund_requests/attachments/{request_slug}_{date_stamp}{extension}'
 
 
+def liquidation_template_upload_to(instance, filename):
+	original_name = filename or 'liquidation-template.file'
+	extension = Path(original_name).suffix.lower() or '.file'
+	template_slug = slugify(getattr(instance, 'name', '') or 'liquidation-template')
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'liquidations/templates/{template_slug}_{date_stamp}{extension}'
+
+
+def liquidation_attachment_upload_to(instance, filename):
+	original_name = filename or 'liquidation-image.jpg'
+	extension = Path(original_name).suffix.lower() or '.jpg'
+	liquidation_obj = getattr(instance, 'liquidation', None)
+	control_label = getattr(liquidation_obj, 'control_number', '') or f'liquidation-{getattr(instance, "liquidation_id", "pending")}'
+	liquidation_slug = slugify(control_label) or 'liquidation'
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'liquidations/attachments/{liquidation_slug}_{date_stamp}{extension}'
+
+
 def _credentials_fernet():
 	fernet_cls = Fernet
 	if fernet_cls is None:
@@ -381,6 +399,7 @@ class FundRequest(models.Model):
 		('pending', 'Pending Approval'),
 		('approved', 'Approved'),
 		('rejected', 'Rejected'),
+		('cancelled', 'Cancelled'),
 	]
 
 	serial_number = models.CharField(max_length=9, unique=True, editable=False, null=True, blank=True)
@@ -465,6 +484,8 @@ class FundRequest(models.Model):
 		self.processed_by = processed_by
 		self.processed_at = timezone.now()
 		self.decision_reason = reason or ''
+		# Always re-sync total before approval so approved list uses current item totals.
+		self.refresh_total_amount(save=False)
 		if not self.serial_number or not self.request_year or not self.serial_sequence:
 			self._assign_serial_number()
 		self.save(
@@ -473,6 +494,7 @@ class FundRequest(models.Model):
 				'processed_by',
 				'processed_at',
 				'decision_reason',
+				'total_amount',
 				'serial_number',
 				'request_year',
 				'serial_sequence',
@@ -486,6 +508,18 @@ class FundRequest(models.Model):
 			return False
 
 		self.request_status = 'rejected'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.total_amount = 0
+		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'total_amount', 'updated_at'])
+		return True
+
+	def mark_cancelled(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+
+		self.request_status = 'cancelled'
 		self.processed_by = processed_by
 		self.processed_at = timezone.now()
 		self.decision_reason = reason or ''
@@ -523,6 +557,256 @@ class FundRequestAttachment(models.Model):
 
 	def __str__(self):
 		return f'FundRequestAttachment<{self.fund_request_id}:{self.image.name}>'
+
+
+class FundRequestAutoApproveRule(models.Model):
+	name = models.CharField(max_length=120)
+	requester_keyword = models.CharField(max_length=120, blank=True)
+	department_keyword = models.CharField(max_length=120, blank=True)
+	branch_keyword = models.CharField(max_length=120, blank=True)
+	request_date_from = models.DateField(null=True, blank=True)
+	request_date_to = models.DateField(null=True, blank=True)
+	min_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+	max_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+	require_attachments = models.BooleanField(default=False)
+	reason = models.TextField(blank=True)
+	is_active = models.BooleanField(default=True, db_index=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='fund_request_auto_approve_rules_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-is_active', '-updated_at', '-created_at']
+
+	def __str__(self):
+		return self.name
+
+
+class LiquidationTemplate(models.Model):
+	name = models.CharField(max_length=150, default='Liquidation Template')
+	file = models.FileField(upload_to=liquidation_template_upload_to)
+	notes = models.TextField(blank=True)
+	is_active = models.BooleanField(default=True)
+	uploaded_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidation_templates_uploaded',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-is_active', '-updated_at', '-created_at']
+
+	def __str__(self):
+		return self.name
+
+	def save(self, *args, **kwargs):
+		super().save(*args, **kwargs)
+		if self.is_active:
+			LiquidationTemplate.objects.exclude(pk=self.pk).filter(is_active=True).update(is_active=False)
+
+
+class LiquidationSettings(models.Model):
+	"""Singleton settings for liquidation page behavior."""
+	max_selectable_rows = models.PositiveIntegerField(default=20)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		verbose_name = 'Liquidation Settings'
+		verbose_name_plural = 'Liquidation Settings'
+
+	def save(self, *args, **kwargs):
+		# Enforce a singleton row keyed by PK=1.
+		self.pk = 1
+		super().save(*args, **kwargs)
+
+	@classmethod
+	def load(cls):
+		instance, _ = cls.objects.get_or_create(pk=1, defaults={'max_selectable_rows': 20})
+		return instance
+
+
+class Liquidation(models.Model):
+	RETURNED_OR_OVER_CHOICES = [
+		('returned', 'Returned'),
+		('over', 'Over'),
+	]
+	REQUEST_STATUS_CHOICES = [
+		('pending', 'For Approval'),
+		('approved', 'Approved'),
+		('rejected', 'Rejected'),
+	]
+
+	control_number = models.CharField(max_length=9, unique=True, editable=False, null=True, blank=True)
+	request_year = models.PositiveIntegerField(editable=False, db_index=True, null=True, blank=True)
+	control_sequence = models.PositiveIntegerField(editable=False, null=True, blank=True)
+	name = models.CharField(max_length=150)
+	liquidation_date = models.DateField(default=timezone.localdate)
+	branch = models.CharField(max_length=120)
+	position = models.CharField(max_length=120, blank=True, default='')
+	requested_by_name = models.CharField(max_length=150)
+	amount_requested = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	returned_or_over_type = models.CharField(max_length=20, choices=RETURNED_OR_OVER_CHOICES, default='returned')
+	amount_returned_or_over = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	request_status = models.CharField(max_length=20, choices=REQUEST_STATUS_CHOICES, default='pending', db_index=True)
+	processed_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidations_processed',
+	)
+	processed_at = models.DateTimeField(null=True, blank=True)
+	decision_reason = models.TextField(blank=True, default='')
+	template = models.ForeignKey(
+		LiquidationTemplate,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidations',
+	)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidations_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		constraints = [
+			models.UniqueConstraint(fields=['request_year', 'control_sequence'], name='unique_liquidation_year_sequence'),
+		]
+
+	def __str__(self):
+		return self.control_number or f'Liquidation<{self.pk}:{self.request_status}>'
+
+	def _assign_control_number(self):
+		liquidation_date = self.liquidation_date or timezone.localdate()
+		self.request_year = int(liquidation_date.year)
+		if self.control_sequence:
+			self.control_number = f'{self.request_year}-{self.control_sequence:04d}'
+			return
+
+		with transaction.atomic():
+			latest_sequence = (
+				Liquidation.objects.select_for_update()
+				.filter(request_year=self.request_year)
+				.aggregate(max_sequence=Max('control_sequence'))
+				.get('max_sequence')
+				or 0
+			)
+			self.control_sequence = latest_sequence + 1
+			self.control_number = f'{self.request_year}-{self.control_sequence:04d}'
+
+	def save(self, *args, **kwargs):
+		if self.request_status == 'approved' and (not self.control_number or not self.request_year or not self.control_sequence):
+			self._assign_control_number()
+		super().save(*args, **kwargs)
+
+	def refresh_total_amount(self, save=True):
+		total = self.items.aggregate(total=Sum('amount')).get('total') or 0
+		self.total_amount = total
+		if save and self.pk:
+			self.save(update_fields=['total_amount', 'updated_at'])
+		return total
+
+	def mark_approved(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+		self.request_status = 'approved'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.refresh_total_amount(save=False)
+		self.save(
+			update_fields=[
+				'request_status',
+				'processed_by',
+				'processed_at',
+				'decision_reason',
+				'total_amount',
+				'control_number',
+				'request_year',
+				'control_sequence',
+				'updated_at',
+			]
+		)
+		return True
+
+	def mark_rejected(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+		self.request_status = 'rejected'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.refresh_total_amount(save=False)
+		# Release source line-item locks so rejected/cancelled liquidations can be re-selected in new forms.
+		self.items.exclude(source_line_item_id__isnull=True).update(source_line_item=None)
+		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'total_amount', 'updated_at'])
+		return True
+
+
+class LiquidationLineItem(models.Model):
+	liquidation = models.ForeignKey(Liquidation, on_delete=models.CASCADE, related_name='items')
+	source_fund_request = models.ForeignKey(
+		FundRequest,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidation_items',
+	)
+	source_line_item = models.OneToOneField(
+		FundRequestLineItem,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidation_line_entry',
+	)
+	entry_date = models.DateField()
+	fund_form_no = models.CharField(max_length=40, blank=True, default='')
+	description = models.CharField(max_length=255)
+	amount = models.DecimalField(max_digits=12, decimal_places=2)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['id']
+
+	def __str__(self):
+		return f'LiquidationLineItem<{self.liquidation_id}:{self.description}>'
+
+
+class LiquidationAttachment(models.Model):
+	liquidation = models.ForeignKey(Liquidation, on_delete=models.CASCADE, related_name='attachments')
+	image = models.ImageField(upload_to=liquidation_attachment_upload_to)
+	uploaded_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='liquidation_attachments_uploaded',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['id']
+
+	def __str__(self):
+		return f'LiquidationAttachment<{self.liquidation_id}:{self.image.name}>'
 
 
 class AssetDepartment(models.Model):
