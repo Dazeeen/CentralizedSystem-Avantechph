@@ -672,95 +672,160 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                {% if active_template %}
-                <div class="alert alert-success py-2">Active template: <strong>{{ active_template.name }}</strong></div>
-                {% endif %}
-
-                <form method="post" enctype="multipart/form-data" class="row g-3 align-items-end mb-4">
-                    {% csrf_token %}
-                    <input type="hidden" name="template_action" value="upload">
-                    <div class="col-md-3">
-                        <label for="{{ template_form.name.id_for_label }}" class="form-label">Template Name</label>
-                        {{ template_form.name }}
-                        {% if template_form.name.errors %}
-                        <div class="invalid-feedback d-block">{{ template_form.name.errors.0 }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="col-md-3">
-                        <label for="{{ template_form.file.id_for_label }}" class="form-label">Template File</label>
-                        {{ template_form.file }}
-                        {% if template_form.file.errors %}
-                        <div class="invalid-feedback d-block">{{ template_form.file.errors.0 }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="col-md-3">
-                        <label for="{{ template_form.notes.id_for_label }}" class="form-label">Notes</label>
-                        {{ template_form.notes }}
-                        {% if template_form.notes.errors %}
-                        <div class="invalid-feedback d-block">{{ template_form.notes.errors.0 }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="col-md-2">
-                        <div class="form-check">
-                            {{ template_form.is_active }}
-                            <label class="form-check-label" for="{{ template_form.is_active.id_for_label }}">Set active</label>
+                <div class="mb-3">
+                    <div class="mt-3">
+                        <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                            <h6 class="mb-0">Uploaded Templates</h6>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#accountabilityPlaceholderGuideModal">View Placeholders</button>
                         </div>
-                    </div>
-                    <div class="col-md-1 d-grid">
-                        <button type="submit" class="btn btn-success">Upload</button>
-                    </div>
-                </form>
-
-                <div class="row g-4">
-                    <div class="col-lg-6">
-                        <h6 class="mb-3">Placeholders</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Placeholder</th>
-                                        <th>Description</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for item in accountability_placeholder_guide %}
-                                    <tr>
-                                        <td><code>{{ item.placeholder }}</code></td>
-                                        <td class="small">{{ item.description }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="col-lg-6">
-                        <h6 class="mb-3">Uploaded Templates</h6>
-                        {% if all_templates %}
-                        <div class="list-group">
-                            {% for template_record in all_templates %}
-                            <div class="list-group-item d-flex justify-content-between align-items-start gap-3">
-                                <div>
-                                    <div class="fw-semibold">
-                                        {{ template_record.name }}
-                                        {% if template_record.is_active %}<span class="badge text-bg-success ms-1">Active</span>{% endif %}
+                        <div class="accountability-template-grid-scroll" id="accountabilityTemplateGrid">
+                            <button type="button" class="accountability-template-square-card accountability-template-upload-card" id="accountabilityTemplateUploadCardBtn">
+                                <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                                    <div class="d-flex align-items-center gap-2 min-w-0">
+                                        <span class="accountability-template-file-icon"><i class="bi bi-plus-lg"></i></span>
+                                        <div class="fw-semibold accountability-template-name-wrap">Upload Template</div>
                                     </div>
-                                    <div class="small text-secondary">{{ template_record.file|basename }}</div>
-                                    <div class="small text-secondary">Updated {{ template_record.updated_at|date:'M d, Y H:i' }}</div>
                                 </div>
-                                <form method="post" class="d-flex gap-2">
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Action</div>
+                                <div class="small text-secondary mb-2">Add new template file</div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Selected</div>
+                                <div class="small text-secondary mb-1 text-truncate" id="accountabilityUploadCardSelectedName">No file selected</div>
+                                <div class="small text-secondary mb-2 text-truncate" id="accountabilityUploadCardSelectedMeta">-</div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Upload Progress</div>
+                                <div class="progress mb-1" style="height: 8px;">
+                                    <div class="progress-bar bg-success" id="accountabilityUploadCardProgressBar" role="progressbar" style="width: 0%;"></div>
+                                </div>
+                                <div class="small text-secondary mb-2" id="accountabilityUploadCardProgressLabel">Waiting to upload</div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Supported</div>
+                                <div class="small text-secondary mb-2">DOC, DOCX, XLS, XLSX</div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Source</div>
+                                <div class="small mb-3 text-truncate">Asset Accountability</div>
+                                <div class="d-grid gap-2 mt-auto">
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Select File & Upload</span>
+                                </div>
+                            </button>
+                        {% if all_templates %}
+                            {% for template_record in all_templates %}
+                            <div class="accountability-template-square-card">
+                                <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                                    <div class="d-flex align-items-center gap-2 min-w-0">
+                                        <span class="accountability-template-file-icon"><i class="bi bi-file-earmark-richtext"></i></span>
+                                        <div class="fw-semibold accountability-template-name-wrap">
+                                            {{ template_record.name }}
+                                        </div>
+                                    </div>
+                                    {% if template_record.is_active %}<span class="badge text-bg-success ms-1">Active</span>{% endif %}
+                                </div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">File</div>
+                                <div class="small text-secondary text-truncate mb-2">{{ template_record.file|basename }}</div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Updated</div>
+                                <div class="small text-secondary mb-2">{{ template_record.updated_at|date:'M d, Y H:i' }}</div>
+                                <div class="small text-uppercase text-secondary fw-semibold mb-1">Uploaded by</div>
+                                <div class="small mb-3 text-truncate">{{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username|default:'-' }}</div>
+                                <div class="d-grid gap-2 mt-auto">
+                                    <a href="{% url 'accountability_template_preview_pdf' template_record.id %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Template (PDF)</a>
+                                </div>
+                                <form method="post" class="d-grid gap-2 mt-2 js-accountability-template-action-form">
                                     {% csrf_token %}
+                                    {% if template_record.is_active %}
+                                    <button type="button" class="btn btn-sm btn-success" disabled>Using Template</button>
+                                    {% else %}
+                                    <button type="submit" name="template_action" value="set_default:{{ template_record.id }}" class="btn btn-sm btn-success">Use Template</button>
+                                    {% endif %}
                                     {% if not template_record.is_active %}
-                                    <button type="submit" name="template_action" value="set_default:{{ template_record.id }}" class="btn btn-sm btn-outline-primary">Set Active</button>
+                                    <button type="submit" name="template_action" value="set_default:{{ template_record.id }}" class="btn btn-sm btn-outline-primary">Set as Default</button>
                                     {% endif %}
                                     <button type="submit" name="template_action" value="delete:{{ template_record.id }}" class="btn btn-sm btn-outline-danger">Delete</button>
                                 </form>
                             </div>
                             {% endfor %}
-                        </div>
                         {% else %}
-                        <div class="text-secondary">No uploaded accountability templates yet.</div>
+                            <div class="accountability-template-square-card">
+                                <div class="small text-secondary">No uploaded accountability templates yet.</div>
+                            </div>
                         {% endif %}
+                        </div>
                     </div>
+                </div>
+                <hr class="my-3">
+
+                <form method="post" enctype="multipart/form-data" class="mb-3" id="accountabilityTemplateUploadForm">
+                    {% csrf_token %}
+                    <input type="hidden" name="template_action" value="upload">
+                    <div class="d-none">
+                        {{ template_form.file }}
+                    </div>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-8">
+                            <label for="{{ template_form.name.id_for_label }}" class="form-label">Template Name</label>
+                            {{ template_form.name }}
+                            {% if template_form.name.errors %}
+                            <div class="invalid-feedback d-block">{{ template_form.name.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check mt-md-4 pt-md-2">
+                                {{ template_form.is_active }}
+                                <label class="form-check-label" for="{{ template_form.is_active.id_for_label }}">Set active</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-12">
+                        <label for="{{ template_form.notes.id_for_label }}" class="form-label">Notes</label>
+                        {{ template_form.notes }}
+                        {% if template_form.notes.errors %}
+                        <div class="invalid-feedback d-block">{{ template_form.notes.errors.0 }}</div>
+                        {% endif %}
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="submit" class="btn btn-success" form="accountabilityTemplateUploadForm" id="accountabilityTemplateFooterSubmitBtn">Submit Template Upload</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="accountabilityPlaceholderGuideModal" tabindex="-1" aria-labelledby="accountabilityPlaceholderGuideModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <h5 class="modal-title" id="accountabilityPlaceholderGuideModalLabel">Accountability Placeholders</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Placeholder</th>
+                                <th>Description</th>
+                                <th>Usage</th>
+                                <th class="text-end">Copy</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in accountability_placeholder_guide %}
+                            <tr>
+                                <td><code>{{ item.placeholder }}</code></td>
+                                <td class="small">{{ item.description }}</td>
+                                <td class="small text-secondary">{{ item.use_case|default:'Use in your template where this field should appear.' }}</td>
+                                <td class="text-end">
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-primary js-copy-placeholder-btn"
+                                        data-placeholder="{{ item.placeholder|escape }}"
+                                    >
+                                        Copy
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -768,13 +833,391 @@
 </div>
 {% endif %}
 
+<style>
+.accountability-template-top-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid #e5e9f0;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fbfcfe 0%, #f6f9fc 100%);
+}
+.accountability-template-top-chip {
+    border: 1px solid #cfd8e3;
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: all 0.18s ease;
+}
+.accountability-template-top-chip:hover {
+    border-color: #a9b9cd;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(20, 45, 85, 0.08);
+}
+.accountability-template-top-chip.is-active {
+    border-color: #198754;
+    box-shadow: inset 0 0 0 1px #198754;
+    background: #f4fff8;
+}
+.accountability-template-top-chip.is-upload {
+    background: linear-gradient(180deg, #eaf6ff 0%, #dff1ff 100%);
+    border-color: #88bfeb;
+    color: #0b4f7f;
+    cursor: pointer;
+}
+.accountability-template-grid-scroll {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(235px, 235px);
+    gap: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 6px 6px 12px;
+    scroll-snap-type: x proximity;
+}
+.accountability-template-grid-scroll::-webkit-scrollbar {
+    height: 8px;
+}
+.accountability-template-grid-scroll::-webkit-scrollbar-thumb {
+    background: #c6d2e1;
+    border-radius: 999px;
+}
+.accountability-template-grid-scroll::-webkit-scrollbar-track {
+    background: #eef3f9;
+    border-radius: 999px;
+}
+.accountability-template-square-card {
+    min-height: 235px;
+    border: 1px solid #d5ddea;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f9fbfe 100%);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 20px rgba(17, 37, 66, 0.06);
+    transition: all 0.18s ease;
+    scroll-snap-align: start;
+}
+.accountability-template-square-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(17, 37, 66, 0.1);
+    border-color: #b8c5d8;
+}
+.accountability-template-file-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #e9f2ff;
+    color: #0b5ed7;
+    flex: 0 0 28px;
+}
+.accountability-template-name-wrap {
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.25;
+}
+.accountability-upload-card-btn {
+    border: 1px solid #8bc3ef;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #eaf6ff 0%, #dbf0ff 100%);
+    color: #0b4f7f;
+    min-height: 56px;
+    padding: 10px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 700;
+    transition: all 0.18s ease;
+}
+.accountability-upload-card-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(11, 79, 127, 0.16);
+    border-color: #6eaee2;
+}
+.accountability-upload-card-icon {
+    display: inline-flex;
+    align-items: center;
+}
+.accountability-template-upload-card {
+    text-align: left;
+    cursor: pointer;
+}
+.accountability-template-upload-card:hover .accountability-template-file-icon {
+    background: #d9ecff;
+}
+</style>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const templateModalElement = document.getElementById('accountabilityTemplateModal');
+    const templateGridElement = document.getElementById('accountabilityTemplateGrid');
+    const activeTemplateAlert = document.getElementById('accountabilityActiveTemplateAlert');
     const hasTemplateErrors = {{ template_form.errors|yesno:"true,false" }};
-    if (hasTemplateErrors && templateModalElement && window.bootstrap && window.bootstrap.Modal) {
-        window.bootstrap.Modal.getOrCreateInstance(templateModalElement).show();
+    if (templateModalElement && window.bootstrap && window.bootstrap.Modal) {
+        if (hasTemplateErrors) {
+            window.bootstrap.Modal.getOrCreateInstance(templateModalElement).show();
+        }        
     }
+    const templateUploadForm = document.getElementById('accountabilityTemplateUploadForm');
+    const templateFileInput = document.getElementById('{{ template_form.file.id_for_label }}');
+    const templateUploadCardBtn = document.getElementById('accountabilityTemplateUploadCardBtn');
+    const templateFooterSubmitBtn = document.getElementById('accountabilityTemplateFooterSubmitBtn');
+    const uploadCardSelectedName = document.getElementById('accountabilityUploadCardSelectedName');
+    const uploadCardSelectedMeta = document.getElementById('accountabilityUploadCardSelectedMeta');
+    const uploadCardProgressBar = document.getElementById('accountabilityUploadCardProgressBar');
+    const uploadCardProgressLabel = document.getElementById('accountabilityUploadCardProgressLabel');
+    const csrfInput = templateUploadForm ? templateUploadForm.querySelector('input[name="csrfmiddlewaretoken"]') : null;
+    const csrfToken = csrfInput ? csrfInput.value : '';
+
+    const formatTemplateFileSize = function (bytes) {
+        if (!bytes && bytes !== 0) return '-';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = Number(bytes);
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit += 1;
+        }
+        return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    };
+
+    const renderTemplateGrid = function (templates) {
+        if (!templateGridElement) {
+            return;
+        }
+        const uploadCardHtml = `
+            <button type="button" class="accountability-template-square-card accountability-template-upload-card" id="accountabilityTemplateUploadCardBtn">
+                <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2 min-w-0">
+                        <span class="accountability-template-file-icon"><i class="bi bi-plus-lg"></i></span>
+                        <div class="fw-semibold accountability-template-name-wrap">Upload Template</div>
+                    </div>
+                </div>
+                <div class="small text-uppercase text-secondary fw-semibold mb-1">Action</div>
+                <div class="small text-secondary mb-2">Add new template file</div>
+                <div class="small text-uppercase text-secondary fw-semibold mb-1">Selected</div>
+                <div class="small text-secondary mb-1 text-truncate" id="accountabilityUploadCardSelectedName">No file selected</div>
+                <div class="small text-secondary mb-2 text-truncate" id="accountabilityUploadCardSelectedMeta">-</div>
+                <div class="small text-uppercase text-secondary fw-semibold mb-1">Upload Progress</div>
+                <div class="progress mb-1" style="height: 8px;">
+                    <div class="progress-bar bg-success" id="accountabilityUploadCardProgressBar" role="progressbar" style="width: 0%;"></div>
+                </div>
+                <div class="small text-secondary mb-2" id="accountabilityUploadCardProgressLabel">Waiting to upload</div>
+                <div class="small text-uppercase text-secondary fw-semibold mb-1">Supported</div>
+                <div class="small text-secondary mb-2">DOC, DOCX, XLS, XLSX</div>
+                <div class="small text-uppercase text-secondary fw-semibold mb-1">Source</div>
+                <div class="small mb-3 text-truncate">Asset Accountability</div>
+                <div class="d-grid gap-2 mt-auto">
+                    <span class="btn btn-sm btn-outline-secondary disabled">Select File & Upload</span>
+                </div>
+            </button>
+        `;
+        const cardHtml = (templates || []).map(function (item) {
+            return `
+                <div class="accountability-template-square-card">
+                    <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                        <div class="d-flex align-items-center gap-2 min-w-0">
+                            <span class="accountability-template-file-icon"><i class="bi bi-file-earmark-richtext"></i></span>
+                            <div class="fw-semibold accountability-template-name-wrap">${item.name || ''}</div>
+                        </div>
+                        ${item.is_active ? '<span class="badge text-bg-success ms-1">Active</span>' : ''}
+                    </div>
+                    <div class="small text-uppercase text-secondary fw-semibold mb-1">File</div>
+                    <div class="small text-secondary text-truncate mb-2">${item.file_name || '-'}</div>
+                    <div class="small text-uppercase text-secondary fw-semibold mb-1">Updated</div>
+                    <div class="small text-secondary mb-2">${item.updated_at || '-'}</div>
+                    <div class="small text-uppercase text-secondary fw-semibold mb-1">Uploaded by</div>
+                    <div class="small mb-3 text-truncate">${item.uploaded_by || '-'}</div>
+                    <div class="d-grid gap-2 mt-auto">
+                        <a href="${item.preview_url}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Template (PDF)</a>
+                    </div>
+                    <form method="post" class="d-grid gap-2 mt-2 js-accountability-template-action-form">
+                        <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">
+                        ${item.is_active ? '<button type="button" class="btn btn-sm btn-success" disabled>Using Template</button>' : `<button type="submit" name="template_action" value="set_default:${item.id}" class="btn btn-sm btn-success">Use Template</button>`}
+                        ${!item.is_active ? `<button type="submit" name="template_action" value="set_default:${item.id}" class="btn btn-sm btn-outline-primary">Set as Default</button>` : ''}
+                        <button type="submit" name="template_action" value="delete:${item.id}" class="btn btn-sm btn-outline-danger">Delete</button>
+                    </form>
+                </div>
+            `;
+        }).join('');
+        templateGridElement.innerHTML = uploadCardHtml + cardHtml;
+    };
+
+    const applyTemplateAjaxResponse = function (payload) {
+        if (!payload || !payload.ok) {
+            return;
+        }
+        renderTemplateGrid(payload.templates || []);
+        if (activeTemplateAlert) {
+            const strong = activeTemplateAlert.querySelector('strong');
+            if (payload.active_template_name) {
+                if (strong) {
+                    strong.textContent = payload.active_template_name;
+                }
+                activeTemplateAlert.classList.remove('d-none');
+            } else {
+                activeTemplateAlert.classList.add('d-none');
+            }
+        }
+    };
+
+    if (templateFileInput) {
+        templateFileInput.addEventListener('change', function () {
+            const selectedFiles = templateFileInput.files ? Array.from(templateFileInput.files) : [];
+            if (!selectedFiles.length) {
+                const cardName = document.getElementById('accountabilityUploadCardSelectedName');
+                const cardMeta = document.getElementById('accountabilityUploadCardSelectedMeta');
+                const cardProgress = document.getElementById('accountabilityUploadCardProgressBar');
+                const cardProgressLabel = document.getElementById('accountabilityUploadCardProgressLabel');
+                if (cardName) cardName.textContent = 'No file selected';
+                if (cardMeta) cardMeta.textContent = '-';
+                if (cardProgress) cardProgress.style.width = '0%';
+                if (cardProgressLabel) cardProgressLabel.textContent = 'Waiting to upload';
+                return;
+            }
+            const firstFile = selectedFiles[0];
+            const totalSize = selectedFiles.reduce(function (sum, file) { return sum + (file.size || 0); }, 0);
+            const selectedLabel = selectedFiles.length > 1 ? `${selectedFiles.length} files selected` : (firstFile.name || '-');
+            const selectedMeta = selectedFiles.length > 1
+                ? `${formatTemplateFileSize(totalSize)} total`
+                : `${firstFile.type || 'Unknown type'} | ${formatTemplateFileSize(firstFile.size)}`;
+            const cardName = document.getElementById('accountabilityUploadCardSelectedName');
+            const cardMeta = document.getElementById('accountabilityUploadCardSelectedMeta');
+            const cardProgress = document.getElementById('accountabilityUploadCardProgressBar');
+            const cardProgressLabel = document.getElementById('accountabilityUploadCardProgressLabel');
+            if (cardName) cardName.textContent = selectedLabel;
+            if (cardMeta) cardMeta.textContent = selectedMeta;
+            if (cardProgress) cardProgress.style.width = '0%';
+            if (cardProgressLabel) cardProgressLabel.textContent = 'Ready to upload';
+        });
+    }
+
+    if (templateGridElement && templateFileInput) {
+        templateGridElement.addEventListener('click', function (event) {
+            const uploadCard = event.target.closest('.accountability-template-upload-card');
+            if (uploadCard) {
+                templateFileInput.click();
+                return;
+            }
+
+            const actionButton = event.target.closest('.js-accountability-template-action-form button[name="template_action"]');
+            if (actionButton) {
+                event.preventDefault();
+                const actionForm = actionButton.closest('.js-accountability-template-action-form');
+                if (!actionForm) {
+                    return;
+                }
+                const formData = new FormData(actionForm);
+                formData.set('template_action', actionButton.value || '');
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', window.location.href, true);
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.onload = function () {
+                    if (xhr.status >= 200 && xhr.status < 400) {
+                        try {
+                            applyTemplateAjaxResponse(JSON.parse(xhr.responseText));
+                        } catch (error) {}
+                    }
+                };
+                xhr.send(formData);
+            }
+        });
+    }
+
+    if (templateUploadForm && window.XMLHttpRequest) {
+        templateUploadForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const formData = new FormData(templateUploadForm);
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', window.location.href, true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            const cardProgress = document.getElementById('accountabilityUploadCardProgressBar');
+            const cardProgressLabel = document.getElementById('accountabilityUploadCardProgressLabel');
+            if (cardProgressLabel) cardProgressLabel.textContent = 'Uploading...';
+            if (templateFooterSubmitBtn) {
+                templateFooterSubmitBtn.disabled = true;
+                templateFooterSubmitBtn.textContent = 'Uploading...';
+            }
+
+            xhr.upload.addEventListener('progress', function (progressEvent) {
+                if (!progressEvent.lengthComputable || !cardProgress) return;
+                const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+                cardProgress.style.width = `${percent}%`;
+                if (cardProgressLabel) cardProgressLabel.textContent = percent >= 100 ? 'Finalizing...' : `Uploading... ${percent}%`;
+            });
+
+            xhr.onload = function () {
+                if (cardProgressLabel) cardProgressLabel.textContent = xhr.status >= 200 && xhr.status < 400 ? 'Upload complete' : 'Upload failed';
+                if (xhr.status >= 200 && xhr.status < 400) {
+                    try {
+                        applyTemplateAjaxResponse(JSON.parse(xhr.responseText));
+                    } catch (error) {}
+                    if (templateFileInput) {
+                        templateFileInput.value = '';
+                    }
+                    const cardName = document.getElementById('accountabilityUploadCardSelectedName');
+                    const cardMeta = document.getElementById('accountabilityUploadCardSelectedMeta');
+                    const refreshedProgress = document.getElementById('accountabilityUploadCardProgressBar');
+                    const refreshedProgressLabel = document.getElementById('accountabilityUploadCardProgressLabel');
+                    if (cardName) cardName.textContent = 'No file selected';
+                    if (cardMeta) cardMeta.textContent = '-';
+                    if (refreshedProgress) refreshedProgress.style.width = '0%';
+                    if (refreshedProgressLabel) refreshedProgressLabel.textContent = 'Waiting to upload';
+                }
+                if (templateFooterSubmitBtn) {
+                    templateFooterSubmitBtn.disabled = false;
+                    templateFooterSubmitBtn.textContent = 'Submit Template Upload';
+                }
+            };
+            xhr.onerror = function () {
+                if (cardProgressLabel) cardProgressLabel.textContent = 'Upload failed';
+                if (templateFooterSubmitBtn) {
+                    templateFooterSubmitBtn.disabled = false;
+                    templateFooterSubmitBtn.textContent = 'Submit Template Upload';
+                }
+            };
+            xhr.send(formData);
+        });
+    }
+
+    document.querySelectorAll('.js-copy-placeholder-btn').forEach(function (button) {
+        button.addEventListener('click', function () {
+            const placeholderText = button.getAttribute('data-placeholder') || '';
+            if (!placeholderText) {
+                return;
+            }
+            const done = function () {
+                const previousLabel = button.textContent;
+                button.textContent = 'Copied';
+                setTimeout(function () {
+                    button.textContent = previousLabel;
+                }, 900);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(placeholderText).then(done).catch(function () {});
+                return;
+            }
+            const tempArea = document.createElement('textarea');
+            tempArea.value = placeholderText;
+            document.body.appendChild(tempArea);
+            tempArea.select();
+            try {
+                document.execCommand('copy');
+                done();
+            } catch (error) {}
+            document.body.removeChild(tempArea);
+        });
+    });
 
     const returnModalElement = document.getElementById('returnProofModal');
     const returnForm = document.getElementById('returnProofForm');

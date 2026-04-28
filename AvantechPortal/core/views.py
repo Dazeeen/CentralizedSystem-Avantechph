@@ -6998,6 +6998,115 @@ def _build_accountability_template_file_payload(accountability):
 	return None
 
 
+def _build_accountability_template_preview_pdf_payload(template_record):
+	if not template_record or not getattr(template_record, 'file', None):
+		return None
+
+	extension = _fund_request_template_extension(template_record)
+	with template_record.file.open('rb') as template_file:
+		original_bytes = template_file.read()
+
+	if extension == '.pdf':
+		return {
+			'content': original_bytes,
+			'filename': f'{Path(template_record.file.name).stem or "accountability-template"}-preview.pdf',
+			'mode': 'original_pdf',
+		}
+
+	sample_line_items = [
+		{
+			'item_id': 'AVT-ITM-001',
+			'brand_model_item_name': 'Lenovo ThinkPad T14',
+			'brand_model': 'Lenovo ThinkPad T14',
+			'item_name': 'Lenovo ThinkPad T14',
+			'specifications': 'Intel i7, 16GB RAM, 512GB SSD',
+			'specification': 'Intel i7, 16GB RAM, 512GB SSD',
+			'asset_type': 'Laptop',
+			'quantity': '1',
+		},
+		{
+			'item_id': 'AVT-ITM-002',
+			'brand_model_item_name': 'Dell 24 Monitor',
+			'brand_model': 'Dell 24 Monitor',
+			'item_name': 'Dell 24 Monitor',
+			'specifications': '24-inch, 1080p',
+			'specification': '24-inch, 1080p',
+			'asset_type': 'Monitor',
+			'quantity': '1',
+		},
+	]
+	sample_placeholders = {
+		'{{ name }}': 'Juan Dela Cruz',
+		'{{ department }}': 'IT Department',
+		'{{ position_role }}': 'System Administrator',
+		'{{ position }}': 'System Administrator',
+		'{{ role }}': 'System Administrator',
+		'{{ contact_number }}': '0917-123-4567',
+		'{{ control_number }}': 'ACC-2026-0001',
+		'{{ item_id }}': sample_line_items[0]['item_id'],
+		'{{ brand_model_item_name }}': sample_line_items[0]['brand_model_item_name'],
+		'{{ brand_model }}': sample_line_items[0]['brand_model'],
+		'{{ item_name }}': sample_line_items[0]['item_name'],
+		'{{ specifications }}': sample_line_items[0]['specifications'],
+		'{{ specification }}': sample_line_items[0]['specification'],
+		'{{ asset_type }}': sample_line_items[0]['asset_type'],
+		'{{ quantity }}': sample_line_items[0]['quantity'],
+		'{{ date_borrowed }}': timezone.localtime(timezone.now()).strftime('%B %d, %Y'),
+		'{{ status }}': 'Borrowed',
+		'{{ notes }}': 'Sample preview data',
+		'{{ line_items }}': '\n'.join(
+			f"{line_item['item_id']} | {line_item['brand_model_item_name']} | "
+			f"{line_item['specifications']} | {line_item['asset_type']} | {line_item['quantity']}"
+			for line_item in sample_line_items
+		),
+	}
+	sample_placeholders['{{ line_items_table }}'] = sample_placeholders['{{ line_items }}']
+	for index, line_item in enumerate(sample_line_items, start=1):
+		sample_placeholders[f'{{{{ item_{index}_id }}}}'] = line_item['item_id']
+		sample_placeholders[f'{{{{ item_{index}_brand_model }}}}'] = line_item['brand_model']
+		sample_placeholders[f'{{{{ item_{index}_brand_model_item_name }}}}'] = line_item['brand_model_item_name']
+		sample_placeholders[f'{{{{ item_{index}_name }}}}'] = line_item['item_name']
+		sample_placeholders[f'{{{{ item_{index}_specification }}}}'] = line_item['specification']
+		sample_placeholders[f'{{{{ item_{index}_specifications }}}}'] = line_item['specifications']
+		sample_placeholders[f'{{{{ item_{index}_asset_type }}}}'] = line_item['asset_type']
+		sample_placeholders[f'{{{{ item_{index}_quantity }}}}'] = line_item['quantity']
+
+	if extension in {'.docx', '.xlsx'}:
+		rendered_template = _render_fund_request_template_binary_from_template(
+			template_record,
+			sample_placeholders,
+			sample_line_items,
+			f'{Path(template_record.file.name).stem or "accountability-template"}-filled{extension}',
+		)
+		if rendered_template:
+			pdf_bytes = _convert_office_bytes_to_pdf(
+				rendered_template['content'],
+				rendered_template['filename'],
+				allow_structured_preview_fallback=True,
+			)
+			if pdf_bytes:
+				return {
+					'content': pdf_bytes,
+					'filename': f'{Path(rendered_template["filename"]).stem}.pdf',
+					'mode': 'filled_preview',
+				}
+
+	if extension in {'.doc', '.docx', '.xls', '.xlsx'}:
+		pdf_bytes = _convert_office_bytes_to_pdf(
+			original_bytes,
+			Path(template_record.file.name).name,
+			allow_structured_preview_fallback=True,
+		)
+		if pdf_bytes:
+			return {
+				'content': pdf_bytes,
+				'filename': f'{Path(template_record.file.name).stem or "accountability-template"}-preview.pdf',
+				'mode': 'converted_original',
+			}
+
+	return None
+
+
 def _filter_accountability_by_visibility(request, queryset):
 	"""Limit accountability visibility to own records for non-reviewers."""
 	if _can_review_accountability_requests(request.user):
@@ -7212,6 +7321,22 @@ def accountability_document_download(request, accountability_id):
 
 
 @login_required
+def accountability_template_preview_pdf(request, template_id):
+	restricted_response = _require_permission(request, 'core.view_assetaccountability')
+	if restricted_response:
+		return restricted_response
+
+	template_record = get_object_or_404(AssetAccountabilityTemplate, pk=template_id)
+	payload = _build_accountability_template_preview_pdf_payload(template_record)
+	if not payload:
+		return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
+
+	response = HttpResponse(payload['content'], content_type='application/pdf')
+	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
+	return response
+
+
+@login_required
 def accountability_list(request):
 	"""View accountability records (items borrowed)"""
 	restricted_response = _require_permission(request, 'core.view_assetaccountability')
@@ -7219,24 +7344,99 @@ def accountability_list(request):
 		return restricted_response
 
 	can_manage_templates = _can_manage_accountability_templates(request.user)
+	is_ajax_request = (request.headers.get('x-requested-with') or '').lower() == 'xmlhttprequest'
 	template_form = AssetAccountabilityTemplateForm()
+
+	def _build_template_ajax_payload(message='', level='success'):
+		active = AssetAccountabilityTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
+		template_rows = []
+		for row in AssetAccountabilityTemplate.objects.select_related('uploaded_by').order_by('-is_active', '-updated_at', '-created_at'):
+			template_rows.append(
+				{
+					'id': row.pk,
+					'name': row.name or '',
+					'is_active': bool(row.is_active),
+					'file_name': Path(getattr(row.file, 'name', '')).name,
+					'updated_at': timezone.localtime(row.updated_at).strftime('%b %d, %Y %H:%M') if row.updated_at else '-',
+					'uploaded_by': (row.uploaded_by.get_full_name() or row.uploaded_by.username) if row.uploaded_by else '-',
+					'preview_url': reverse('accountability_template_preview_pdf', args=[row.pk]),
+					'use_url': reverse('accountability_create'),
+				}
+			)
+		return {
+			'ok': True,
+			'message': message,
+			'level': level,
+			'active_template_name': active.name if active else '',
+			'templates': template_rows,
+		}
+
 	if request.method == 'POST' and can_manage_templates:
 		template_action = (request.POST.get('template_action') or '').strip()
 		if template_action == 'upload':
-			template_form = AssetAccountabilityTemplateForm(request.POST, request.FILES)
-			if template_form.is_valid():
-				template_record = template_form.save(commit=False)
-				template_record.uploaded_by = request.user
-				template_record.save()
-				messages.success(request, f'Accountability template "{template_record.name}" uploaded.')
-				return redirect('accountability_list')
+			uploaded_files = [file for file in request.FILES.getlist('file') if file]
+			if uploaded_files:
+				base_name = (request.POST.get('name') or '').strip()
+				notes = (request.POST.get('notes') or '').strip()
+				should_set_active = (request.POST.get('is_active') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
+				allowed_extensions = AssetAccountabilityTemplateForm.ALLOWED_EXTENSIONS
+				max_size_bytes = AssetAccountabilityTemplateForm.MAX_FILE_SIZE_BYTES
+				valid_uploads = []
+				for file in uploaded_files:
+					extension = Path(getattr(file, 'name', '')).suffix.lower()
+					if extension not in allowed_extensions:
+						messages.error(request, f'Unsupported file type for "{getattr(file, "name", "file")}". Allowed: DOC, DOCX, XLS, XLSX.')
+						continue
+					if getattr(file, 'size', 0) > max_size_bytes:
+						messages.error(request, f'"{getattr(file, "name", "file")}" exceeds 25MB upload limit.')
+						continue
+					valid_uploads.append(file)
+
+				created_count = 0
+				for index, file in enumerate(valid_uploads, start=1):
+					default_name = Path(getattr(file, 'name', '')).stem or f'Asset Accountability Template {index}'
+					template_name = base_name if (len(valid_uploads) == 1 and base_name) else default_name
+					template_record = AssetAccountabilityTemplate(
+						name=(template_name or 'Asset Accountability Template')[:150],
+						file=file,
+						notes=notes,
+						is_active=should_set_active and created_count == 0,
+						uploaded_by=request.user,
+					)
+					template_record.save()
+					created_count += 1
+
+				if created_count:
+					success_message = f'{created_count} accountability template(s) uploaded successfully.'
+					messages.success(request, success_message)
+					if is_ajax_request:
+						return JsonResponse(_build_template_ajax_payload(success_message))
+					return redirect('accountability_list')
+			else:
+				template_form = AssetAccountabilityTemplateForm(request.POST, request.FILES)
+				if template_form.is_valid():
+					template_record = template_form.save(commit=False)
+					template_record.uploaded_by = request.user
+					template_record.name = (template_record.name or Path(getattr(template_record.file, 'name', '')).stem or 'Asset Accountability Template')[:150]
+					template_record.save()
+					success_message = f'Accountability template "{template_record.name}" uploaded.'
+					messages.success(request, success_message)
+					if is_ajax_request:
+						return JsonResponse(_build_template_ajax_payload(success_message))
+					return redirect('accountability_list')
+				if is_ajax_request:
+					error_text = '; '.join([f'{field}: {", ".join(errors)}' for field, errors in template_form.errors.items()]) or 'Upload failed.'
+					return JsonResponse({'ok': False, 'message': error_text}, status=400)
 		elif template_action.startswith('set_default:'):
 			template_id = template_action.split(':', 1)[1]
 			template_record = get_object_or_404(AssetAccountabilityTemplate, pk=int(template_id))
 			AssetAccountabilityTemplate.objects.exclude(pk=template_record.pk).update(is_active=False)
 			template_record.is_active = True
 			template_record.save(update_fields=['is_active', 'updated_at'])
-			messages.success(request, f'"{template_record.name}" is now the active accountability template.')
+			success_message = f'"{template_record.name}" is now the active accountability template.'
+			messages.success(request, success_message)
+			if is_ajax_request:
+				return JsonResponse(_build_template_ajax_payload(success_message))
 			return redirect('accountability_list')
 		elif template_action.startswith('delete:'):
 			template_id = template_action.split(':', 1)[1]
@@ -7244,7 +7444,10 @@ def accountability_list(request):
 			template_name = template_record.name
 			template_record.delete()
 			_ensure_active_accountability_template()
-			messages.success(request, f'Accountability template "{template_name}" deleted.')
+			success_message = f'Accountability template "{template_name}" deleted.'
+			messages.success(request, success_message)
+			if is_ajax_request:
+				return JsonResponse(_build_template_ajax_payload(success_message))
 			return redirect('accountability_list')
 
 	query = (request.GET.get('q') or '').strip()

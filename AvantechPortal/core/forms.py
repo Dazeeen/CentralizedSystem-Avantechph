@@ -568,14 +568,14 @@ class FundRequestTemplateForm(forms.ModelForm):
 
 class AssetAccountabilityTemplateForm(forms.ModelForm):
     MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
-    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx'}
+    ALLOWED_EXTENSIONS = {'.doc', '.docx', '.xls', '.xlsx'}
 
     class Meta:
         model = AssetAccountabilityTemplate
         fields = ['name', 'file', 'notes', 'is_active']
         widgets = {
             'notes': forms.Textarea(attrs={'rows': 3}),
-            'file': forms.ClearableFileInput(attrs={'accept': '.pdf,.doc,.docx,.xls,.xlsx'}),
+            'file': MultipleFileInput(attrs={'accept': '.doc,.docx,.xls,.xlsx'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -585,6 +585,7 @@ class AssetAccountabilityTemplateForm(forms.ModelForm):
                 field.widget.attrs.setdefault('class', 'form-check-input')
             else:
                 field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['name'].required = False
         self.fields['is_active'].help_text = 'When enabled, accountability documents will use this as the preferred template.'
 
     def clean_file(self):
@@ -594,7 +595,7 @@ class AssetAccountabilityTemplateForm(forms.ModelForm):
 
         extension = Path(file.name or '').suffix.lower()
         if extension not in self.ALLOWED_EXTENSIONS:
-            raise ValidationError('Upload a PDF, DOC, DOCX, XLS, or XLSX template file.')
+            raise ValidationError('Upload a DOC, DOCX, XLS, or XLSX template file.')
         if getattr(file, 'size', 0) > self.MAX_FILE_SIZE_BYTES:
             raise ValidationError('Template file size must be 25MB or less.')
         return file
