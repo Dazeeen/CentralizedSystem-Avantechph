@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import uuid
 from urllib.parse import quote
 import zipfile
 from xml.sax.saxutils import escape
@@ -65,6 +66,7 @@ except Exception:
 from .auth_utils import invalidate_user_sessions
 from .forms import (
 	AssetAccountabilityForm,
+	AssetAccountabilityTemplateForm,
 	AssetDepartmentForm,
 	AssetItemForm,
 	AssetItemTypeForm,
@@ -92,6 +94,7 @@ from .forms import (
 )
 from .models import (
 	AssetAccountability,
+	AssetAccountabilityTemplate,
 	AssetDepartment,
 	AssetItem,
 	AssetItemImage,
@@ -6194,7 +6197,12 @@ def assets_generate_tags(request):
 
 	department_id = (request.POST.get('department') or '').strip()
 	department = None
-	items = AssetItem.objects.select_related('department', 'parent_item').filter(is_active=True)
+	items = (
+		AssetItem.objects.select_related('department', 'parent_item')
+		.filter(is_active=True)
+		.annotate(variant_count=Count('variants'))
+		.filter(Q(parent_item__isnull=False) | Q(variant_count=0))
+	)
 	if department_id:
 		department = get_object_or_404(AssetDepartment, pk=department_id)
 		items = items.filter(department=department)
@@ -6845,6 +6853,151 @@ def _can_review_accountability_requests(user):
 	return user.is_superuser or user.has_perm('core.change_assetaccountability')
 
 
+def _ensure_active_accountability_template():
+	if AssetAccountabilityTemplate.objects.filter(is_active=True).exists():
+		return
+	fallback_template = AssetAccountabilityTemplate.objects.order_by('-updated_at', '-created_at').first()
+	if fallback_template:
+		fallback_template.is_active = True
+		fallback_template.save(update_fields=['is_active', 'updated_at'])
+
+
+def _can_manage_accountability_templates(user):
+	return user.is_superuser or user.has_perm('core.change_assetaccountability')
+
+
+def _build_accountability_line_item_context(accountability):
+	item_name = accountability.item.item_name or ''
+	specifications = accountability.item.specification or ''
+	return {
+		'item_id': accountability.item.item_code or '',
+		'brand_model_item_name': item_name,
+		'brand_model': item_name,
+		'item_name': item_name,
+		'specifications': specifications,
+		'specification': specifications,
+		'asset_type': accountability.item.get_item_type_display(),
+		'quantity': str(accountability.quantity_borrowed or 0),
+	}
+
+
+def _get_accountability_template_line_records(accountability):
+	if not accountability.batch_id:
+		return [accountability]
+	return list(
+		AssetAccountability.objects
+		.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile')
+		.filter(batch_id=accountability.batch_id)
+		.order_by('created_at', 'id')
+	)
+
+
+def _build_accountability_template_placeholders(accountability):
+	user = accountability.borrowed_by
+	profile = getattr(user, 'profile', None) if user else None
+	name = accountability.accountable_name or ((user.get_full_name() or user.username) if user else '')
+	department = accountability.department or getattr(profile, 'department', '') or getattr(accountability.item.department, 'name', '') or ''
+	position = accountability.position_role or getattr(profile, 'position', '') or getattr(profile, 'role', '') or ''
+	contact_number = accountability.contact_number or getattr(profile, 'contact_number', '') or getattr(profile, 'phone_number', '') or ''
+	line_records = _get_accountability_template_line_records(accountability)
+	line_items = [_build_accountability_line_item_context(record) for record in line_records]
+	first_line_item = line_items[0] if line_items else _build_accountability_line_item_context(accountability)
+	placeholders = {
+		'{{ name }}': name,
+		'{{ department }}': department,
+		'{{ position_role }}': position,
+		'{{ position }}': position,
+		'{{ role }}': position,
+		'{{ contact_number }}': contact_number,
+		'{{ control_number }}': accountability.control_number or '',
+		'{{ item_id }}': first_line_item['item_id'],
+		'{{ brand_model_item_name }}': first_line_item['brand_model_item_name'],
+		'{{ brand_model }}': first_line_item['brand_model'],
+		'{{ item_name }}': first_line_item['item_name'],
+		'{{ specifications }}': first_line_item['specifications'],
+		'{{ specification }}': first_line_item['specification'],
+		'{{ asset_type }}': first_line_item['asset_type'],
+		'{{ quantity }}': first_line_item['quantity'],
+		'{{ date_borrowed }}': timezone.localtime(accountability.date_borrowed).strftime('%B %d, %Y') if accountability.date_borrowed else '',
+		'{{ status }}': accountability.status.title() if accountability.status else '',
+		'{{ notes }}': accountability.notes or '',
+	}
+
+	for index, line_item in enumerate(line_items, start=1):
+		placeholders[f'{{{{ item_{index}_id }}}}'] = line_item['item_id']
+		placeholders[f'{{{{ item_{index}_brand_model }}}}'] = line_item['brand_model']
+		placeholders[f'{{{{ item_{index}_brand_model_item_name }}}}'] = line_item['brand_model_item_name']
+		placeholders[f'{{{{ item_{index}_name }}}}'] = line_item['item_name']
+		placeholders[f'{{{{ item_{index}_specification }}}}'] = line_item['specification']
+		placeholders[f'{{{{ item_{index}_specifications }}}}'] = line_item['specifications']
+		placeholders[f'{{{{ item_{index}_asset_type }}}}'] = line_item['asset_type']
+		placeholders[f'{{{{ item_{index}_quantity }}}}'] = line_item['quantity']
+
+	for index in range(len(line_items) + 1, 51):
+		placeholders[f'{{{{ item_{index}_id }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_brand_model }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_brand_model_item_name }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_name }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_specification }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_specifications }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_asset_type }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_quantity }}}}'] = ''
+
+	placeholders['{{ line_items }}'] = '\n'.join(
+		f"{line_item['item_id']} | {line_item['brand_model_item_name']} | "
+		f"{line_item['specifications']} | {line_item['asset_type']} | {line_item['quantity']}"
+		for line_item in line_items
+	)
+	placeholders['{{ line_items_table }}'] = placeholders['{{ line_items }}']
+	return placeholders, line_items
+
+
+def _build_accountability_template_placeholder_guide():
+	return [
+		{'placeholder': '{{ name }}', 'description': 'Full name of the accountable person.', 'use_case': 'Use beside Name or Employee Name.'},
+		{'placeholder': '{{ department }}', 'description': 'Department value available to the system.', 'use_case': 'Use beside Department.'},
+		{'placeholder': '{{ position_role }}', 'description': 'Position or role value available to the system.', 'use_case': 'Use beside Position/Role.'},
+		{'placeholder': '{{ contact_number }}', 'description': 'Contact number value available to the system.', 'use_case': 'Use beside Contact Number.'},
+		{'placeholder': '{{ control_number }}', 'description': 'Auto-generated accountability control number.', 'use_case': 'Use in the control number/header area.'},
+		{'placeholder': '{{ item_id }}', 'description': 'Asset item ID or code.', 'use_case': 'Use in a fixed Item ID table cell.'},
+		{'placeholder': '{{ brand_model }}', 'description': 'Brand/model or item name from the asset record.', 'use_case': 'Use in the Brand/Model column.'},
+		{'placeholder': '{{ brand_model_item_name }}', 'description': 'Brand/model/item name from the asset record.', 'use_case': 'Use in the Brand/Model/Item Name column.'},
+		{'placeholder': '{{ specifications }}', 'description': 'Asset specifications.', 'use_case': 'Use in the Specifications column.'},
+		{'placeholder': '{{ asset_type }}', 'description': 'Asset type display label.', 'use_case': 'Use in the Asset Type column.'},
+		{'placeholder': '{{ quantity }}', 'description': 'Borrowed quantity.', 'use_case': 'Use in the Quantity column.'},
+		{'placeholder': '{{ item_1_id }}', 'description': 'Fixed-row placeholder for row 1 item ID. Use `item_2_...`, `item_3_...`, and so on for more rows.', 'use_case': 'Use in spreadsheets with pre-made table rows.'},
+		{'placeholder': '{{ item_1_brand_model }}', 'description': 'Fixed-row placeholder for row 1 brand/model.', 'use_case': 'Use in the Brand/Model column for fixed-row templates.'},
+		{'placeholder': '{{ item_1_specification }}', 'description': 'Fixed-row placeholder for row 1 specification.', 'use_case': 'Use in the Specification column for fixed-row templates.'},
+		{'placeholder': '{{ item_1_asset_type }}', 'description': 'Fixed-row placeholder for row 1 asset type.', 'use_case': 'Use in the Asset Type column for fixed-row templates.'},
+		{'placeholder': '{{ item_1_quantity }}', 'description': 'Fixed-row placeholder for row 1 quantity.', 'use_case': 'Use in the Quantity column for fixed-row templates.'},
+		{'placeholder': '{{#line_items}} ... {{/line_items}}', 'description': 'Dynamic repeating block for `.docx` and `.xlsx` templates.', 'use_case': 'Use around the accountability item table row.'},
+	]
+
+
+def _build_accountability_template_file_payload(accountability):
+	template_record = AssetAccountabilityTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
+	if not template_record:
+		return None
+
+	extension = _fund_request_template_extension(template_record)
+	placeholders, line_items = _build_accountability_template_placeholders(accountability)
+	output_name = f'asset-accountability-{accountability.control_number or accountability.pk}{extension}'
+	rendered_template = _render_fund_request_template_binary_from_template(template_record, placeholders, line_items, output_name)
+	if rendered_template:
+		return rendered_template
+
+	if extension == '.pdf':
+		with template_record.file.open('rb') as template_file:
+			return {
+				'content': template_file.read(),
+				'content_type': 'application/pdf',
+				'filename': output_name,
+				'template_record': template_record,
+				'extension': extension,
+			}
+	return None
+
+
 def _filter_accountability_by_visibility(request, queryset):
 	"""Limit accountability visibility to own records for non-reviewers."""
 	if _can_review_accountability_requests(request.user):
@@ -7035,21 +7188,76 @@ def accountability_report_list_csv(request):
 
 
 @login_required
+def accountability_document_download(request, accountability_id):
+	"""Download an accountability document from the active uploaded template."""
+	restricted_response = _require_permission(request, 'core.view_assetaccountability')
+	if restricted_response:
+		return restricted_response
+
+	accountability = get_object_or_404(
+		_filter_accountability_by_visibility(
+			request,
+			AssetAccountability.objects.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile'),
+		),
+		pk=accountability_id,
+	)
+	payload = _build_accountability_template_file_payload(accountability)
+	if not payload:
+		messages.warning(request, 'Upload an active DOCX or XLSX accountability template before downloading documents.')
+		return redirect('accountability_list')
+
+	response = HttpResponse(payload['content'], content_type=payload['content_type'])
+	response['Content-Disposition'] = f'attachment; filename="{payload["filename"]}"'
+	return response
+
+
+@login_required
 def accountability_list(request):
 	"""View accountability records (items borrowed)"""
 	restricted_response = _require_permission(request, 'core.view_assetaccountability')
 	if restricted_response:
 		return restricted_response
 
+	can_manage_templates = _can_manage_accountability_templates(request.user)
+	template_form = AssetAccountabilityTemplateForm()
+	if request.method == 'POST' and can_manage_templates:
+		template_action = (request.POST.get('template_action') or '').strip()
+		if template_action == 'upload':
+			template_form = AssetAccountabilityTemplateForm(request.POST, request.FILES)
+			if template_form.is_valid():
+				template_record = template_form.save(commit=False)
+				template_record.uploaded_by = request.user
+				template_record.save()
+				messages.success(request, f'Accountability template "{template_record.name}" uploaded.')
+				return redirect('accountability_list')
+		elif template_action.startswith('set_default:'):
+			template_id = template_action.split(':', 1)[1]
+			template_record = get_object_or_404(AssetAccountabilityTemplate, pk=int(template_id))
+			AssetAccountabilityTemplate.objects.exclude(pk=template_record.pk).update(is_active=False)
+			template_record.is_active = True
+			template_record.save(update_fields=['is_active', 'updated_at'])
+			messages.success(request, f'"{template_record.name}" is now the active accountability template.')
+			return redirect('accountability_list')
+		elif template_action.startswith('delete:'):
+			template_id = template_action.split(':', 1)[1]
+			template_record = get_object_or_404(AssetAccountabilityTemplate, pk=int(template_id))
+			template_name = template_record.name
+			template_record.delete()
+			_ensure_active_accountability_template()
+			messages.success(request, f'Accountability template "{template_name}" deleted.')
+			return redirect('accountability_list')
+
 	query = (request.GET.get('q') or '').strip()
 	status_filter = (request.GET.get('status') or '').strip()
 	can_review_requests = _can_review_accountability_requests(request.user)
+	active_template = AssetAccountabilityTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
+	all_templates = AssetAccountabilityTemplate.objects.select_related('uploaded_by').order_by('-is_active', '-updated_at', '-created_at')
 
 	records = (
 		_filter_accountability_by_visibility(
 			request,
 			AssetAccountability.objects
-		.select_related('item', 'borrowed_by', 'borrowed_by__profile')
+		.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile')
 		.prefetch_related('return_proofs')
 		.filter(request_status='approved')
 		)
@@ -7057,7 +7265,7 @@ def accountability_list(request):
 	)
 	pending_requests = _filter_accountability_by_visibility(
 		request,
-		AssetAccountability.objects.select_related('item', 'borrowed_by', 'borrowed_by__profile').filter(request_status='pending'),
+		AssetAccountability.objects.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile').filter(request_status='pending'),
 	).order_by('-created_at')
 
 	if query:
@@ -7119,6 +7327,11 @@ def accountability_list(request):
 		'return_proofs_map': return_proofs_map,
 		'can_review_requests': can_review_requests,
 		'can_manage_approved_records': request.user.is_superuser or request.user.has_perm('core.change_assetaccountability') or request.user.has_perm('core.delete_assetaccountability'),
+		'can_manage_templates': can_manage_templates,
+		'template_form': template_form,
+		'active_template': active_template,
+		'all_templates': all_templates,
+		'accountability_placeholder_guide': _build_accountability_template_placeholder_guide(),
 		'query': query,
 		'status_filter': status_filter,
 		'total_pending_requests': _filter_accountability_by_visibility(request, AssetAccountability.objects.filter(request_status='pending')).count(),
@@ -7141,17 +7354,26 @@ def accountability_create(request):
 			selected_items = list(form.cleaned_data.get('items') or [])
 			item_quantities_map = form.cleaned_data.get('item_quantities_map') or {}
 			notes = form.cleaned_data.get('notes') or ''
+			accountability_details = {
+				'accountable_name': form.cleaned_data.get('accountable_name') or '',
+				'department': form.cleaned_data.get('department') or '',
+				'position_role': form.cleaned_data.get('position_role') or '',
+				'contact_number': form.cleaned_data.get('contact_number') or '',
+			}
 
 			created_requests = []
+			batch_id = uuid.uuid4()
 			for selected_item in selected_items:
 				selected_quantity = int(item_quantities_map.get(selected_item.pk, 1))
 				accountability = AssetAccountability.objects.create(
 					item=selected_item,
+					batch_id=batch_id,
 					borrowed_by=request.user,
 					quantity_borrowed=selected_quantity,
 					notes=notes,
 					request_status='pending',
 					status='borrowed',
+					**accountability_details,
 				)
 				created_requests.append(accountability)
 				_notify_accountability_reviewers(accountability)
@@ -7168,7 +7390,13 @@ def accountability_create(request):
 				)
 			return redirect('accountability_list')
 	else:
-		form = AssetAccountabilityForm()
+		profile = getattr(request.user, 'profile', None)
+		form = AssetAccountabilityForm(initial={
+			'accountable_name': request.user.get_full_name() or request.user.username,
+			'department': getattr(profile, 'department', '') or '',
+			'position_role': getattr(profile, 'position', '') or getattr(profile, 'role', '') or '',
+			'contact_number': getattr(profile, 'contact_number', '') or getattr(profile, 'phone_number', '') or '',
+		})
 
 	context = {
 		'form': form,

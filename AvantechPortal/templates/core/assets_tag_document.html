@@ -100,11 +100,7 @@
 <div class="print-grid">
     {% for entry in entries %}
         <div class="print-tag">
-            <div class="print-tag-head">ASSET TAG</div>
-            <div class="print-tag-code">{{ entry.item_code_snapshot }}</div>
-            <div class="print-tag-line"><strong>Item:</strong> {{ entry.item_name_snapshot }}</div>
             <div class="print-tag-line"><strong>ID:</strong> {{ entry.item_code_snapshot }}</div>
-            <div class="print-tag-line"><strong>Dept:</strong> {{ entry.department_name_snapshot }}</div>
             <div class="print-tag-line"><strong>Spec:</strong> {{ entry.specification_snapshot|default:'-' }}</div>
         </div>
     {% endfor %}
@@ -113,34 +109,20 @@
 <style>
     .print-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 8px;
     }
 
     .print-tag {
         border: 1px dashed #198754;
-        border-radius: 8px;
-        padding: 10px;
+        border-radius: 6px;
+        padding: 6px;
         background: #ffffff;
     }
 
-    .print-tag-head {
-        font-size: 11px;
-        font-weight: 700;
-        color: #198754;
-        letter-spacing: 0.06em;
-        margin-bottom: 4px;
-    }
-
-    .print-tag-code {
-        font-size: 18px;
-        font-weight: 700;
-        margin-bottom: 6px;
-    }
-
     .print-tag-line {
-        font-size: 12px;
-        line-height: 1.35;
+        font-size: 10.5px;
+        line-height: 1.25;
     }
 
     @media print {
@@ -162,13 +144,16 @@
         }
 
         .print-grid {
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 5px;
         }
 
         .print-tag {
+            border: 1.2px dashed #000000 !important;
             break-inside: avoid;
             page-break-inside: avoid;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
     }
 </style>
