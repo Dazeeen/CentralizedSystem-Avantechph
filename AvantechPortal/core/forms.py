@@ -17,6 +17,7 @@ from .auth_utils import get_client_ip
 from .permission_catalog import build_permission_groups
 from .models import (
     AssetAccountability,
+    AssetAccountabilityTemplate,
     AssetDepartment,
     AssetItem,
     AssetItemImage,
@@ -551,6 +552,40 @@ class FundRequestTemplateForm(forms.ModelForm):
             else:
                 field.widget.attrs.setdefault('class', 'form-control')
         self.fields['is_active'].help_text = 'When enabled, new fund requests will use this as the preferred template.'
+
+    def clean_file(self):
+        file = self.cleaned_data.get('file')
+        if not file:
+            return file
+
+        extension = Path(file.name or '').suffix.lower()
+        if extension not in self.ALLOWED_EXTENSIONS:
+            raise ValidationError('Upload a PDF, DOC, DOCX, XLS, or XLSX template file.')
+        if getattr(file, 'size', 0) > self.MAX_FILE_SIZE_BYTES:
+            raise ValidationError('Template file size must be 25MB or less.')
+        return file
+
+
+class AssetAccountabilityTemplateForm(forms.ModelForm):
+    MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx'}
+
+    class Meta:
+        model = AssetAccountabilityTemplate
+        fields = ['name', 'file', 'notes', 'is_active']
+        widgets = {
+            'notes': forms.Textarea(attrs={'rows': 3}),
+            'file': forms.ClearableFileInput(attrs={'accept': '.pdf,.doc,.docx,.xls,.xlsx'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['is_active'].help_text = 'When enabled, accountability documents will use this as the preferred template.'
 
     def clean_file(self):
         file = self.cleaned_data.get('file')
@@ -1104,8 +1139,24 @@ class AssetAccountabilityForm(forms.ModelForm):
 
     class Meta:
         model = AssetAccountability
-        fields = ['item', 'quantity_borrowed', 'notes']
+        fields = ['accountable_name', 'department', 'position_role', 'contact_number', 'item', 'quantity_borrowed', 'notes']
         widgets = {
+            'accountable_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Full name',
+            }),
+            'department': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Department',
+            }),
+            'position_role': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Position/Role',
+            }),
+            'contact_number': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Contact number',
+            }),
             'quantity_borrowed': forms.NumberInput(attrs={
                 'class': 'form-control',
                 'min': '1',
@@ -1120,6 +1171,8 @@ class AssetAccountabilityForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['accountable_name'].label = 'Name'
+        self.fields['position_role'].label = 'Position/Role'
         self.fields['quantity_borrowed'].label = 'Quantity'
         self.fields['quantity_borrowed'].required = False
         self.fields['quantity_borrowed'].initial = 1

@@ -11,6 +11,12 @@
             <p class="text-muted small">Track borrowed items and manage returns</p>
         </div>
         <div class="col-md-6 text-end">
+            {% if can_manage_templates %}
+            <button type="button" class="btn btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#accountabilityTemplateModal">
+                <i class="bi bi-file-earmark-text me-2"></i>Templates
+                {% if active_template %}<span class="badge text-bg-success ms-1">Active</span>{% endif %}
+            </button>
+            {% endif %}
             {% if perms.core.add_assetaccountability %}
             <a href="{% url 'accountability_create' %}" class="btn btn-primary">
                 <i class="bi bi-plus-circle me-2"></i>Borrow Item
@@ -322,6 +328,7 @@
                             <input type="checkbox" class="form-check-input" id="approvedSelectAll" aria-label="Select all approved records">
                             {% endif %}
                         </th>
+                        <th>Control No.</th>
                         <th>Item Code</th>
                         <th>Item Name</th>
                         <th>Item Type</th>
@@ -346,6 +353,7 @@
                             >
                             {% endif %}
                         </td>
+                        <td>{{ record.control_number|default:'-' }}</td>
                         <td>
                             <span class="badge bg-info">{{ record.item.item_code }}</span>
                         </td>
@@ -408,6 +416,17 @@
                                     <span class="ms-1">Return</span>
                                 </button>
                                 {% endif %}
+                                {% if active_template %}
+                                <a
+                                    href="{% url 'accountability_document_download' record.id %}"
+                                    class="btn btn-outline-success"
+                                    title="Download accountability document"
+                                    onclick="event.stopPropagation();"
+                                >
+                                    <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i>
+                                    <span class="ms-1">Doc</span>
+                                </a>
+                                {% endif %}
                                 <button
                                     type="button"
                                     class="btn btn-secondary js-accountability-details-btn"
@@ -436,7 +455,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="10" class="text-center py-4 text-muted">
+                        <td colspan="11" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox" style="font-size: 2rem;"></i>
                             <p class="mt-2 mb-0">No accountability records found</p>
                         </td>
@@ -641,8 +660,122 @@
     </div>
 </div>
 
+{% if can_manage_templates %}
+<div class="modal fade" id="accountabilityTemplateModal" tabindex="-1" aria-labelledby="accountabilityTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <div>
+                    <h5 class="modal-title" id="accountabilityTemplateModalLabel">Asset Accountability Templates</h5>
+                    <div class="small text-secondary">Upload a `.docx` or `.xlsx` file with placeholders for system auto-fill.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                {% if active_template %}
+                <div class="alert alert-success py-2">Active template: <strong>{{ active_template.name }}</strong></div>
+                {% endif %}
+
+                <form method="post" enctype="multipart/form-data" class="row g-3 align-items-end mb-4">
+                    {% csrf_token %}
+                    <input type="hidden" name="template_action" value="upload">
+                    <div class="col-md-3">
+                        <label for="{{ template_form.name.id_for_label }}" class="form-label">Template Name</label>
+                        {{ template_form.name }}
+                        {% if template_form.name.errors %}
+                        <div class="invalid-feedback d-block">{{ template_form.name.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <label for="{{ template_form.file.id_for_label }}" class="form-label">Template File</label>
+                        {{ template_form.file }}
+                        {% if template_form.file.errors %}
+                        <div class="invalid-feedback d-block">{{ template_form.file.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <label for="{{ template_form.notes.id_for_label }}" class="form-label">Notes</label>
+                        {{ template_form.notes }}
+                        {% if template_form.notes.errors %}
+                        <div class="invalid-feedback d-block">{{ template_form.notes.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check">
+                            {{ template_form.is_active }}
+                            <label class="form-check-label" for="{{ template_form.is_active.id_for_label }}">Set active</label>
+                        </div>
+                    </div>
+                    <div class="col-md-1 d-grid">
+                        <button type="submit" class="btn btn-success">Upload</button>
+                    </div>
+                </form>
+
+                <div class="row g-4">
+                    <div class="col-lg-6">
+                        <h6 class="mb-3">Placeholders</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Placeholder</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in accountability_placeholder_guide %}
+                                    <tr>
+                                        <td><code>{{ item.placeholder }}</code></td>
+                                        <td class="small">{{ item.description }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <h6 class="mb-3">Uploaded Templates</h6>
+                        {% if all_templates %}
+                        <div class="list-group">
+                            {% for template_record in all_templates %}
+                            <div class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                                <div>
+                                    <div class="fw-semibold">
+                                        {{ template_record.name }}
+                                        {% if template_record.is_active %}<span class="badge text-bg-success ms-1">Active</span>{% endif %}
+                                    </div>
+                                    <div class="small text-secondary">{{ template_record.file|basename }}</div>
+                                    <div class="small text-secondary">Updated {{ template_record.updated_at|date:'M d, Y H:i' }}</div>
+                                </div>
+                                <form method="post" class="d-flex gap-2">
+                                    {% csrf_token %}
+                                    {% if not template_record.is_active %}
+                                    <button type="submit" name="template_action" value="set_default:{{ template_record.id }}" class="btn btn-sm btn-outline-primary">Set Active</button>
+                                    {% endif %}
+                                    <button type="submit" name="template_action" value="delete:{{ template_record.id }}" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-secondary">No uploaded accountability templates yet.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const templateModalElement = document.getElementById('accountabilityTemplateModal');
+    const hasTemplateErrors = {{ template_form.errors|yesno:"true,false" }};
+    if (hasTemplateErrors && templateModalElement && window.bootstrap && window.bootstrap.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(templateModalElement).show();
+    }
+
     const returnModalElement = document.getElementById('returnProofModal');
     const returnForm = document.getElementById('returnProofForm');
     const returnProofInput = document.getElementById('returnProofImages');

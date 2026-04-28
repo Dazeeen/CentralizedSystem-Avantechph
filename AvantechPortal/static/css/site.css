@@ -641,14 +641,6 @@ body {
     padding-right: 0 !important;
 }
 
-.app-shell.sidebar-collapsed .app-sidebar .nav-group-trigger.is-open + .nav-subgroup {
-    display: flex !important;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-    width: 100%;
-}
-
 .app-shell.sidebar-collapsed .app-sidebar .app-nav-link {
     width: 44px !important;
     height: 44px;
@@ -665,16 +657,7 @@ body {
 }
 
 .app-shell.sidebar-collapsed .app-sidebar .nav-group-caret {
-    position: absolute;
-    right: 1px;
-    bottom: 1px;
-    width: 13px;
-    height: 13px;
-}
-
-.app-shell.sidebar-collapsed .app-sidebar .nav-group-caret .icon-svg {
-    width: 12px;
-    height: 12px;
+    display: none;
 }
 
 .app-shell.sidebar-collapsed .app-sidebar .sidebar-brand {

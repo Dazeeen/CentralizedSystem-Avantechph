@@ -23,6 +23,7 @@ from .ticketing_views import (
 from .views import (
     accountability_create,
     accountability_decide,
+    accountability_document_download,
     accountability_item_auto_fill,
     accountability_list,
     accountability_pending_bulk_decide,
@@ -269,6 +270,7 @@ urlpatterns = [
     path('accountability/reports/list/', accountability_report_list, name='accountability_report_list'),
     path('accountability/reports/list.csv', accountability_report_list_csv, name='accountability_report_list_csv'),
     path('accountability/<int:accountability_id>/decide/', accountability_decide, name='accountability_decide'),
+    path('accountability/<int:accountability_id>/document/download/', accountability_document_download, name='accountability_document_download'),
     path('accountability/pending/bulk-decide/', accountability_pending_bulk_decide, name='accountability_pending_bulk_decide'),
     path('accountability/item-autofill/', accountability_item_auto_fill, name='accountability_item_auto_fill'),
     path('accountability/<int:accountability_id>/return/', accountability_return, name='accountability_return'),

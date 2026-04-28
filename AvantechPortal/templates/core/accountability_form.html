@@ -22,6 +22,37 @@
                         </div>
                         {% endif %}
 
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="{{ form.accountable_name.id_for_label }}" class="form-label">{{ form.accountable_name.label }}</label>
+                                {{ form.accountable_name }}
+                                {% if form.accountable_name.errors %}
+                                <div class="invalid-feedback d-block">{{ form.accountable_name.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label for="{{ form.department.id_for_label }}" class="form-label">{{ form.department.label }}</label>
+                                {{ form.department }}
+                                {% if form.department.errors %}
+                                <div class="invalid-feedback d-block">{{ form.department.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label for="{{ form.position_role.id_for_label }}" class="form-label">{{ form.position_role.label }}</label>
+                                {{ form.position_role }}
+                                {% if form.position_role.errors %}
+                                <div class="invalid-feedback d-block">{{ form.position_role.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label for="{{ form.contact_number.id_for_label }}" class="form-label">{{ form.contact_number.label }}</label>
+                                {{ form.contact_number }}
+                                {% if form.contact_number.errors %}
+                                <div class="invalid-feedback d-block">{{ form.contact_number.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+
                         <!-- Item Selection -->
                         <div class="mb-3">
                             <label for="{{ form.item.id_for_label }}" class="form-label">

@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
 	AssetAccountability,
+	AssetAccountabilityTemplate,
 	AssetDepartment,
 	AssetItem,
 	AssetItemImage,
@@ -198,6 +199,13 @@ class FundRequestTemplateAdmin(admin.ModelAdmin):
 	search_fields = ('name', 'notes', 'uploaded_by__username', 'uploaded_by__email')
 
 
+@admin.register(AssetAccountabilityTemplate)
+class AssetAccountabilityTemplateAdmin(admin.ModelAdmin):
+	list_display = ('name', 'is_active', 'uploaded_by', 'updated_at')
+	list_filter = ('is_active', 'updated_at')
+	search_fields = ('name', 'notes', 'uploaded_by__username', 'uploaded_by__email')
+
+
 @admin.register(FundRequest)
 class FundRequestAdmin(admin.ModelAdmin):
 	list_display = ('serial_number', 'requester_name', 'request_date', 'department', 'branch', 'total_amount', 'created_by')
@@ -293,10 +301,10 @@ class AssetTagEntryAdmin(admin.ModelAdmin):
 
 @admin.register(AssetAccountability)
 class AssetAccountabilityAdmin(admin.ModelAdmin):
-	list_display = ('item', 'borrowed_by', 'quantity_borrowed', 'request_status', 'processed_by', 'processed_at', 'status', 'date_borrowed', 'date_returned')
-	list_filter = ('request_status', 'status', 'date_borrowed', 'item__department')
-	search_fields = ('item__item_code', 'item__item_name', 'borrowed_by__username', 'borrowed_by__first_name', 'borrowed_by__last_name')
-	readonly_fields = ('created_at', 'updated_at', 'date_borrowed')
+	list_display = ('control_number', 'accountable_name', 'item', 'borrowed_by', 'quantity_borrowed', 'request_status', 'processed_by', 'processed_at', 'status', 'date_borrowed', 'date_returned')
+	list_filter = ('request_year', 'department', 'request_status', 'status', 'date_borrowed', 'item__department')
+	search_fields = ('control_number', 'accountable_name', 'department', 'position_role', 'contact_number', 'item__item_code', 'item__item_name', 'borrowed_by__username', 'borrowed_by__first_name', 'borrowed_by__last_name')
+	readonly_fields = ('control_number', 'request_year', 'control_sequence', 'created_at', 'updated_at', 'date_borrowed')
 
 
 @admin.register(CompanyInternetAccount)

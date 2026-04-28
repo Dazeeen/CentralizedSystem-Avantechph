@@ -55,6 +55,14 @@ def accountability_return_proof_upload_to(instance, filename):
 	return f'accountability_return_proofs/{formatted_name}'
 
 
+def accountability_template_upload_to(instance, filename):
+	original_name = filename or 'asset-accountability-template.file'
+	extension = Path(original_name).suffix.lower() or '.file'
+	template_slug = slugify(getattr(instance, 'name', '') or 'asset-accountability-template')
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'accountability/templates/{template_slug}_{date_stamp}{extension}'
+
+
 def fund_request_template_upload_to(instance, filename):
 	original_name = filename or 'fund-request-template.file'
 	extension = Path(original_name).suffix.lower() or '.file'
@@ -1204,6 +1212,14 @@ class AssetAccountability(models.Model):
 	]
 
 	item = models.ForeignKey(AssetItem, on_delete=models.PROTECT, related_name='accountabilities')
+	control_number = models.CharField(max_length=12, unique=True, editable=False, null=True, blank=True)
+	request_year = models.PositiveIntegerField(editable=False, db_index=True, null=True, blank=True)
+	control_sequence = models.PositiveIntegerField(editable=False, null=True, blank=True)
+	batch_id = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
+	accountable_name = models.CharField(max_length=150, blank=True)
+	department = models.CharField(max_length=120, blank=True)
+	position_role = models.CharField(max_length=120, blank=True)
+	contact_number = models.CharField(max_length=50, blank=True)
 	borrowed_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
 		on_delete=models.SET_NULL,
@@ -1231,6 +1247,9 @@ class AssetAccountability(models.Model):
 
 	class Meta:
 		ordering = ['-date_borrowed']
+		constraints = [
+			models.UniqueConstraint(fields=['request_year', 'control_sequence'], name='unique_accountability_year_sequence'),
+		]
 		permissions = [
 			('can_borrow_assets', 'Can borrow assets'),
 			('can_manage_accountability', 'Can manage asset accountability'),
@@ -1238,6 +1257,33 @@ class AssetAccountability(models.Model):
 
 	def __str__(self):
 		return f'{self.borrowed_by.get_full_name() or self.borrowed_by.username} - {self.item.item_code} ({self.quantity_borrowed}x)'
+
+	def _assign_control_number(self):
+		current_year = timezone.localdate().year
+		if self.request_year and self.control_sequence:
+			self.control_number = f'AA-{self.request_year}-{self.control_sequence:04d}'
+			return
+
+		self.request_year = current_year
+		with transaction.atomic():
+			latest_sequence = (
+				AssetAccountability.objects
+				.select_for_update()
+				.filter(request_year=current_year)
+				.aggregate(max_sequence=Max('control_sequence'))
+				.get('max_sequence')
+				or 0
+			)
+			self.control_sequence = latest_sequence + 1
+			self.control_number = f'AA-{self.request_year}-{self.control_sequence:04d}'
+
+	def save(self, *args, **kwargs):
+		if not self.control_number or not self.request_year or not self.control_sequence:
+			self._assign_control_number()
+			update_fields = kwargs.get('update_fields')
+			if update_fields is not None:
+				kwargs['update_fields'] = set(update_fields) | {'control_number', 'request_year', 'control_sequence'}
+		super().save(*args, **kwargs)
 
 	def mark_approved(self, processed_by=None, reason=''):
 		"""Approve borrow request and deduct stock once."""
@@ -1295,6 +1341,33 @@ class AssetReturnProof(models.Model):
 
 	def __str__(self):
 		return f'ReturnProof<{self.accountability_id}:{self.image.name}>'
+
+
+class AssetAccountabilityTemplate(models.Model):
+	name = models.CharField(max_length=150, default='Asset Accountability Template')
+	file = models.FileField(upload_to=accountability_template_upload_to)
+	notes = models.TextField(blank=True)
+	is_active = models.BooleanField(default=True)
+	uploaded_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='asset_accountability_templates_uploaded',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-is_active', '-updated_at', '-created_at']
+
+	def __str__(self):
+		return self.name
+
+	def save(self, *args, **kwargs):
+		super().save(*args, **kwargs)
+		if self.is_active:
+			AssetAccountabilityTemplate.objects.exclude(pk=self.pk).filter(is_active=True).update(is_active=False)
 
 
 class CompanyInternetAccount(models.Model):
