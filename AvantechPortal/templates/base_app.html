@@ -14,10 +14,7 @@
             <div class="sidebar-header p-3 border-bottom border-success-subtle d-flex align-items-center justify-content-between">
                 <a class="sidebar-brand text-decoration-none" href="{% url 'dashboard' %}">
                     <span class="brand-logo" aria-hidden="true">
-                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M12 3L20 8V16L12 21L4 16V8L12 3Z" stroke="currentColor" stroke-width="1.8"/>
-                            <path d="M8.5 13.5L12 7.5L15.5 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
+                        <img src="{% static 'img/avantech-logo.png' %}" alt="">
                     </span>
                     <span class="brand-text">Avantech Portal</span>
                 </a>
@@ -51,14 +48,7 @@
                             </a>
                         {% endif %}
                         {% if request.user.is_superuser or perms.core.view_fundrequest %}
-                            <button
-                                type="button"
-                                class="nav-link app-nav-link nav-group-label nav-group-toggle w-100 border-0 bg-transparent {% if is_finance_nav_active %}active{% endif %}"
-                                data-bs-toggle="collapse"
-                                data-bs-target="#sidebarFinanceNav"
-                                aria-expanded="{% if is_finance_nav_active %}true{% else %}false{% endif %}"
-                                aria-controls="sidebarFinanceNav"
-                            >
+                            <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_finance_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_finance_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -76,7 +66,7 @@
                                     </svg>
                                 </span>
                             </button>
-                            <div class="collapse {% if is_finance_nav_active %}show{% endif %}" id="sidebarFinanceNav">
+                            <div class="nav-subgroup">
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_dashboard' %}active{% endif %}" href="{% url 'finance_dashboard' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -134,14 +124,7 @@
                             </div>
                         {% endif %}
                         {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory %}
-                            <button
-                                type="button"
-                                class="nav-link app-nav-link nav-group-label nav-group-toggle w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active{% endif %}"
-                                data-bs-toggle="collapse"
-                                data-bs-target="#sidebarAssetTrackerNav"
-                                aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}"
-                                aria-controls="sidebarAssetTrackerNav"
-                            >
+                            <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -159,7 +142,7 @@
                                     </svg>
                                 </span>
                             </button>
-                            <div class="collapse {% if is_asset_tracker_nav_active %}show{% endif %}" id="sidebarAssetTrackerNav">
+                            <div class="nav-subgroup">
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_assetitem %}{% url 'assets_list' %}{% else %}{% url 'assets_item_types_list' %}{% endif %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -419,14 +402,7 @@
                         </a>
                     {% endif %}
                     {% if request.user.is_superuser or perms.core.view_fundrequest %}
-                        <button
-                            type="button"
-                            class="nav-link app-nav-link nav-group-label nav-group-toggle w-100 border-0 bg-transparent {% if is_finance_nav_active %}active{% endif %}"
-                            data-bs-toggle="collapse"
-                            data-bs-target="#mobileFinanceNav"
-                            aria-expanded="{% if is_finance_nav_active %}true{% else %}false{% endif %}"
-                            aria-controls="mobileFinanceNav"
-                        >
+                        <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_finance_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_finance_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -444,7 +420,7 @@
                                 </svg>
                             </span>
                         </button>
-                        <div class="collapse {% if is_finance_nav_active %}show{% endif %}" id="mobileFinanceNav">
+                        <div class="nav-subgroup">
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_dashboard' %}active{% endif %}" href="{% url 'finance_dashboard' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -502,14 +478,7 @@
                         </div>
                     {% endif %}
                     {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory %}
-                        <button
-                            type="button"
-                            class="nav-link app-nav-link nav-group-label nav-group-toggle w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active{% endif %}"
-                            data-bs-toggle="collapse"
-                            data-bs-target="#mobileAssetTrackerNav"
-                            aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}"
-                            aria-controls="mobileAssetTrackerNav"
-                        >
+                        <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -527,7 +496,7 @@
                                 </svg>
                             </span>
                         </button>
-                        <div class="collapse {% if is_asset_tracker_nav_active %}show{% endif %}" id="mobileAssetTrackerNav">
+                        <div class="nav-subgroup">
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_assetitem %}{% url 'assets_list' %}{% else %}{% url 'assets_item_types_list' %}{% endif %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -696,7 +665,7 @@
     <div class="toast-container position-fixed bottom-0 end-0 p-3" id="appBottomToastContainer" style="z-index: 1090;"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    <script src="{% static 'js/form_enhancements.js' %}"></script>
+    <script src="{% static 'js/form_enhancements.js' %}?v=20260428-captcha"></script>
     <script>
         (function () {
             const presenceEndpoint = '{% url "update_presence_status" %}';
@@ -867,9 +836,17 @@
         const toggle = document.getElementById('sidebarToggle');
         if (shell && toggle) {
             toggle.addEventListener('click', () => {
-                shell.classList.toggle('sidebar-collapsed');
+                const isCollapsed = shell.classList.toggle('sidebar-collapsed');
+                toggle.setAttribute('aria-pressed', isCollapsed ? 'true' : 'false');
             });
         }
+
+        document.querySelectorAll('.nav-group-trigger').forEach((trigger) => {
+            trigger.addEventListener('click', () => {
+                const isOpen = trigger.classList.toggle('is-open');
+                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            });
+        });
 
         (function () {
             const toastContainer = document.getElementById('appBottomToastContainer');

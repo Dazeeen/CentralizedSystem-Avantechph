@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Avantech Portal | Welcome{% endblock %}
 
@@ -12,48 +13,11 @@
                 <p class="lead mt-3 text-light-emphasis">A centralized dashboard for your teams, processes, and data. Access your workspace securely and stay productive.</p>
                 <div class="d-flex flex-wrap gap-3 mt-4">
                     <a href="{% url 'login' %}" class="btn btn-lime btn-lg px-4">Sign In</a>
-                    <a href="#features" class="btn btn-outline-light btn-lg px-4">Explore Features</a>
                 </div>
             </div>
             <div class="col-lg-5">
-                <div class="feature-card p-4 rounded-4 shadow-lg bg-light text-dark">
-                    <h2 class="h4 fw-bold mb-3">Why Avantech Portal?</h2>
-                    <ul class="list-group list-group-flush">
-                        <li class="list-group-item px-0">Centralized internal tools</li>
-                        <li class="list-group-item px-0">Secure user authentication</li>
-                        <li class="list-group-item px-0">Scalable architecture for future modules</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<section id="features" class="py-5 bg-body-tertiary border-top">
-    <div class="container">
-        <div class="row g-4">
-            <div class="col-md-4">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body">
-                        <h3 class="h5 fw-semibold">Unified Access</h3>
-                        <p class="text-secondary mb-0">Log in once and access all connected modules.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body">
-                        <h3 class="h5 fw-semibold">Operational Visibility</h3>
-                        <p class="text-secondary mb-0">Track key activities and updates in one place.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body">
-                        <h3 class="h5 fw-semibold">Built to Grow</h3>
-                        <p class="text-secondary mb-0">Ready for future integrations and feature expansion.</p>
-                    </div>
+                <div class="hero-logo-wrap">
+                    <img src="{% static 'img/avantech-home-logo.png' %}?v=20260428-white-logo" alt="Avantech" class="hero-logo">
                 </div>
             </div>
         </div>
