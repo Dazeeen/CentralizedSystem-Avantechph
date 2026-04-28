@@ -12,6 +12,17 @@ body {
     background-color: #f7fbf7;
 }
 
+.public-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.public-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
 .public-nav {
     background: linear-gradient(135deg, var(--ap-green-900), var(--ap-green-700));
 }
@@ -31,7 +42,9 @@ body {
 }
 
 .hero-section {
-    min-height: 72vh;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
     background:
         radial-gradient(circle at 15% 20%, rgba(183, 239, 74, 0.26), transparent 35%),
         linear-gradient(130deg, #0d4d2a, #1f7f43 55%, #2a9f56 100%);
