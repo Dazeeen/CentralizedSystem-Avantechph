@@ -9,7 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from . import views
-from .models import AssetAccountability, AssetAccountabilityTemplate, AssetDepartment, AssetItem
+from .models import AssetAccountability, AssetAccountabilityFormBatch, AssetAccountabilityTemplate, AssetDepartment, AssetItem
 
 
 def _build_docx_template_bytes(text):
@@ -40,7 +40,7 @@ class AssetAccountabilityControlNumberTests(TestCase):
             low_stock_threshold=1,
         )
 
-    def test_pending_request_gets_control_number_only_after_approval(self):
+    def test_pending_request_keeps_no_control_number_after_approval(self):
         accountability = AssetAccountability.objects.create(
             item=self.item,
             borrowed_by=self.user,
@@ -55,9 +55,9 @@ class AssetAccountabilityControlNumberTests(TestCase):
         self.assertTrue(accountability.mark_approved(processed_by=self.reviewer))
         accountability.refresh_from_db()
 
-        self.assertRegex(accountability.control_number, r'^\d{4}-\d{4}$')
-        self.assertEqual(accountability.control_number, f'{accountability.request_year}-{accountability.control_sequence:04d}')
-        self.assertEqual(accountability.control_sequence, 1)
+        self.assertIsNone(accountability.control_number)
+        self.assertIsNone(accountability.request_year)
+        self.assertIsNone(accountability.control_sequence)
 
 
 class AssetAccountabilityPdfPayloadTests(TestCase):
@@ -85,6 +85,9 @@ class AssetAccountabilityPdfPayloadTests(TestCase):
                 quantity_borrowed=1,
                 request_status='approved',
             )
+            form_batch = AssetAccountabilityFormBatch.objects.create(created_by=self.user)
+            accountability.accountability_form_batch = form_batch
+            accountability.save(update_fields=['accountability_form_batch', 'updated_at'])
             template = AssetAccountabilityTemplate.objects.create(
                 name='Accountability Form',
                 file=SimpleUploadedFile(
@@ -100,10 +103,48 @@ class AssetAccountabilityPdfPayloadTests(TestCase):
 
             self.assertEqual(payload['content'], b'%PDF-accountability')
             self.assertEqual(payload['content_type'], 'application/pdf')
-            self.assertEqual(payload['filename'], f'asset-accountability-{accountability.control_number}.pdf')
+            self.assertEqual(payload['filename'], f'asset-accountability-{form_batch.control_number}.pdf')
             converter.assert_called_once()
             converted_source_bytes = converter.call_args.args[0]
             with zipfile.ZipFile(BytesIO(converted_source_bytes), 'r') as archive:
                 document_xml = archive.read('word/document.xml').decode('utf-8')
-            self.assertIn(accountability.control_number, document_xml)
+            self.assertIn(form_batch.control_number, document_xml)
+            template.file.delete(save=False)
+
+    def test_accountability_template_uses_assigned_control_number_from_latest_record(self):
+        with self.settings(MEDIA_ROOT=self._media_root):
+            accountability = AssetAccountability.objects.create(
+                item=self.item,
+                borrowed_by=self.user,
+                quantity_borrowed=1,
+                request_status='pending',
+            )
+            stale_instance = accountability
+            fresh_instance = AssetAccountability.objects.get(pk=accountability.pk)
+            reviewer = get_user_model().objects.create_user(username='approver', password='password')
+            self.assertTrue(fresh_instance.mark_approved(processed_by=reviewer))
+            fresh_instance.refresh_from_db()
+            form_batch = AssetAccountabilityFormBatch.objects.create(created_by=self.user)
+            fresh_instance.accountability_form_batch = form_batch
+            fresh_instance.save(update_fields=['accountability_form_batch', 'updated_at'])
+            self.assertIsNone(stale_instance.control_number)
+
+            template = AssetAccountabilityTemplate.objects.create(
+                name='Accountability Form',
+                file=SimpleUploadedFile(
+                    'accountability-template.docx',
+                    _build_docx_template_bytes('Control: {{ control_number }}'),
+                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                ),
+                is_active=True,
+            )
+
+            with patch.object(views, '_convert_office_bytes_to_pdf', return_value=b'%PDF-accountability') as converter:
+                payload = views._build_accountability_template_file_payload(stale_instance)
+
+            self.assertEqual(payload['filename'], f'asset-accountability-{form_batch.control_number}.pdf')
+            converted_source_bytes = converter.call_args.args[0]
+            with zipfile.ZipFile(BytesIO(converted_source_bytes), 'r') as archive:
+                document_xml = archive.read('word/document.xml').decode('utf-8')
+            self.assertIn(form_batch.control_number, document_xml)
             template.file.delete(save=False)

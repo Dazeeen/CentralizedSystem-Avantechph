@@ -750,6 +750,62 @@ select.form-select[multiple] {
     min-width: 320px;
 }
 
+.page-access-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #5f7465;
+    border: 1px solid transparent;
+    background: transparent;
+}
+
+.page-access-btn:hover,
+.page-access-btn:focus {
+    color: #146c43;
+    border-color: #d7ead9;
+    background: #f6fbf5;
+}
+
+.page-access-icon svg {
+    width: 1rem;
+    height: 1rem;
+    display: block;
+}
+
+.page-access-menu {
+    width: min(360px, calc(100vw - 2rem));
+    max-height: 430px;
+    overflow-y: auto;
+    border-radius: 14px;
+}
+
+.page-access-section {
+    padding-bottom: 0.85rem;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid #edf6ed;
+}
+
+.page-access-section:last-child {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: 0;
+}
+
+.page-access-badge {
+    white-space: normal;
+    text-align: left;
+}
+
+.page-access-user-list {
+    display: grid;
+    gap: 0.35rem;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
 .notification-bell-btn {
     width: 46px;
     height: 46px;

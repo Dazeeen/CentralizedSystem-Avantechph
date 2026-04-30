@@ -106,7 +106,10 @@
                                                 <tbody>
                                                     {% for item in group.items %}
                                                         <tr class="js-user-permission-row">
-                                                            <td>{{ item.label }}</td>
+                                                            <td>
+                                                                <div>{{ item.label }}</div>
+                                                                <div class="small text-secondary">{{ item.description|default:'Controls access to this feature.' }}</div>
+                                                            </td>
                                                             <td class="text-center">
                                                                 <input type="checkbox" class="form-check-input js-category-item" data-category-key="user-perm-category-{{ forloop.parentloop.counter }}" name="user_permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
                                                             </td>
@@ -381,7 +384,20 @@
             const groupsMarkup = groupedPermissions
                 .map((group, index) => {
                     const items = (group.items || [])
-                        .map((permissionName) => `<div class="small border rounded p-2 bg-light mb-2">${escapeHtml(permissionName)}</div>`)
+                        .map((permissionItem) => {
+                            const permissionLabel = typeof permissionItem === 'string'
+                                ? permissionItem
+                                : (permissionItem.label || '');
+                            const permissionDescription = typeof permissionItem === 'string'
+                                ? ''
+                                : (permissionItem.description || '');
+                            return `
+                                <div class="small border rounded p-2 bg-light mb-2">
+                                    <div>${escapeHtml(permissionLabel)}</div>
+                                    <div class="text-secondary">${escapeHtml(permissionDescription || 'Controls access to this feature.')}</div>
+                                </div>
+                            `;
+                        })
                         .join('');
                     return `
                         <details class="permission-category" ${index === 0 ? 'open' : ''}>

@@ -10,6 +10,7 @@ FEATURE_LABELS = {
     ('axes', 'accessfailurelog'): ('login_security', 'Login Security & Lockouts'),
     ('axes', 'accesslog'): ('login_security', 'Login Security & Lockouts'),
     ('core', 'assetaccountability'): ('asset_accountability', 'Asset Accountability'),
+    ('core', 'activitylog'): ('system_backups', 'System & Activity Logs'),
     ('core', 'assetreturnproof'): ('asset_accountability', 'Asset Accountability'),
     ('core', 'assetdepartment'): ('asset_inventory', 'Asset Inventory'),
     ('core', 'assetitem'): ('asset_inventory', 'Asset Inventory'),
@@ -78,6 +79,7 @@ RESOURCE_LABELS = {
     ('axes', 'accessfailurelog'): 'failed login records',
     ('axes', 'accesslog'): 'access logs',
     ('core', 'assetaccountability'): 'asset accountability records',
+    ('core', 'activitylog'): 'activity log entries',
     ('core', 'assetdepartment'): 'asset departments',
     ('core', 'assetitem'): 'asset items',
     ('core', 'assetitemimage'): 'asset item images',
@@ -207,6 +209,14 @@ def format_permission_summary(permission):
     meta = describe_permission(permission)
     return f"{meta['feature_label']}: {meta['permission_label']}"
 
+def _permission_description(permission):
+    raw_label = str(permission.name or '').strip()
+    if not raw_label:
+        return 'Controls access to this feature.'
+    if raw_label.lower().startswith('can '):
+        raw_label = raw_label[4:]
+    return raw_label[:1].upper() + raw_label[1:]
+
 
 def build_permission_groups(permissions, selected_values=None):
     selected_lookup = {str(value) for value in (selected_values or set())}
@@ -221,6 +231,7 @@ def build_permission_groups(permissions, selected_values=None):
             {
                 'value': str(permission.pk),
                 'label': meta['permission_label'],
+                'description': _permission_description(permission),
                 'checked': str(permission.pk) in selected_lookup,
             }
         )
@@ -254,7 +265,13 @@ def build_permission_preview_groups(permissions):
     return [
         {
             'app_label': group['app_label'],
-            'items': [item['label'] for item in group['items']],
+            'items': [
+                {
+                    'label': item['label'],
+                    'description': item.get('description', ''),
+                }
+                for item in group['items']
+            ],
         }
         for group in grouped
     ]

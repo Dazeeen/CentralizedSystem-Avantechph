@@ -63,6 +63,7 @@ except Exception:
 	qrcode = None
 	SvgImage = None
 
+from .activity import record_activity
 from .auth_utils import invalidate_user_sessions
 from .forms import (
 	AssetAccountabilityForm,
@@ -94,11 +95,13 @@ from .forms import (
 )
 from .models import (
 	AssetAccountability,
+	AssetAccountabilityFormBatch,
 	AssetAccountabilityTemplate,
 	AssetDepartment,
 	AssetItem,
 	AssetItemImage,
 	AssetItemType,
+	ActivityLog,
 	AssetReturnProof,
 	AssetTagBatch,
 	AssetTagEntry,
@@ -308,6 +311,12 @@ def dashboard(request):
 		selected_range_days = 180
 
 	can_view_clients = request.user.is_superuser or request.user.has_perm('core.view_client')
+	pending_accountability_form_count = AssetAccountability.objects.filter(
+		request_status='approved',
+		borrowed_by=request.user,
+		accountability_form_batch__isnull=True,
+	).count()
+
 	context = {
 		'can_view_clients': can_view_clients,
 		'selected_range_days': selected_range_days,
@@ -486,6 +495,14 @@ def development_hub(request):
 			feedback = form.save(commit=False)
 			feedback.created_by = request.user
 			feedback.save()
+			record_activity(
+				request,
+				'submit',
+				'development',
+				f'Submitted development feedback {feedback.title}.',
+				target=feedback,
+				target_label=feedback.title,
+			)
 			messages.success(request, 'Thank you. Your feedback was submitted to the development queue.')
 			return redirect('development_hub')
 	else:
@@ -561,6 +578,15 @@ def development_feedback_update_status(request, feedback_id):
 
 	feedback.status = status
 	feedback.save(update_fields=['status', 'updated_at'])
+	record_activity(
+		request,
+		'status_change',
+		'development',
+		f'Updated development feedback status to {feedback.get_status_display()}: {feedback.title}.',
+		target=feedback,
+		target_label=feedback.title,
+		metadata={'status': status},
+	)
 	messages.success(request, f'Feedback status updated to "{feedback.get_status_display()}".')
 	return redirect(redirect_url)
 
@@ -597,6 +623,14 @@ def development_patch_notes(request):
 			patch_note.created_by = request.user
 			patch_note.save()
 			patch_note_form.save_attachments(patch_note, uploaded_by=request.user)
+			record_activity(
+				request,
+				'create',
+				'development',
+				f'Posted patch note v{patch_note.version}: {patch_note.title}.',
+				target=patch_note,
+				target_label=f'v{patch_note.version} {patch_note.title}',
+			)
 			messages.success(request, 'Patch note posted successfully.')
 			return redirect('development_patch_notes')
 	else:
@@ -934,6 +968,46 @@ def support_lockout_center(request):
 		'query': query,
 	}
 	return render(request, 'core/lockout_support.html', context)
+
+
+@login_required
+def activity_logs(request):
+	restricted_response = _require_permission(request, 'core.view_activitylog')
+	if restricted_response:
+		return restricted_response
+
+	query = (request.GET.get('q') or '').strip()
+	category = (request.GET.get('category') or '').strip()
+	action = (request.GET.get('action') or '').strip()
+
+	logs = ActivityLog.objects.select_related('actor').order_by('-created_at')
+	if query:
+		logs = logs.filter(
+			Q(summary__icontains=query)
+			| Q(target_label__icontains=query)
+			| Q(target_model__icontains=query)
+			| Q(target_id__icontains=query)
+			| Q(actor__username__icontains=query)
+			| Q(actor__first_name__icontains=query)
+			| Q(actor__last_name__icontains=query)
+			| Q(actor__email__icontains=query)
+		)
+	if category:
+		logs = logs.filter(category=category)
+	if action:
+		logs = logs.filter(action=action)
+
+	logs_page = Paginator(logs, 30).get_page(request.GET.get('page'))
+	context = {
+		'logs_page': logs_page,
+		'query': query,
+		'selected_category': category,
+		'selected_action': action,
+		'category_choices': ActivityLog.CATEGORY_CHOICES,
+		'action_choices': ActivityLog.ACTION_CHOICES,
+		'total_logs': logs.count(),
+	}
+	return render(request, 'core/activity_logs.html', context)
 
 
 def _permission_denied_response(request, message='You do not have permission to perform this action.'):
@@ -3040,7 +3114,15 @@ def users_create(request):
 	if request.method == 'POST':
 		form = StaffUserCreationForm(request.POST)
 		if form.is_valid():
-			form.save()
+			created_user = form.save()
+			record_activity(
+				request,
+				'create',
+				'users',
+				f'Created user account {created_user.username}.',
+				target=created_user,
+				target_label=created_user.username,
+			)
 			messages.success(request, 'User account created successfully.')
 			return redirect('users_list')
 	else:
@@ -3074,7 +3156,15 @@ def users_update(request, user_id):
 	if request.method == 'POST':
 		form = StaffUserUpdateForm(request.POST, instance=managed_user)
 		if form.is_valid():
-			form.save()
+			updated_user = form.save()
+			record_activity(
+				request,
+				'update',
+				'users',
+				f'Updated user account {updated_user.username}.',
+				target=updated_user,
+				target_label=updated_user.username,
+			)
 			messages.success(request, 'User account updated successfully.')
 			return redirect('users_list')
 	else:
@@ -3100,7 +3190,16 @@ def users_delete(request, user_id):
 
 	managed_user = get_object_or_404(User, pk=user_id)
 	if request.method == 'POST':
+		target_label = managed_user.username
 		managed_user.delete()
+		record_activity(
+			request,
+			'delete',
+			'users',
+			f'Deleted user account {target_label}.',
+			target_label=target_label,
+			metadata={'user_id': user_id},
+		)
 		messages.success(request, 'User account deleted successfully.')
 		return redirect('users_list')
 
@@ -3138,9 +3237,17 @@ def users_bulk_delete(request):
 
 	users = User.objects.filter(pk__in=parsed_ids)
 	count = users.count()
+	usernames = list(users.values_list('username', flat=True))
 	users.delete()
 
 	if count:
+		record_activity(
+			request,
+			'delete',
+			'users',
+			f'Deleted {count} user account(s).',
+			metadata={'usernames': usernames, 'count': count},
+		)
 		messages.success(request, f'{count} user account(s) deleted successfully.')
 	else:
 		messages.warning(request, 'No matching users found.')
@@ -3187,6 +3294,13 @@ def users_bulk_update_status(request):
 
 	verb = 'activated' if new_state else 'deactivated'
 	if updated:
+		record_activity(
+			request,
+			'status_change',
+			'users',
+			f'{verb.title()} {updated} user account(s).',
+			metadata={'user_ids': parsed_ids, 'status': new_state},
+		)
 		messages.success(request, f'{updated} user account(s) {verb} successfully.')
 	else:
 		messages.warning(request, 'No matching users found.')
@@ -3262,6 +3376,15 @@ def users_bulk_update_role(request):
 	}
 	action_label = action_label_map[role_action]
 	if changed_count:
+		record_activity(
+			request,
+			'role_change',
+			'users',
+			f'Bulk {role_action} role "{role.name}" for {changed_count} user account(s).',
+			target=role,
+			target_label=role.name,
+			metadata={'role_action': role_action, 'user_ids': parsed_ids, 'changed_count': changed_count},
+		)
 		messages.success(request, f'Role "{role.name}" {action_label} {changed_count} user account(s).')
 	else:
 		messages.info(request, f'No users changed. Selected users already have the role state you requested.')
@@ -3627,6 +3750,14 @@ def fund_requests_list(request):
 					messages.info(request, 'This fund request has already been reviewed.')
 					return redirect('fund_requests_list')
 				fund_request.mark_approved(processed_by=request.user, reason=reason)
+			record_activity(
+				request,
+				'approve',
+				'finance',
+				f'Approved fund request {fund_request.serial_number or fund_request.pk}.',
+				target=fund_request,
+				target_label=fund_request.serial_number or fund_request.requester_name,
+			)
 			_notify_fund_request_requester(fund_request)
 			messages.success(request, f'Fund request approved with serial number {fund_request.serial_number}.')
 			return redirect('fund_requests_list')
@@ -3648,6 +3779,14 @@ def fund_requests_list(request):
 					messages.info(request, 'This fund request has already been reviewed.')
 					return redirect('fund_requests_list')
 				fund_request.mark_rejected(processed_by=request.user, reason=reason)
+			record_activity(
+				request,
+				'reject',
+				'finance',
+				f'Rejected fund request {fund_request.requester_name or fund_request.pk}.',
+				target=fund_request,
+				target_label=fund_request.serial_number or fund_request.requester_name,
+			)
 			_notify_fund_request_requester(fund_request)
 			messages.info(request, 'Fund request rejected.')
 			return redirect('fund_requests_list')
@@ -3678,6 +3817,14 @@ def fund_requests_list(request):
 					messages.info(request, 'Only pending fund requests can be cancelled.')
 					return redirect('fund_requests_list')
 				fund_request.mark_cancelled(processed_by=request.user, reason=reason)
+			record_activity(
+				request,
+				'cancel',
+				'finance',
+				f'Cancelled fund request {fund_request.requester_name or fund_request.pk}.',
+				target=fund_request,
+				target_label=fund_request.serial_number or fund_request.requester_name,
+			)
 
 			if fund_request.created_by_id and fund_request.created_by_id != request.user.id:
 				_notify_fund_request_requester(fund_request)
@@ -3744,6 +3891,13 @@ def fund_requests_list(request):
 					messages.success(request, f'{processed_count} pending fund request(s) approved successfully.')
 				else:
 					messages.info(request, f'{processed_count} pending fund request(s) rejected.')
+				record_activity(
+					request,
+					'approve' if decision == 'approve' else 'reject',
+					'finance',
+					f'{decision.title()}d {processed_count} pending fund request(s).',
+					metadata={'processed_count': processed_count, 'selected_count': len(parsed_ids)},
+				)
 			else:
 				messages.warning(request, 'No pending fund requests matched the selected records.')
 
@@ -3832,9 +3986,26 @@ def fund_requests_list(request):
 					approval_reason = (matching_auto_rule.reason or '').strip() or f'Auto-approved by rule: {matching_auto_rule.name}'
 					auto_processor = matching_auto_rule.created_by if matching_auto_rule.created_by_id else None
 					fund_request.mark_approved(processed_by=auto_processor, reason=approval_reason)
+					record_activity(
+						request,
+						'submit',
+						'finance',
+						f'Submitted and auto-approved fund request {fund_request.serial_number or fund_request.pk}.',
+						target=fund_request,
+						target_label=fund_request.serial_number or fund_request.requester_name,
+						metadata={'auto_rule': matching_auto_rule.name},
+					)
 					messages.success(request, f'Fund request auto-approved by rule "{matching_auto_rule.name}".')
 				else:
 					_notify_fund_request_approvers(fund_request)
+					record_activity(
+						request,
+						'submit',
+						'finance',
+						f'Submitted fund request {fund_request.requester_name or fund_request.pk}.',
+						target=fund_request,
+						target_label=fund_request.requester_name,
+					)
 					messages.success(request, 'Fund request submitted for admin approval.')
 				return redirect('fund_requests_list')
 	else:
@@ -4210,6 +4381,14 @@ def liquidation_page(request):
 					messages.warning(request, 'Only pending liquidation forms can be approved.')
 					return redirect('liquidation_page')
 				liquidation.mark_approved(processed_by=request.user, reason=reason)
+			record_activity(
+				request,
+				'approve',
+				'finance',
+				f'Approved liquidation {liquidation.control_number or liquidation.pk}.',
+				target=liquidation,
+				target_label=liquidation.control_number or liquidation.name,
+			)
 			messages.success(request, f'Liquidation approved with control number {liquidation.control_number}.')
 			return redirect('liquidation_page')
 		elif action_type == 'reject_liquidation':
@@ -4230,6 +4409,14 @@ def liquidation_page(request):
 					messages.warning(request, 'Only pending liquidation forms can be rejected.')
 					return redirect('liquidation_page')
 				liquidation.mark_rejected(processed_by=request.user, reason=reason)
+			record_activity(
+				request,
+				'reject',
+				'finance',
+				f'Rejected liquidation {liquidation.name or liquidation.pk}.',
+				target=liquidation,
+				target_label=liquidation.control_number or liquidation.name,
+			)
 			messages.success(request, 'Liquidation form rejected.')
 			return redirect('liquidation_page')
 		elif action_type == 'cancel_pending_liquidation':
@@ -4251,6 +4438,14 @@ def liquidation_page(request):
 					return redirect('liquidation_page')
 				cancel_reason = reason or 'Cancelled by requester.'
 				liquidation.mark_rejected(processed_by=request.user, reason=cancel_reason)
+			record_activity(
+				request,
+				'cancel',
+				'finance',
+				f'Cancelled pending liquidation {liquidation.name or liquidation.pk}.',
+				target=liquidation,
+				target_label=liquidation.control_number or liquidation.name,
+			)
 			messages.success(request, 'Pending liquidation request cancelled.')
 			return redirect('liquidation_page')
 		elif action_type == 'bulk_pending_liquidation_decision':
@@ -4288,6 +4483,13 @@ def liquidation_page(request):
 			if not processed_count:
 				messages.warning(request, 'No pending liquidation forms were processed.')
 				return redirect('liquidation_page')
+			record_activity(
+				request,
+				'approve' if decision == 'approve' else 'reject',
+				'finance',
+				f'{decision.title()}d {processed_count} pending liquidation form(s).',
+				metadata={'processed_count': processed_count, 'selected_count': len(selected_ids)},
+			)
 			if decision == 'approve':
 				messages.success(request, f'{processed_count} pending liquidation form(s) approved.')
 			else:
@@ -4337,6 +4539,14 @@ def liquidation_page(request):
 				except IntegrityError:
 					liquidation_form.add_error(None, 'One or more selected line items were already used in another liquidation.')
 				else:
+					record_activity(
+						request,
+						'submit',
+						'finance',
+						f'Submitted liquidation form {liquidation.name or liquidation.pk}.',
+						target=liquidation,
+						target_label=liquidation.name,
+					)
 					messages.success(request, 'Liquidation form submitted for approval.')
 					return redirect('liquidation_page')
 	else:
@@ -5110,6 +5320,14 @@ def clients_create(request):
 			if not client.handled_by:
 				client.handled_by = request.user
 			client.save()
+			record_activity(
+				request,
+				'create',
+				'clients',
+				f'Created client {client.full_name}.',
+				target=client,
+				target_label=client.full_name,
+			)
 			if is_modal_request:
 				return JsonResponse({'ok': True, 'redirect_url': reverse('clients_list')})
 			messages.success(request, 'Client created successfully.')
@@ -5179,6 +5397,14 @@ def clients_update(request, client_id):
 			updated_client.lead_disposition_reason = client.lead_disposition_reason
 			updated_client.lead_proof_image = client.lead_proof_image
 			updated_client.save()
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated client {updated_client.full_name}.',
+				target=updated_client,
+				target_label=updated_client.full_name,
+			)
 			if is_modal_request:
 				return JsonResponse({'ok': True, 'redirect_url': reverse('clients_list')})
 			messages.success(request, 'Client updated successfully.')
@@ -5250,6 +5476,15 @@ def clients_delete(request, client_id):
 			messages.success(request, f'Deletion request for "{client.full_name}" was resubmitted for approval.')
 		else:
 			messages.success(request, f'Deletion request for "{client.full_name}" submitted for approval.')
+		record_activity(
+			request,
+			'submit',
+			'clients',
+			f'Submitted deletion request for client {client.full_name}.',
+			target=client,
+			target_label=client.full_name,
+			metadata={'reason': reason},
+		)
 		return redirect('clients_list')
 
 	return render(request, 'core/clients_confirm_delete.html', {'client': client})
@@ -5308,6 +5543,14 @@ def clients_bulk_delete(request):
 		messages.warning(request, f'{already_pending_count} selected client(s) already have pending deletion requests.')
 	if not created_count and not reopened_count and not already_pending_count:
 		messages.warning(request, 'No deletion requests were created.')
+	if created_count or reopened_count:
+		record_activity(
+			request,
+			'submit',
+			'clients',
+			f'Submitted {created_count + reopened_count} client deletion request(s).',
+			metadata={'client_ids': parsed_ids, 'created_count': created_count, 'reopened_count': reopened_count, 'reason': reason},
+		)
 
 	return redirect('clients_list')
 
@@ -5339,6 +5582,15 @@ def clients_deletion_request_approve(request, request_id):
 	deletion_request.reviewed_at = timezone.now()
 	deletion_request.review_notes = review_notes
 	deletion_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes', 'client'])
+	record_activity(
+		request,
+		'approve',
+		'clients',
+		f'Approved client deletion request for {client_name}.',
+		target=deletion_request,
+		target_label=client_name,
+		metadata={'review_notes': review_notes},
+	)
 
 	if deletion_request.requested_by and deletion_request.requested_by_id != request.user.id:
 		create_notification(
@@ -5374,6 +5626,15 @@ def clients_deletion_request_reject(request, request_id):
 	deletion_request.reviewed_at = timezone.now()
 	deletion_request.review_notes = review_notes
 	deletion_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes'])
+	record_activity(
+		request,
+		'reject',
+		'clients',
+		f'Rejected client deletion request for {deletion_request.client_name_snapshot}.',
+		target=deletion_request,
+		target_label=deletion_request.client_name_snapshot,
+		metadata={'review_notes': review_notes},
+	)
 
 	if deletion_request.requested_by and deletion_request.requested_by_id != request.user.id:
 		create_notification(
@@ -6197,12 +6458,20 @@ def assets_generate_tags(request):
 
 	department_id = (request.POST.get('department') or '').strip()
 	department = None
+	item_ids = []
+	for raw_id in request.POST.getlist('item_ids'):
+		value = (raw_id or '').strip()
+		if value.isdigit():
+			item_ids.append(int(value))
+
 	items = (
 		AssetItem.objects.select_related('department', 'parent_item')
 		.filter(is_active=True)
 		.annotate(variant_count=Count('variants'))
 		.filter(Q(parent_item__isnull=False) | Q(variant_count=0))
 	)
+	if item_ids:
+		items = items.filter(pk__in=item_ids)
 	if department_id:
 		department = get_object_or_404(AssetDepartment, pk=department_id)
 		items = items.filter(department=department)
@@ -6236,6 +6505,15 @@ def assets_generate_tags(request):
 		)
 
 	AssetTagEntry.objects.bulk_create(entries)
+	record_activity(
+		request,
+		'generate',
+		'assets',
+		f'Generated asset tag batch #{batch.id} with {len(entries)} tag(s).',
+		target=batch,
+		target_label=f'Asset tag batch #{batch.id}',
+		metadata={'tag_count': len(entries), 'department': department.name if department else 'All Departments'},
+	)
 	messages.success(
 		request,
 		f'Asset tagging document generated. Batch #{batch.id} has {len(entries)} registered item ID tag(s).',
@@ -6254,14 +6532,35 @@ def assets_tag_document(request, batch_id):
 		pk=batch_id,
 	)
 
-	entries = batch.entries.all()
+	entries = list(batch.entries.select_related('item').all())
+	item_type_label_map = {
+		item_type.code: item_type.name
+		for item_type in AssetItemType.objects.order_by('name')
+	}
+	entry_category_groups_map = {}
+	for entry in entries:
+		item_type_code = 'other'
+		if entry.item:
+			item_type_code = (entry.item.item_type or 'other').strip().lower() or 'other'
+		category_label = item_type_label_map.get(item_type_code) or item_type_code.replace('-', ' ').replace('_', ' ').title()
+		group = entry_category_groups_map.setdefault(
+			item_type_code,
+			{
+				'key': item_type_code,
+				'label': category_label,
+				'entries': [],
+			},
+		)
+		group['entries'].append(entry)
+
 	generator_profile = getattr(batch.generated_by, 'profile', None) if batch.generated_by else None
 	context = {
 		'batch': batch,
 		'generator_profile': generator_profile,
 		'entries': entries,
-		'total_tags': entries.count(),
-		'unique_item_codes_count': entries.values('item_code_snapshot').distinct().count(),
+		'entry_category_groups': sorted(entry_category_groups_map.values(), key=lambda group: group['label'].lower()),
+		'total_tags': len(entries),
+		'unique_item_codes_count': len({entry.item_code_snapshot for entry in entries}),
 	}
 	return render(request, 'core/assets_tag_document.html', context)
 
@@ -6274,7 +6573,16 @@ def assets_tag_batch_delete(request, batch_id):
 		return restricted_response
 
 	batch = get_object_or_404(AssetTagBatch, pk=batch_id)
+	target_label = f'Asset tag batch #{batch.id}'
 	batch.delete()
+	record_activity(
+		request,
+		'delete',
+		'assets',
+		f'Deleted {target_label}.',
+		target_label=target_label,
+		metadata={'batch_id': batch_id},
+	)
 	messages.success(request, f'Tag batch #{batch_id} deleted successfully.')
 	return redirect('assets_list')
 
@@ -6355,7 +6663,15 @@ def roles_create(request):
 	if request.method == 'POST':
 		form = RoleForm(request.POST)
 		if form.is_valid():
-			form.save()
+			role = form.save()
+			record_activity(
+				request,
+				'create',
+				'users',
+				f'Created role {role.name}.',
+				target=role,
+				target_label=role.name,
+			)
 			messages.success(request, 'Role created successfully.')
 			return redirect('roles_list')
 	else:
@@ -6383,7 +6699,15 @@ def roles_update(request, role_id):
 	if request.method == 'POST':
 		form = RoleForm(request.POST, instance=role)
 		if form.is_valid():
-			form.save()
+			updated_role = form.save()
+			record_activity(
+				request,
+				'update',
+				'users',
+				f'Updated role {updated_role.name}.',
+				target=updated_role,
+				target_label=updated_role.name,
+			)
 			messages.success(request, 'Role updated successfully.')
 			return redirect('roles_list')
 	else:
@@ -6408,7 +6732,16 @@ def roles_delete(request, role_id):
 
 	role = get_object_or_404(Group, pk=role_id)
 	if request.method == 'POST':
+		target_label = role.name
 		role.delete()
+		record_activity(
+			request,
+			'delete',
+			'users',
+			f'Deleted role {target_label}.',
+			target_label=target_label,
+			metadata={'role_id': role_id},
+		)
 		messages.success(request, 'Role deleted successfully.')
 		return redirect('roles_list')
 
@@ -6882,6 +7215,13 @@ def _build_accountability_line_item_context(accountability):
 
 
 def _get_accountability_template_line_records(accountability):
+	if accountability.accountability_form_batch_id:
+		return list(
+			AssetAccountability.objects
+			.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile')
+			.filter(accountability_form_batch_id=accountability.accountability_form_batch_id)
+			.order_by('date_borrowed', 'id')
+		)
 	if not accountability.batch_id:
 		return [accountability]
 	return list(
@@ -6893,6 +7233,12 @@ def _get_accountability_template_line_records(accountability):
 
 
 def _build_accountability_template_placeholders(accountability):
+	# Always use the assigned control number from the latest persisted record.
+	control_number_value = (
+		accountability.accountability_form_batch.control_number
+		if accountability.accountability_form_batch_id and accountability.accountability_form_batch
+		else (accountability.control_number or '')
+	)
 	user = accountability.borrowed_by
 	profile = getattr(user, 'profile', None) if user else None
 	name = accountability.accountable_name or ((user.get_full_name() or user.username) if user else '')
@@ -6909,7 +7255,9 @@ def _build_accountability_template_placeholders(accountability):
 		'{{ position }}': position,
 		'{{ role }}': position,
 		'{{ contact_number }}': contact_number,
-		'{{ control_number }}': accountability.control_number or '',
+		'{{ control_number }}': control_number_value,
+		'{{ control_no }}': control_number_value,
+		'{{ accountability_control_number }}': control_number_value,
 		'{{ item_id }}': first_line_item['item_id'],
 		'{{ brand_model_item_name }}': first_line_item['brand_model_item_name'],
 		'{{ brand_model }}': first_line_item['brand_model'],
@@ -6979,9 +7327,24 @@ def _build_accountability_template_file_payload(accountability):
 	if not template_record:
 		return None
 
+	# Reload latest values to ensure placeholders use the assigned control number.
+	accountability = (
+		AssetAccountability.objects.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile')
+		.filter(pk=accountability.pk)
+		.first()
+	) or accountability
+	if accountability.request_status == 'approved' and not accountability.control_number:
+		accountability.save(update_fields=['updated_at'])
+		accountability.refresh_from_db()
+
 	extension = _fund_request_template_extension(template_record)
 	placeholders, line_items = _build_accountability_template_placeholders(accountability)
-	output_name = f'asset-accountability-{accountability.control_number or accountability.pk}{extension}'
+	control_label = (
+		accountability.accountability_form_batch.control_number
+		if accountability.accountability_form_batch_id and accountability.accountability_form_batch
+		else (accountability.control_number or accountability.pk)
+	)
+	output_name = f'asset-accountability-{control_label}{extension}'
 	rendered_template = _render_fund_request_template_binary_from_template(template_record, placeholders, line_items, output_name)
 	if rendered_template:
 		pdf_bytes = _convert_office_bytes_to_pdf(
@@ -7004,7 +7367,7 @@ def _build_accountability_template_file_payload(accountability):
 			return {
 				'content': template_file.read(),
 				'content_type': 'application/pdf',
-				'filename': f'asset-accountability-{accountability.control_number or accountability.pk}.pdf',
+				'filename': f'asset-accountability-{control_label}.pdf',
 				'template_record': template_record,
 				'extension': extension,
 				'source': 'template_pdf',
@@ -7020,7 +7383,7 @@ def _build_accountability_template_file_payload(accountability):
 			return {
 				'content': pdf_bytes,
 				'content_type': 'application/pdf',
-				'filename': f'asset-accountability-{accountability.control_number or accountability.pk}.pdf',
+				'filename': f'asset-accountability-{control_label}.pdf',
 				'template_record': template_record,
 				'extension': '.pdf',
 				'source': 'template_converted_pdf',
@@ -7493,7 +7856,7 @@ def accountability_list(request):
 		_filter_accountability_by_visibility(
 			request,
 			AssetAccountability.objects
-		.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile')
+		.select_related('item', 'item__department', 'borrowed_by', 'borrowed_by__profile', 'accountability_form_batch')
 		.prefetch_related('return_proofs')
 		.filter(request_status='approved')
 		)
@@ -7556,6 +7919,12 @@ def accountability_list(request):
 			)
 		return_proofs_map[str(record.id)] = proof_entries
 
+	pending_accountability_form_count = AssetAccountability.objects.filter(
+		request_status='approved',
+		borrowed_by=request.user,
+		accountability_form_batch__isnull=True,
+	).count()
+
 	context = {
 		'records_page': records_page,
 		'pending_requests_page': pending_requests_page,
@@ -7573,8 +7942,84 @@ def accountability_list(request):
 		'total_pending_requests': _filter_accountability_by_visibility(request, AssetAccountability.objects.filter(request_status='pending')).count(),
 		'total_borrowed_active': _filter_accountability_by_visibility(request, AssetAccountability.objects.filter(request_status='approved', status='borrowed')).count(),
 		'total_returned': _filter_accountability_by_visibility(request, AssetAccountability.objects.filter(request_status='approved', status='returned')).count(),
+		'can_create_accountability_form_batch': pending_accountability_form_count > 0,
+		'pending_accountability_form_count': pending_accountability_form_count,
 	}
 	return render(request, 'core/accountability_list.html', context)
+
+
+@login_required
+def accountability_form_batch_create(request):
+	restricted_response = _require_permission(request, 'core.add_assetaccountability')
+	if restricted_response:
+		return restricted_response
+
+	eligible_qs = (
+		AssetAccountability.objects
+		.select_related('item', 'item__department')
+		.filter(
+			request_status='approved',
+			borrowed_by=request.user,
+			accountability_form_batch__isnull=True,
+		)
+		.order_by('-date_borrowed', '-id')
+	)
+
+	if request.method == 'POST':
+		accountable_name = (request.POST.get('accountable_name') or '').strip()
+		department = (request.POST.get('department') or '').strip()
+		position_role = (request.POST.get('position_role') or '').strip()
+		contact_number = (request.POST.get('contact_number') or '').strip()
+		selected_ids = request.POST.getlist('record_ids')
+		parsed_ids = []
+		for raw_id in selected_ids:
+			value = (raw_id or '').strip()
+			if value.isdigit():
+				parsed_ids.append(int(value))
+
+		if not parsed_ids:
+			messages.warning(request, 'Select at least one approved item.')
+			return redirect('accountability_form_batch_create')
+
+		selected_rows = list(eligible_qs.filter(pk__in=parsed_ids))
+		if not selected_rows:
+			messages.warning(request, 'No eligible approved items selected.')
+			return redirect('accountability_form_batch_create')
+		if not accountable_name:
+			messages.warning(request, 'Accountable name is required.')
+			return redirect('accountability_form_batch_create')
+
+		with transaction.atomic():
+			form_batch = AssetAccountabilityFormBatch.objects.create(created_by=request.user)
+			eligible_qs.filter(pk__in=[row.pk for row in selected_rows]).update(
+				accountability_form_batch=form_batch,
+				accountable_name=accountable_name,
+				department=department,
+				position_role=position_role,
+				contact_number=contact_number,
+				updated_at=timezone.now(),
+			)
+
+		record_activity(
+			request,
+			'create',
+			'accountability',
+			f'Created accountability form {form_batch.control_number} for {len(selected_rows)} item(s).',
+			target=form_batch,
+			target_label=form_batch.control_number,
+			metadata={'record_ids': [row.pk for row in selected_rows]},
+		)
+		messages.success(request, f'Accountability form {form_batch.control_number} created for {len(selected_rows)} item(s).')
+		return redirect('accountability_document_download', accountability_id=selected_rows[0].id)
+
+	context = {
+		'eligible_rows': eligible_qs,
+		'initial_accountable_name': request.user.get_full_name() or request.user.username,
+		'initial_department': getattr(getattr(request.user, 'profile', None), 'department', '') or '',
+		'initial_position_role': getattr(getattr(request.user, 'profile', None), 'position', '') or getattr(getattr(request.user, 'profile', None), 'role', '') or '',
+		'initial_contact_number': getattr(getattr(request.user, 'profile', None), 'contact_number', '') or getattr(getattr(request.user, 'profile', None), 'phone_number', '') or '',
+	}
+	return render(request, 'core/accountability_form_batch_create.html', context)
 
 
 @login_required
@@ -7590,16 +8035,25 @@ def accountability_create(request):
 			selected_items = list(form.cleaned_data.get('items') or [])
 			item_quantities_map = form.cleaned_data.get('item_quantities_map') or {}
 			notes = form.cleaned_data.get('notes') or ''
+			profile = getattr(request.user, 'profile', None)
 			accountability_details = {
-				'accountable_name': form.cleaned_data.get('accountable_name') or '',
-				'department': form.cleaned_data.get('department') or '',
-				'position_role': form.cleaned_data.get('position_role') or '',
-				'contact_number': form.cleaned_data.get('contact_number') or '',
+				'accountable_name': request.user.get_full_name() or request.user.username,
+				'department': getattr(profile, 'department', '') or '',
+				'position_role': getattr(profile, 'position', '') or getattr(profile, 'role', '') or '',
+				'contact_number': getattr(profile, 'contact_number', '') or getattr(profile, 'phone_number', '') or '',
 			}
 
 			created_requests = []
+			skipped_existing = []
 			batch_id = uuid.uuid4()
 			for selected_item in selected_items:
+				if AssetAccountability.objects.filter(
+					item=selected_item,
+					borrowed_by=request.user,
+					request_status='pending',
+				).exists():
+					skipped_existing.append(selected_item.item_code)
+					continue
 				selected_quantity = int(item_quantities_map.get(selected_item.pk, 1))
 				accountability = AssetAccountability.objects.create(
 					item=selected_item,
@@ -7620,19 +8074,28 @@ def accountability_create(request):
 					f'Borrow request for "{created_requests[0].item.item_code}" submitted. Waiting for admin approval.',
 				)
 			else:
-				messages.success(
+				if created_requests:
+					messages.success(
+						request,
+						f'{len(created_requests)} borrow requests submitted. Waiting for admin approval.',
+					)
+			if created_requests:
+				record_activity(
 					request,
-					f'{len(created_requests)} borrow requests submitted. Waiting for admin approval.',
+					'submit',
+					'accountability',
+					f'Submitted {len(created_requests)} asset borrow request(s).',
+					target=created_requests[0] if len(created_requests) == 1 else None,
+					target_label=created_requests[0].item.item_code if len(created_requests) == 1 else '',
+					metadata={'request_ids': [row.pk for row in created_requests], 'item_codes': [row.item.item_code for row in created_requests]},
 				)
+			if skipped_existing:
+				messages.info(request, f'Skipped existing pending request(s): {", ".join(skipped_existing)}.')
+			if not created_requests and skipped_existing:
+				messages.warning(request, 'No new borrow request created because selected item(s) already have pending requests.')
 			return redirect('accountability_list')
 	else:
-		profile = getattr(request.user, 'profile', None)
-		form = AssetAccountabilityForm(initial={
-			'accountable_name': request.user.get_full_name() or request.user.username,
-			'department': getattr(profile, 'department', '') or '',
-			'position_role': getattr(profile, 'position', '') or getattr(profile, 'role', '') or '',
-			'contact_number': getattr(profile, 'contact_number', '') or getattr(profile, 'phone_number', '') or '',
-		})
+		form = AssetAccountabilityForm()
 
 	context = {
 		'form': form,
@@ -7742,6 +8205,26 @@ def _notify_accountability_requester(accountability):
 	)
 
 
+def _cancel_competing_pending_requests(approved_entry, processed_by=None):
+	"""Decline other pending requests for the same exact item once one is approved."""
+	if not approved_entry or not approved_entry.item_id:
+		return 0
+	now_value = timezone.now()
+	updated_count = (
+		AssetAccountability.objects
+		.filter(request_status='pending', item_id=approved_entry.item_id)
+		.exclude(pk=approved_entry.pk)
+		.update(
+			request_status='declined',
+			decision_reason=f'Auto-declined: item {approved_entry.item.item_code} is already borrowed by an approved request.',
+			processed_by=processed_by,
+			processed_at=now_value,
+			updated_at=now_value,
+		)
+	)
+	return int(updated_count or 0)
+
+
 @login_required
 @require_POST
 def accountability_decide(request, accountability_id):
@@ -7774,7 +8257,7 @@ def accountability_decide(request, accountability_id):
 					return redirect('accountability_list')
 
 				if decision == 'approve':
-					available_total = accountability.item.get_total_stock_quantity()
+					available_total = int(accountability.item.stock_quantity or 0)
 					if accountability.quantity_borrowed > available_total:
 						messages.error(
 							request,
@@ -7782,8 +8265,11 @@ def accountability_decide(request, accountability_id):
 						)
 						return redirect('accountability_list')
 					accountability.mark_approved(processed_by=request.user, reason=reason)
+					cancelled_count = _cancel_competing_pending_requests(accountability, processed_by=request.user)
 					status_now = accountability.item.get_stock_status()
 					message_text = f'Request approved for {accountability.item.item_code}.'
+					if cancelled_count:
+						message_text += f' {cancelled_count} competing pending request(s) were auto-declined.'
 				else:
 					accountability.mark_declined(processed_by=request.user, reason=reason)
 					status_now = None
@@ -7799,6 +8285,14 @@ def accountability_decide(request, accountability_id):
 
 	if decision == 'approve' and status_now in ['low stock', 'out of stock']:
 		_send_stock_alert_notification(accountability.item, status_now)
+	record_activity(
+		request,
+		'approve' if decision == 'approve' else 'reject',
+		'accountability',
+		f'{"Approved" if decision == "approve" else "Declined"} asset borrow request for {accountability.item.item_code}.',
+		target=accountability,
+		target_label=accountability.control_number or accountability.item.item_code,
+	)
 	messages.success(request, message_text)
 	_notify_accountability_requester(accountability)
 	return redirect('accountability_list')
@@ -7819,10 +8313,8 @@ def accountability_item_auto_fill(request):
 	except AssetItem.DoesNotExist:
 		return JsonResponse({'ok': False, 'message': 'Item not found'}, status=404)
 
-	available_stock = int(item.get_total_stock_quantity() or 0)
-	if item.get_stock_status() == 'out of stock' or available_stock < 1:
-		return JsonResponse({'ok': False, 'message': 'This item is out of stock and cannot be borrowed.'}, status=409)
-	if int(item.stock_quantity or 0) < 1:
+	available_stock = int(item.stock_quantity or 0)
+	if available_stock < 1:
 		return JsonResponse({'ok': False, 'message': 'This item has zero stock and cannot be borrowed.'}, status=409)
 
 	return JsonResponse({
@@ -7830,7 +8322,7 @@ def accountability_item_auto_fill(request):
 		'item_name': item.item_name,
 		'item_type': item.get_item_type_display(),
 		'available_stock': available_stock,
-		'stock_status': item.get_stock_status(),
+		'stock_status': 'instock' if available_stock > int(item.low_stock_threshold or 0) else ('low stock' if available_stock > 0 else 'out of stock'),
 		'specification': item.specification,
 		'image_url': item.get_primary_image_url(),
 	})
@@ -7855,10 +8347,35 @@ def accountability_return(request, accountability_id):
 		messages.info(request, 'This item is already marked as returned.')
 		return redirect('accountability_list')
 
+	return_remarks = (request.POST.get('return_remarks') or '').strip()
+	return_condition = (request.POST.get('return_condition') or '').strip()
+	return_received_by = (request.POST.get('return_received_by') or '').strip()
+	return_date_actual_raw = (request.POST.get('return_date_actual') or '').strip()
+	return_confirmed_at_raw = (request.POST.get('return_confirmed_at') or '').strip()
+
+	def _parse_optional_datetime(raw_value):
+		if not raw_value:
+			return None
+		parsed_value = parse_datetime(raw_value)
+		if not parsed_value:
+			return None
+		if timezone.is_naive(parsed_value):
+			return timezone.make_aware(parsed_value, timezone.get_current_timezone())
+		return parsed_value
+
+	return_date_actual = _parse_optional_datetime(return_date_actual_raw)
+	return_confirmed_at = _parse_optional_datetime(return_confirmed_at_raw)
+
 	proof_uploads = [upload for upload in request.FILES.getlist('return_proof_images') if upload]
 	with transaction.atomic():
 		accountability = AssetAccountability.objects.select_related('item', 'borrowed_by').get(pk=accountability_id)
-		if not accountability.mark_returned():
+		if not accountability.mark_returned(
+			returned_at=return_date_actual,
+			confirmed_at=return_confirmed_at,
+			remarks=return_remarks,
+			condition=return_condition,
+			received_by=return_received_by,
+		):
 			messages.info(request, 'This item is already marked as returned.')
 			return redirect('accountability_list')
 
@@ -7870,6 +8387,15 @@ def accountability_return(request, accountability_id):
 			)
 
 	proof_count = len(proof_uploads)
+	record_activity(
+		request,
+		'update',
+		'accountability',
+		f'Marked {accountability.item.item_code} as returned.',
+		target=accountability,
+		target_label=accountability.control_number or accountability.item.item_code,
+		metadata={'proof_count': proof_count, 'quantity': accountability.quantity_borrowed},
+	)
 	if proof_count:
 		messages.success(
 			request,
@@ -7934,12 +8460,13 @@ def accountability_pending_bulk_decide(request):
 						locked_out = True
 						break
 					if decision == 'approve':
-						available_total = entry.item.get_total_stock_quantity()
+						available_total = int(entry.item.stock_quantity or 0)
 						if entry.quantity_borrowed > available_total:
 							skipped_count += 1
 							locked_out = True
 							break
 						entry.mark_approved(processed_by=request.user, reason=reason)
+						_cancel_competing_pending_requests(entry, processed_by=request.user)
 						status_now = entry.item.get_stock_status()
 					else:
 						entry.mark_declined(processed_by=request.user, reason=reason)

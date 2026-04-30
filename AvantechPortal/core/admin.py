@@ -9,6 +9,7 @@ from .models import (
 	AssetItemType,
 	AssetTagBatch,
 	AssetTagEntry,
+	ActivityLog,
 	Client,
 	ClientDeletionRequest,
 	ClientQuotation,
@@ -36,6 +37,34 @@ from .models import (
 	PatchNoteReaction,
 	UserProfile,
 )
+
+
+@admin.register(ActivityLog)
+class ActivityLogAdmin(admin.ModelAdmin):
+	list_display = ('created_at', 'actor', 'action', 'category', 'summary', 'target_model', 'target_id', 'ip_address')
+	list_filter = ('action', 'category', 'created_at')
+	search_fields = ('summary', 'target_label', 'target_model', 'target_id', 'actor__username', 'actor__email', 'ip_address')
+	readonly_fields = (
+		'actor',
+		'action',
+		'category',
+		'summary',
+		'target_model',
+		'target_id',
+		'target_label',
+		'url_name',
+		'path',
+		'ip_address',
+		'user_agent',
+		'metadata',
+		'created_at',
+	)
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
 
 
 @admin.register(UserProfile)

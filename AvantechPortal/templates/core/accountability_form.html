@@ -22,36 +22,10 @@
                         </div>
                         {% endif %}
 
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-6">
-                                <label for="{{ form.accountable_name.id_for_label }}" class="form-label">{{ form.accountable_name.label }}</label>
-                                {{ form.accountable_name }}
-                                {% if form.accountable_name.errors %}
-                                <div class="invalid-feedback d-block">{{ form.accountable_name.errors.0 }}</div>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <label for="{{ form.department.id_for_label }}" class="form-label">{{ form.department.label }}</label>
-                                {{ form.department }}
-                                {% if form.department.errors %}
-                                <div class="invalid-feedback d-block">{{ form.department.errors.0 }}</div>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <label for="{{ form.position_role.id_for_label }}" class="form-label">{{ form.position_role.label }}</label>
-                                {{ form.position_role }}
-                                {% if form.position_role.errors %}
-                                <div class="invalid-feedback d-block">{{ form.position_role.errors.0 }}</div>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <label for="{{ form.contact_number.id_for_label }}" class="form-label">{{ form.contact_number.label }}</label>
-                                {{ form.contact_number }}
-                                {% if form.contact_number.errors %}
-                                <div class="invalid-feedback d-block">{{ form.contact_number.errors.0 }}</div>
-                                {% endif %}
-                            </div>
-                        </div>
+                        <input type="hidden" name="accountable_name" value="">
+                        <input type="hidden" name="department" value="">
+                        <input type="hidden" name="position_role" value="">
+                        <input type="hidden" name="contact_number" value="">
 
                         <!-- Item Selection -->
                         <div class="mb-3">
@@ -253,7 +227,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const availableStock = itemAvailabilityMap[itemId];
             const imageUrl = itemImageMap[itemId] || '';
             const availabilityHint = Number.isInteger(availableStock)
-                ? `Available: ${availableStock}`
+                ? `Available: ${availableStock} units`
                 : 'Checking availability...';
             return `
                 <div class="d-flex align-items-center justify-content-between border rounded bg-white px-2 py-1 mb-1">
@@ -436,7 +410,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 clearNotice();
                 document.getElementById('itemNameDisplay').textContent = data.item_name;
                 document.getElementById('itemTypeDisplay').textContent = data.item_type;
-                document.getElementById('availableStockDisplay').textContent = data.available_stock + 'x';
+                document.getElementById('availableStockDisplay').textContent = data.available_stock + ' units';
                 document.getElementById('specificationDisplay').textContent = data.specification || 'N/A';
 
                 const previewImg = document.getElementById('itemImagePreview');

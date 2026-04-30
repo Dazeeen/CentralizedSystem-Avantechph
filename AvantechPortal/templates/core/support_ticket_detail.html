@@ -119,10 +119,10 @@
                 <p class="small text-secondary mb-0">Visible only to the requester and assigned IT support.</p>
             </div>
             <div class="card-body p-3 p-md-4">
-                <div class="d-grid gap-3 mb-4">
+                <div class="d-grid gap-3 mb-4" id="ticketConversationList" data-current-user-id="{{ request.user.id }}">
                     {% if messages_list %}
                         {% for entry in messages_list %}
-                            <div class="d-flex {% if entry.sender_id == request.user.id %}justify-content-end{% else %}justify-content-start{% endif %}">
+                            <div class="d-flex {% if entry.sender_id == request.user.id %}justify-content-end{% else %}justify-content-start{% endif %}" data-message-id="{{ entry.id }}">
                                 <div class="border rounded p-3 {% if entry.sender_id == request.user.id %}bg-success-subtle border-success-subtle{% else %}bg-light-subtle{% endif %}" style="max-width: 85%;">
                                     <div class="small text-secondary mb-1">
                                         {{ entry.sender.get_full_name|default:entry.sender.username|default:'System' }} - {{ entry.created_at|date:'Y-m-d H:i' }}
@@ -137,11 +137,11 @@
                 </div>
 
                 {% if can_chat %}
-                    <form method="post" action="{% url 'support_ticket_add_message' ticket.id %}" class="d-grid gap-2">
+                    <form method="post" action="{% url 'support_ticket_add_message' ticket.id %}" class="d-grid gap-2" id="ticketReplyForm">
                         {% csrf_token %}
                         {{ message_form.message }}
                         <div class="d-flex justify-content-end">
-                            <button type="submit" class="btn btn-success">Send Reply</button>
+                            <button type="submit" class="btn btn-success" id="ticketReplySubmitBtn">Send Reply</button>
                         </div>
                     </form>
                 {% else %}
@@ -153,4 +153,129 @@
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        const conversationList = document.getElementById('ticketConversationList');
+        const replyForm = document.getElementById('ticketReplyForm');
+        const replySubmitBtn = document.getElementById('ticketReplySubmitBtn');
+        const messageTextarea = replyForm ? replyForm.querySelector('textarea[name="message"]') : null;
+        if (!conversationList) {
+            return;
+        }
+
+        const currentUserId = Number(conversationList.dataset.currentUserId || 0);
+        let latestMessageId = 0;
+        conversationList.querySelectorAll('[data-message-id]').forEach(function (row) {
+            const rowId = Number(row.getAttribute('data-message-id') || 0);
+            if (rowId > latestMessageId) {
+                latestMessageId = rowId;
+            }
+        });
+
+        const escapeHtml = function (value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        };
+
+        const clearEmptyState = function () {
+            const emptyNode = conversationList.querySelector('.text-secondary.small');
+            if (emptyNode && !conversationList.querySelector('[data-message-id]')) {
+                emptyNode.remove();
+            }
+        };
+
+        const appendMessageRow = function (messageRow) {
+            if (!messageRow || !messageRow.id) {
+                return;
+            }
+            if (conversationList.querySelector(`[data-message-id="${messageRow.id}"]`)) {
+                return;
+            }
+
+            clearEmptyState();
+            const isMine = Number(messageRow.sender_id || 0) === currentUserId;
+            const wrapper = document.createElement('div');
+            wrapper.className = `d-flex ${isMine ? 'justify-content-end' : 'justify-content-start'}`;
+            wrapper.setAttribute('data-message-id', String(messageRow.id));
+            wrapper.innerHTML = `
+                <div class="border rounded p-3 ${isMine ? 'bg-success-subtle border-success-subtle' : 'bg-light-subtle'}" style="max-width: 85%;">
+                    <div class="small text-secondary mb-1">
+                        ${escapeHtml(messageRow.sender_label || 'System')} - ${escapeHtml(messageRow.created_at || '')}
+                    </div>
+                    <div style="white-space: pre-wrap;">${escapeHtml(messageRow.message || '')}</div>
+                </div>
+            `;
+            conversationList.appendChild(wrapper);
+            latestMessageId = Math.max(latestMessageId, Number(messageRow.id || 0));
+            wrapper.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        };
+
+        const pollForMessages = function () {
+            fetch(`${window.location.pathname}?since_id=${latestMessageId}`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (payload) {
+                    if (!payload || !payload.ok) {
+                        return;
+                    }
+                    (payload.messages || []).forEach(appendMessageRow);
+                    if (payload.latest_message_id) {
+                        latestMessageId = Math.max(latestMessageId, Number(payload.latest_message_id || 0));
+                    }
+                })
+                .catch(function () {});
+        };
+
+        if (replyForm && messageTextarea) {
+            replyForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                const messageValue = (messageTextarea.value || '').trim();
+                if (!messageValue) {
+                    return;
+                }
+
+                if (replySubmitBtn) {
+                    replySubmitBtn.disabled = true;
+                }
+
+                fetch(replyForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: new FormData(replyForm)
+                })
+                    .then(function (response) { return response.json(); })
+                    .then(function (payload) {
+                        if (!payload || !payload.ok) {
+                            if (payload && payload.message) {
+                                alert(payload.message);
+                            }
+                            return;
+                        }
+                        appendMessageRow(payload.message_row);
+                        messageTextarea.value = '';
+                    })
+                    .catch(function () {
+                        alert('Unable to send reply right now.');
+                    })
+                    .finally(function () {
+                        if (replySubmitBtn) {
+                            replySubmitBtn.disabled = false;
+                        }
+                    });
+            });
+        }
+
+        setInterval(pollForMessages, 3500);
+    })();
+</script>
 {% endblock %}

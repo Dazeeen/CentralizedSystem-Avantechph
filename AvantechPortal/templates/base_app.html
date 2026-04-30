@@ -124,7 +124,7 @@
                                 </a>
                             </div>
                         {% endif %}
-                        {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory %}
+                        {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
                                     <span class="nav-logo" aria-hidden="true">
@@ -144,7 +144,8 @@
                                 </span>
                             </button>
                             <div class="nav-subgroup">
-                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_assetitem %}{% url 'assets_list' %}{% else %}{% url 'assets_item_types_list' %}{% endif %}" style="font-size: 0.9rem;">
+                                {% if request.user.is_superuser or perms.core.view_assetitem %}
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% url 'assets_list' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -155,6 +156,7 @@
                                     </span>
                                     <span class="nav-label">Assets</span>
                                 </a>
+                                {% endif %}
                                 {% if request.user.is_superuser or perms.core.view_assetaccountability %}
                                     <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' %}active{% endif %}" href="{% url 'accountability_list' %}" style="font-size: 0.9rem;">
                                         <span class="nav-logo" aria-hidden="true">
@@ -222,7 +224,8 @@
                             </span>
                             <span class="nav-label">Development</span>
                         </a>
-                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% url 'system_hub' %}">
+                        {% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile or perms.core.view_activitylog %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'activity_logs' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}{% url 'system_hub' %}{% else %}{% url 'activity_logs' %}{% endif %}">
                             <span class="nav-logo" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -232,6 +235,7 @@
                             </span>
                             <span class="nav-label">System</span>
                         </a>
+                        {% endif %}
                     </nav>
                 </div>
 
@@ -259,7 +263,90 @@
                     <h1 class="h5 mb-0 fw-bold text-success-emphasis">{% block page_heading %}Avantech Portal{% endblock %}</h1>
                 </div>
                 <div class="d-flex align-items-center gap-2 gap-md-3">
-                    <span class="small text-secondary d-none d-md-inline">{{ request.user.get_full_name|default:request.user.username }}</span>
+                    {% if page_access_indicator %}
+                        <div class="dropdown page-access-dropdown">
+                            <button
+                                class="btn page-access-btn"
+                                type="button"
+                                data-bs-toggle="dropdown"
+                                aria-expanded="false"
+                                aria-label="View page access"
+                                title="View page access"
+                            >
+                                <span class="page-access-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <circle cx="9" cy="8.5" r="3" stroke="currentColor" stroke-width="1.7"/>
+                                        <path d="M4.5 18.5C5.25 15.9 7 14.6 9 14.6C10.2 14.6 11.3 15.1 12.1 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                                        <path d="M14 17.1L16 19L20 14.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </span>
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-end shadow page-access-menu p-0">
+                                <div class="p-3 border-bottom">
+                                    <div class="fw-semibold">{{ page_access_indicator.label }}</div>
+                                    <div class="small text-secondary">Who can access this page</div>
+                                </div>
+                                <div class="p-3">
+                                    <div class="page-access-search mb-3">
+                                        <label class="visually-hidden" for="pageAccessSearch">Search page access</label>
+                                        <input
+                                            type="search"
+                                            class="form-control form-control-sm"
+                                            id="pageAccessSearch"
+                                            placeholder="Search users, roles, access"
+                                            autocomplete="off"
+                                        >
+                                    </div>
+                                    {% if page_access_indicator.audience %}
+                                        <div class="page-access-section js-page-access-search-section">
+                                            <div class="small text-uppercase text-secondary fw-semibold mb-2">Audience</div>
+                                            <div class="small js-page-access-search-item">{{ page_access_indicator.audience }}</div>
+                                        </div>
+                                    {% endif %}
+                                    {% if page_access_indicator.permissions %}
+                                        <div class="page-access-section js-page-access-search-section">
+                                            <div class="small text-uppercase text-secondary fw-semibold mb-2">Required Access</div>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                {% for permission_label in page_access_indicator.permissions %}
+                                                    <span class="badge text-bg-light border page-access-badge js-page-access-search-item">{{ permission_label }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                    {% if page_access_indicator.roles %}
+                                        <div class="page-access-section js-page-access-search-section">
+                                            <div class="small text-uppercase text-secondary fw-semibold mb-2">Roles</div>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                {% for role_name in page_access_indicator.roles %}
+                                                    <span class="badge bg-success-subtle text-success-emphasis page-access-badge js-page-access-search-item">{{ role_name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                    {% if page_access_indicator.users %}
+                                        <div class="page-access-section js-page-access-search-section">
+                                            <div class="small text-uppercase text-secondary fw-semibold mb-2">Users</div>
+                                            <div class="page-access-user-list">
+                                                {% for user_name in page_access_indicator.users %}
+                                                    <div class="small js-page-access-search-item">{{ user_name }}</div>
+                                                {% endfor %}
+                                            </div>
+                                            {% if page_access_indicator.total_users > page_access_indicator.users|length %}
+                                                <div class="small text-secondary mt-2">Showing {{ page_access_indicator.users|length }} of {{ page_access_indicator.total_users }} users.</div>
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
+                                    {% if page_access_indicator.note %}
+                                        <div class="small text-secondary js-page-access-search-item">{{ page_access_indicator.note }}</div>
+                                    {% endif %}
+                                    <div class="small text-secondary d-none" id="pageAccessSearchEmpty">No access entries matched your search.</div>
+                                    {% if not page_access_indicator.audience and not page_access_indicator.roles and not page_access_indicator.users %}
+                                        <div class="small text-secondary">Only super users can access this page.</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
                     <div class="dropdown notification-dropdown">
                         <button
                             class="btn btn-outline-success position-relative notification-bell-btn"
@@ -315,6 +402,7 @@
                             </div>
                         </div>
                     </div>
+                    <span class="small text-secondary d-none d-md-inline">{{ request.user.get_full_name|default:request.user.username }}</span>
                     <div class="dropdown user-dropdown">
                         <button
                             class="btn p-0 position-relative user-avatar-btn"
@@ -479,7 +567,7 @@
                             </a>
                         </div>
                     {% endif %}
-                    {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory %}
+                    {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
@@ -499,7 +587,8 @@
                             </span>
                         </button>
                         <div class="nav-subgroup">
-                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_assetitem %}{% url 'assets_list' %}{% else %}{% url 'assets_item_types_list' %}{% endif %}" style="font-size: 0.9rem;">
+                            {% if request.user.is_superuser or perms.core.view_assetitem %}
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% url 'assets_list' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -510,6 +599,7 @@
                                 </span>
                                 <span class="nav-label">Assets</span>
                             </a>
+                            {% endif %}
                             {% if request.user.is_superuser or perms.core.view_assetaccountability %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'accountability_list' or request.resolver_match.url_name == 'accountability_create' %}active{% endif %}" href="{% url 'accountability_list' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
@@ -577,7 +667,8 @@
                         </span>
                         <span class="nav-label">Development</span>
                     </a>
-                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% url 'system_hub' %}">
+                    {% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile or perms.core.view_activitylog %}
+                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'activity_logs' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}{% url 'system_hub' %}{% else %}{% url 'activity_logs' %}{% endif %}">
                         <span class="nav-logo" aria-hidden="true">
                             <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -587,6 +678,7 @@
                         </span>
                         <span class="nav-label">System</span>
                     </a>
+                    {% endif %}
                 </nav>
             </div>
 
@@ -1123,6 +1215,51 @@
             }
 
             window.setInterval(fetchFeed, 20000);
+        })();
+
+        (function () {
+            const searchInput = document.getElementById('pageAccessSearch');
+            const emptyMessage = document.getElementById('pageAccessSearchEmpty');
+            const sections = document.querySelectorAll('.js-page-access-search-section');
+            const looseItems = document.querySelectorAll('.page-access-menu > .p-3 > .js-page-access-search-item');
+
+            if (!searchInput || !sections.length) {
+                return;
+            }
+
+            const normalize = (value) => (value || '').trim().toLowerCase();
+
+            const filterAccessEntries = () => {
+                const query = normalize(searchInput.value);
+                let visibleCount = 0;
+
+                sections.forEach((section) => {
+                    let sectionVisibleCount = 0;
+                    section.querySelectorAll('.js-page-access-search-item').forEach((item) => {
+                        const isVisible = !query || normalize(item.textContent).includes(query);
+                        item.classList.toggle('d-none', !isVisible);
+                        if (isVisible) {
+                            sectionVisibleCount += 1;
+                        }
+                    });
+                    section.classList.toggle('d-none', sectionVisibleCount === 0);
+                    visibleCount += sectionVisibleCount;
+                });
+
+                looseItems.forEach((item) => {
+                    const isVisible = !query || normalize(item.textContent).includes(query);
+                    item.classList.toggle('d-none', !isVisible);
+                    if (isVisible) {
+                        visibleCount += 1;
+                    }
+                });
+
+                if (emptyMessage) {
+                    emptyMessage.classList.toggle('d-none', !query || visibleCount > 0);
+                }
+            };
+
+            searchInput.addEventListener('input', filterAccessEntries);
         })();
 
         (function () {

@@ -1181,12 +1181,7 @@ class AssetAccountabilityForm(forms.ModelForm):
 
         borrowable_item_ids = []
         for item in AssetItem.objects.filter(is_active=True).select_related('parent_item'):
-            total_available = int(item.get_total_stock_quantity() or 0)
             own_stock = int(item.stock_quantity or 0)
-            if item.get_stock_status() == 'out of stock':
-                continue
-            if total_available < 1:
-                continue
             if own_stock < 1:
                 continue
             borrowable_item_ids.append(item.pk)
@@ -1265,7 +1260,7 @@ class AssetAccountabilityForm(forms.ModelForm):
                 self.add_error('items', f'Quantity for item {selected_item.item_code} must be at least 1.')
                 continue
 
-            available_total = selected_item.get_total_stock_quantity()
+            available_total = int(selected_item.stock_quantity or 0)
             if available_total < 1:
                 unavailable.append(selected_item.item_code)
                 continue

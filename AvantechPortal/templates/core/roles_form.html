@@ -48,7 +48,10 @@
                                         <tbody>
                                             {% for item in group.items %}
                                                 <tr>
-                                                    <td>{{ item.label }}</td>
+                                                    <td>
+                                                        <div>{{ item.label }}</div>
+                                                        <div class="small text-secondary">{{ item.description|default:'Controls access to this feature.' }}</div>
+                                                    </td>
                                                     <td class="text-center">
                                                         <input type="checkbox" class="form-check-input" name="permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
                                                     </td>

@@ -115,8 +115,11 @@
                                                 <span class="badge text-bg-light border">{{ group.items|length }} items</span>
                                             </summary>
                                             <div class="mt-2">
-                                                {% for permission_name in group.items %}
-                                                    <div class="small border rounded p-2 bg-light mb-2 js-role-permission-item" data-role-id="{{ role.id }}" data-permission-name="{{ permission_name|lower }}">{{ permission_name }}</div>
+                                                {% for permission_item in group.items %}
+                                                    <div class="small border rounded p-2 bg-light mb-2 js-role-permission-item" data-role-id="{{ role.id }}" data-permission-name="{{ permission_item.label|lower }}">
+                                                        <div>{{ permission_item.label }}</div>
+                                                        <div class="text-secondary">{{ permission_item.description|default:'Controls access to this feature.' }}</div>
+                                                    </div>
                                                 {% endfor %}
                                             </div>
                                         </details>

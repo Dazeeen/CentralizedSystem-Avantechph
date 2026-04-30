@@ -38,7 +38,16 @@ except ModuleNotFoundError:
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / '.env')
+APP_ENV = (os.getenv('DJANGO_ENV', 'development') or 'development').strip().lower()
+ENV_FILE = os.getenv('DJANGO_ENV_FILE', '').strip()
+if ENV_FILE:
+    load_dotenv(ENV_FILE)
+else:
+    environment_dotenv = BASE_DIR / f'.env.{APP_ENV}'
+    if environment_dotenv.exists():
+        load_dotenv(environment_dotenv)
+    else:
+        load_dotenv(BASE_DIR / '.env')
 
 
 def env_bool(name, default=False):
@@ -138,6 +147,14 @@ ALLOWED_HOSTS = [
 if env_bool('DJANGO_ALLOW_LAN_HOSTS', DEBUG) and '*' not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append('*')
 
+if APP_ENV == 'production':
+    if DEBUG:
+        raise ImproperlyConfigured('DJANGO_DEBUG must be False in production.')
+    if SECRET_KEY == 'local-dev-secret-key-change-before-production':
+        raise ImproperlyConfigured('Production secret key cannot use the development default.')
+    if any(host in {'127.0.0.1', 'localhost'} for host in ALLOWED_HOSTS):
+        raise ImproperlyConfigured('Production allowed hosts cannot include localhost or 127.0.0.1.')
+
 
 # Application definition
 
@@ -188,6 +205,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.notification_summary',
                 'core.context_processors.finance_navigation_state',
+                'core.context_processors.page_access_indicator',
             ],
         },
     },
@@ -257,6 +275,13 @@ SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
 CSRF_COOKIE_HTTPONLY = True
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', APP_ENV == 'production')
+SECURE_HSTS_SECONDS = env_int('SECURE_HSTS_SECONDS', 31536000 if APP_ENV == 'production' else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', APP_ENV == 'production')
+SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
+
+if APP_ENV == 'production' and (not SESSION_COOKIE_SECURE or not CSRF_COOKIE_SECURE):
+    raise ImproperlyConfigured('SESSION_COOKIE_SECURE and CSRF_COOKIE_SECURE must be True in production.')
 
 # Server-side inactivity timeout in seconds.
 SESSION_TIMEOUT_SECONDS = env_int('SESSION_TIMEOUT_SECONDS', 1800)

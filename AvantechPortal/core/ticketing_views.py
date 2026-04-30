@@ -17,6 +17,7 @@ from .forms import (
     SupportTicketSupportUpdateForm,
 )
 from .models import SupportTicket
+from .activity import record_activity
 from .notifications import create_notification
 from .ticketing_services import (
     IMPORTANT_PRIORITY_VALUES,
@@ -25,6 +26,19 @@ from .ticketing_services import (
     can_manage_support_tickets,
     effective_priority_filter,
 )
+
+def _serialize_ticket_message(message_obj):
+    sender = getattr(message_obj, 'sender', None)
+    sender_label = 'System'
+    if sender:
+        sender_label = sender.get_full_name() or sender.username
+    return {
+        'id': message_obj.id,
+        'sender_id': message_obj.sender_id,
+        'sender_label': sender_label,
+        'message': message_obj.message or '',
+        'created_at': timezone.localtime(message_obj.created_at).strftime('%Y-%m-%d %H:%M'),
+    }
 
 
 def _permission_denied_response(request, message='You do not have permission to perform this action.'):
@@ -181,6 +195,16 @@ def support_ticket_create(request):
             link_url=detail_url,
         )
 
+    record_activity(
+        request,
+        'create',
+        'support',
+        f'Created support ticket {ticket.ticket_number}.',
+        target=ticket,
+        target_label=ticket.ticket_number,
+        metadata={'assigned_to': assigned_user.username if assigned_user else ''},
+    )
+
     if not assigned_user:
         messages.warning(request, 'Ticket created, but no active IT Support user was found for assignment yet.')
     else:
@@ -200,10 +224,30 @@ def support_ticket_detail(request, ticket_id):
     can_chat = (not ticket.is_archived) and _can_chat_on_ticket(request.user, ticket)
     can_update_support = (not ticket.is_archived) and (can_manage or request.user.id == ticket.assigned_to_id)
     can_update_requested_priority = (not ticket.is_archived) and (request.user.id == ticket.created_by_id or request.user.is_superuser)
+    messages_qs = ticket.messages.select_related('sender').all()
+
+    if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+        since_id_raw = (request.GET.get('since_id') or '').strip()
+        since_id = 0
+        if since_id_raw.isdigit():
+            since_id = int(since_id_raw)
+        if since_id > 0:
+            messages_qs = messages_qs.filter(id__gt=since_id)
+        messages_payload = [_serialize_ticket_message(message_row) for message_row in messages_qs.order_by('id')]
+        latest_message_id = messages_payload[-1]['id'] if messages_payload else since_id
+        return JsonResponse(
+            {
+                'ok': True,
+                'ticket_id': ticket.id,
+                'messages': messages_payload,
+                'latest_message_id': latest_message_id,
+                'can_chat': can_chat,
+            }
+        )
 
     context = {
         'ticket': ticket,
-        'messages_list': ticket.messages.select_related('sender').all(),
+        'messages_list': messages_qs,
         'can_manage_support_tickets': can_manage,
         'can_chat': can_chat,
         'can_update_support': can_update_support,
@@ -229,6 +273,13 @@ def support_ticket_add_message(request, ticket_id):
 
     form = SupportTicketMessageForm(request.POST)
     if not form.is_valid():
+        if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+            first_error = 'Unable to send reply.'
+            for _, errors in form.errors.items():
+                if errors:
+                    first_error = errors[0]
+                    break
+            return JsonResponse({'ok': False, 'message': first_error}, status=400)
         for _, errors in form.errors.items():
             if errors:
                 messages.error(request, errors[0])
@@ -266,6 +317,9 @@ def support_ticket_add_message(request, ticket_id):
                 message=f'{sender_name}: {message.message[:90]}',
                 link_url=detail_url,
             )
+
+    if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+        return JsonResponse({'ok': True, 'message_row': _serialize_ticket_message(message), 'latest_message_id': message.id})
 
     messages.success(request, 'Reply sent.')
     return redirect('support_ticket_detail', ticket_id=ticket.id)
@@ -357,6 +411,15 @@ def support_ticket_update_support(request, ticket_id):
     if changed:
         status_label = ticket.get_status_display()
         priority_label = ticket.effective_priority.title()
+        record_activity(
+            request,
+            'update',
+            'support',
+            f'Updated support ticket {ticket.ticket_number}: {status_label}, {priority_label}.',
+            target=ticket,
+            target_label=ticket.ticket_number,
+            metadata={'old_status': old_status, 'new_status': ticket.status, 'old_priority': old_support_priority, 'new_priority': ticket.support_priority or ''},
+        )
         create_notification(
             ticket.created_by,
             title=f'Ticket updated: {ticket.ticket_number}',
@@ -397,6 +460,13 @@ def support_tickets_bulk_archive(request):
         )
     )
     if updated_count:
+        record_activity(
+            request,
+            'archive',
+            'support',
+            f'Archived {updated_count} support ticket(s).',
+            metadata={'ticket_ids': selected_ids, 'updated_count': updated_count},
+        )
         messages.success(request, f'{updated_count} ticket(s) archived successfully.')
     else:
         messages.info(request, 'No eligible tickets were archived.')
@@ -416,8 +486,16 @@ def support_tickets_bulk_delete(request):
 
     delete_qs = SupportTicket.objects.filter(id__in=selected_ids)
     deleted_count = delete_qs.count()
+    ticket_numbers = list(delete_qs.values_list('ticket_number', flat=True))
     delete_qs.delete()
     if deleted_count:
+        record_activity(
+            request,
+            'delete',
+            'support',
+            f'Deleted {deleted_count} support ticket(s).',
+            metadata={'ticket_ids': selected_ids, 'ticket_numbers': ticket_numbers, 'deleted_count': deleted_count},
+        )
         messages.success(request, f'{deleted_count} ticket(s) deleted successfully.')
     else:
         messages.info(request, 'No eligible tickets were deleted.')

@@ -7,6 +7,7 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
+from .activity import record_activity
 from .models import SystemBackup, SystemBackupSchedule
 from .system_backup_services import (
     create_system_backup,
@@ -93,6 +94,15 @@ def system_hub(request):
         try:
             schedule.full_clean()
             schedule.save()
+            record_activity(
+                request,
+                'update',
+                'system',
+                'Updated system backup schedule.',
+                target=schedule,
+                target_label=schedule.name,
+                metadata={'job_type': schedule.job_type, 'max_backups': schedule.max_backups},
+            )
             messages.success(request, 'System backup schedule updated successfully.')
         except Exception as exc:
             messages.error(request, f'Unable to update schedule: {exc}')
@@ -137,6 +147,15 @@ def system_backup_run_now(request):
     except Exception as exc:
         messages.error(request, f'Backup creation failed: {exc}')
     else:
+        record_activity(
+            request,
+            'create',
+            'system',
+            f'Created system backup {backup.backup_name}.',
+            target=backup,
+            target_label=backup.backup_name,
+            metadata={'trigger': backup.trigger, 'included_scopes': backup.included_scopes},
+        )
         messages.success(request, f'Backup created: {backup.backup_name}')
 
     return redirect('system_hub')
@@ -181,6 +200,14 @@ def system_backup_restore(request, backup_id):
     backup = get_object_or_404(SystemBackup, pk=backup_id)
     try:
         restore_system_backup(backup)
+        record_activity(
+            request,
+            'restore',
+            'system',
+            f'Restored system backup {backup.backup_name}.',
+            target=backup,
+            target_label=backup.backup_name,
+        )
         messages.success(request, f'Backup restored: {backup.backup_name}')
     except Exception as exc:
         messages.error(request, f'Unable to restore backup: {exc}')
@@ -199,5 +226,13 @@ def system_backup_delete(request, backup_id):
     if backup.archive:
         backup.archive.delete(save=False)
     backup.delete()
+    record_activity(
+        request,
+        'delete',
+        'system',
+        f'Deleted system backup {backup_name}.',
+        target_label=backup_name,
+        metadata={'backup_id': backup_id},
+    )
     messages.success(request, f'Backup deleted: {backup_name}')
     return redirect('system_hub')

@@ -11,6 +11,14 @@
             <p class="text-muted small">Track borrowed items and manage returns</p>
         </div>
         <div class="col-md-6 text-end">
+            {% if can_create_accountability_form_batch %}
+            <a href="{% url 'accountability_form_batch_create' %}" class="btn btn-outline-primary me-2">
+                <i class="bi bi-file-earmark-plus me-2"></i>Create Accountability Form
+                {% if pending_accountability_form_count %}
+                <span class="badge text-bg-danger ms-2">{{ pending_accountability_form_count }}</span>
+                {% endif %}
+            </a>
+            {% endif %}
             {% if can_manage_templates %}
             <button type="button" class="btn btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#accountabilityTemplateModal">
                 <i class="bi bi-file-earmark-text me-2"></i>Templates
@@ -93,30 +101,40 @@
         </div>
     </div>
 
-    {% if can_review_requests %}
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-white">
-            <h5 class="mb-0">Pending Borrow Requests (Admin Review)</h5>
+            <h5 class="mb-0">
+                {% if can_review_requests %}
+                    Pending Borrow Requests (Admin Review)
+                {% else %}
+                    Pending Borrow Requests (My Requests)
+                {% endif %}
+            </h5>
         </div>
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr>
+                        {% if can_review_requests %}
                         <th style="width: 42px;">
                             <input type="checkbox" class="form-check-input" id="pendingSelectAll" aria-label="Select all pending requests">
                         </th>
+                        {% endif %}
                         <th>Requested By</th>
                         <th>Item</th>
                         <th>Qty</th>
                         <th>Available Stock</th>
                         <th>Requested At</th>
                         <th>Reason/Notes</th>
+                        {% if can_review_requests %}
                         <th>Decision</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for request_row in pending_requests_page %}
                     <tr>
+                        {% if can_review_requests %}
                         <td>
                             <input
                                 type="checkbox"
@@ -125,6 +143,7 @@
                                 aria-label="Select pending request {{ request_row.id }}"
                             >
                         </td>
+                        {% endif %}
                         <td>
                             <div class="list-user-inline">
                                 {% with borrower_profile=borrower_profiles_map|get_item:request_row.borrowed_by_id %}
@@ -160,6 +179,7 @@
                         </td>
                         <td>{{ request_row.created_at|date:"M d, Y H:i" }}</td>
                         <td>{{ request_row.notes|default:'-' }}</td>
+                        {% if can_review_requests %}
                         <td>
                             <form method="post" action="{% url 'accountability_decide' request_row.id %}" class="d-flex flex-column gap-2">
                                 {% csrf_token %}
@@ -170,10 +190,11 @@
                                 </div>
                             </form>
                         </td>
+                        {% endif %}
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="8" class="text-center py-4 text-muted">No pending borrow requests.</td>
+                        <td colspan="{% if can_review_requests %}8{% else %}6{% endif %}" class="text-center py-4 text-muted">No pending borrow requests.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -284,7 +305,6 @@
                 </ul>
             </nav>
         </div>
-        {% endif %}
     </div>
     {% endif %}
 
@@ -353,7 +373,13 @@
                             >
                             {% endif %}
                         </td>
-                        <td>{{ record.control_number|default:'-' }}</td>
+                        <td>
+                            {% if record.accountability_form_batch_id and record.accountability_form_batch %}
+                                {{ record.accountability_form_batch.control_number }}
+                            {% else %}
+                                {{ record.control_number|default:'-' }}
+                            {% endif %}
+                        </td>
                         <td>
                             <span class="badge bg-info">{{ record.item.item_code }}</span>
                         </td>
@@ -416,7 +442,7 @@
                                     <span class="ms-1">Return</span>
                                 </button>
                                 {% endif %}
-                                {% if active_template %}
+                                {% if record.accountability_form_batch_id %}
                                 <a
                                     href="{% url 'accountability_document_download' record.id %}"
                                     class="btn btn-outline-success"
@@ -574,6 +600,28 @@
                         <div class="col-md-6"><strong>Item Name:</strong><div id="returnModalItemName" class="text-muted">-</div></div>
                         <div class="col-md-6"><strong>Borrowed By:</strong><div id="returnModalBorrowedBy" class="text-muted">-</div></div>
                         <div class="col-md-6"><strong>Quantity:</strong><div id="returnModalQuantity" class="text-muted">-</div></div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="returnConditionInput" class="form-label">Condition Upon Return</label>
+                            <input type="text" id="returnConditionInput" name="return_condition" class="form-control" placeholder="e.g. Good condition, minor scratches">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="returnReceivedByInput" class="form-label">Received By</label>
+                            <input type="text" id="returnReceivedByInput" name="return_received_by" class="form-control" placeholder="e.g. IT Admin - Juan Dela Cruz">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="returnDateActualInput" class="form-label">Date Returned</label>
+                            <input type="datetime-local" id="returnDateActualInput" name="return_date_actual" class="form-control" placeholder="Select actual return date/time">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="returnConfirmedAtInput" class="form-label">Date Confirmed</label>
+                            <input type="datetime-local" id="returnConfirmedAtInput" name="return_confirmed_at" class="form-control" placeholder="Select confirmation date/time">
+                        </div>
+                        <div class="col-12">
+                            <label for="returnRemarksInput" class="form-label">Remarks</label>
+                            <textarea id="returnRemarksInput" name="return_remarks" class="form-control" rows="3" placeholder="Add return remarks (optional)"></textarea>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="returnProofImages" class="form-label">Optional Proof Images</label>
@@ -1237,6 +1285,11 @@ document.addEventListener('DOMContentLoaded', function () {
         itemName: document.getElementById('returnModalItemName'),
         borrowedBy: document.getElementById('returnModalBorrowedBy'),
         quantity: document.getElementById('returnModalQuantity'),
+        condition: document.getElementById('returnConditionInput'),
+        receivedBy: document.getElementById('returnReceivedByInput'),
+        dateActual: document.getElementById('returnDateActualInput'),
+        dateConfirmed: document.getElementById('returnConfirmedAtInput'),
+        remarks: document.getElementById('returnRemarksInput'),
         confirm: document.getElementById('confirmReturnCheck'),
     };
     const previewModal = returnPreviewModalElement && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(returnPreviewModalElement) : null;
@@ -1387,11 +1440,36 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
+            const toDateTimeLocalValue = function (dateValue) {
+                const dt = dateValue || new Date();
+                const year = dt.getFullYear();
+                const month = String(dt.getMonth() + 1).padStart(2, '0');
+                const day = String(dt.getDate()).padStart(2, '0');
+                const hours = String(dt.getHours()).padStart(2, '0');
+                const minutes = String(dt.getMinutes()).padStart(2, '0');
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            };
+
             returnForm.action = button.dataset.returnUrl || returnForm.action;
             returnFields.itemCode.textContent = button.dataset.itemCode || '-';
             returnFields.itemName.textContent = button.dataset.itemName || '-';
             returnFields.borrowedBy.textContent = button.dataset.borrowedBy || '-';
             returnFields.quantity.textContent = button.dataset.quantity ? button.dataset.quantity + 'x' : '-';
+            if (returnFields.condition) {
+                returnFields.condition.value = '';
+            }
+            if (returnFields.receivedBy) {
+                returnFields.receivedBy.value = '';
+            }
+            if (returnFields.remarks) {
+                returnFields.remarks.value = '';
+            }
+            if (returnFields.dateActual) {
+                returnFields.dateActual.value = toDateTimeLocalValue();
+            }
+            if (returnFields.dateConfirmed) {
+                returnFields.dateConfirmed.value = toDateTimeLocalValue();
+            }
             if (returnFields.confirm) {
                 returnFields.confirm.checked = false;
             }

@@ -9,10 +9,15 @@
         <h2 class="h4 mb-1">Schedules (Cron Jobs)</h2>
         <p class="text-secondary mb-0">Configure automatic backups every hour at X:00 with retention and scope controls.</p>
     </div>
-    <form method="post" action="{% url 'system_backup_run_now' %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-success">Run Backup Now</button>
-    </form>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if request.user.is_superuser or perms.core.view_activitylog %}
+            <a href="{% url 'activity_logs' %}" class="btn btn-outline-success">Activity Log</a>
+        {% endif %}
+        <form method="post" action="{% url 'system_backup_run_now' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-success">Run Backup Now</button>
+        </form>
+    </div>
 </div>
 
 <div class="row g-3 mb-4">

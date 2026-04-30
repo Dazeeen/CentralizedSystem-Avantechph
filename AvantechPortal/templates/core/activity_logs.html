@@ -1,0 +1,112 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Activity Log{% endblock %}
+{% block page_heading %}Activity Log{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="h4 mb-1">Important Activity</h2>
+        <p class="text-secondary mb-0">Business actions across the portal. Page views and ordinary clicks are not logged.</p>
+    </div>
+    <span class="badge text-bg-light border">{{ total_logs }} result{{ total_logs|pluralize }}</span>
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-12 col-lg-5">
+        <label class="form-label" for="activitySearch">Search</label>
+        <input type="search" class="form-control" id="activitySearch" name="q" value="{{ query }}" placeholder="User, action, target, or record number">
+    </div>
+    <div class="col-6 col-lg-3">
+        <label class="form-label" for="activityCategory">Category</label>
+        <select class="form-select" id="activityCategory" name="category">
+            <option value="">All categories</option>
+            {% for value, label in category_choices %}
+                <option value="{{ value }}" {% if selected_category == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-6 col-lg-2">
+        <label class="form-label" for="activityAction">Action</label>
+        <select class="form-select" id="activityAction" name="action">
+            <option value="">All actions</option>
+            {% for value, label in action_choices %}
+                <option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-12 col-lg-2 d-grid">
+        <button type="submit" class="btn btn-success">Filter</button>
+    </div>
+</form>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Time</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Category</th>
+                    <th>Summary</th>
+                    <th>Target</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs_page %}
+                    <tr>
+                        <td class="small text-secondary">{{ log.created_at|date:'Y-m-d H:i' }}</td>
+                        <td>
+                            {% if log.actor %}
+                                {{ log.actor.get_full_name|default:log.actor.username }}
+                                <div class="small text-secondary">{{ log.actor.username }}</div>
+                            {% else %}
+                                System
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-success-subtle text-success-emphasis">{{ log.get_action_display }}</span></td>
+                        <td>{{ log.get_category_display }}</td>
+                        <td>{{ log.summary }}</td>
+                        <td>
+                            {% if log.target_label %}
+                                <span class="fw-semibold">{{ log.target_label }}</span>
+                            {% elif log.target_model %}
+                                <span class="fw-semibold">{{ log.target_model }}</span>
+                            {% else %}
+                                <span class="text-secondary">-</span>
+                            {% endif %}
+                            {% if log.target_model or log.target_id %}
+                                <div class="small text-secondary">{{ log.target_model }}{% if log.target_id %} #{{ log.target_id }}{% endif %}</div>
+                            {% endif %}
+                        </td>
+                        <td class="small text-secondary">{{ log.ip_address|default:'-' }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-secondary">No important activity matched your filters.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if logs_page.paginator.num_pages > 1 %}
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <small class="text-secondary">Page {{ logs_page.number }} of {{ logs_page.paginator.num_pages }}</small>
+            <div class="btn-group" role="group" aria-label="Activity log pagination">
+                {% if logs_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-secondary" href="?q={{ query|urlencode }}&category={{ selected_category|urlencode }}&action={{ selected_action|urlencode }}&page={{ logs_page.previous_page_number }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+                {% if logs_page.has_next %}
+                    <a class="btn btn-sm btn-outline-secondary" href="?q={{ query|urlencode }}&category={{ selected_category|urlencode }}&action={{ selected_action|urlencode }}&page={{ logs_page.next_page_number }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

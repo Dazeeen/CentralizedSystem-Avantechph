@@ -45,7 +45,7 @@
             <div class="col-md-4">
                 <div class="p-3 rounded bg-light border">
                     <div class="small text-secondary">Total Printable Tags</div>
-                    <div class="h4 mb-0 text-success-emphasis">{{ total_tags }}</div>
+                    <div class="h4 mb-0 text-success-emphasis"><span id="visiblePrintableTagCount">{{ total_tags }}</span></div>
                 </div>
             </div>
             <div class="col-md-4">
@@ -65,6 +65,99 @@
 </div>
 
 <div class="card border-0 shadow-sm mb-4 no-print">
+    <div class="card-body border-bottom">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-lg-7">
+                <label class="form-label mb-1" for="assetTagDocumentSearch">Search Items</label>
+                <input id="assetTagDocumentSearch" type="search" class="form-control" placeholder="Item ID, name, department, specification">
+            </div>
+            <div class="col-12 col-lg">
+                <div class="small text-secondary">
+                    <span id="assetTagDocumentSelectionCount">{{ total_tags }}</span> of {{ total_tags }} tag(s) included for print
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card-body bg-light-subtle">
+        {% if entry_category_groups %}
+            <div class="row g-3">
+                <div class="col-12 col-xl-5 js-tag-left-pane">
+                    <div class="border rounded bg-white p-3 h-100">
+                        <div class="small text-secondary mb-2">Item Types</div>
+                        <div class="d-grid gap-2 asset-tag-scroll-box">
+                            {% for group in entry_category_groups %}
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary text-start d-flex align-items-center justify-content-between js-document-type-row {% if forloop.first %}active{% endif %}"
+                                    data-category-key="document-tag-category-{{ forloop.counter }}"
+                                >
+                                    <span class="d-flex align-items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            class="js-document-tag-category-toggle js-document-type-checkbox"
+                                            data-category-key="document-tag-category-{{ forloop.counter }}"
+                                            checked
+                                            aria-label="Include all {{ group.label }} tags"
+                                        >
+                                        <span class="fw-semibold">{{ group.label }}</span>
+                                    </span>
+                                    <span class="badge bg-light text-dark border js-document-tag-category-count">{{ group.entries|length }} / {{ group.entries|length }}</span>
+                                </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-xl-7 js-tag-right-pane">
+                    <div class="border rounded bg-white p-3 h-100">
+                        <div class="small text-secondary mb-2">Items / Variants</div>
+                        <div class="asset-tag-scroll-box px-1">
+                            <div class="row g-2 m-0">
+                            {% for group in entry_category_groups %}
+                                {% for entry in group.entries %}
+                                    <div
+                                        class="col-12 px-0 js-document-tag-control-row {% if not forloop.parentloop.first %}d-none{% endif %}"
+                                        data-category-key="document-tag-category-{{ forloop.parentloop.counter }}"
+                                        data-has-variant="{% if entry.parent_item_code_snapshot %}1{% else %}0{% endif %}"
+                                        data-search="{{ entry.item_code_snapshot }} {{ entry.item_name_snapshot }} {{ entry.department_name_snapshot }} {{ entry.specification_snapshot }} {{ group.label }} {{ entry.parent_item_code_snapshot }}"
+                                    >
+                                        <label class="form-check border rounded px-2 py-1 bg-light w-100">
+                                            <input
+                                                type="checkbox"
+                                                class="form-check-input js-document-tag-checkbox"
+                                                value="{{ entry.id }}"
+                                                data-entry-id="{{ entry.id }}"
+                                                data-category-key="document-tag-category-{{ forloop.parentloop.counter }}"
+                                                checked
+                                            >
+                                            <span class="form-check-label d-flex flex-wrap align-items-center justify-content-between gap-2 ps-1">
+                                                <span>
+                                                    <span class="fw-semibold">{{ entry.item_code_snapshot }}</span>
+                                                    <span>{{ entry.item_name_snapshot }}</span>
+                                                </span>
+                                                <span class="small text-secondary">
+                                                    {% if entry.parent_item_code_snapshot %}
+                                                        Variant: {{ entry.parent_item_code_snapshot }}
+                                                    {% else %}
+                                                        Main Item
+                                                    {% endif %}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="text-secondary text-center py-3">No entries in this batch.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4 no-print">
     <div class="table-responsive">
         <table class="table align-middle mb-0">
             <thead class="table-light">
@@ -79,7 +172,7 @@
             </thead>
             <tbody>
                 {% for entry in entries %}
-                    <tr>
+                    <tr class="js-document-tag-table-row" data-entry-id="{{ entry.id }}">
                         <td class="fw-semibold">{{ entry.item_code_snapshot }}</td>
                         <td>{{ entry.item_code_snapshot }}</td>
                         <td>{{ entry.item_name_snapshot }}</td>
@@ -99,14 +192,222 @@
 
 <div class="print-grid">
     {% for entry in entries %}
-        <div class="print-tag">
+        <div class="print-tag js-document-print-tag" data-entry-id="{{ entry.id }}">
             <div class="print-tag-line"><strong>ID:</strong> {{ entry.item_code_snapshot }}</div>
             <div class="print-tag-line"><strong>Spec:</strong> {{ entry.specification_snapshot|default:'-' }}</div>
         </div>
     {% endfor %}
 </div>
 
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const searchInput = document.getElementById('assetTagDocumentSearch');
+    const selectionCount = document.getElementById('assetTagDocumentSelectionCount');
+    const visiblePrintableTagCount = document.getElementById('visiblePrintableTagCount');
+    const categoryRows = Array.from(document.querySelectorAll('.js-document-type-row'));
+    const categoryToggles = Array.from(document.querySelectorAll('.js-document-tag-category-toggle'));
+    const controlRows = Array.from(document.querySelectorAll('.js-document-tag-control-row'));
+    const itemCheckboxes = Array.from(document.querySelectorAll('.js-document-tag-checkbox'));
+    const tableRows = Array.from(document.querySelectorAll('.js-document-tag-table-row'));
+    const printTags = Array.from(document.querySelectorAll('.js-document-print-tag'));
+    const rightPane = document.querySelector('.js-tag-right-pane');
+    const leftPane = document.querySelector('.js-tag-left-pane');
+    const hasVariants = controlRows.some(function (row) {
+        return row.getAttribute('data-has-variant') === '1';
+    });
+    let activeCategoryKey = categoryRows[0] ? categoryRows[0].getAttribute('data-category-key') : '';
+
+    function getCategoryItems(categoryKey) {
+        return itemCheckboxes.filter(function (checkbox) {
+            return checkbox.getAttribute('data-category-key') === categoryKey;
+        });
+    }
+
+    function setEntryVisibility(entryId, isIncluded) {
+        tableRows
+            .filter(function (row) { return row.getAttribute('data-entry-id') === entryId; })
+            .forEach(function (row) { row.classList.toggle('d-none', !isIncluded); });
+
+        printTags
+            .filter(function (tag) { return tag.getAttribute('data-entry-id') === entryId; })
+            .forEach(function (tag) { tag.classList.toggle('d-none', !isIncluded); });
+    }
+
+    function syncCategoryState(categoryKey) {
+        const categoryItems = getCategoryItems(categoryKey);
+        const includedCount = categoryItems.filter(function (checkbox) { return checkbox.checked; }).length;
+        const categoryToggle = categoryToggles.find(function (toggle) {
+            return toggle.getAttribute('data-category-key') === categoryKey;
+        });
+        const categoryGroup = categoryRows.find(function (group) {
+            return group.getAttribute('data-category-key') === categoryKey;
+        });
+
+        if (categoryToggle) {
+            categoryToggle.checked = categoryItems.length > 0 && includedCount === categoryItems.length;
+            categoryToggle.indeterminate = includedCount > 0 && includedCount < categoryItems.length;
+        }
+
+        if (categoryGroup) {
+            const countNode = categoryGroup.querySelector('.js-document-tag-category-count');
+            if (countNode) {
+                countNode.textContent = includedCount + ' of ' + categoryItems.length + ' included';
+            }
+        }
+    }
+
+    function syncActiveCategoryRows() {
+        controlRows.forEach(function (row) {
+            const rowCategory = row.getAttribute('data-category-key');
+            const rowMatchesCategory = rowCategory === activeCategoryKey;
+            const rowMatchesSearch = !row.classList.contains('js-hidden-by-search');
+            row.classList.toggle('d-none', !(rowMatchesCategory && rowMatchesSearch));
+        });
+    }
+
+    function setActiveCategory(categoryKey) {
+        activeCategoryKey = categoryKey;
+        categoryRows.forEach(function (row) {
+            row.classList.toggle('active', row.getAttribute('data-category-key') === categoryKey);
+            row.classList.toggle('btn-success', row.getAttribute('data-category-key') === categoryKey);
+            row.classList.toggle('btn-outline-secondary', row.getAttribute('data-category-key') !== categoryKey);
+        });
+        syncActiveCategoryRows();
+    }
+
+    function syncDocumentTagState() {
+        const includedCount = itemCheckboxes.filter(function (checkbox) { return checkbox.checked; }).length;
+        if (selectionCount) {
+            selectionCount.textContent = includedCount;
+        }
+        if (visiblePrintableTagCount) {
+            visiblePrintableTagCount.textContent = includedCount;
+        }
+
+        itemCheckboxes.forEach(function (checkbox) {
+            setEntryVisibility(checkbox.getAttribute('data-entry-id'), checkbox.checked);
+        });
+
+        categoryRows.forEach(function (categoryGroup) {
+            syncCategoryState(categoryGroup.getAttribute('data-category-key'));
+        });
+    }
+
+    function filterDocumentTagControls() {
+        const query = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
+
+        controlRows.forEach(function (row) {
+            const searchableText = (row.getAttribute('data-search') || '').toLowerCase();
+            row.classList.toggle('js-hidden-by-search', Boolean(query) && !searchableText.includes(query));
+        });
+
+        categoryRows.forEach(function (categoryRow) {
+            const categoryKey = categoryRow.getAttribute('data-category-key');
+            const visibleRows = controlRows.filter(function (row) {
+                return row.getAttribute('data-category-key') === categoryKey && !row.classList.contains('js-hidden-by-search');
+            });
+            categoryRow.classList.toggle('d-none', visibleRows.length === 0);
+            if (categoryKey === activeCategoryKey && visibleRows.length === 0) {
+                const fallbackCategory = categoryRows.find(function (row) { return !row.classList.contains('d-none'); });
+                if (fallbackCategory) {
+                    activeCategoryKey = fallbackCategory.getAttribute('data-category-key');
+                }
+            }
+        });
+        syncActiveCategoryRows();
+    }
+
+    categoryRows.forEach(function (row) {
+        row.addEventListener('click', function () {
+            setActiveCategory(row.getAttribute('data-category-key'));
+        });
+    });
+
+    categoryToggles.forEach(function (toggle) {
+        toggle.addEventListener('click', function (event) {
+            event.stopPropagation();
+        });
+        toggle.addEventListener('change', function () {
+            const categoryItems = getCategoryItems(toggle.getAttribute('data-category-key'));
+            categoryItems.forEach(function (checkbox) {
+                checkbox.checked = toggle.checked;
+            });
+            syncDocumentTagState();
+        });
+    });
+
+    itemCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', syncDocumentTagState);
+    });
+
+    if (searchInput) {
+        searchInput.addEventListener('input', filterDocumentTagControls);
+    }
+
+    if (!hasVariants && rightPane && leftPane) {
+        rightPane.classList.add('d-none');
+        leftPane.className = leftPane.className.replace('col-xl-5', 'col-xl-12');
+    }
+
+    syncDocumentTagState();
+    if (activeCategoryKey) {
+        setActiveCategory(activeCategoryKey);
+    }
+    filterDocumentTagControls();
+});
+</script>
+
 <style>
+    .js-document-type-row {
+        min-height: 16px;
+        padding: 0.02rem 0.3rem;
+        font-size: 0.72rem;
+    }
+
+    .js-document-type-row > span.d-flex.align-items-center.gap-2 {
+        gap: 0.25rem !important;
+    }
+
+    .js-document-type-checkbox {
+        width: 0.78rem;
+        height: 0.78rem;
+        margin: 0;
+        flex: 0 0 auto;
+        accent-color: #198754;
+    }
+
+    .js-tag-left-pane .border.rounded.bg-white {
+        padding-left: 0.85rem !important;
+    }
+
+    .js-document-type-row .badge {
+        font-size: 0.78rem;
+        padding: 0.3rem 0.5rem;
+    }
+
+    .js-document-tag-control-row .form-check-label {
+        font-size: 0.92rem;
+    }
+
+    .js-document-tag-control-row .small {
+        font-size: 0.78rem !important;
+    }
+
+    .asset-tag-scroll-box {
+        height: 420px;
+        min-height: 420px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .asset-tag-scroll-box .form-check {
+        padding-left: 1.6rem;
+    }
+
+    .asset-tag-scroll-box .form-check-input {
+        margin-left: -1.05rem;
+    }
+
     .print-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

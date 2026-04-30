@@ -161,6 +161,69 @@ class LoginEvent(models.Model):
 		return f'LoginEvent<{self.username_attempt}:{self.reason}>'
 
 
+class ActivityLog(models.Model):
+	ACTION_CHOICES = [
+		('create', 'Created'),
+		('update', 'Updated'),
+		('delete', 'Deleted'),
+		('submit', 'Submitted'),
+		('approve', 'Approved'),
+		('reject', 'Rejected'),
+		('cancel', 'Cancelled'),
+		('generate', 'Generated'),
+		('upload', 'Uploaded'),
+		('restore', 'Restored'),
+		('archive', 'Archived'),
+		('status_change', 'Status Changed'),
+		('role_change', 'Role Changed'),
+		('security', 'Security'),
+	]
+
+	CATEGORY_CHOICES = [
+		('clients', 'Clients'),
+		('finance', 'Finance'),
+		('assets', 'Asset Tracker'),
+		('accountability', 'Accountability'),
+		('support', 'Support Tickets'),
+		('development', 'Development'),
+		('system', 'System'),
+		('users', 'Users & Roles'),
+		('security', 'Security'),
+	]
+
+	actor = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='activity_logs',
+	)
+	action = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True)
+	category = models.CharField(max_length=32, choices=CATEGORY_CHOICES, db_index=True)
+	summary = models.CharField(max_length=255)
+	target_model = models.CharField(max_length=120, blank=True)
+	target_id = models.CharField(max_length=64, blank=True)
+	target_label = models.CharField(max_length=255, blank=True)
+	url_name = models.CharField(max_length=120, blank=True)
+	path = models.CharField(max_length=255, blank=True)
+	ip_address = models.GenericIPAddressField(blank=True, null=True)
+	user_agent = models.CharField(max_length=255, blank=True)
+	metadata = models.JSONField(default=dict, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [
+			models.Index(fields=['-created_at']),
+			models.Index(fields=['category', '-created_at']),
+			models.Index(fields=['action', '-created_at']),
+		]
+
+	def __str__(self):
+		actor_label = self.actor.username if self.actor_id else 'System'
+		return f'ActivityLog<{actor_label}:{self.action}:{self.summary}>'
+
+
 class EmailVerificationToken(models.Model):
 	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='email_tokens')
 	token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -1241,7 +1304,19 @@ class AssetAccountability(models.Model):
 	)
 	processed_at = models.DateTimeField(null=True, blank=True)
 	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='borrowed')
+	accountability_form_batch = models.ForeignKey(
+		'AssetAccountabilityFormBatch',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='accountability_records',
+	)
 	notes = models.TextField(blank=True)
+	return_remarks = models.TextField(blank=True)
+	return_condition = models.CharField(max_length=255, blank=True)
+	return_received_by = models.CharField(max_length=150, blank=True)
+	return_date_actual = models.DateTimeField(null=True, blank=True)
+	return_confirmed_at = models.DateTimeField(null=True, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
@@ -1278,15 +1353,6 @@ class AssetAccountability(models.Model):
 			self.control_number = f'{self.request_year}-{self.control_sequence:04d}'
 
 	def save(self, *args, **kwargs):
-		needs_control_number = (
-			self.request_status == 'approved'
-			and (not self.control_number or not self.request_year or not self.control_sequence)
-		)
-		if needs_control_number:
-			self._assign_control_number()
-			update_fields = kwargs.get('update_fields')
-			if update_fields is not None:
-				kwargs['update_fields'] = set(update_fields) | {'control_number', 'request_year', 'control_sequence'}
 		super().save(*args, **kwargs)
 
 	def mark_approved(self, processed_by=None, reason=''):
@@ -1294,17 +1360,17 @@ class AssetAccountability(models.Model):
 		if self.request_status != 'pending':
 			return False
 
-		self.item.deduct_stock(self.quantity_borrowed)
+		self.item.refresh_from_db(fields=['stock_quantity', 'updated_at'])
+		if int(self.item.stock_quantity or 0) < int(self.quantity_borrowed or 0):
+			raise ValidationError('Insufficient stock for this specific item/variant.')
+		self.item.stock_quantity = int(self.item.stock_quantity or 0) - int(self.quantity_borrowed or 0)
+		self.item.save(update_fields=['stock_quantity', 'updated_at'])
 		self.request_status = 'approved'
 		self.status = 'borrowed'
 		self.processed_by = processed_by
 		self.processed_at = timezone.now()
 		self.decision_reason = reason or ''
-		self._assign_control_number()
 		self.save(update_fields=[
-			'control_number',
-			'request_year',
-			'control_sequence',
 			'request_status',
 			'status',
 			'processed_by',
@@ -1326,15 +1392,34 @@ class AssetAccountability(models.Model):
 		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'updated_at'])
 		return True
 
-	def mark_returned(self):
+	def mark_returned(self, returned_at=None, confirmed_at=None, remarks='', condition='', received_by=''):
 		"""Mark item as returned and restore stock"""
 		if self.request_status != 'approved':
 			return False
 		if self.status != 'returned':
 			self.status = 'returned'
-			self.date_returned = timezone.now()
-			self.item.restore_stock(self.quantity_borrowed)
-			self.save(update_fields=['status', 'date_returned', 'updated_at'])
+			now_value = timezone.now()
+			self.return_date_actual = returned_at or now_value
+			self.return_confirmed_at = confirmed_at or now_value
+			self.date_returned = self.return_confirmed_at
+			self.return_remarks = (remarks or '').strip()
+			self.return_condition = (condition or '').strip()
+			self.return_received_by = (received_by or '').strip()
+			self.item.refresh_from_db(fields=['stock_quantity', 'updated_at'])
+			self.item.stock_quantity = int(self.item.stock_quantity or 0) + int(self.quantity_borrowed or 0)
+			self.item.save(update_fields=['stock_quantity', 'updated_at'])
+			self.save(
+				update_fields=[
+					'status',
+					'date_returned',
+					'return_date_actual',
+					'return_confirmed_at',
+					'return_remarks',
+					'return_condition',
+					'return_received_by',
+					'updated_at',
+				]
+			)
 			return True
 		return False
 
@@ -1356,6 +1441,53 @@ class AssetReturnProof(models.Model):
 
 	def __str__(self):
 		return f'ReturnProof<{self.accountability_id}:{self.image.name}>'
+
+
+class AssetAccountabilityFormBatch(models.Model):
+	control_number = models.CharField(max_length=12, unique=True, editable=False)
+	request_year = models.PositiveIntegerField(editable=False, db_index=True)
+	control_sequence = models.PositiveIntegerField(editable=False)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='asset_accountability_form_batches_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		constraints = [
+			models.UniqueConstraint(fields=['request_year', 'control_sequence'], name='unique_accountability_form_batch_year_sequence'),
+		]
+
+	def __str__(self):
+		return self.control_number
+
+	def _assign_control_number(self):
+		current_year = timezone.localdate().year
+		if self.request_year and self.control_sequence:
+			self.control_number = f'{self.request_year}-{self.control_sequence:04d}'
+			return
+
+		self.request_year = current_year
+		with transaction.atomic():
+			latest_sequence = (
+				AssetAccountabilityFormBatch.objects
+				.select_for_update()
+				.filter(request_year=current_year)
+				.aggregate(max_sequence=Max('control_sequence'))
+				.get('max_sequence')
+				or 0
+			)
+			self.control_sequence = latest_sequence + 1
+			self.control_number = f'{self.request_year}-{self.control_sequence:04d}'
+
+	def save(self, *args, **kwargs):
+		if not self.control_number or not self.request_year or not self.control_sequence:
+			self._assign_control_number()
+		super().save(*args, **kwargs)
 
 
 class AssetAccountabilityTemplate(models.Model):
