@@ -1,0 +1,13 @@
+{
+  "name": "avantech-file-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop bridge for native folder picker (File Explorer) for Avantech File Manager",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

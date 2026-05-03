@@ -1605,6 +1605,21 @@ def database_file_upload_to(instance, filename):
 	return f'{safe_name}/{safe_name}_{random_suffix}{extension.lower()}'
 
 
+def file_manager_upload_to(instance, filename):
+	original_name = filename or 'file.bin'
+	extension = Path(original_name).suffix or '.bin'
+	branch_slug = slugify((instance.branch_name_snapshot or 'no-branch').strip()) or 'no-branch'
+	department_slug = slugify((instance.department_name_snapshot or 'no-department').strip()) or 'no-department'
+	role_slug = slugify((instance.role_name_snapshot or 'no-role').strip()) or 'no-role'
+	username_slug = slugify((instance.owner.username if instance.owner_id else 'unknown-user').strip()) or 'unknown-user'
+	date_prefix = timezone.localtime(timezone.now()).strftime('%Y/%m')
+	random_suffix = uuid.uuid4().hex[:10]
+	return (
+		f'file_manager/{date_prefix}/{branch_slug}/{department_slug}/{role_slug}/'
+		f'{username_slug}/{random_suffix}{extension.lower()}'
+	)
+
+
 class DevelopmentFeedback(models.Model):
 	CATEGORY_CHOICES = [
 		('suggestion', 'Suggestion'),
@@ -1787,6 +1802,142 @@ class DatabaseFile(models.Model):
 
 	def __str__(self):
 		return f'DatabaseFile<{self.database_type}:{self.database_name}>'
+
+
+class FileStorageEndpoint(models.Model):
+	name = models.CharField(max_length=120, unique=True)
+	destination_path = models.CharField(max_length=255, help_text='Destination device/path label (e.g., Drive D, NAS-01, Cloud Bucket A).')
+	capacity_mb = models.PositiveIntegerField(default=0)
+	is_active = models.BooleanField(default=True)
+	notes = models.TextField(blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='file_storage_endpoints_created',
+	)
+
+	class Meta:
+		ordering = ['name']
+
+	def __str__(self):
+		return f'FileStorageEndpoint<{self.name}:{self.destination_path}>'
+
+
+class ManagedFileNode(models.Model):
+	NODE_TYPE_CHOICES = [
+		('folder', 'Folder'),
+		('shared_folder', 'Shared Folder'),
+		('file', 'File'),
+	]
+
+	ACCESS_CHOICES = [
+		('private', 'Private'),
+		('shared', 'Shared'),
+	]
+
+	parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+	name = models.CharField(max_length=180)
+	node_type = models.CharField(max_length=20, choices=NODE_TYPE_CHOICES, default='folder')
+	access_scope = models.CharField(max_length=20, choices=ACCESS_CHOICES, default='private')
+	owner = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='managed_file_nodes',
+	)
+	storage_endpoint = models.ForeignKey(
+		FileStorageEndpoint,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='nodes',
+	)
+	branch_name_snapshot = models.CharField(max_length=120, blank=True, default='')
+	department_name_snapshot = models.CharField(max_length=120, blank=True, default='')
+	role_name_snapshot = models.CharField(max_length=120, blank=True, default='')
+	file = models.FileField(upload_to=file_manager_upload_to, blank=True, null=True)
+	file_size_bytes = models.BigIntegerField(default=0)
+	mime_type = models.CharField(max_length=120, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='managed_file_nodes_created',
+	)
+	updated_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='managed_file_nodes_updated',
+	)
+
+	class Meta:
+		ordering = ['node_type', 'name']
+		constraints = [
+			models.UniqueConstraint(fields=['parent', 'owner', 'name'], name='unique_managed_file_node_per_owner_parent_name'),
+		]
+
+	def __str__(self):
+		return f'ManagedFileNode<{self.node_type}:{self.name}>'
+
+
+class ManagedFilePermission(models.Model):
+	ACCESS_LEVEL_CHOICES = [
+		('read', 'View/Read'),
+		('write', 'Write'),
+		('read_write', 'Read/Write'),
+	]
+
+	node = models.ForeignKey(ManagedFileNode, on_delete=models.CASCADE, related_name='permissions')
+	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='managed_file_permissions')
+	access_level = models.CharField(max_length=20, choices=ACCESS_LEVEL_CHOICES, default='read')
+	created_at = models.DateTimeField(auto_now_add=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='managed_file_permissions_created',
+	)
+
+	class Meta:
+		ordering = ['node_id', 'user_id']
+		constraints = [
+			models.UniqueConstraint(fields=['node', 'user'], name='unique_managed_file_permission_per_user_node'),
+		]
+
+	def __str__(self):
+		return f'ManagedFilePermission<{self.node_id}:{self.user_id}:{self.access_level}>'
+
+
+class ManagedUserStorageQuota(models.Model):
+	user = models.OneToOneField(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='managed_storage_quota',
+	)
+	capacity_mb = models.PositiveIntegerField(default=0)
+	updated_at = models.DateTimeField(auto_now=True)
+	updated_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='managed_storage_quotas_updated',
+	)
+
+	class Meta:
+		ordering = ['user_id']
+
+	def __str__(self):
+		return f'ManagedUserStorageQuota<{self.user_id}:{self.capacity_mb}MB>'
 
 
 class SystemBackupSchedule(models.Model):

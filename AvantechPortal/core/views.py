@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 import base64
 import csv
+import mimetypes
 from functools import lru_cache
 from io import BytesIO
 from json import dumps
@@ -33,7 +34,7 @@ from django.db.utils import OperationalError
 from django.db.models import Count, Max, Sum
 from django.db.models import Q
 from django.db.models.functions import TruncMonth
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -124,6 +125,10 @@ from .models import (
 	LiquidationSettings,
 	LiquidationTemplate,
 	LoginEvent,
+	ManagedFileNode,
+	ManagedFilePermission,
+	ManagedUserStorageQuota,
+	FileStorageEndpoint,
 	Notification,
 	PatchNote,
 	PatchNoteAttachment,
@@ -1019,6 +1024,45 @@ def _permission_denied_response(request, message='You do not have permission to 
 	if referer and url_has_allowed_host_and_scheme(referer, {request.get_host()}):
 		return redirect(referer)
 	return redirect('dashboard')
+
+
+def _is_ajax_request(request):
+	return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
+def _fm_response(request, ok=True, message='', redirect_name='file_manager_list', redirect_node_id=None, status=200):
+	if _is_ajax_request(request):
+		payload = {'ok': ok, 'message': message}
+		if redirect_node_id:
+			payload['node_id'] = redirect_node_id
+		return JsonResponse(payload, status=status)
+	if message:
+		if ok:
+			messages.success(request, message)
+		else:
+			messages.error(request, message)
+	if redirect_node_id:
+		return redirect(f"{reverse(redirect_name)}?node={redirect_node_id}")
+	return redirect(redirect_name)
+
+
+def _list_browsable_directories(current_path):
+	try:
+		path_obj = Path(current_path).resolve()
+	except Exception:
+		return None, []
+	if not path_obj.exists() or not path_obj.is_dir():
+		return None, []
+	entries = []
+	try:
+		for entry in sorted(path_obj.iterdir(), key=lambda item: item.name.lower()):
+			if entry.is_dir():
+				entries.append(str(entry))
+				if len(entries) >= 200:
+					break
+	except Exception:
+		return str(path_obj), []
+	return str(path_obj), entries
 
 
 def _require_permission(request, perm_name):
@@ -3391,6 +3435,437 @@ def users_bulk_update_role(request):
 
 	return redirect('users_list')
 
+
+def _get_user_file_context(user):
+	profile = getattr(user, 'profile', None)
+	branch_name = (getattr(profile, 'branch', '') or '').strip() or 'Unassigned Branch'
+	role_names = [group.name for group in user.groups.all()]
+	role_name = (role_names[0] if role_names else '').strip() or 'Unassigned Role'
+	department_name = role_name
+	for delimiter in [' - ', ':', '/']:
+		if delimiter in role_name:
+			left_part, right_part = role_name.split(delimiter, 1)
+			left_part = left_part.strip()
+			right_part = right_part.strip()
+			if left_part and right_part:
+				department_name = left_part
+				role_name = right_part
+				break
+	return branch_name, department_name, role_name
+
+
+def _user_can_access_node(user, node):
+	if user.is_superuser or node.owner_id == user.id:
+		return True
+	return ManagedFilePermission.objects.filter(node=node, user=user).exists()
+
+
+def _user_can_write_node(user, node):
+	if user.is_superuser or node.owner_id == user.id:
+		return True
+	permission = ManagedFilePermission.objects.filter(node=node, user=user).values_list('access_level', flat=True).first()
+	return permission in {'write', 'read_write'}
+
+
+def _can_view_all_file_manager_nodes(user):
+	return user.is_superuser or user.has_perm('core.change_managedfilenode') or user.has_perm('core.delete_managedfilenode')
+
+
+def _get_default_root_storage_endpoint():
+	return FileStorageEndpoint.objects.filter(is_active=True).order_by('id').first()
+
+
+def _get_user_storage_usage_bytes(user):
+	return int(
+		ManagedFileNode.objects.filter(owner=user, node_type='file').aggregate(total=Sum('file_size_bytes')).get('total')
+		or 0
+	)
+
+
+def _get_user_storage_quota_mb(user):
+	quota = ManagedUserStorageQuota.objects.filter(user=user).values_list('capacity_mb', flat=True).first()
+	return int(quota or 0)
+
+
+def _ensure_file_manager_default_hierarchy():
+	system_owner = User.objects.filter(is_superuser=True).order_by('id').first() or User.objects.order_by('id').first()
+	if not system_owner:
+		return
+
+	default_root_endpoint = _get_default_root_storage_endpoint()
+	all_users = User.objects.prefetch_related('groups', 'profile').order_by('id')
+	for target_user in all_users:
+		branch_name, department_name, role_name = _get_user_file_context(target_user)
+
+		branch_node, _ = ManagedFileNode.objects.get_or_create(
+			parent=None,
+			owner=system_owner,
+			name=branch_name,
+			defaults={
+				'node_type': 'folder',
+				'access_scope': 'shared',
+				'branch_name_snapshot': branch_name,
+				'department_name_snapshot': '',
+				'role_name_snapshot': '',
+				'storage_endpoint': default_root_endpoint,
+				'created_by': system_owner,
+				'updated_by': system_owner,
+			},
+		)
+
+		department_node, _ = ManagedFileNode.objects.get_or_create(
+			parent=branch_node,
+			owner=system_owner,
+			name=department_name,
+			defaults={
+				'node_type': 'folder',
+				'access_scope': 'shared',
+				'branch_name_snapshot': branch_name,
+				'department_name_snapshot': department_name,
+				'role_name_snapshot': '',
+				'storage_endpoint': default_root_endpoint,
+				'created_by': system_owner,
+				'updated_by': system_owner,
+			},
+		)
+
+		role_node, _ = ManagedFileNode.objects.get_or_create(
+			parent=department_node,
+			owner=system_owner,
+			name=role_name,
+			defaults={
+				'node_type': 'folder',
+				'access_scope': 'shared',
+				'branch_name_snapshot': branch_name,
+				'department_name_snapshot': department_name,
+				'role_name_snapshot': role_name,
+				'storage_endpoint': default_root_endpoint,
+				'created_by': system_owner,
+				'updated_by': system_owner,
+			},
+		)
+
+		user_node, _ = ManagedFileNode.objects.get_or_create(
+			parent=role_node,
+			owner=target_user,
+			name=target_user.username,
+			defaults={
+				'node_type': 'folder',
+				'access_scope': 'private',
+				'branch_name_snapshot': branch_name,
+				'department_name_snapshot': department_name,
+				'role_name_snapshot': role_name,
+				'storage_endpoint': default_root_endpoint,
+				'created_by': system_owner,
+				'updated_by': system_owner,
+			},
+		)
+
+		ManagedFilePermission.objects.get_or_create(
+			node=branch_node,
+			user=target_user,
+			defaults={'access_level': 'read', 'created_by': system_owner},
+		)
+		ManagedFilePermission.objects.get_or_create(
+			node=department_node,
+			user=target_user,
+			defaults={'access_level': 'read', 'created_by': system_owner},
+		)
+		ManagedFilePermission.objects.get_or_create(
+			node=role_node,
+			user=target_user,
+			defaults={'access_level': 'read', 'created_by': system_owner},
+		)
+		ManagedFilePermission.objects.get_or_create(
+			node=user_node,
+			user=target_user,
+			defaults={'access_level': 'read_write', 'created_by': system_owner},
+		)
+
+
+@login_required
+def file_manager_list(request):
+	restricted_response = _require_permission(request, 'core.view_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	_ensure_file_manager_default_hierarchy()
+
+	branch_name, department_name, role_name = _get_user_file_context(request.user)
+	root_nodes = ManagedFileNode.objects.filter(parent__isnull=True).select_related('owner', 'storage_endpoint')
+	can_view_all = _can_view_all_file_manager_nodes(request.user)
+	if not can_view_all:
+		root_nodes = root_nodes.filter(
+			Q(owner=request.user) | Q(permissions__user=request.user)
+		).distinct()
+
+	selected_node = None
+	node_id = (request.GET.get('node') or '').strip()
+	if node_id.isdigit():
+		candidate = ManagedFileNode.objects.select_related('owner', 'storage_endpoint', 'parent').filter(pk=int(node_id)).first()
+		if candidate and _user_can_access_node(request.user, candidate):
+			selected_node = candidate
+
+	if selected_node is None:
+		selected_node = root_nodes.order_by('name').first()
+
+	children = ManagedFileNode.objects.none()
+	if selected_node:
+		children = selected_node.children.select_related('owner', 'storage_endpoint').order_by('node_type', 'name')
+		if not can_view_all and selected_node.owner_id != request.user.id:
+			children = children.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
+
+	user_permissions = {}
+	if selected_node:
+		for item in ManagedFilePermission.objects.filter(node=selected_node).select_related('user'):
+			user_permissions[item.user_id] = item.access_level
+
+	context = {
+		'root_nodes': root_nodes.order_by('name'),
+		'selected_node': selected_node,
+		'children': children,
+		'storage_endpoints': FileStorageEndpoint.objects.order_by('name'),
+		'users': User.objects.order_by('username'),
+		'user_permissions': user_permissions,
+		'branch_name': branch_name,
+		'department_name': department_name,
+		'role_name': role_name,
+	}
+	return render(request, 'core/file_manager_list.html', context)
+
+
+@login_required
+@require_POST
+def file_manager_setup(request):
+	restricted_response = _require_permission(request, 'core.add_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	action = (request.POST.get('setup_action') or '').strip()
+	if action == 'endpoint':
+		name = (request.POST.get('endpoint_name') or '').strip()
+		destination_path = (request.POST.get('destination_path') or '').strip()
+		capacity_mb_raw = (request.POST.get('capacity_mb') or '').strip()
+		capacity_mb = int(capacity_mb_raw) if capacity_mb_raw.isdigit() else 0
+		if not name or not destination_path:
+			return _fm_response(request, ok=False, message='Endpoint name and destination are required.', status=400)
+		root_endpoint = FileStorageEndpoint.objects.create(
+			name=name,
+			destination_path=destination_path,
+			capacity_mb=capacity_mb,
+			notes=(request.POST.get('endpoint_notes') or '').strip(),
+			created_by=request.user,
+		)
+		ManagedFileNode.objects.filter(parent__isnull=True).update(storage_endpoint=root_endpoint)
+		return _fm_response(request, ok=True, message='Storage endpoint saved.')
+
+	if action == 'permission':
+		node_id = (request.POST.get('node_id') or '').strip()
+		user_id = (request.POST.get('target_user_id') or '').strip()
+		access_level = (request.POST.get('access_level') or '').strip()
+		if not (node_id.isdigit() and user_id.isdigit() and access_level in {'read', 'write', 'read_write'}):
+			return _fm_response(request, ok=False, message='Invalid permission setup payload.', status=400)
+		node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+		if not _user_can_write_node(request.user, node):
+			return _permission_denied_response(request)
+		target_user = get_object_or_404(User, pk=int(user_id))
+		ManagedFilePermission.objects.update_or_create(
+			node=node,
+			user=target_user,
+			defaults={'access_level': access_level, 'created_by': request.user},
+		)
+		return _fm_response(request, ok=True, message='Folder permission updated.', redirect_node_id=node.id)
+
+	if action == 'quota':
+		user_id = (request.POST.get('target_user_id') or '').strip()
+		capacity_mb_raw = (request.POST.get('capacity_mb') or '').strip()
+		if not user_id.isdigit():
+			return _fm_response(request, ok=False, message='Please select a valid user.', status=400)
+		if not capacity_mb_raw.isdigit():
+			return _fm_response(request, ok=False, message='Capacity MB must be a positive number.', status=400)
+		target_user = get_object_or_404(User, pk=int(user_id))
+		ManagedUserStorageQuota.objects.update_or_create(
+			user=target_user,
+			defaults={
+				'capacity_mb': int(capacity_mb_raw),
+				'updated_by': request.user,
+			},
+		)
+		return _fm_response(request, ok=True, message='User storage capacity updated.')
+
+	return _fm_response(request, ok=False, message='Invalid setup action.', status=400)
+
+
+@login_required
+def file_manager_browse_directories(request):
+	restricted_response = _require_permission(request, 'core.change_managedfilenode')
+	if restricted_response:
+		return restricted_response
+	requested_path = (request.GET.get('path') or '').strip()
+	if not requested_path:
+		requested_path = str(Path(settings.BASE_DIR).resolve())
+	current_path, directories = _list_browsable_directories(requested_path)
+	if not current_path:
+		return JsonResponse({'ok': False, 'message': 'Invalid directory path.'}, status=400)
+	parent_path = str(Path(current_path).parent) if Path(current_path).parent != Path(current_path) else current_path
+	return JsonResponse(
+		{
+			'ok': True,
+			'current_path': current_path,
+			'parent_path': parent_path,
+			'directories': directories,
+		}
+	)
+
+
+@login_required
+@require_POST
+def file_manager_create_folder(request):
+	restricted_response = _require_permission(request, 'core.add_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	parent = None
+	parent_id = (request.POST.get('parent_id') or '').strip()
+	if parent_id.isdigit():
+		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
+		if not _user_can_write_node(request.user, parent):
+			return _permission_denied_response(request)
+
+	branch_name, department_name, role_name = _get_user_file_context(request.user)
+	default_root_endpoint = _get_default_root_storage_endpoint()
+	ManagedFileNode.objects.create(
+		parent=parent,
+		name=(request.POST.get('folder_name') or '').strip() or 'New Folder',
+		node_type=(request.POST.get('folder_type') or 'folder').strip() if (request.POST.get('folder_type') or 'folder').strip() in {'folder', 'shared_folder'} else 'folder',
+		access_scope=(request.POST.get('access_scope') or 'private').strip() if (request.POST.get('access_scope') or 'private').strip() in {'private', 'shared'} else 'private',
+		owner=request.user,
+		storage_endpoint_id=int((request.POST.get('storage_endpoint_id') or '0') or 0) or (default_root_endpoint.id if default_root_endpoint else None),
+		branch_name_snapshot=branch_name,
+		department_name_snapshot=department_name,
+		role_name_snapshot=role_name,
+		created_by=request.user,
+		updated_by=request.user,
+	)
+	return _fm_response(request, ok=True, message='Folder created.', redirect_node_id=parent.id if parent else None)
+
+
+@login_required
+@require_POST
+def file_manager_upload(request):
+	restricted_response = _require_permission(request, 'core.add_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	parent = None
+	parent_id = (request.POST.get('parent_id') or '').strip()
+	if parent_id.isdigit():
+		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
+		if not _user_can_write_node(request.user, parent):
+			return _permission_denied_response(request)
+
+	branch_name, department_name, role_name = _get_user_file_context(request.user)
+	default_root_endpoint = _get_default_root_storage_endpoint()
+	uploaded_files = [item for item in request.FILES.getlist('files') if item]
+	if not uploaded_files:
+		return _fm_response(request, ok=False, message='No files selected for upload.', status=400)
+
+	quota_mb = _get_user_storage_quota_mb(request.user)
+	if quota_mb > 0:
+		current_usage_bytes = _get_user_storage_usage_bytes(request.user)
+		incoming_bytes = sum(int(getattr(item, 'size', 0) or 0) for item in uploaded_files)
+		allowed_bytes = quota_mb * 1024 * 1024
+		projected_bytes = current_usage_bytes + incoming_bytes
+		if projected_bytes > allowed_bytes:
+			current_mb = round(current_usage_bytes / (1024 * 1024), 2)
+			incoming_mb = round(incoming_bytes / (1024 * 1024), 2)
+			limit_mb = round(allowed_bytes / (1024 * 1024), 2)
+			return _fm_response(
+				request,
+				ok=False,
+				message=(
+					f'Upload blocked: storage quota exceeded. '
+					f'Current usage: {current_mb} MB, incoming: {incoming_mb} MB, limit: {limit_mb} MB.'
+				),
+				status=400,
+			)
+
+	for incoming_file in uploaded_files:
+		guessed_type, _ = mimetypes.guess_type(incoming_file.name or '')
+		ManagedFileNode.objects.create(
+			parent=parent,
+			name=(incoming_file.name or 'Uploaded File').strip(),
+			node_type='file',
+			owner=request.user,
+			storage_endpoint_id=int((request.POST.get('storage_endpoint_id') or '0') or 0) or (default_root_endpoint.id if default_root_endpoint else None),
+			branch_name_snapshot=branch_name,
+			department_name_snapshot=department_name,
+			role_name_snapshot=role_name,
+			file=incoming_file,
+			file_size_bytes=int(getattr(incoming_file, 'size', 0) or 0),
+			mime_type=guessed_type or '',
+			created_by=request.user,
+			updated_by=request.user,
+		)
+	return _fm_response(request, ok=True, message=f'{len(uploaded_files)} file(s) uploaded.', redirect_node_id=parent.id if parent else None)
+
+
+@login_required
+@require_POST
+def file_manager_bulk_action(request):
+	action = (request.POST.get('bulk_action') or '').strip()
+	if action == 'delete':
+		restricted_response = _require_permission(request, 'core.delete_managedfilenode')
+	else:
+		restricted_response = _require_permission(request, 'core.change_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	raw_ids = (request.POST.get('selected_ids') or '').strip()
+	selected_ids = [int(part.strip()) for part in raw_ids.split(',') if part.strip().isdigit()]
+	if not selected_ids:
+		return _fm_response(request, ok=False, message='No files/folders selected.', status=400)
+
+	nodes = list(ManagedFileNode.objects.filter(pk__in=selected_ids))
+	nodes = [node for node in nodes if _user_can_write_node(request.user, node)]
+
+	if action == 'delete':
+		deleted_count = len(nodes)
+		for node in nodes:
+			node.delete()
+		return _fm_response(request, ok=True, message=f'{deleted_count} item(s) deleted.')
+
+	if action == 'share':
+		target_user_id = (request.POST.get('bulk_target_user_id') or '').strip()
+		access_level = (request.POST.get('bulk_access_level') or 'read').strip()
+		if not (target_user_id.isdigit() and access_level in {'read', 'write', 'read_write'}):
+			return _fm_response(request, ok=False, message='Invalid bulk share payload.', status=400)
+		target_user = get_object_or_404(User, pk=int(target_user_id))
+		for node in nodes:
+			if node.node_type in {'folder', 'shared_folder', 'file'}:
+				ManagedFilePermission.objects.update_or_create(
+					node=node,
+					user=target_user,
+					defaults={'access_level': access_level, 'created_by': request.user},
+				)
+		return _fm_response(request, ok=True, message=f'Access granted on {len(nodes)} item(s).')
+
+	return _fm_response(request, ok=False, message='Invalid bulk action.', status=400)
+
+
+@login_required
+def file_manager_download(request, node_id):
+	restricted_response = _require_permission(request, 'core.view_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	node = get_object_or_404(ManagedFileNode, pk=node_id, node_type='file')
+	if not _user_can_access_node(request.user, node):
+		return _permission_denied_response(request)
+	if not node.file:
+		messages.error(request, 'File is no longer available.')
+		return redirect('file_manager_list')
+	return FileResponse(node.file.open('rb'), as_attachment=True, filename=node.name)
 
 @login_required
 def clients_list(request):

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avantech File Bridge</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2937; }
+    .card { border: 1px solid #d1d5db; border-radius: 10px; padding: 16px; }
+    button { padding: 10px 14px; border: 1px solid #059669; background: #10b981; color: #fff; border-radius: 8px; cursor: pointer; }
+    input { width: 100%; margin-top: 12px; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+    .hint { margin-top: 12px; color: #6b7280; font-size: 0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Native Folder Picker</h2>
+    <p>Use this to get the exact absolute folder path from File Explorer.</p>
+    <button id="pickBtn">Browse Folder</button>
+    <input id="pathBox" type="text" readonly placeholder="Selected absolute path appears here" />
+    <p class="hint">Copy this path and paste into Set General Root Destination in the web app.</p>
+  </div>
+
+  <script>
+    const pickBtn = document.getElementById('pickBtn');
+    const pathBox = document.getElementById('pathBox');
+    pickBtn.addEventListener('click', async () => {
+      const result = await window.bridgeApi.pickFolder();
+      if (result && result.ok) {
+        pathBox.value = result.path;
+      }
+    });
+  </script>
+</body>
+</html>

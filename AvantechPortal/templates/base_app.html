@@ -198,6 +198,17 @@
                                 <span class="nav-label">Users</span>
                             </a>
                         {% endif %}
+                        {% if request.user.is_superuser or perms.core.view_managedfilenode %}
+                            <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'file_manager_list' %}active{% endif %}" href="{% url 'file_manager_list' %}">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M3.5 7.5H10L12 9.5H20.5V18.5H3.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                        <path d="M3.5 11.5H20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">File Manager</span>
+                            </a>
+                        {% endif %}
                         <a class="nav-link app-nav-link {% if is_support_ticket_nav_active %}active{% endif %}" href="{% url 'support_tickets_list' %}">
                             <span class="nav-logo" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -639,6 +650,17 @@
                                 </svg>
                             </span>
                             <span class="nav-label">Users</span>
+                        </a>
+                    {% endif %}
+                    {% if request.user.is_superuser or perms.core.view_managedfilenode %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'file_manager_list' %}active{% endif %}" href="{% url 'file_manager_list' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M3.5 7.5H10L12 9.5H20.5V18.5H3.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                    <path d="M3.5 11.5H20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">File Manager</span>
                         </a>
                     {% endif %}
                     <a class="nav-link app-nav-link {% if is_support_ticket_nav_active %}active{% endif %}" href="{% url 'support_tickets_list' %}">
