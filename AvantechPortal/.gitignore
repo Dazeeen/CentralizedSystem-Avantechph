@@ -13,7 +13,8 @@ logs/
 README.md
 .env/
 .env 
-.media/
+media/
+media/support_ticket_message_images/
 .pycache/
 .env.production
 .env.deployment

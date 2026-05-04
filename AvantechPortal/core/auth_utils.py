@@ -12,11 +12,13 @@ def get_client_ip(request):
     return request.META.get("REMOTE_ADDR", "unknown")
 
 
-def invalidate_user_sessions(user):
+def invalidate_user_sessions(user, keep_session_key=None):
     user_id = str(user.pk)
     deleted = 0
 
     for session in Session.objects.all():
+        if keep_session_key and session.session_key == keep_session_key:
+            continue
         data = session.get_decoded()
         if data.get("_auth_user_id") == user_id:
             session.delete()

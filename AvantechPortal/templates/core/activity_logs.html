@@ -68,7 +68,19 @@
                         </td>
                         <td><span class="badge bg-success-subtle text-success-emphasis">{{ log.get_action_display }}</span></td>
                         <td>{{ log.get_category_display }}</td>
-                        <td>{{ log.summary }}</td>
+                        <td>
+                            {{ log.summary }}
+                            {% if log.metadata.message_preview or log.metadata.had_image %}
+                                <div class="small text-secondary mt-1">
+                                    {% if log.metadata.message_preview %}
+                                        "{{ log.metadata.message_preview }}"
+                                    {% endif %}
+                                    {% if log.metadata.had_image %}
+                                        {% if log.metadata.message_preview %} | {% endif %}Had photo attachment
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if log.target_label %}
                                 <span class="fw-semibold">{{ log.target_label }}</span>

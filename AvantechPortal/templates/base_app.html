@@ -101,7 +101,7 @@
                                     </span>
                                     <span class="nav-label">Liquidation</span>
                                 </a>
-                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_reimburstment' %}active{% endif %}" href="{% url 'finance_reimburstment' %}" style="font-size: 0.9rem;">
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_reimbursement' %}active{% endif %}" href="{% url 'finance_reimbursement' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <path d="M6.5 6.5H17.5V17.5H6.5V6.5Z" stroke="currentColor" stroke-width="1.8"/>
@@ -109,7 +109,7 @@
                                             <path d="M9 13H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                         </svg>
                                     </span>
-                                    <span class="nav-label">Reimburstment</span>
+                                    <span class="nav-label">Reimbursement</span>
                                 </a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_summary_request' %}active{% endif %}" href="{% url 'finance_summary_request' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
@@ -235,8 +235,8 @@
                             </span>
                             <span class="nav-label">Development</span>
                         </a>
-                        {% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile or perms.core.view_activitylog %}
-                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'activity_logs' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}{% url 'system_hub' %}{% else %}{% url 'activity_logs' %}{% endif %}">
+                        {% if request.user.is_superuser or can_access_super_user_chat or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile or perms.core.view_activitylog %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'activity_logs' or request.resolver_match.url_name == 'super_user_chat' or request.resolver_match.url_name == 'super_user_chat_delete' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}{% url 'system_hub' %}{% elif can_access_super_user_chat %}{% url 'super_user_chat' %}{% else %}{% url 'activity_logs' %}{% endif %}">
                             <span class="nav-logo" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -245,6 +245,7 @@
                                 </svg>
                             </span>
                             <span class="nav-label">System</span>
+                            <span class="badge bg-danger ms-auto {% if not super_user_chat_unread_count %}d-none{% endif %}" data-super-user-chat-unread-badge>{{ super_user_chat_unread_count|default:0 }}</span>
                         </a>
                         {% endif %}
                     </nav>
@@ -555,7 +556,7 @@
                                 </span>
                                 <span class="nav-label">Liquidation</span>
                             </a>
-                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_reimburstment' %}active{% endif %}" href="{% url 'finance_reimburstment' %}" style="font-size: 0.9rem;">
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_reimbursement' %}active{% endif %}" href="{% url 'finance_reimbursement' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <path d="M6.5 6.5H17.5V17.5H6.5V6.5Z" stroke="currentColor" stroke-width="1.8"/>
@@ -563,7 +564,7 @@
                                         <path d="M9 13H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                     </svg>
                                 </span>
-                                <span class="nav-label">Reimburstment</span>
+                                <span class="nav-label">Reimbursement</span>
                             </a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_summary_request' %}active{% endif %}" href="{% url 'finance_summary_request' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
@@ -689,8 +690,8 @@
                         </span>
                         <span class="nav-label">Development</span>
                     </a>
-                    {% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile or perms.core.view_activitylog %}
-                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'activity_logs' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}{% url 'system_hub' %}{% else %}{% url 'activity_logs' %}{% endif %}">
+                    {% if request.user.is_superuser or can_access_super_user_chat or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile or perms.core.view_activitylog %}
+                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'system_hub' or request.resolver_match.url_name == 'activity_logs' or request.resolver_match.url_name == 'super_user_chat' or request.resolver_match.url_name == 'super_user_chat_delete' or request.resolver_match.url_name == 'system_backup_run_now' or request.resolver_match.url_name == 'system_backup_restore' or request.resolver_match.url_name == 'system_backup_delete' or request.resolver_match.url_name == 'system_backup_open' or request.resolver_match.url_name == 'system_backup_download' %}active{% endif %}" href="{% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}{% url 'system_hub' %}{% elif can_access_super_user_chat %}{% url 'super_user_chat' %}{% else %}{% url 'activity_logs' %}{% endif %}">
                         <span class="nav-logo" aria-hidden="true">
                             <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -699,6 +700,7 @@
                             </svg>
                         </span>
                         <span class="nav-label">System</span>
+                        <span class="badge bg-danger ms-auto {% if not super_user_chat_unread_count %}d-none{% endif %}" data-super-user-chat-unread-badge>{{ super_user_chat_unread_count|default:0 }}</span>
                     </a>
                     {% endif %}
                 </nav>
@@ -1693,6 +1695,43 @@
                 }
             });
         })();
+
+        {% if can_access_super_user_chat %}
+        (function () {
+            const unreadBadges = Array.from(document.querySelectorAll('[data-super-user-chat-unread-badge]'));
+            if (!unreadBadges.length || !window.fetch) {
+                return;
+            }
+
+            function updateUnreadBadges(count) {
+                const safeCount = Math.max(0, Number(count || 0));
+                unreadBadges.forEach((badge) => {
+                    badge.textContent = String(safeCount);
+                    badge.classList.toggle('d-none', safeCount === 0);
+                });
+            }
+
+            async function refreshSuperUserChatUnreadCount() {
+                try {
+                    const response = await fetch('{% url "super_user_chat_unread_count" %}', {
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) {
+                        return;
+                    }
+                    const payload = await response.json();
+                    if (payload && payload.ok) {
+                        updateUnreadBadges(payload.unread_count);
+                    }
+                } catch (error) {
+                    return;
+                }
+            }
+
+            window.setInterval(refreshSuperUserChatUnreadCount, 30000);
+        })();
+        {% endif %}
     </script>
 </body>
 </html>

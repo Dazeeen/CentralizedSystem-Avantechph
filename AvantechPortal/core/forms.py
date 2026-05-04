@@ -1,5 +1,6 @@
 import json
 import time
+from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -9,9 +10,17 @@ from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, Us
 from django.contrib.auth.models import Group, Permission, User
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.conf import settings
 from django.utils.dateparse import parse_date
-from PIL import Image
+from PIL import Image, ImageOps
+
+try:
+    from pillow_heif import register_heif_opener
+except ImportError:
+    register_heif_opener = None
+else:
+    register_heif_opener()
 
 from .auth_utils import get_client_ip
 from .permission_catalog import build_permission_groups
@@ -61,6 +70,63 @@ class MultipleFileField(forms.FileField):
         else:
             cleaned_files = []
         return cleaned_files
+
+
+HEIC_IMAGE_EXTENSIONS = {'.heic', '.heif'}
+WEB_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+CONVERTIBLE_IMAGE_EXTENSIONS = WEB_IMAGE_EXTENSIONS | HEIC_IMAGE_EXTENSIONS
+
+
+def prepare_image_upload(upload, *, max_size_bytes, label='image'):
+    extension = Path(getattr(upload, 'name', '')).suffix.lower()
+    if extension not in CONVERTIBLE_IMAGE_EXTENSIONS:
+        raise ValidationError(f'Upload valid {label} files only: PNG, JPG, JPEG, WEBP, HEIC, or HEIF.')
+    if getattr(upload, 'size', 0) > max_size_bytes:
+        raise ValidationError(f'Each {label} must be {max_size_bytes // (1024 * 1024)}MB or less.')
+
+    try:
+        upload.seek(0)
+        with Image.open(upload) as source_image:
+            source_image.verify()
+    except Exception as exc:
+        raise ValidationError(f'One of the uploaded files is not a valid {label}.') from exc
+    finally:
+        try:
+            upload.seek(0)
+        except Exception:
+            pass
+
+    if extension not in HEIC_IMAGE_EXTENSIONS:
+        return upload
+
+    try:
+        upload.seek(0)
+        with Image.open(upload) as source_image:
+            image = ImageOps.exif_transpose(source_image)
+            if image.mode not in ('RGB', 'L'):
+                image = image.convert('RGB')
+            elif image.mode == 'L':
+                image = image.convert('RGB')
+
+            output = BytesIO()
+            image.save(output, format='JPEG', quality=90, optimize=True)
+    except Exception as exc:
+        raise ValidationError('HEIC/HEIF images could not be converted to JPEG. Please try another image.') from exc
+    finally:
+        try:
+            upload.seek(0)
+        except Exception:
+            pass
+
+    converted_name = f'{Path(upload.name or "image").stem}.jpg'
+    return ContentFile(output.getvalue(), name=converted_name)
+
+
+def prepare_image_uploads(files, *, max_size_bytes, label='image', required=False):
+    uploads = list(files or [])
+    if required and not uploads:
+        raise ValidationError(f'Upload at least one {label}.')
+    return [prepare_image_upload(upload, max_size_bytes=max_size_bytes, label=label) for upload in uploads]
 
 
 class BaseUserFormMixin:
@@ -388,7 +454,7 @@ class ClientForm(forms.ModelForm):
             'appliances_and_electric_things': forms.Textarea(attrs={'rows': 4}),
             'lead_disposition_reason': forms.Textarea(attrs={'rows': 3}),
             'handled_date': forms.DateInput(attrs={'type': 'date'}),
-            'lead_proof_image': forms.ClearableFileInput(attrs={'accept': '.png,.jpg,.jpeg,.webp'}),
+            'lead_proof_image': forms.ClearableFileInput(attrs={'accept': '.png,.jpg,.jpeg,.webp,.heic,.heif'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -437,16 +503,7 @@ class ClientForm(forms.ModelForm):
         if not file:
             return file
 
-        allowed_extensions = {'.png', '.jpg', '.jpeg', '.webp'}
-        name = (file.name or '').lower()
-        if '.' not in name or not any(name.endswith(ext) for ext in allowed_extensions):
-            raise ValidationError('Upload a valid proof image file (PNG, JPG, JPEG, WEBP).')
-
-        max_size_bytes = 10 * 1024 * 1024
-        if getattr(file, 'size', 0) > max_size_bytes:
-            raise ValidationError('Proof image size must be 10MB or less.')
-
-        return file
+        return prepare_image_upload(file, max_size_bytes=10 * 1024 * 1024, label='proof image')
 
     def clean(self):
         cleaned_data = super().clean()
@@ -605,12 +662,12 @@ class FundRequestForm(forms.ModelForm):
     line_items_payload = forms.CharField(widget=forms.HiddenInput())
     request_images = MultipleFileField(
         required=True,
-        widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp', 'multiple': True}),
+        widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp,.heic,.heif', 'multiple': True}),
         label='Supporting Images',
-        help_text='Upload one or more supporting images. These will be appended as extra pages after the generated template PDF.',
+        help_text='Upload one or more supporting images. HEIC/HEIF files are converted to JPEG.',
     )
     MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
-    ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+    ALLOWED_IMAGE_EXTENSIONS = CONVERTIBLE_IMAGE_EXTENSIONS
 
     class Meta:
         model = FundRequest
@@ -653,27 +710,7 @@ class FundRequestForm(forms.ModelForm):
 
     def clean_request_images(self):
         files = self.cleaned_data.get('request_images') or []
-        if not files:
-            raise ValidationError('Upload at least one supporting image.')
-
-        for upload in files:
-            extension = Path(getattr(upload, 'name', '')).suffix.lower()
-            if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
-                raise ValidationError('Upload valid image files only: PNG, JPG, JPEG, or WEBP.')
-            if getattr(upload, 'size', 0) > self.MAX_IMAGE_SIZE_BYTES:
-                raise ValidationError('Each image must be 10MB or less.')
-            try:
-                upload.seek(0)
-                image = Image.open(upload)
-                image.verify()
-            except Exception as exc:
-                raise ValidationError('One of the uploaded files is not a valid image.') from exc
-            finally:
-                try:
-                    upload.seek(0)
-                except Exception:
-                    pass
-        return files
+        return prepare_image_uploads(files, max_size_bytes=self.MAX_IMAGE_SIZE_BYTES, label='supporting image', required=True)
 
     def clean_line_items_payload(self):
         raw_payload = (self.cleaned_data.get('line_items_payload') or '').strip()
@@ -787,12 +824,12 @@ class LiquidationForm(forms.ModelForm):
     line_items_payload = forms.CharField(widget=forms.HiddenInput())
     liquidation_images = MultipleFileField(
         required=False,
-        widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp', 'multiple': True}),
+        widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp,.heic,.heif', 'multiple': True}),
         label='Supporting Images',
-        help_text='Optional. Upload one or more supporting images. These will be appended as extra pages after the generated liquidation PDF.',
+        help_text='Optional. Upload one or more supporting images. HEIC/HEIF files are converted to JPEG.',
     )
     MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
-    ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+    ALLOWED_IMAGE_EXTENSIONS = CONVERTIBLE_IMAGE_EXTENSIONS
 
     class Meta:
         model = Liquidation
@@ -849,27 +886,7 @@ class LiquidationForm(forms.ModelForm):
 
     def clean_liquidation_images(self):
         files = self.cleaned_data.get('liquidation_images') or []
-        if not files:
-            return []
-
-        for upload in files:
-            extension = Path(getattr(upload, 'name', '')).suffix.lower()
-            if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
-                raise ValidationError('Upload valid image files only: PNG, JPG, JPEG, or WEBP.')
-            if getattr(upload, 'size', 0) > self.MAX_IMAGE_SIZE_BYTES:
-                raise ValidationError('Each image must be 10MB or less.')
-            try:
-                upload.seek(0)
-                image = Image.open(upload)
-                image.verify()
-            except Exception as exc:
-                raise ValidationError('One of the uploaded files is not a valid image.') from exc
-            finally:
-                try:
-                    upload.seek(0)
-                except Exception:
-                    pass
-        return files
+        return prepare_image_uploads(files, max_size_bytes=self.MAX_IMAGE_SIZE_BYTES, label='supporting image')
 
     def clean_line_items_payload(self):
         raw_payload = (self.cleaned_data.get('line_items_payload') or '').strip()
@@ -1028,8 +1045,8 @@ class AssetItemForm(forms.ModelForm):
         self.fields['code_prefix'].help_text = 'Optional override (e.g. CBL, LP). Leave blank for automatic prefix.'
         self.fields['parent_item'].required = False
         self.fields['asset_images'].required = False
-        self.fields['asset_images'].widget.attrs.update({'accept': '.png,.jpg,.jpeg,.webp', 'multiple': True})
-        self.fields['asset_images'].help_text = 'Optional. Supports multiple image uploads for both parent and variant items.'
+        self.fields['asset_images'].widget.attrs.update({'accept': '.png,.jpg,.jpeg,.webp,.heic,.heif', 'multiple': True})
+        self.fields['asset_images'].help_text = 'Optional. Supports multiple image uploads. HEIC/HEIF files are converted to JPEG.'
         self.fields['note'].required = False
         self.fields['note'].widget = forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Optional additional note'})
 
@@ -1053,6 +1070,25 @@ class AssetItemForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             self.fields['parent_item'].queryset = self.fields['parent_item'].queryset.exclude(pk=self.instance.pk)
 
+        self.parent_item_options = [
+            {
+                'id': str(item.pk),
+                'label': str(item),
+                'item_type': (item.item_type or '').strip().lower(),
+                'item_name': (item.item_name or '').strip().lower(),
+            }
+            for item in self.fields['parent_item'].queryset
+        ]
+
+    def _matching_parent_item(self, item_type, department=None):
+        item_type = (item_type or '').strip().lower()
+        if not item_type:
+            return None
+        queryset = self.fields['parent_item'].queryset
+        if department:
+            queryset = queryset.filter(department=department)
+        return queryset.filter(item_type__iexact=item_type).order_by('item_code', 'id').first()
+
     def clean_code_prefix(self):
         value = (self.cleaned_data.get('code_prefix') or '').strip().upper()
         if value and (len(value) < 2 or len(value) > 5 or not value.isalnum()):
@@ -1063,6 +1099,12 @@ class AssetItemForm(forms.ModelForm):
         cleaned_data = super().clean()
         parent_item = cleaned_data.get('parent_item')
         department = cleaned_data.get('department')
+        item_type = (cleaned_data.get('item_type') or '').strip().lower()
+        matching_parent = self._matching_parent_item(item_type, department=department)
+        if matching_parent:
+            cleaned_data['parent_item'] = matching_parent
+            parent_item = matching_parent
+
         if parent_item and department and parent_item.department_id != department.id:
             self.add_error('parent_item', 'Variant parent must belong to the selected department.')
 
@@ -1073,16 +1115,7 @@ class AssetItemForm(forms.ModelForm):
         if not images:
             return []
 
-        allowed_extensions = {'.png', '.jpg', '.jpeg', '.webp'}
-        max_size_bytes = 8 * 1024 * 1024
-        for image in images:
-            name = (image.name or '').lower()
-            if '.' not in name or not any(name.endswith(ext) for ext in allowed_extensions):
-                raise ValidationError('Upload only valid image files (PNG, JPG, JPEG, WEBP).')
-            if getattr(image, 'size', 0) > max_size_bytes:
-                raise ValidationError('Each image size must be 8MB or less.')
-
-        return images
+        return prepare_image_uploads(images, max_size_bytes=8 * 1024 * 1024, label='asset image')
 
     def get_remove_image_ids(self):
         raw = (self.cleaned_data.get('remove_image_ids') or '').strip()
@@ -1400,15 +1433,13 @@ class SupportTicketMessageForm(forms.ModelForm):
                     'class': 'form-control',
                     'rows': 3,
                     'placeholder': 'Write your reply...',
+                    'required': False,
                 }
             ),
         }
 
     def clean_message(self):
-        message = (self.cleaned_data.get('message') or '').strip()
-        if not message:
-            raise ValidationError('Message cannot be empty.')
-        return message
+        return (self.cleaned_data.get('message') or '').strip()
 
 
 class SupportTicketRequesterPriorityForm(forms.ModelForm):

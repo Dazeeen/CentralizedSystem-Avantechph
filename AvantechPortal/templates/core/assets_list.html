@@ -57,7 +57,7 @@
 
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body border-bottom">
-        <form method="get" class="row g-2 align-items-end">
+        <form method="get" class="row g-2 align-items-end" id="assetFilterForm">
             <div class="col-12 col-md-4">
                 <label class="form-label mb-1" for="asset-department">Department</label>
                 <select id="asset-department" name="department" class="form-select">
@@ -72,7 +72,6 @@
                 <input id="asset-q" type="text" name="q" value="{{ query }}" class="form-control" placeholder="Item ID, name, department, specification">
             </div>
             <div class="col-12 col-md-auto d-flex gap-2">
-                <button type="submit" class="btn btn-success">Filter</button>
                 <a href="{% url 'assets_list' %}" class="btn btn-outline-secondary">Clear</a>
             </div>
         </form>
@@ -433,6 +432,51 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const assetFilterForm = document.getElementById('assetFilterForm');
+    const assetDepartmentFilter = document.getElementById('asset-department');
+    const assetSearchFilter = document.getElementById('asset-q');
+    const assetFilterFocusKey = 'assetTrackerFilterFocus';
+    let assetFilterSubmitTimer = null;
+
+    function restoreAssetFilterFocus() {
+        if (!assetSearchFilter || window.sessionStorage.getItem(assetFilterFocusKey) !== 'search') {
+            return;
+        }
+        window.sessionStorage.removeItem(assetFilterFocusKey);
+        assetSearchFilter.focus();
+        const valueLength = assetSearchFilter.value.length;
+        assetSearchFilter.setSelectionRange(valueLength, valueLength);
+    }
+
+    function submitAssetFilters() {
+        if (!assetFilterForm) {
+            return;
+        }
+        if (assetFilterSubmitTimer) {
+            window.clearTimeout(assetFilterSubmitTimer);
+            assetFilterSubmitTimer = null;
+        }
+        window.sessionStorage.setItem(assetFilterFocusKey, document.activeElement === assetSearchFilter ? 'search' : '');
+        assetFilterForm.requestSubmit();
+    }
+
+    function scheduleAssetFilterSubmit() {
+        if (assetFilterSubmitTimer) {
+            window.clearTimeout(assetFilterSubmitTimer);
+        }
+        assetFilterSubmitTimer = window.setTimeout(submitAssetFilters, 450);
+    }
+
+    if (assetDepartmentFilter) {
+        assetDepartmentFilter.addEventListener('change', submitAssetFilters);
+    }
+
+    if (assetSearchFilter) {
+        assetSearchFilter.addEventListener('input', scheduleAssetFilterSubmit);
+    }
+
+    restoreAssetFilterFocus();
+
     const modalElement = document.getElementById('assetVariantsModal');
     const modalBody = document.getElementById('assetVariantsModalBody');
     const bsModal = new bootstrap.Modal(modalElement);

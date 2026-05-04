@@ -1,7 +1,7 @@
 from django.contrib.auth.models import Group, Permission, User
 from django.db.models import Q
 
-from .models import Notification, SupportTicket
+from .models import Notification, SuperUserChatMessage, SuperUserChatReadState, SupportTicket
 from .ticketing_services import (
     IMPORTANT_PRIORITY_VALUES,
     OPEN_TICKET_STATUS_VALUES,
@@ -45,6 +45,7 @@ PAGE_ACCESS_RULES = {
         ],
     },
     'activity_logs': {'label': 'Activity Log', 'perms': ['core.view_activitylog']},
+    'super_user_chat': {'label': 'Super User Chat', 'extra_roles': ['Super Users'], 'audience': 'Django superusers and members of the Super Users role'},
     'users_list': {'label': 'Users', 'perms': ['auth.view_user']},
     'users_create': {'label': 'Create User', 'perms': ['auth.add_user']},
     'users_update': {'label': 'Edit User', 'perms': ['auth.change_user']},
@@ -70,7 +71,7 @@ PAGE_ACCESS_RULES = {
     'fund_request_template_guide': {'label': 'Fund Request Templates', 'perms': ['core.view_fundrequesttemplate']},
     'fund_request_template_preview': {'label': 'Fund Request Template Preview', 'perms': ['core.view_fundrequesttemplate']},
     'liquidation_page': {'label': 'Liquidation', 'perms': ['core.view_liquidation']},
-    'finance_reimburstment': {'label': 'Reimburstment', 'perms': ['core.view_fundrequest']},
+    'finance_reimbursement': {'label': 'Reimbursement', 'perms': ['core.view_fundrequest']},
     'finance_summary_request': {'label': 'Summary Request', 'perms': ['core.view_fundrequest']},
     'assets_list': {'label': 'Assets', 'perms': ['core.view_assetitem']},
     'assets_departments_list': {'label': 'Asset Departments', 'perms': ['core.view_assetdepartment']},
@@ -203,6 +204,29 @@ def notification_summary(request):
     return {
         'notifications': notifications,
         'unread_notification_count': unread_notification_count,
+    }
+
+
+def super_user_chat_access(request):
+    user = getattr(request, 'user', None)
+    has_access = bool(
+        user
+        and user.is_authenticated
+        and (
+            user.is_superuser
+            or user.groups.filter(name='Super Users').exists()
+        )
+    )
+    unread_count = 0
+    if has_access:
+        unread_query = SuperUserChatMessage.objects.filter(is_deleted=False).exclude(author=user)
+        read_state = SuperUserChatReadState.objects.filter(user=user).first()
+        if read_state and read_state.last_seen_message_id:
+            unread_query = unread_query.filter(id__gt=read_state.last_seen_message_id)
+        unread_count = unread_query.count()
+    return {
+        'can_access_super_user_chat': has_access,
+        'super_user_chat_unread_count': unread_count,
     }
 
 

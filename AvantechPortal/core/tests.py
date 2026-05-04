@@ -7,9 +7,11 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from PIL import Image
 
 from . import views
-from .models import AssetAccountability, AssetAccountabilityFormBatch, AssetAccountabilityTemplate, AssetDepartment, AssetItem
+from .forms import AssetItemForm, prepare_image_upload
+from .models import AssetAccountability, AssetAccountabilityFormBatch, AssetAccountabilityTemplate, AssetDepartment, AssetItem, AssetItemType
 
 
 def _build_docx_template_bytes(text):
@@ -25,6 +27,66 @@ def _build_docx_template_bytes(text):
         archive.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types></Types>')
         archive.writestr('word/document.xml', document_xml)
     return output.getvalue()
+
+
+class AssetItemParentTypeTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='asset-admin', password='password')
+        self.department = AssetDepartment.objects.create(name='QA Assets', is_default=True)
+        self.item_type = AssetItemType.objects.create(name='Monitor', code='monitor', prefix='MON', is_active=True)
+        self.parent_item = AssetItem.objects.create(
+            department=self.department,
+            item_name='Monitor',
+            item_type='monitor',
+            code_prefix='MON',
+            stock_quantity=0,
+            low_stock_threshold=1,
+        )
+
+    def test_asset_item_form_locks_parent_to_matching_item_type(self):
+        form = AssetItemForm(
+            data={
+                'department': self.department.id,
+                'parent_item': '',
+                'item_name': '27 inch Monitor',
+                'item_type': 'monitor',
+                'code_prefix': '',
+                'specification': '',
+                'note': '',
+                'stock_quantity': '1',
+                'low_stock_threshold': '1',
+                'is_active': 'on',
+            },
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['parent_item'], self.parent_item)
+
+    def test_item_type_parent_item_is_created_when_missing(self):
+        mouse_type = AssetItemType.objects.create(name='Mouse', code='mouse', prefix='MSE', is_active=True)
+
+        parent_item, created = views._ensure_asset_type_parent_item(mouse_type, created_by=self.user)
+
+        self.assertTrue(created)
+        self.assertEqual(parent_item.item_name, 'Mouse')
+        self.assertEqual(parent_item.item_type, 'mouse')
+        self.assertEqual(parent_item.department, views._get_default_asset_department())
+        self.assertEqual(parent_item.created_by, self.user)
+        self.assertTrue(parent_item.item_code.startswith('MSE'))
+
+
+class ImageUploadConversionTests(TestCase):
+    def test_heic_upload_is_converted_to_jpeg(self):
+        source = BytesIO()
+        Image.new('RGB', (10, 10), 'red').save(source, format='HEIF')
+        upload = SimpleUploadedFile('proof.heic', source.getvalue(), content_type='image/heic')
+
+        converted = prepare_image_upload(upload, max_size_bytes=10 * 1024 * 1024, label='test image')
+
+        self.assertEqual(converted.name, 'proof.jpg')
+        with Image.open(converted) as image:
+            self.assertEqual(image.format, 'JPEG')
+            self.assertEqual(image.mode, 'RGB')
 
 
 class AssetAccountabilityControlNumberTests(TestCase):

@@ -1,0 +1,253 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Super User Chat{% endblock %}
+{% block page_heading %}Super User Chat{% endblock %}
+
+{% block content %}
+<style>
+    .super-chat-shell {
+        min-height: calc(100vh - 11rem);
+    }
+
+    .super-chat-list {
+        max-height: calc(100vh - 24rem);
+        overflow-y: auto;
+    }
+
+    .super-chat-message {
+        border: 1px solid rgba(25, 135, 84, 0.14);
+        border-radius: 0.5rem;
+        background: #fff;
+    }
+
+    .super-chat-avatar {
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #198754;
+        color: #fff;
+        font-weight: 700;
+        flex: 0 0 auto;
+    }
+
+    .super-chat-message.is-own {
+        border-color: rgba(25, 135, 84, 0.3);
+        background: rgba(25, 135, 84, 0.04);
+    }
+
+    .super-chat-message.is-deleted {
+        background: #f8f9fa;
+        color: #6c757d;
+    }
+
+    .super-chat-compose textarea {
+        min-height: 4.75rem;
+        resize: vertical;
+    }
+
+    .super-chat-image {
+        max-width: min(22rem, 100%);
+        max-height: 18rem;
+        object-fit: contain;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        background: #fff;
+    }
+
+    .super-chat-image-trigger {
+        display: inline-block;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        text-align: left;
+    }
+
+    .super-chat-image-trigger:focus-visible .super-chat-image {
+        outline: 3px solid rgba(25, 135, 84, 0.25);
+        outline-offset: 2px;
+    }
+
+    .super-chat-action-btn {
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .super-chat-message-actions {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease-in-out;
+    }
+
+    .super-chat-message.is-own:hover .super-chat-message-actions,
+    .super-chat-message.is-own:focus-within .super-chat-message-actions {
+        opacity: 1;
+        pointer-events: auto;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="h4 mb-1">Super User Chat</h2>
+        <p class="text-secondary mb-0">Private coordination space for Super Users only.</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if request.user.is_superuser or perms.core.view_databasefile or perms.core.add_databasefile or perms.core.change_databasefile or perms.core.delete_databasefile %}
+            <a href="{% url 'system_hub' %}" class="btn btn-outline-secondary">System</a>
+        {% endif %}
+        {% if request.user.is_superuser or perms.core.view_activitylog %}
+            <a href="{% url 'activity_logs' %}" class="btn btn-outline-success">Activity Log</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-3 super-chat-shell">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h3 class="h5 mb-0">Messages</h3>
+                <span class="small text-secondary" id="superChatTotalMessages">{{ total_messages }} total</span>
+            </div>
+            <div class="card-body super-chat-list" data-chat-signature="{{ chat_signature }}" data-chat-page="{{ chat_page.number }}">
+                {% include 'core/includes/super_user_chat_messages.html' %}
+            </div>
+            {% if chat_page.paginator.num_pages > 1 %}
+                <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+                    <small class="text-secondary">Page {{ chat_page.number }} of {{ chat_page.paginator.num_pages }}</small>
+                    <div class="btn-group" role="group" aria-label="Chat pagination">
+                        {% if chat_page.has_previous %}
+                            <a class="btn btn-sm btn-outline-secondary" href="?page={{ chat_page.previous_page_number }}">Newer</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Newer</button>
+                        {% endif %}
+                        {% if chat_page.has_next %}
+                            <a class="btn btn-sm btn-outline-secondary" href="?page={{ chat_page.next_page_number }}">Older</a>
+                        {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" disabled>Older</button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="card-footer bg-white super-chat-compose">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <label class="form-label" for="super-user-chat-message">New Message</label>
+                    <textarea id="super-user-chat-message" name="message" class="form-control" maxlength="2000" placeholder="Write a message for Super Users"></textarea>
+                    <div class="d-flex justify-content-between align-items-center mt-3">
+                        <div>
+                            <label class="btn btn-outline-secondary mb-0" for="super-user-chat-image">Attach Photo</label>
+                            <input id="super-user-chat-image" name="image" type="file" class="d-none" accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif">
+                            <span class="small text-secondary ms-2" id="super-user-chat-image-name">Max 10MB</span>
+                        </div>
+                        <button type="submit" class="btn btn-success">Send</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="superChatImageModal" tabindex="-1" aria-labelledby="superChatImageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <h5 class="modal-title" id="superChatImageModalLabel">Chat Photo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center bg-light">
+                <img id="superChatImageModalImg" src="" alt="Chat photo preview" class="img-fluid rounded bg-white" style="max-height: 75vh; object-fit: contain;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const chatList = document.querySelector('.super-chat-list');
+    const totalMessagesLabel = document.getElementById('superChatTotalMessages');
+    const chatMessageInput = document.getElementById('super-user-chat-message');
+    const chatImageInput = document.getElementById('super-user-chat-image');
+    const chatImageName = document.getElementById('super-user-chat-image-name');
+    const imageModalElement = document.getElementById('superChatImageModal');
+    const imageModalImg = document.getElementById('superChatImageModalImg');
+    const imageModalTitle = document.getElementById('superChatImageModalLabel');
+    const imageModal = imageModalElement ? new bootstrap.Modal(imageModalElement) : null;
+    if (chatList) {
+        chatList.scrollTop = chatList.scrollHeight;
+    }
+
+    if (chatImageInput && chatImageName) {
+        chatImageInput.addEventListener('change', function () {
+            const file = chatImageInput.files && chatImageInput.files.length ? chatImageInput.files[0] : null;
+            chatImageName.textContent = file ? file.name : 'Max 10MB';
+        });
+    }
+
+    function isNearBottom() {
+        if (!chatList) {
+            return false;
+        }
+        return chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight < 80;
+    }
+
+    async function refreshChatMessages() {
+        if (!chatList) {
+            return;
+        }
+        const page = chatList.dataset.chatPage || '1';
+        const response = await fetch(`{% url 'super_user_chat_messages' %}?page=${encodeURIComponent(page)}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+        if (!response.ok) {
+            return;
+        }
+        const data = await response.json();
+        if (!data.ok || data.signature === chatList.dataset.chatSignature) {
+            return;
+        }
+
+        const shouldStickToBottom = isNearBottom();
+        chatList.innerHTML = data.html || '';
+        chatList.dataset.chatSignature = data.signature || '';
+        if (totalMessagesLabel) {
+            totalMessagesLabel.textContent = `${data.total_messages || 0} total`;
+        }
+        if (shouldStickToBottom) {
+            chatList.scrollTop = chatList.scrollHeight;
+        }
+    }
+
+    window.setInterval(function () {
+        refreshChatMessages().catch(function () {});
+    }, 5000);
+
+    document.addEventListener('click', function (event) {
+        const trigger = event.target.closest('.super-chat-image-trigger');
+        if (!trigger || !imageModal || !imageModalImg) {
+            return;
+        }
+        imageModalImg.src = trigger.getAttribute('data-image-src') || '';
+        imageModalImg.alt = trigger.getAttribute('data-image-name') || 'Chat photo preview';
+        if (imageModalTitle) {
+            imageModalTitle.textContent = trigger.getAttribute('data-image-name') || 'Chat Photo';
+        }
+        imageModal.show();
+    });
+
+    if (imageModalElement && imageModalImg) {
+        imageModalElement.addEventListener('hidden.bs.modal', function () {
+            imageModalImg.src = '';
+        });
+    }
+});
+</script>
+{% endblock %}

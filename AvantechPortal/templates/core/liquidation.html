@@ -882,12 +882,12 @@
                                 id="{{ liquidation_form.liquidation_images.id_for_label }}"
                                 name="{{ liquidation_form.liquidation_images.html_name }}"
                                 class="liquidation-upload-input"
-                                accept=".png,.jpg,.jpeg,.webp"
+                                accept=".png,.jpg,.jpeg,.webp,.heic,.heif"
                                 multiple
                             >
                             <div class="liquidation-upload-dropzone" id="liquidationImageDropzone" tabindex="0" role="button" aria-controls="{{ liquidation_form.liquidation_images.id_for_label }}">
                                 <div class="liquidation-upload-dropzone-title">Drag and drop images here</div>
-                                <div class="small text-secondary">or click to browse PNG, JPG, JPEG, or WEBP files</div>
+                                <div class="small text-secondary">or click to browse PNG, JPG, JPEG, WEBP, HEIC, or HEIF files</div>
                             </div>
                             <div class="liquidation-upload-alert alert alert-warning py-2 px-3 mt-2 mb-0 d-none" id="liquidationImageUploadAlert" role="alert"></div>
                             <div class="form-text mt-2">{{ liquidation_form.liquidation_images.help_text }}</div>
@@ -1345,7 +1345,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const imageMetaMap = new Map();
     const maxImageCount = 10;
     const maxImageSizeBytes = 10 * 1024 * 1024;
-    const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+    const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif']);
     const actionModal = (actionModalElement && window.bootstrap && window.bootstrap.Modal)
         ? window.bootstrap.Modal.getOrCreateInstance(actionModalElement)
         : null;
@@ -1652,7 +1652,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const extension = lowerName.includes('.') ? lowerName.slice(lowerName.lastIndexOf('.')) : '';
             if (!allowedImageExtensions.has(extension)) {
                 invalidMessages.push(`${file.name}: invalid file type`);
-                invalidImageItems.push({ name: file.name, reason: 'Invalid file type. Allowed: PNG, JPG, JPEG, WEBP.' });
+                invalidImageItems.push({ name: file.name, reason: 'Invalid file type. Allowed: PNG, JPG, JPEG, WEBP, HEIC, HEIF.' });
                 return;
             }
             if ((file.size || 0) > maxImageSizeBytes) {

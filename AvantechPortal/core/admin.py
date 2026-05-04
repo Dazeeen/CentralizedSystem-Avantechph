@@ -31,6 +31,8 @@ from .models import (
 	Notification,
 	SupportTicket,
 	SupportTicketMessage,
+	SuperUserChatMessage,
+	SuperUserChatReadState,
 	PatchNote,
 	PatchNoteAttachment,
 	PatchNoteComment,
@@ -59,6 +61,33 @@ class ActivityLogAdmin(admin.ModelAdmin):
 		'metadata',
 		'created_at',
 	)
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
+
+
+@admin.register(SuperUserChatMessage)
+class SuperUserChatMessageAdmin(admin.ModelAdmin):
+	list_display = ('created_at', 'author', 'is_deleted', 'deleted_by', 'deleted_at')
+	list_filter = ('is_deleted', 'created_at')
+	search_fields = ('message', 'author__username', 'author__first_name', 'author__last_name')
+	readonly_fields = ('author', 'message', 'is_deleted', 'deleted_at', 'deleted_by', 'created_at', 'updated_at')
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
+
+
+@admin.register(SuperUserChatReadState)
+class SuperUserChatReadStateAdmin(admin.ModelAdmin):
+	list_display = ('user', 'last_seen_message', 'last_seen_at', 'updated_at')
+	search_fields = ('user__username', 'user__first_name', 'user__last_name')
+	readonly_fields = ('user', 'last_seen_message', 'last_seen_at', 'updated_at')
 
 	def has_add_permission(self, request):
 		return False

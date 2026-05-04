@@ -1,8 +1,20 @@
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import logout
+from django.contrib.sessions.exceptions import SessionInterrupted
 from django.shortcuts import redirect
 from django.utils import timezone
+
+
+class SessionInterruptedMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        try:
+            return self.get_response(request)
+        except SessionInterrupted:
+            return redirect("login")
 
 
 class InactivityTimeoutMiddleware:

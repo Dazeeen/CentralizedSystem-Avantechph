@@ -1,0 +1,58 @@
+{% for message in chat_page_messages %}
+    <div class="super-chat-message {% if message.author_id == request.user.id %}is-own{% endif %} {% if message.is_deleted %}is-deleted{% endif %} p-3 mb-3">
+        <div class="d-flex gap-3">
+            <div class="super-chat-avatar" aria-hidden="true">
+                {% if message.author %}
+                    {{ message.author.get_full_name|default:message.author.username|slice:':1'|upper }}
+                {% else %}
+                    ?
+                {% endif %}
+            </div>
+            <div class="flex-grow-1 min-w-0">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="fw-semibold">
+                            {% if message.author %}
+                                {{ message.author.get_full_name|default:message.author.username }}
+                            {% else %}
+                                Unknown user
+                            {% endif %}
+                        </div>
+                        <div class="small text-secondary">{{ message.created_at|date:'Y-m-d H:i' }}</div>
+                    </div>
+                    {% if not message.is_deleted and message.author_id == request.user.id %}
+                        <div class="dropdown super-chat-message-actions">
+                            <button class="btn btn-sm btn-outline-secondary super-chat-action-btn" type="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="Message actions">
+                                ...
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <form method="post" action="{% url 'super_user_chat_delete' message.id %}">
+                                        {% csrf_token %}
+                                        <button type="submit" class="dropdown-item text-danger">Delete</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="mt-2">
+                    {% if message.is_deleted %}
+                        <span class="fst-italic text-secondary">message deleted</span>
+                    {% else %}
+                        {% if message.message %}
+                            <div>{{ message.message|linebreaksbr }}</div>
+                        {% endif %}
+                        {% if message.image %}
+                            <button type="button" class="super-chat-image-trigger mt-2" data-image-src="{{ message.image.url }}" data-image-name="Chat photo from {{ message.author.get_full_name|default:message.author.username|default:'Unknown user' }}">
+                                <img src="{{ message.image.url }}" alt="Attached chat photo" class="super-chat-image">
+                            </button>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% empty %}
+    <div class="text-center py-5 text-secondary">No messages yet.</div>
+{% endfor %}

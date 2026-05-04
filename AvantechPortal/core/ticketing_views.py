@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
@@ -11,12 +12,13 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from .forms import (
+    prepare_image_upload,
     SupportTicketCreateForm,
     SupportTicketMessageForm,
     SupportTicketRequesterPriorityForm,
     SupportTicketSupportUpdateForm,
 )
-from .models import SupportTicket
+from .models import SupportTicket, SupportTicketMessage
 from .activity import record_activity
 from .notifications import create_notification
 from .ticketing_services import (
@@ -37,6 +39,9 @@ def _serialize_ticket_message(message_obj):
         'sender_id': message_obj.sender_id,
         'sender_label': sender_label,
         'message': message_obj.message or '',
+        'image_url': message_obj.image.url if message_obj.image and not message_obj.is_deleted else '',
+        'image_name': f'Ticket photo from {sender_label}',
+        'is_deleted': message_obj.is_deleted,
         'created_at': timezone.localtime(message_obj.created_at).strftime('%Y-%m-%d %H:%M'),
     }
 
@@ -224,17 +229,11 @@ def support_ticket_detail(request, ticket_id):
     can_chat = (not ticket.is_archived) and _can_chat_on_ticket(request.user, ticket)
     can_update_support = (not ticket.is_archived) and (can_manage or request.user.id == ticket.assigned_to_id)
     can_update_requested_priority = (not ticket.is_archived) and (request.user.id == ticket.created_by_id or request.user.is_superuser)
-    messages_qs = ticket.messages.select_related('sender').all()
+    messages_qs = ticket.messages.select_related('sender', 'deleted_by').all()
 
     if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
-        since_id_raw = (request.GET.get('since_id') or '').strip()
-        since_id = 0
-        if since_id_raw.isdigit():
-            since_id = int(since_id_raw)
-        if since_id > 0:
-            messages_qs = messages_qs.filter(id__gt=since_id)
         messages_payload = [_serialize_ticket_message(message_row) for message_row in messages_qs.order_by('id')]
-        latest_message_id = messages_payload[-1]['id'] if messages_payload else since_id
+        latest_message_id = messages_payload[-1]['id'] if messages_payload else 0
         return JsonResponse(
             {
                 'ok': True,
@@ -286,9 +285,32 @@ def support_ticket_add_message(request, ticket_id):
                 break
         return redirect('support_ticket_detail', ticket_id=ticket.id)
 
+    image_upload = request.FILES.get('image')
+    message_text = (form.cleaned_data.get('message') or '').strip()
+    if not message_text and not image_upload:
+        error_message = 'Message cannot be empty.'
+        if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+            return JsonResponse({'ok': False, 'message': error_message}, status=400)
+        messages.error(request, error_message)
+        return redirect('support_ticket_detail', ticket_id=ticket.id)
+    if image_upload:
+        try:
+            image_upload = prepare_image_upload(
+                image_upload,
+                max_size_bytes=10 * 1024 * 1024,
+                label='ticket photo',
+            )
+        except ValidationError as exc:
+            error_message = '; '.join(exc.messages)
+            if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+                return JsonResponse({'ok': False, 'message': error_message}, status=400)
+            messages.error(request, error_message)
+            return redirect('support_ticket_detail', ticket_id=ticket.id)
+
     message = form.save(commit=False)
     message.ticket = ticket
     message.sender = request.user
+    message.image = image_upload
     message.save()
 
     fields_to_update = ['last_message_at', 'updated_at']
@@ -314,7 +336,7 @@ def support_ticket_add_message(request, ticket_id):
             create_notification(
                 recipient,
                 title=f'Ticket reply: {ticket.ticket_number}',
-                message=f'{sender_name}: {message.message[:90]}',
+                message=f'{sender_name}: {message.message[:90] if message.message else "Sent a photo"}',
                 link_url=detail_url,
             )
 
@@ -322,6 +344,50 @@ def support_ticket_add_message(request, ticket_id):
         return JsonResponse({'ok': True, 'message_row': _serialize_ticket_message(message), 'latest_message_id': message.id})
 
     messages.success(request, 'Reply sent.')
+    return redirect('support_ticket_detail', ticket_id=ticket.id)
+
+
+@login_required
+@require_POST
+def support_ticket_message_delete(request, ticket_id, message_id):
+    ticket = get_object_or_404(SupportTicket.objects.select_related('created_by', 'assigned_to'), pk=ticket_id)
+    if ticket.is_archived:
+        return _permission_denied_response(request, 'Archived tickets are read-only.')
+    can_manage = can_manage_support_tickets(request.user)
+    if not _can_access_ticket(request.user, ticket, can_manage=can_manage):
+        return _permission_denied_response(request, 'You do not have permission to view this ticket.')
+
+    message = get_object_or_404(SupportTicketMessage, pk=message_id, ticket=ticket)
+    if message.sender_id != request.user.id:
+        return _permission_denied_response(request, 'You can only delete your own messages.')
+
+    if not message.is_deleted:
+        message_preview = (message.message or '').strip()[:180]
+        had_image = bool(message.image)
+        message.is_deleted = True
+        message.deleted_by = request.user
+        message.deleted_at = timezone.now()
+        message.save(update_fields=['is_deleted', 'deleted_by', 'deleted_at', 'updated_at'])
+        record_activity(
+            request,
+            'delete',
+            'support',
+            f'Deleted a support ticket message in {ticket.ticket_number}.',
+            target=message,
+            target_label=f'{ticket.ticket_number} message #{message.id}',
+            metadata={
+                'ticket_id': ticket.id,
+                'ticket_number': ticket.ticket_number,
+                'message_id': message.id,
+                'message_preview': message_preview,
+                'had_image': had_image,
+            },
+        )
+
+    if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+        return JsonResponse({'ok': True, 'message_row': _serialize_ticket_message(message), 'latest_message_id': message.id})
+
+    messages.success(request, 'Message deleted.')
     return redirect('support_ticket_detail', ticket_id=ticket.id)
 
 

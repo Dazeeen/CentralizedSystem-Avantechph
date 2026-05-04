@@ -224,6 +224,63 @@ class ActivityLog(models.Model):
 		return f'ActivityLog<{actor_label}:{self.action}:{self.summary}>'
 
 
+class SuperUserChatMessage(models.Model):
+	author = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='super_user_chat_messages',
+	)
+	message = models.TextField(max_length=2000, blank=True)
+	image = models.ImageField(upload_to='super_user_chat_images/', blank=True, null=True)
+	is_deleted = models.BooleanField(default=False)
+	deleted_at = models.DateTimeField(blank=True, null=True)
+	deleted_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='super_user_chat_messages_deleted',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['created_at']
+		indexes = [
+			models.Index(fields=['created_at']),
+			models.Index(fields=['is_deleted', 'created_at']),
+		]
+
+	def __str__(self):
+		author_label = self.author.username if self.author_id else 'Unknown'
+		return f'SuperUserChatMessage<{author_label}:{self.created_at:%Y-%m-%d %H:%M}>'
+
+
+class SuperUserChatReadState(models.Model):
+	user = models.OneToOneField(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='super_user_chat_read_state',
+	)
+	last_seen_message = models.ForeignKey(
+		SuperUserChatMessage,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='+',
+	)
+	last_seen_at = models.DateTimeField(blank=True, null=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['user_id']
+
+	def __str__(self):
+		return f'SuperUserChatReadState<{self.user_id}:{self.last_seen_message_id or "none"}>'
+
+
 class EmailVerificationToken(models.Model):
 	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='email_tokens')
 	token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -367,8 +424,19 @@ class SupportTicketMessage(models.Model):
 		blank=True,
 		related_name='support_ticket_messages_sent',
 	)
-	message = models.TextField()
+	message = models.TextField(blank=True)
+	image = models.ImageField(upload_to='support_ticket_message_images/', blank=True, null=True)
+	is_deleted = models.BooleanField(default=False)
+	deleted_at = models.DateTimeField(blank=True, null=True)
+	deleted_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='support_ticket_messages_deleted',
+	)
 	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
 		ordering = ['created_at']

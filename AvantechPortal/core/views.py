@@ -27,6 +27,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import PasswordChangeView, PasswordResetConfirmView, PasswordResetView
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -93,6 +94,7 @@ from .forms import (
 	StaffUserCreationForm,
 	StaffUserUpdateForm,
 	UserStatusForm,
+	prepare_image_uploads,
 )
 from .models import (
 	AssetAccountability,
@@ -295,9 +297,8 @@ class SecureLogoutView(View):
 	def post(self, request, *args, **kwargs):
 		if request.user.is_authenticated:
 			_set_user_status(request.user, 'offline')
-			invalidate_user_sessions(request.user)
+			invalidate_user_sessions(request.user, keep_session_key=request.session.session_key)
 		logout(request)
-		request.session.flush()
 		return redirect(settings.LOGOUT_REDIRECT_URL)
 
 
@@ -4724,11 +4725,11 @@ def finance_dashboard(request):
 
 
 @login_required
-def finance_reimburstment(request):
+def finance_reimbursement(request):
 	restricted_response = _require_permission(request, 'core.view_fundrequest')
 	if restricted_response:
 		return restricted_response
-	return render(request, 'core/finance_reimburstment.html')
+	return render(request, 'core/finance_reimbursement.html')
 
 
 @login_required
@@ -6313,6 +6314,97 @@ def assets_list(request):
 	return render(request, 'core/assets_list.html', context)
 
 
+def _get_default_asset_department():
+	default_department = AssetDepartment.objects.filter(is_default=True).order_by('name', 'id').first()
+	if default_department:
+		return default_department
+
+	it_department, _ = AssetDepartment.objects.get_or_create(name='IT', defaults={'is_default': True})
+	if not it_department.is_default:
+		it_department.is_default = True
+		it_department.save(update_fields=['is_default'])
+	return it_department
+
+
+def _ensure_asset_type_parent_item(item_type, created_by=None):
+	item_type_code = (getattr(item_type, 'code', '') or '').strip().lower()
+	if not item_type_code or not getattr(item_type, 'is_active', False):
+		return None, False
+
+	parent_item = (
+		AssetItem.objects
+		.filter(parent_item__isnull=True, item_type__iexact=item_type_code)
+		.order_by('item_code', 'id')
+		.first()
+	)
+	if parent_item:
+		updates = []
+		prefix = (item_type.prefix or 'AST').strip().upper()
+		if parent_item.code_prefix != prefix:
+			parent_item.code_prefix = prefix
+			updates.append('code_prefix')
+		if not parent_item.is_active:
+			parent_item.is_active = True
+			updates.append('is_active')
+		if updates:
+			parent_item.save(update_fields=[*updates, 'updated_at'])
+		return parent_item, False
+
+	department = _get_default_asset_department()
+	parent_item = AssetItem.objects.create(
+		department=department,
+		item_name=item_type.name,
+		item_type=item_type_code,
+		code_prefix=item_type.prefix,
+		stock_quantity=0,
+		low_stock_threshold=5,
+		is_active=True,
+		created_by=created_by,
+	)
+	return parent_item, True
+
+
+def _asset_item_activity_snapshot(item):
+	return {
+		'item_code': item.item_code,
+		'item_name': item.item_name,
+		'item_type': item.item_type,
+		'department_id': item.department_id,
+		'department': item.department.name if item.department_id else '',
+		'parent_item_id': item.parent_item_id,
+		'parent_item_code': item.parent_item.item_code if item.parent_item_id else '',
+		'code_prefix': item.code_prefix,
+		'specification': item.specification,
+		'stock_quantity': int(item.stock_quantity or 0),
+		'low_stock_threshold': int(item.low_stock_threshold or 0),
+		'is_active': bool(item.is_active),
+	}
+
+
+def _asset_item_activity_changes(before, after):
+	field_labels = {
+		'item_name': 'Name',
+		'item_type': 'Item type',
+		'department': 'Department',
+		'parent_item_code': 'Parent item',
+		'code_prefix': 'Code prefix',
+		'specification': 'Specification',
+		'stock_quantity': 'Stock quantity',
+		'low_stock_threshold': 'Low stock threshold',
+		'is_active': 'Active status',
+	}
+	changes = {}
+	for field_name, label in field_labels.items():
+		if before.get(field_name) == after.get(field_name):
+			continue
+		changes[field_name] = {
+			'label': label,
+			'before': before.get(field_name),
+			'after': after.get(field_name),
+		}
+	return changes
+
+
 @login_required
 def assets_company_accounts(request):
 	can_manage_internet_accounts = _can_manage_company_internet_accounts(request.user)
@@ -6649,6 +6741,21 @@ def assets_item_create(request):
 			asset_item.created_by = request.user
 			asset_item.save()
 			form.save_images(asset_item)
+			record_activity(
+				request,
+				'create',
+				'assets',
+				f'Created asset {asset_item.item_code} - {asset_item.item_name}.',
+				target=asset_item,
+				target_label=f'{asset_item.item_code} - {asset_item.item_name}',
+				metadata={
+					'item_code': asset_item.item_code,
+					'item_name': asset_item.item_name,
+					'item_type': asset_item.item_type,
+					'department': asset_item.department.name if asset_item.department_id else '',
+					'parent_item_code': asset_item.parent_item.item_code if asset_item.parent_item_id else '',
+				},
+			)
 			messages.success(request, f'Asset saved with Item ID {asset_item.item_code}.')
 			return redirect('assets_list')
 	else:
@@ -6673,10 +6780,48 @@ def assets_item_update(request, item_id):
 
 	item = get_object_or_404(AssetItem, pk=item_id)
 	if request.method == 'POST':
+		before_snapshot = _asset_item_activity_snapshot(item)
 		form = AssetItemForm(request.POST, request.FILES, instance=item)
 		if form.is_valid():
+			added_image_count = len(form.cleaned_data.get('asset_images') or [])
+			removed_image_count = len(form.get_remove_image_ids())
 			updated_item = form.save()
 			form.save_images(updated_item)
+			updated_item.refresh_from_db()
+			after_snapshot = _asset_item_activity_snapshot(updated_item)
+			changes = _asset_item_activity_changes(before_snapshot, after_snapshot)
+			if added_image_count:
+				changes['images_added'] = {
+					'label': 'Images added',
+					'before': 0,
+					'after': added_image_count,
+				}
+			if removed_image_count:
+				changes['images_removed'] = {
+					'label': 'Images removed',
+					'before': 0,
+					'after': removed_image_count,
+				}
+			changed_labels = [change['label'] for change in changes.values()]
+			change_summary = f" Changed: {', '.join(changed_labels)}." if changed_labels else ''
+			record_activity(
+				request,
+				'update',
+				'assets',
+				f'Updated asset {updated_item.item_code} - {updated_item.item_name}.{change_summary}',
+				target=updated_item,
+				target_label=f'{updated_item.item_code} - {updated_item.item_name}',
+				metadata={
+					'item_code': updated_item.item_code,
+					'item_name': updated_item.item_name,
+					'item_type': updated_item.item_type,
+					'department': updated_item.department.name if updated_item.department_id else '',
+					'parent_item_code': updated_item.parent_item.item_code if updated_item.parent_item_id else '',
+					'changes': changes,
+					'before': before_snapshot,
+					'after': after_snapshot,
+				},
+			)
 			messages.success(request, f'Asset {updated_item.item_code} updated successfully.')
 			return redirect('assets_list')
 	else:
@@ -6702,7 +6847,25 @@ def assets_item_delete(request, item_id):
 	item = get_object_or_404(AssetItem, pk=item_id)
 	if request.method == 'POST':
 		item_code = item.item_code
+		item_name = item.item_name
+		item_type = item.item_type
+		department_name = item.department.name if item.department_id else ''
+		parent_item_code = item.parent_item.item_code if item.parent_item_id else ''
 		item.delete()
+		record_activity(
+			request,
+			'delete',
+			'assets',
+			f'Deleted asset {item_code} - {item_name}.',
+			target_label=f'{item_code} - {item_name}',
+			metadata={
+				'item_code': item_code,
+				'item_name': item_name,
+				'item_type': item_type,
+				'department': department_name,
+				'parent_item_code': parent_item_code,
+			},
+		)
 		messages.success(request, f'Asset {item_code} deleted successfully.')
 		return redirect('assets_list')
 
@@ -6734,14 +6897,37 @@ def assets_items_bulk_delete(request):
 	items_to_delete = AssetItem.objects.filter(pk__in=parsed_ids)
 	deleted_count = 0
 	failed_count = 0
+	deleted_assets = []
 	for item in items_to_delete:
 		try:
+			deleted_assets.append(
+				{
+					'item_code': item.item_code,
+					'item_name': item.item_name,
+					'item_type': item.item_type,
+					'department': item.department.name if item.department_id else '',
+					'parent_item_code': item.parent_item.item_code if item.parent_item_id else '',
+				},
+			)
 			item.delete()
 			deleted_count += 1
 		except Exception:
+			if deleted_assets and deleted_assets[-1].get('item_code') == item.item_code:
+				deleted_assets.pop()
 			failed_count += 1
 
 	if deleted_count:
+		record_activity(
+			request,
+			'delete',
+			'assets',
+			f'Deleted {deleted_count} asset item(s).',
+			target_label=', '.join(asset['item_code'] for asset in deleted_assets[:5]),
+			metadata={
+				'deleted_count': deleted_count,
+				'items': deleted_assets,
+			},
+		)
 		messages.success(request, f'{deleted_count} item(s) deleted successfully.')
 	if failed_count:
 		messages.warning(
@@ -6774,14 +6960,39 @@ def assets_variants_bulk_delete(request, item_id):
 	variants_to_delete = AssetItem.objects.filter(parent_item=parent_item, pk__in=parsed_ids)
 	deleted_count = 0
 	failed_count = 0
+	deleted_variants = []
 	for variant in variants_to_delete:
 		try:
+			deleted_variants.append(
+				{
+					'item_code': variant.item_code,
+					'item_name': variant.item_name,
+					'item_type': variant.item_type,
+					'department': variant.department.name if variant.department_id else '',
+					'parent_item_code': parent_item.item_code,
+				},
+			)
 			variant.delete()
 			deleted_count += 1
 		except Exception:
+			if deleted_variants and deleted_variants[-1].get('item_code') == variant.item_code:
+				deleted_variants.pop()
 			failed_count += 1
 
 	if deleted_count:
+		record_activity(
+			request,
+			'delete',
+			'assets',
+			f'Deleted {deleted_count} variant(s) under {parent_item.item_code}.',
+			target=parent_item,
+			target_label=f'{parent_item.item_code} - {parent_item.item_name}',
+			metadata={
+				'parent_item_code': parent_item.item_code,
+				'deleted_count': deleted_count,
+				'items': deleted_variants,
+			},
+		)
 		messages.success(request, f'{deleted_count} variant(s) deleted successfully.')
 	if failed_count:
 		messages.warning(request, f'{failed_count} variant(s) could not be deleted due to existing references.')
@@ -6817,8 +7028,11 @@ def assets_item_type_create(request):
 	if request.method == 'POST':
 		form = AssetItemTypeForm(request.POST)
 		if form.is_valid():
-			form.save()
+			item_type = form.save()
+			parent_item, created_parent = _ensure_asset_type_parent_item(item_type, created_by=request.user)
 			messages.success(request, 'Item type created successfully.')
+			if created_parent:
+				messages.info(request, f'Parent item {parent_item.item_code} was created for this item type.')
 			return redirect('assets_item_types_list')
 	else:
 		form = AssetItemTypeForm()
@@ -6840,8 +7054,11 @@ def assets_item_type_update(request, item_type_id):
 	if request.method == 'POST':
 		form = AssetItemTypeForm(request.POST, instance=item_type)
 		if form.is_valid():
-			form.save()
+			item_type = form.save()
+			parent_item, created_parent = _ensure_asset_type_parent_item(item_type, created_by=request.user)
 			messages.success(request, 'Item type updated successfully.')
+			if created_parent:
+				messages.info(request, f'Parent item {parent_item.item_code} was created for this item type.')
 			return redirect('assets_item_types_list')
 	else:
 		form = AssetItemTypeForm(instance=item_type)
@@ -7577,9 +7794,8 @@ class SecurePasswordChangeView(PasswordChangeView):
 
 	def form_valid(self, form):
 		user = form.save()
-		invalidate_user_sessions(user)
+		invalidate_user_sessions(user, keep_session_key=self.request.session.session_key)
 		logout(self.request)
-		self.request.session.flush()
 		messages.success(self.request, 'Password changed. Please sign in again.')
 		if self.request.GET.get('modal') == '1' or self.request.POST.get('modal') == '1':
 			return JsonResponse(
@@ -8841,7 +9057,15 @@ def accountability_return(request, accountability_id):
 	return_date_actual = _parse_optional_datetime(return_date_actual_raw)
 	return_confirmed_at = _parse_optional_datetime(return_confirmed_at_raw)
 
-	proof_uploads = [upload for upload in request.FILES.getlist('return_proof_images') if upload]
+	try:
+		proof_uploads = prepare_image_uploads(
+			request.FILES.getlist('return_proof_images'),
+			max_size_bytes=10 * 1024 * 1024,
+			label='return proof image',
+		)
+	except ValidationError as exc:
+		messages.error(request, '; '.join(exc.messages))
+		return redirect('accountability_list')
 	with transaction.atomic():
 		accountability = AssetAccountability.objects.select_related('item', 'borrowed_by').get(pk=accountability_id)
 		if not accountability.mark_returned(

@@ -319,7 +319,15 @@
                         {% if fund_request.attachments.all %}
                             <div class="fund-request-image-strip" role="list" aria-label="Uploaded image previews">
                                 {% for attachment in fund_request.attachments.all %}
-                                    <a href="{{ attachment.image.url }}" target="_blank" class="fund-request-image-card" role="listitem" title="Open image: {{ attachment.image|basename }}">
+                                    <a
+                                        href="{{ attachment.image.url }}"
+                                        class="fund-request-image-card js-fund-request-image-trigger"
+                                        role="listitem"
+                                        title="Open image: {{ attachment.image|basename }}"
+                                        data-image-src="{{ attachment.image.url }}"
+                                        data-image-name="{{ attachment.image|basename }}"
+                                        data-image-date="{{ attachment.created_at|date:'M d, Y h:i A' }}"
+                                    >
                                         <span class="fund-request-image-thumb">
                                             <img src="{{ attachment.image.url }}" alt="Attachment {{ forloop.counter }}">
                                         </span>
@@ -558,7 +566,15 @@
                             {% if fund_request.attachments.all %}
                                 <div class="fund-request-image-strip" role="list" aria-label="Uploaded image previews">
                                     {% for attachment in fund_request.attachments.all %}
-                                        <a href="{{ attachment.image.url }}" target="_blank" class="fund-request-image-card" role="listitem" title="Open image: {{ attachment.image|basename }}">
+                                        <a
+                                            href="{{ attachment.image.url }}"
+                                            class="fund-request-image-card js-fund-request-image-trigger"
+                                            role="listitem"
+                                            title="Open image: {{ attachment.image|basename }}"
+                                            data-image-src="{{ attachment.image.url }}"
+                                            data-image-name="{{ attachment.image|basename }}"
+                                            data-image-date="{{ attachment.created_at|date:'M d, Y h:i A' }}"
+                                        >
                                             <span class="fund-request-image-thumb">
                                                 <img src="{{ attachment.image.url }}" alt="Attachment {{ forloop.counter }}">
                                             </span>
@@ -819,12 +835,12 @@
                                 id="{{ fund_request_form.request_images.id_for_label }}"
                                 name="{{ fund_request_form.request_images.html_name }}"
                                 class="fund-upload-input"
-                                accept=".png,.jpg,.jpeg,.webp"
+                                accept=".png,.jpg,.jpeg,.webp,.heic,.heif"
                                 multiple
                             >
                             <div class="fund-upload-dropzone" id="fundRequestDropzone" tabindex="0" role="button" aria-controls="{{ fund_request_form.request_images.id_for_label }}">
                                 <div class="fund-upload-dropzone-title">Drag and drop images here</div>
-                                <div class="small text-secondary">or click to browse PNG, JPG, JPEG, or WEBP files</div>
+                                <div class="small text-secondary">or click to browse PNG, JPG, JPEG, WEBP, HEIC, or HEIF files</div>
                             </div>
                             <div class="fund-upload-alert alert alert-warning py-2 px-3 mt-2 mb-0 d-none" id="fundRequestUploadAlert" role="alert"></div>
                             <div class="form-text mt-2">{{ fund_request_form.request_images.help_text }}</div>
@@ -1088,7 +1104,13 @@
                     <div class="row g-3">
                         {% for attachment in rejected_request_modal.attachments.all %}
                             <div class="col-md-4">
-                                <a href="{{ attachment.image.url }}" target="_blank" class="d-block border rounded-3 overflow-hidden bg-light-subtle">
+                                <a
+                                    href="{{ attachment.image.url }}"
+                                    class="d-block border rounded-3 overflow-hidden bg-light-subtle js-fund-request-image-trigger"
+                                    data-image-src="{{ attachment.image.url }}"
+                                    data-image-name="{{ attachment.image|basename }}"
+                                    data-image-date="{{ attachment.created_at|date:'M d, Y h:i A' }}"
+                                >
                                     <img src="{{ attachment.image.url }}" alt="Supporting image" class="img-fluid w-100" style="height: 220px; object-fit: cover;">
                                 </a>
                             </div>
@@ -1119,6 +1141,29 @@
             <div class="modal-footer d-flex justify-content-between gap-2 flex-wrap">
                 <div id="fundRequestRowDetailsModalActions" class="d-flex gap-2 flex-wrap"></div>
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fundRequestImageViewerModal" tabindex="-1" aria-labelledby="fundRequestImageViewerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-white">
+                <div class="min-w-0">
+                    <h5 class="modal-title" id="fundRequestImageViewerModalLabel">Uploaded Image</h5>
+                    <div class="small text-secondary text-truncate" id="fundRequestImageViewerMeta">-</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body position-relative text-center bg-light-subtle">
+                <button type="button" class="btn btn-light border position-absolute top-50 start-0 translate-middle-y ms-2 fund-request-image-nav" id="fundRequestImagePrevBtn" aria-label="Previous image">
+                    <i class="bi bi-chevron-left" aria-hidden="true"></i>
+                </button>
+                <img id="fundRequestImageViewerImg" src="" alt="Uploaded image preview" class="img-fluid rounded border bg-white fund-request-image-viewer-img">
+                <button type="button" class="btn btn-light border position-absolute top-50 end-0 translate-middle-y me-2 fund-request-image-nav" id="fundRequestImageNextBtn" aria-label="Next image">
+                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -1864,6 +1909,20 @@
         line-height: 1.2;
     }
 
+    .fund-request-image-viewer-img {
+        max-height: 74vh;
+        object-fit: contain;
+    }
+
+    .fund-request-image-nav {
+        z-index: 2;
+        width: 2.5rem;
+        height: 2.5rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
     #pendingFundRequestsModal.pending-modal-dimmed .modal-content {
         filter: brightness(0.68);
         transition: filter 0.2s ease;
@@ -1988,7 +2047,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const imageMetaMap = new Map();
     const maxImageCount = 10;
     const maxImageSizeBytes = 10 * 1024 * 1024;
-    const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+    const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif']);
 
     const formatBytes = (bytes) => {
         const size = Number(bytes || 0);
@@ -2123,7 +2182,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const extension = lowerName.includes('.') ? lowerName.slice(lowerName.lastIndexOf('.')) : '';
             if (!allowedImageExtensions.has(extension)) {
                 invalidMessages.push(`${file.name}: invalid file type`);
-                invalidImageItems.push({ name: file.name, reason: 'Invalid file type. Allowed: PNG, JPG, JPEG, WEBP.' });
+                invalidImageItems.push({ name: file.name, reason: 'Invalid file type. Allowed: PNG, JPG, JPEG, WEBP, HEIC, HEIF.' });
                 return;
             }
             if ((file.size || 0) > maxImageSizeBytes) {
@@ -2540,6 +2599,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const rowDetailsModalLabel = document.getElementById('fundRequestRowDetailsModalLabel');
     const rowDetailsModalBody = document.getElementById('fundRequestRowDetailsModalBody');
     const rowDetailsModalActions = document.getElementById('fundRequestRowDetailsModalActions');
+    const imageViewerModalElement = document.getElementById('fundRequestImageViewerModal');
+    const imageViewerModalLabel = document.getElementById('fundRequestImageViewerModalLabel');
+    const imageViewerMeta = document.getElementById('fundRequestImageViewerMeta');
+    const imageViewerImg = document.getElementById('fundRequestImageViewerImg');
+    const imageViewerPrevButton = document.getElementById('fundRequestImagePrevBtn');
+    const imageViewerNextButton = document.getElementById('fundRequestImageNextBtn');
     const approveModalElement = document.getElementById('fundRequestApproveModal');
     const approveModalMeta = document.getElementById('fundRequestApproveModalMeta');
     const approveModalNote = document.getElementById('fundRequestApproveModalNote');
@@ -2568,6 +2633,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const bootstrapAvailable = Boolean(window.bootstrap && window.bootstrap.Modal);
     const confirmModal = bootstrapAvailable && confirmModalElement ? window.bootstrap.Modal.getOrCreateInstance(confirmModalElement) : null;
     const rowDetailsModal = bootstrapAvailable && rowDetailsModalElement ? window.bootstrap.Modal.getOrCreateInstance(rowDetailsModalElement) : null;
+    const imageViewerModal = bootstrapAvailable && imageViewerModalElement ? window.bootstrap.Modal.getOrCreateInstance(imageViewerModalElement) : null;
     const approveModal = bootstrapAvailable && approveModalElement ? window.bootstrap.Modal.getOrCreateInstance(approveModalElement) : null;
     const rejectModal = bootstrapAvailable && rejectModalElement ? window.bootstrap.Modal.getOrCreateInstance(rejectModalElement) : null;
     const cancelModal = bootstrapAvailable && cancelModalElement ? window.bootstrap.Modal.getOrCreateInstance(cancelModalElement) : null;
@@ -2583,6 +2649,8 @@ document.addEventListener('DOMContentLoaded', function () {
     let rejectModalSelectedIds = [];
     let cancelModalRequestId = '';
     let cancelModalRequestLabel = '';
+    let imageViewerItems = [];
+    let imageViewerIndex = -1;
     const pendingModalDimSources = new Set();
 
     const syncPendingModalDimState = () => {
@@ -2602,6 +2670,33 @@ document.addEventListener('DOMContentLoaded', function () {
             pendingModalDimSources.delete(source);
         }
         syncPendingModalDimState();
+    };
+
+    const updateStackedModalLayering = (modalElement, backdropClassName) => {
+        if (!modalElement) {
+            return;
+        }
+
+        const openModals = document.querySelectorAll('.modal.show').length;
+        const backdropBase = 1050 + (openModals * 20);
+        modalElement.style.zIndex = String(backdropBase + 10);
+
+        const backdrops = document.querySelectorAll('.modal-backdrop.show');
+        const latestBackdrop = backdrops.length ? backdrops[backdrops.length - 1] : null;
+        if (latestBackdrop) {
+            latestBackdrop.style.zIndex = String(backdropBase);
+            latestBackdrop.classList.add(backdropClassName);
+        }
+    };
+
+    const resetStackedModalLayering = (modalElement, backdropClassName) => {
+        if (modalElement) {
+            modalElement.style.zIndex = '';
+        }
+        document.querySelectorAll(`.modal-backdrop.${backdropClassName}`).forEach(function (node) {
+            node.classList.remove(backdropClassName);
+            node.style.zIndex = '';
+        });
     };
 
     const submitFormWithSubmitter = (submitter) => {
@@ -2634,6 +2729,69 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         infoModal.show();
     }
+
+    const getImageItemFromTrigger = (trigger) => ({
+        src: trigger.dataset.imageSrc || trigger.getAttribute('href') || '',
+        name: trigger.dataset.imageName || trigger.getAttribute('title') || 'Uploaded image',
+        date: trigger.dataset.imageDate || '',
+    });
+
+    const collectImageViewerItems = (trigger) => {
+        const galleryScope = trigger.closest('.fund-request-image-strip, .row, .modal-body') || document;
+        const triggers = Array.from(galleryScope.querySelectorAll('.js-fund-request-image-trigger'));
+        const scopedTriggers = triggers.length ? triggers : [trigger];
+        imageViewerItems = scopedTriggers.map(getImageItemFromTrigger).filter((item) => item.src);
+        imageViewerIndex = Math.max(0, scopedTriggers.indexOf(trigger));
+        if (imageViewerIndex >= imageViewerItems.length) {
+            imageViewerIndex = 0;
+        }
+    };
+
+    const renderImageViewer = () => {
+        if (!imageViewerImg || !imageViewerMeta || !imageViewerItems.length || imageViewerIndex < 0) {
+            return;
+        }
+
+        const current = imageViewerItems[imageViewerIndex];
+        const imageName = current.name || 'Uploaded image';
+        imageViewerImg.src = current.src || '';
+        imageViewerImg.alt = imageName;
+        if (imageViewerModalLabel) {
+            imageViewerModalLabel.textContent = imageName;
+        }
+        imageViewerMeta.textContent = [
+            current.date,
+            `${imageViewerIndex + 1}/${imageViewerItems.length}`,
+        ].filter(Boolean).join(' | ');
+        const hasMultipleImages = imageViewerItems.length > 1;
+        if (imageViewerPrevButton) {
+            imageViewerPrevButton.classList.toggle('d-none', !hasMultipleImages);
+        }
+        if (imageViewerNextButton) {
+            imageViewerNextButton.classList.toggle('d-none', !hasMultipleImages);
+        }
+    };
+
+    const openImageViewer = (trigger) => {
+        if (!trigger) {
+            return;
+        }
+        if (!imageViewerModal) {
+            window.open(trigger.dataset.imageSrc || trigger.getAttribute('href') || '', '_blank', 'noopener');
+            return;
+        }
+        collectImageViewerItems(trigger);
+        renderImageViewer();
+        imageViewerModal.show();
+    };
+
+    const navigateImageViewer = (direction) => {
+        if (!imageViewerItems.length) {
+            return;
+        }
+        imageViewerIndex = (imageViewerIndex + direction + imageViewerItems.length) % imageViewerItems.length;
+        renderImageViewer();
+    };
 
     const openRowDetailsModal = (row) => {
         if (!row) {
@@ -3024,6 +3182,55 @@ document.addEventListener('DOMContentLoaded', function () {
             setPendingModalDim('details', false);
         });
     }
+
+    if (imageViewerPrevButton) {
+        imageViewerPrevButton.addEventListener('click', function () {
+            navigateImageViewer(-1);
+        });
+    }
+
+    if (imageViewerNextButton) {
+        imageViewerNextButton.addEventListener('click', function () {
+            navigateImageViewer(1);
+        });
+    }
+
+    if (imageViewerModalElement) {
+        imageViewerModalElement.addEventListener('shown.bs.modal', function () {
+            updateStackedModalLayering(imageViewerModalElement, 'fund-request-image-backdrop');
+        });
+        imageViewerModalElement.addEventListener('hidden.bs.modal', function () {
+            resetStackedModalLayering(imageViewerModalElement, 'fund-request-image-backdrop');
+            imageViewerItems = [];
+            imageViewerIndex = -1;
+            if (imageViewerImg) {
+                imageViewerImg.src = '';
+            }
+        });
+    }
+
+    document.addEventListener('click', function (event) {
+        const imageTrigger = event.target.closest('.js-fund-request-image-trigger');
+        if (!imageTrigger) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        openImageViewer(imageTrigger);
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (!imageViewerModalElement || !imageViewerModalElement.classList.contains('show')) {
+            return;
+        }
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            navigateImageViewer(-1);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            navigateImageViewer(1);
+        }
+    });
 
     const normalizeText = (value) => String(value || '').toLowerCase().trim();
     const pendingFilterValueForRow = (row) => normalizeText(row.dataset.pendingFilterKey || '');
@@ -3482,4 +3689,3 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 {% endblock %}
-

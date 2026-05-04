@@ -175,6 +175,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.SessionInterruptedMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -205,6 +206,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.notification_summary',
                 'core.context_processors.finance_navigation_state',
+                'core.context_processors.super_user_chat_access',
                 'core.context_processors.page_access_indicator',
             ],
         },

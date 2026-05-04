@@ -14,7 +14,6 @@ README.md
 .env/
 .env 
 .media/
-AvantechPortal/media/system_backups/
-AvantechPortal/media/system_backups/**/*.zip
+AvantechPortal/media/
 .pycache/
 .codex
