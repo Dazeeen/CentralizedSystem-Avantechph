@@ -1,5 +1,33 @@
 from collections import defaultdict
 
+from django.db.models import Q
+
+
+BASIC_ROLE_PERMISSION_KEYS = (
+    ('core', 'assetaccountability', 'add_assetaccountability'),
+    ('core', 'assetaccountability', 'view_assetaccountability'),
+    ('core', 'assetaccountability', 'can_borrow_assets'),
+    ('core', 'companyinternetaccount', 'view_companyinternetaccount'),
+    ('core', 'supportticket', 'add_supportticket'),
+    ('core', 'supportticket', 'view_supportticket'),
+    ('core', 'supportticketmessage', 'add_supportticketmessage'),
+    ('core', 'supportticketmessage', 'view_supportticketmessage'),
+    ('core', 'developmentfeedback', 'add_developmentfeedback'),
+    ('core', 'developmentfeedback', 'view_developmentfeedback'),
+    ('core', 'fundrequest', 'add_fundrequest'),
+    ('core', 'fundrequest', 'view_fundrequest'),
+    ('core', 'fundrequestattachment', 'add_fundrequestattachment'),
+    ('core', 'fundrequestattachment', 'view_fundrequestattachment'),
+    ('core', 'fundrequestlineitem', 'add_fundrequestlineitem'),
+    ('core', 'fundrequestlineitem', 'view_fundrequestlineitem'),
+    ('core', 'liquidation', 'add_liquidation'),
+    ('core', 'liquidation', 'view_liquidation'),
+    ('core', 'liquidationattachment', 'add_liquidationattachment'),
+    ('core', 'liquidationattachment', 'view_liquidationattachment'),
+    ('core', 'liquidationlineitem', 'add_liquidationlineitem'),
+    ('core', 'liquidationlineitem', 'view_liquidationlineitem'),
+)
+
 
 FEATURE_LABELS = {
     ('auth', 'user'): ('user_accounts', 'User Accounts'),
@@ -258,6 +286,32 @@ def build_permission_groups(permissions, selected_values=None):
         )
 
     return result
+
+
+def get_basic_role_permission_ids():
+    from django.contrib.auth.models import Permission
+
+    query = None
+    for app_label, model, codename in BASIC_ROLE_PERMISSION_KEYS:
+        condition = {
+            'content_type__app_label': app_label,
+            'content_type__model': model,
+            'codename': codename,
+        }
+        if query is None:
+            query = Q(**condition)
+        else:
+            query |= Q(**condition)
+
+    if query is None:
+        return []
+
+    return list(
+        Permission.objects
+        .filter(query)
+        .values_list('pk', flat=True)
+        .order_by('content_type__app_label', 'content_type__model', 'codename')
+    )
 
 
 def build_permission_preview_groups(permissions):

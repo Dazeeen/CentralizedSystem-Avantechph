@@ -23,7 +23,7 @@ else:
     register_heif_opener()
 
 from .auth_utils import get_client_ip
-from .permission_catalog import build_permission_groups
+from .permission_catalog import build_permission_groups, get_basic_role_permission_ids
 from .models import (
     AssetAccountability,
     AssetAccountabilityTemplate,
@@ -147,6 +147,8 @@ class BaseUserFormMixin:
                 raw_values = list(self.instance.user_permissions.values_list('pk', flat=True))
             elif field_name == 'groups':
                 raw_values = list(self.instance.groups.values_list('pk', flat=True))
+            elif field_name == 'permissions':
+                raw_values = list(self.instance.permissions.values_list('pk', flat=True))
 
         if raw_values is None:
             return set()
@@ -293,6 +295,8 @@ class RoleForm(BaseUserFormMixin, forms.ModelForm):
         self.fields['permissions'].widget.choices = self.fields['permissions'].choices
         self.fields['permissions'].label = 'Feature Access'
         self.fields['permissions'].help_text = 'Select which system features this role can access.'
+        if not self.is_bound and not getattr(self.instance, 'pk', None):
+            self.initial.setdefault('permissions', get_basic_role_permission_ids())
         self.fields['name'].widget.attrs.update({'class': 'form-control'})
         self.fields['permissions'].widget.attrs.update({'class': 'checkbox-list', 'data-field-kind': 'permissions'})
 

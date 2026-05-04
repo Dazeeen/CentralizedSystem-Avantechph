@@ -5,14 +5,15 @@ from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from PIL import Image
 
 from . import views
-from .forms import AssetItemForm, prepare_image_upload
+from .forms import AssetItemForm, RoleForm, prepare_image_upload
+from .permission_catalog import BASIC_ROLE_PERMISSION_KEYS, get_basic_role_permission_ids
 from .models import (
     AssetAccountability,
     AssetAccountabilityFormBatch,
@@ -39,6 +40,40 @@ def _build_docx_template_bytes(text):
         archive.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types></Types>')
         archive.writestr('word/document.xml', document_xml)
     return output.getvalue()
+
+
+class RoleFormBasicAccessTests(TestCase):
+    def test_create_role_defaults_to_basic_access_permissions(self):
+        form = RoleForm()
+        selected_ids = {str(value) for value in form.initial.get('permissions', [])}
+        expected_ids = {str(value) for value in get_basic_role_permission_ids()}
+
+        self.assertTrue(expected_ids)
+        self.assertEqual(selected_ids, expected_ids)
+
+        for app_label, model, codename in BASIC_ROLE_PERMISSION_KEYS:
+            self.assertTrue(
+                Permission.objects.filter(
+                    content_type__app_label=app_label,
+                    content_type__model=model,
+                    codename=codename,
+                ).exists(),
+                f'Missing basic role permission: {app_label}.{codename}',
+            )
+
+    def test_edit_role_uses_existing_permissions_not_basic_access_preset(self):
+        role = Group.objects.create(name='Custom Role')
+        custom_permission = Permission.objects.get(
+            content_type__app_label='core',
+            content_type__model='fundrequest',
+            codename='view_fundrequest',
+        )
+        role.permissions.set([custom_permission])
+
+        form = RoleForm(instance=role)
+        selected_values = form._selected_field_values('permissions')
+
+        self.assertEqual(selected_values, {str(custom_permission.pk)})
 
 
 class AssetItemParentTypeTests(TestCase):

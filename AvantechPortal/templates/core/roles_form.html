@@ -30,12 +30,17 @@
                             <span>Select all / Unselect all</span>
                         </label>
                     </div>
+                    <div class="input-group input-group-sm mb-2">
+                        <span class="input-group-text">Search</span>
+                        <input type="search" class="form-control" id="rolePermissionSearch" placeholder="Search feature access" autocomplete="off">
+                        <button type="button" class="btn btn-outline-secondary d-none" id="rolePermissionSearchClear">Clear</button>
+                    </div>
                     <div class="border rounded p-2 compact-permission-panel permissions-checklist" data-field-kind="permissions">
                         {% for group in form.grouped_permissions %}
-                            <details class="permission-category" {% if group.selected_count > 0 or forloop.first %}open{% endif %}>
+                            <details class="permission-category js-role-permission-category" data-category-label="{{ group.app_label|lower }}" {% if group.selected_count > 0 or forloop.first %}open{% endif %}>
                                 <summary class="permission-category-summary d-flex justify-content-between align-items-center">
                                     <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
-                                    <span class="badge text-bg-light border">{{ group.selected_count }}/{{ group.total_count }} selected</span>
+                                    <span class="badge text-bg-light border js-category-count">{{ group.selected_count }}/{{ group.total_count }} selected</span>
                                 </summary>
                                 <div class="table-responsive mt-2">
                                     <table class="table table-sm align-middle mb-0">
@@ -47,7 +52,7 @@
                                         </thead>
                                         <tbody>
                                             {% for item in group.items %}
-                                                <tr>
+                                                <tr class="js-role-permission-row" data-search-text="{{ group.app_label|lower }} {{ item.label|lower }} {{ item.description|default:''|lower }}">
                                                     <td>
                                                         <div>{{ item.label }}</div>
                                                         <div class="small text-secondary">{{ item.description|default:'Controls access to this feature.' }}</div>
@@ -64,6 +69,7 @@
                         {% empty %}
                             <div class="text-secondary text-center py-2">No feature access available.</div>
                         {% endfor %}
+                        <div class="text-secondary text-center py-2 d-none" id="rolePermissionSearchEmpty">No feature access matches your search.</div>
                     </div>
                     {% if form.permissions.errors %}
                         <div class="text-danger small mt-1">{{ form.permissions.errors|striptags }}</div>
@@ -87,6 +93,10 @@
         const getFieldCheckboxes = (fieldKind) => document.querySelectorAll(
             `[data-field-kind="${fieldKind}"] input[type="checkbox"]:not(.js-toggle-all):not(.js-category-toggle)`
         );
+        const permissionPanel = document.querySelector('[data-field-kind="permissions"]');
+        const permissionSearchInput = document.getElementById('rolePermissionSearch');
+        const permissionSearchClear = document.getElementById('rolePermissionSearchClear');
+        const permissionSearchEmpty = document.getElementById('rolePermissionSearchEmpty');
 
         const setCheckboxState = (fieldKind, checked) => {
             getFieldCheckboxes(fieldKind).forEach((checkbox) => {
@@ -94,9 +104,57 @@
             });
         };
 
+        const normalizeSearch = (value) => (value || '').trim().toLowerCase();
+
+        const syncCategoryCounts = () => {
+            document.querySelectorAll('.js-role-permission-category').forEach((category) => {
+                const checkboxes = Array.from(category.querySelectorAll('input[type="checkbox"]'));
+                const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+                const countBadge = category.querySelector('.js-category-count');
+                if (countBadge) {
+                    countBadge.textContent = `${selectedCount}/${checkboxes.length} selected`;
+                }
+            });
+        };
+
+        const filterPermissions = () => {
+            if (!permissionPanel) {
+                return;
+            }
+            const query = normalizeSearch(permissionSearchInput ? permissionSearchInput.value : '');
+            let visibleCount = 0;
+
+            document.querySelectorAll('.js-role-permission-category').forEach((category) => {
+                let categoryHasVisibleRows = false;
+                const categoryLabel = normalizeSearch(category.dataset.categoryLabel);
+                category.querySelectorAll('.js-role-permission-row').forEach((row) => {
+                    const searchText = normalizeSearch(row.dataset.searchText);
+                    const isVisible = !query || searchText.includes(query) || categoryLabel.includes(query);
+                    row.classList.toggle('d-none', !isVisible);
+                    if (isVisible) {
+                        visibleCount += 1;
+                        categoryHasVisibleRows = true;
+                    }
+                });
+
+                category.classList.toggle('d-none', !categoryHasVisibleRows);
+                if (query && categoryHasVisibleRows) {
+                    category.open = true;
+                }
+            });
+
+            if (permissionSearchClear) {
+                permissionSearchClear.classList.toggle('d-none', !query);
+            }
+            if (permissionSearchEmpty) {
+                permissionSearchEmpty.classList.toggle('d-none', !query || visibleCount > 0);
+            }
+        };
+
         document.querySelectorAll('.js-toggle-all').forEach((toggle) => {
             toggle.addEventListener('change', () => {
                 setCheckboxState(toggle.dataset.targetField, toggle.checked);
+                syncCategoryCounts();
                 syncToggle();
             });
         });
@@ -111,8 +169,23 @@
         };
 
         getFieldCheckboxes('permissions').forEach((checkbox) => {
-            checkbox.addEventListener('change', syncToggle);
+            checkbox.addEventListener('change', () => {
+                syncCategoryCounts();
+                syncToggle();
+            });
         });
+        if (permissionSearchInput) {
+            permissionSearchInput.addEventListener('input', filterPermissions);
+        }
+        if (permissionSearchClear && permissionSearchInput) {
+            permissionSearchClear.addEventListener('click', () => {
+                permissionSearchInput.value = '';
+                permissionSearchInput.focus();
+                filterPermissions();
+            });
+        }
+        syncCategoryCounts();
+        filterPermissions();
         syncToggle();
     })();
 </script>
