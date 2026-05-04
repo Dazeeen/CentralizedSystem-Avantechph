@@ -1381,11 +1381,13 @@ def _build_fund_request_template_placeholders_from_values(
 		'{{ serial_number }}': serial_number or '',
 		'{{ requester_name }}': requester_name or '',
 		'{{ request_date }}': _format_fund_request_date(request_date),
+		'{{ date_needed }}': _format_fund_request_date(request_date),
 		'{{ department }}': department or '',
 		'{{ total_amount }}': _format_fund_request_amount(total_amount),
 		'{{ total_amount_php }}': f'PHP {_format_fund_request_amount(total_amount)}',
 		'{{ purpose_of_request }}': purpose_of_request or '',
 		'{{ mode_of_release }}': mode_of_release or '',
+		'{{ payment_mode }}': mode_of_release or '',
 		'{{ requested_amount }}': _format_fund_request_amount(requested_amount),
 		'{{ requested_amount_php }}': f'PHP {_format_fund_request_amount(requested_amount)}',
 		'{{ prepared_by }}': prepared_by or '-',
@@ -1402,18 +1404,37 @@ def _build_fund_request_template_placeholders_from_values(
 		item_date = item.get('entry_date')
 		item_particulars = item.get('particulars') or ''
 		item_amount = item.get('amount') or 0
+		item_category = item.get('category') or ''
+		item_description = item.get('description') or item_particulars
+		item_quantity = item.get('quantity') or ''
+		item_uom = item.get('uom') or item.get('unit_of_measurement') or ''
+		item_estimated_cost = item.get('estimated_cost') or item_amount
 		item_date_label = _format_fund_request_item_date(item_date)
 		placeholders[f'{{{{ item_{index}_date }}}}'] = item_date_label
 		placeholders[f'{{{{ item_{index}_particulars }}}}'] = item_particulars
 		placeholders[f'{{{{ item_{index}_amount }}}}'] = f'{item_amount:.2f}'
 		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = f'PHP {_format_fund_request_amount(item_amount)}'
-		line_items_lines.append(f'{index}. {item_date_label} | {item_particulars} | PHP {_format_fund_request_amount(item_amount)}')
+		placeholders[f'{{{{ item_{index}_category }}}}'] = item_category
+		placeholders[f'{{{{ item_{index}_description }}}}'] = item_description
+		placeholders[f'{{{{ item_{index}_quantity }}}}'] = str(item_quantity)
+		placeholders[f'{{{{ item_{index}_uom }}}}'] = item_uom
+		placeholders[f'{{{{ item_{index}_estimated_cost }}}}'] = _format_fund_request_amount(item_estimated_cost)
+		placeholders[f'{{{{ item_{index}_estimated_cost_php }}}}'] = f'PHP {_format_fund_request_amount(item_estimated_cost)}'
+		line_items_lines.append(
+			f'{index}. {item_category} | {item_description} | Qty {item_quantity} {item_uom} | PHP {_format_fund_request_amount(item_estimated_cost)}'
+		)
 
 	for index in range(len(line_items) + 1, 21):
 		placeholders[f'{{{{ item_{index}_date }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_particulars }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_amount }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_category }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_description }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_quantity }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_uom }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_estimated_cost }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_estimated_cost_php }}}}'] = ''
 
 	placeholders['{{ line_items }}'] = '\n'.join(line_items_lines)
 	placeholders['{{ line_items_table }}'] = '\n'.join(line_items_lines)
@@ -1421,18 +1442,27 @@ def _build_fund_request_template_placeholders_from_values(
 
 
 def _build_fund_request_template_placeholders(fund_request):
-	line_items = [
-		{
-			'entry_date': item.entry_date,
-			'particulars': item.particulars,
-			'amount': item.amount,
-		}
-		for item in fund_request.items.all()
-	]
+	request_metadata = fund_request.request_metadata or {}
+	metadata_items = request_metadata.get('line_items') or []
+	model_items = list(fund_request.items.all())
+	line_items = []
+	for index, item in enumerate(model_items):
+		metadata_item = metadata_items[index] if index < len(metadata_items) and isinstance(metadata_items[index], dict) else {}
+		line_items.append(
+			{
+				'entry_date': item.entry_date,
+				'particulars': item.particulars,
+				'amount': item.amount,
+				'category': metadata_item.get('category') or '',
+				'description': metadata_item.get('description') or item.particulars,
+				'quantity': metadata_item.get('quantity') or '',
+				'unit_of_measurement': metadata_item.get('unit_of_measurement') or '',
+				'estimated_cost': metadata_item.get('estimated_cost') or item.amount,
+			}
+		)
 	prepared_by = '-'
 	if fund_request.created_by:
 		prepared_by = fund_request.created_by.get_full_name() or fund_request.created_by.username
-	request_metadata = fund_request.request_metadata or {}
 	purpose_of_request = (request_metadata.get('purpose_of_request') or '').strip()
 	mode_of_release_key = (request_metadata.get('mode_of_release') or '').strip()
 	mode_of_release = dict(FundRequestForm.MODE_OF_RELEASE_CHOICES).get(mode_of_release_key, mode_of_release_key)
@@ -1466,6 +1496,7 @@ def _build_fund_request_line_items_context_from_values(line_items=None):
 	for index, item in enumerate(line_items or [], start=1):
 		item_date = item.get('entry_date')
 		item_amount = item.get('amount') or 0
+		estimated_cost = item.get('estimated_cost') or item_amount
 		context_items.append(
 			{
 				'index': index,
@@ -1473,22 +1504,36 @@ def _build_fund_request_line_items_context_from_values(line_items=None):
 				'particulars': item.get('particulars') or '',
 				'amount': f'{item_amount:.2f}',
 				'amount_php': f'PHP {_format_fund_request_amount(item_amount)}',
+				'category': item.get('category') or '',
+				'description': item.get('description') or item.get('particulars') or '',
+				'quantity': str(item.get('quantity') or ''),
+				'uom': item.get('uom') or item.get('unit_of_measurement') or '',
+				'unit_of_measurement': item.get('unit_of_measurement') or item.get('uom') or '',
+				'estimated_cost': _format_fund_request_amount(estimated_cost),
+				'estimated_cost_php': f'PHP {_format_fund_request_amount(estimated_cost)}',
 			}
 		)
 	return context_items
 
 
 def _build_fund_request_line_items_context(fund_request):
-	return _build_fund_request_line_items_context_from_values(
-		[
+	metadata_items = (fund_request.request_metadata or {}).get('line_items') or []
+	line_items = []
+	for index, item in enumerate(fund_request.items.all()):
+		metadata_item = metadata_items[index] if index < len(metadata_items) and isinstance(metadata_items[index], dict) else {}
+		line_items.append(
 			{
 				'entry_date': item.entry_date,
 				'particulars': item.particulars,
 				'amount': item.amount,
+				'category': metadata_item.get('category') or '',
+				'description': metadata_item.get('description') or item.particulars,
+				'quantity': metadata_item.get('quantity') or '',
+				'unit_of_measurement': metadata_item.get('unit_of_measurement') or '',
+				'estimated_cost': metadata_item.get('estimated_cost') or item.amount,
 			}
-			for item in fund_request.items.all()
-		]
-	)
+		)
+	return _build_fund_request_line_items_context_from_values(line_items)
 
 
 def _replace_line_item_block_placeholders(content, line_item):
@@ -1515,6 +1560,23 @@ def _shift_xlsx_row_numbers(block_content, row_offset):
 
 def _expand_dynamic_line_item_blocks(content, line_items, extension):
 	block_pattern = re.compile(r'{{#line_items}}(.*?){{/line_items}}', re.DOTALL)
+
+	if extension == '.xlsx':
+		row_block_pattern = re.compile(r'<row\b[^>]*\br="(\d+)"[^>]*>.*?{{#line_items}}.*?{{/line_items}}.*?</row>', re.DOTALL)
+
+		def render_row_block(match):
+			if not line_items:
+				return ''
+
+			row_content = match.group(0).replace('{{#line_items}}', '').replace('{{/line_items}}', '')
+			rendered_rows = []
+			for index, line_item in enumerate(line_items):
+				item_block = _replace_line_item_block_placeholders(row_content, line_item)
+				item_block = _shift_xlsx_row_numbers(item_block, index)
+				rendered_rows.append(item_block)
+			return ''.join(rendered_rows)
+
+		content = row_block_pattern.sub(render_row_block, content)
 
 	def render_block(match):
 		block_content = match.group(1)
@@ -1604,9 +1666,26 @@ def _build_sample_fund_request_preview_context(template_record):
 	request_date = timezone.localdate()
 	created_at = timezone.now()
 	line_items = [
-		{'entry_date': request_date, 'particulars': 'Transportation allowance', 'amount': 1250.00},
-		{'entry_date': request_date, 'particulars': 'Client lunch meeting', 'amount': 1850.00},
-		{'entry_date': request_date, 'particulars': 'Project supplies', 'amount': 2499.50},
+		{
+			'entry_date': request_date,
+			'particulars': 'Materials/Purchases | Project supplies | Qty 3 pcs | PHP 2,499.50',
+			'amount': 2499.50,
+			'category': 'Materials/Purchases',
+			'description': 'Project supplies',
+			'quantity': '3',
+			'unit_of_measurement': 'pcs',
+			'estimated_cost': 2499.50,
+		},
+		{
+			'entry_date': request_date,
+			'particulars': 'Gas/Fuel | Fuel allocation | Qty 1 lot | PHP 1,250.00',
+			'amount': 1250.00,
+			'category': 'Gas/Fuel',
+			'description': 'Fuel allocation',
+			'quantity': '1',
+			'unit_of_measurement': 'lot',
+			'estimated_cost': 1250.00,
+		},
 	]
 	total_amount = sum(item['amount'] for item in line_items)
 	purpose_of_request = 'Site inspection, minor tools purchase, and fuel allocation.'
@@ -1659,139 +1738,79 @@ def _build_sample_fund_request_preview_context(template_record):
 def _build_fund_request_template_placeholder_guide():
 	return [
 		{
-			'placeholder': '{{ serial_number }}',
-			'description': 'Shows the approved payment request serial number (blank while pending).',
-			'use_case': 'Use in the document header, title bar, or control number area.',
+			'placeholder': '{{ request_date }}',
+			'description': 'Shows the payment request date.',
+			'use_case': 'Use beside the Date label.',
 		},
 		{
 			'placeholder': '{{ requester_name }}',
-			'description': 'Displays the employee or requester full name.',
-			'use_case': 'Use beside labels like Requester, Requested By, or Name.',
-		},
-		{
-			'placeholder': '{{ request_date }}',
-			'description': 'Outputs the request date in `MMMM DD, YYYY` format (example: April 25, 2026).',
-			'use_case': 'Use for the request date field in forms and approval sheets.',
+			'description': 'Shows the requestor name.',
+			'use_case': 'Use beside Requestor Name.',
 		},
 		{
 			'placeholder': '{{ department }}',
-			'description': 'Shows the selected department.',
-			'use_case': 'Use in the requester details section or routing block.',
-		},
-		{
-			'placeholder': '{{ total_amount }}',
-			'description': 'Outputs the computed total amount as a numeric value with thousands separators.',
-			'use_case': 'Use inside formulas or cells that should not include the `PHP` prefix.',
-		},
-		{
-			'placeholder': '{{ total_amount_php }}',
-			'description': 'Outputs the computed total amount with the `PHP` currency prefix and thousands separators.',
-			'use_case': 'Use for grand total labels in printed payment request forms.',
-		},
-		{
-			'placeholder': '{{ prepared_by }}',
-			'description': 'Shows the portal user who prepared or submitted the request.',
-			'use_case': 'Use for signatures, footer summaries, or prepared-by blocks.',
-		},
-		{
-			'placeholder': '{{ created_at }}',
-			'description': 'Shows when the request record was created in the portal.',
-			'use_case': 'Use in audit stamps, footer notes, or generated metadata.',
-		},
-		{
-			'placeholder': '{{ template_name }}',
-			'description': 'Outputs the current payment request template name.',
-			'use_case': 'Use in document footers or internal reference labels.',
+			'description': 'Shows the department or project.',
+			'use_case': 'Use beside Department/Project.',
 		},
 		{
 			'placeholder': '{{ purpose_of_request }}',
-			'description': 'Shows the purpose of request text from the form.',
-			'use_case': 'Use in narrative fields describing why the request is made.',
+			'description': 'Shows the purpose of request.',
+			'use_case': 'Use in the Purpose of Request section.',
 		},
 		{
-			'placeholder': '{{ mode_of_release }}',
-			'description': 'Shows the selected mode of release (Cash, Bank Transfer, GCash, Check).',
-			'use_case': 'Use in the payment release section of the document.',
+			'placeholder': '{{ total_amount_php }}',
+			'description': 'Shows the total requested amount with the PHP prefix.',
+			'use_case': 'Use beside Requested Amount.',
 		},
 		{
-			'placeholder': '{{ requested_amount }}',
-			'description': 'Outputs the requested amount as a numeric value without the PHP prefix.',
-			'use_case': 'Use in numeric-only cells or formulas.',
+			'placeholder': '{{ date_needed }}',
+			'description': 'Shows the date needed.',
+			'use_case': 'Use beside Date Needed.',
 		},
 		{
-			'placeholder': '{{ requested_amount_php }}',
-			'description': 'Outputs the requested amount with the PHP prefix.',
-			'use_case': 'Use for display labels showing the requested amount.',
-		},
-		{
-			'placeholder': '{{ fuel_gas_details }}',
-			'description': 'Outputs the Fuel / Gas Details block only when the request uses gas/fuel.',
-			'use_case': 'Use where the fuel/gas section should appear conditionally in the template.',
-		},
-		{
-			'placeholder': '{{ supplier_service_details }}',
-			'description': 'Outputs the Supplier / Service Details block only when supplier/service details are marked Yes.',
-			'use_case': 'Use where supplier details should appear in the template.',
-		},
-		{
-			'placeholder': '{{ fuel-gas_details }}',
-			'description': 'Legacy alias for `{{ fuel_gas_details }}`.',
-			'use_case': 'Use only for older templates that already contain this placeholder.',
-		},
-		{
-			'placeholder': '{{ supplier-server-details }}',
-			'description': 'Legacy alias for `{{ supplier_service_details }}`.',
-			'use_case': 'Use only for older templates that already contain this placeholder.',
-		},
-		{
-			'placeholder': '{{ line_items }}',
-			'description': 'Creates a plain text multi-line summary of all line items.',
-			'use_case': 'Use when the template only needs one paragraph or text box summary.',
-		},
-		{
-			'placeholder': '{{ line_items_table }}',
-			'description': 'Alias of `{{ line_items }}` that outputs the same multi-line summary text.',
-			'use_case': 'Use in legacy templates that already use `line_items_table` naming.',
-		},
-		{
-			'placeholder': '{{ item_1_date }}',
-			'description': 'Outputs the first line item date in `MM/DD/YYYY` format. The same format works for `item_2_...` up to `item_20_...`.',
-			'use_case': 'Use for fixed-row templates where each row is mapped manually.',
-		},
-		{
-			'placeholder': '{{ item_1_particulars }}',
-			'description': 'Outputs the first line item particulars. Repeat the number for additional fixed rows.',
-			'use_case': 'Use in static Office templates with a known number of rows.',
-		},
-		{
-			'placeholder': '{{ item_1_amount_php }}',
-			'description': 'Outputs the first line item amount with the `PHP` prefix and thousands separators. Use `{{ item_1_amount }}` for numeric-only values.',
-			'use_case': 'Use for fixed-row amount cells or static print layouts.',
+			'placeholder': '{{ payment_mode }}',
+			'description': 'Shows the selected mode of release.',
+			'use_case': 'Use beside Mode of Release.',
 		},
 		{
 			'placeholder': '{{#line_items}} ... {{/line_items}}',
-			'description': 'Dynamic repeating block for uploaded `.docx` and `.xlsx` templates. Everything inside the block repeats once per line item.',
-			'use_case': 'Use when the number of rows can change and the template should expand automatically.',
+			'description': 'Repeats the planned-expense table row once for each material/purchase, gas/fuel, delivery/transport, or other row.',
+			'use_case': 'For XLSX templates, wrap the B20-F20 row with this block so added rows are inserted starting at B20-F20.',
 		},
 		{
-			'placeholder': '{{ entry_date }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row date in `MM/DD/YYYY` format.',
-			'use_case': 'Use inside dynamic table rows for each expense date.',
+			'placeholder': '{{ category }}',
+			'description': 'Available only inside `{{#line_items}}`. Shows the current row category.',
+			'use_case': 'Use in the Category cell, such as B20.',
 		},
 		{
-			'placeholder': '{{ particulars }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row particulars.',
-			'use_case': 'Use inside dynamic rows for item descriptions or expense details.',
+			'placeholder': '{{ description }}',
+			'description': 'Available only inside `{{#line_items}}`. Shows the current row description.',
+			'use_case': 'Use in the Description cell, such as C20.',
 		},
 		{
-			'placeholder': '{{ amount }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount as numeric-only.',
-			'use_case': 'Use in numeric cells or formulas that should not include the `PHP` prefix.',
+			'placeholder': '{{ quantity }}',
+			'description': 'Available only inside `{{#line_items}}`. Shows the current row quantity.',
+			'use_case': 'Use in the Qty cell, such as D20.',
 		},
 		{
-			'placeholder': '{{ amount_php }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount with the `PHP` prefix and thousands separators.',
-			'use_case': 'Use inside dynamic rows when the amount should already be display-formatted.',
+			'placeholder': '{{ uom }}',
+			'description': 'Available only inside `{{#line_items}}`. Shows the current row unit of measurement.',
+			'use_case': 'Use in the UOM cell, such as E20.',
+		},
+		{
+			'placeholder': '{{ estimated_cost }}',
+			'description': 'Available only inside `{{#line_items}}`. Shows the current row estimated cost.',
+			'use_case': 'Use in the Estimated Cost cell, such as F20.',
+		},
+		{
+			'placeholder': '{{ fuel-gas_details }}',
+			'description': 'Shows the Fuel / Gas Details block only when the request uses gas/fuel.',
+			'use_case': 'Use where the fuel/gas details section appears.',
+		},
+		{
+			'placeholder': '{{ supplier-server-details }}',
+			'description': 'Shows the Supplier / Service Details block only when supplier/service details are marked Yes.',
+			'use_case': 'Use where the supplier/service details section appears.',
 		},
 	]
 
@@ -1803,13 +1822,13 @@ def _build_fund_request_template_quick_placeholder_guide():
 		for item in placeholder_guide
 	}
 	featured_placeholders = [
-		'{{ serial_number }}',
-		'{{ requester_name }}',
 		'{{ request_date }}',
+		'{{ requester_name }}',
 		'{{ department }}',
-		'{{ branch }}',
+		'{{ purpose_of_request }}',
 		'{{ total_amount_php }}',
-		'{{ prepared_by }}',
+		'{{ date_needed }}',
+		'{{ payment_mode }}',
 		'{{#line_items}} ... {{/line_items}}',
 	]
 	return [

@@ -223,6 +223,103 @@ class PaymentRequestPlaceholderTests(TestCase):
         self.assertEqual(placeholders['{{ supplier_service_details }}'], '')
         self.assertEqual(placeholders['{{ supplier-server-details }}'], '')
 
+    def test_planned_expense_dynamic_row_fields_use_metadata(self):
+        request = FundRequest.objects.create(
+            requester_name='Requester Three',
+            department='Operations',
+            branch='Alabang',
+            created_by=self.user,
+            request_metadata={
+                'mode_of_release': 'cash',
+                'line_items': [
+                    {
+                        'category': 'Materials/Purchases',
+                        'description': 'PVC pipe',
+                        'quantity': '4',
+                        'unit_of_measurement': 'pcs',
+                        'estimated_cost': '2500',
+                    }
+                ],
+            },
+        )
+        FundRequestLineItem.objects.create(
+            fund_request=request,
+            entry_date=request.request_date,
+            particulars='Materials/Purchases | PVC pipe | Qty 4 pcs | PHP 2,500.00',
+            amount='2500.00',
+        )
+
+        placeholders = views._build_fund_request_template_placeholders(request)
+        line_items = views._build_fund_request_line_items_context(request)
+
+        self.assertEqual(placeholders['{{ date_needed }}'], placeholders['{{ request_date }}'])
+        self.assertEqual(placeholders['{{ payment_mode }}'], 'Cash')
+        self.assertEqual(placeholders['{{ item_1_category }}'], 'Materials/Purchases')
+        self.assertEqual(placeholders['{{ item_1_description }}'], 'PVC pipe')
+        self.assertEqual(placeholders['{{ item_1_quantity }}'], '4')
+        self.assertEqual(placeholders['{{ item_1_uom }}'], 'pcs')
+        self.assertEqual(placeholders['{{ item_1_estimated_cost }}'], '2,500.00')
+        self.assertEqual(line_items[0]['category'], 'Materials/Purchases')
+        self.assertEqual(line_items[0]['description'], 'PVC pipe')
+        self.assertEqual(line_items[0]['quantity'], '4')
+        self.assertEqual(line_items[0]['uom'], 'pcs')
+        self.assertEqual(line_items[0]['estimated_cost'], '2,500.00')
+
+    def test_xlsx_line_item_block_repeats_whole_b20_to_f20_row(self):
+        content = (
+            '<worksheet><sheetData>'
+            '<row r="20">'
+            '<c r="B20"><v>{{#line_items}}{{ category }}</v></c>'
+            '<c r="C20"><v>{{ description }}</v></c>'
+            '<c r="D20"><v>{{ quantity }}</v></c>'
+            '<c r="E20"><v>{{ uom }}</v></c>'
+            '<c r="F20"><v>{{ estimated_cost }}{{/line_items}}</v></c>'
+            '</row>'
+            '</sheetData></worksheet>'
+        )
+        line_items = [
+            {'category': 'Materials/Purchases', 'description': 'PVC pipe', 'quantity': '4', 'uom': 'pcs', 'estimated_cost': '2,500.00'},
+            {'category': 'Gas/Fuel', 'description': 'Diesel', 'quantity': '1', 'uom': 'lot', 'estimated_cost': '1,000.00'},
+        ]
+
+        rendered = views._replace_placeholders_in_text(content, {}, line_items=line_items, extension='.xlsx')
+
+        self.assertIn('r="20"', rendered)
+        self.assertIn('r="21"', rendered)
+        self.assertIn('r="B20"', rendered)
+        self.assertIn('r="B21"', rendered)
+        self.assertIn('Materials/Purchases', rendered)
+        self.assertIn('Gas/Fuel', rendered)
+        self.assertNotIn('{{#line_items}}', rendered)
+        self.assertNotIn('{{/line_items}}', rendered)
+
+    def test_payment_request_placeholder_guide_is_cleaned_for_current_template(self):
+        visible_placeholders = [
+            item['placeholder']
+            for item in views._build_fund_request_template_placeholder_guide()
+        ]
+
+        self.assertEqual(
+            visible_placeholders,
+            [
+                '{{ request_date }}',
+                '{{ requester_name }}',
+                '{{ department }}',
+                '{{ purpose_of_request }}',
+                '{{ total_amount_php }}',
+                '{{ date_needed }}',
+                '{{ payment_mode }}',
+                '{{#line_items}} ... {{/line_items}}',
+                '{{ category }}',
+                '{{ description }}',
+                '{{ quantity }}',
+                '{{ uom }}',
+                '{{ estimated_cost }}',
+                '{{ fuel-gas_details }}',
+                '{{ supplier-server-details }}',
+            ],
+        )
+
 
 class ImageUploadConversionTests(TestCase):
     def test_heic_upload_is_converted_to_jpeg(self):
