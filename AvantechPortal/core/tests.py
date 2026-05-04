@@ -75,6 +75,44 @@ class RoleFormBasicAccessTests(TestCase):
 
         self.assertEqual(selected_values, {str(custom_permission.pk)})
 
+    def test_role_access_preview_includes_default_and_permission_pages(self):
+        role = Group.objects.create(name='Finance Viewer')
+        role.permissions.add(
+            Permission.objects.get(
+                content_type__app_label='core',
+                content_type__model='fundrequest',
+                codename='view_fundrequest',
+            )
+        )
+
+        preview = views._build_role_access_preview(role)
+        accessible_labels = {page['label'] for page in preview['accessible_pages']}
+        unavailable_labels = {page['label'] for page in preview['unavailable_pages']}
+
+        self.assertIn('Dashboard', accessible_labels)
+        self.assertIn('Finance Dashboard', accessible_labels)
+        self.assertIn('Payment Request', accessible_labels)
+        self.assertIn('Reimbursement', accessible_labels)
+        self.assertIn('Summary Request', accessible_labels)
+        self.assertNotIn('Finance Dashboard', unavailable_labels)
+
+    def test_roles_list_renders_preview_button(self):
+        role = Group.objects.create(name='Preview Role')
+        viewer = get_user_model().objects.create_user(username='role-viewer', password='password')
+        viewer.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label='auth',
+                content_type__model='group',
+                codename='view_group',
+            )
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse('roles_list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Preview as Preview Role')
+
 
 class AssetItemParentTypeTests(TestCase):
     def setUp(self):

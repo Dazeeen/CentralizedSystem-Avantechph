@@ -23,15 +23,13 @@ PAGE_ACCESS_RULES = {
     'development_patch_notes': {'label': 'Patch Notes', 'audience': 'All signed-in users'},
     'support_tickets_list': {
         'label': 'Support Tickets',
-        'perms': ['core.can_manage_supportticket'],
-        'extra_roles': ['IT Support', 'IT-Support', 'ITSupport'],
+        'audience': 'All signed-in users',
         'note': 'Regular users can see tickets they created. Support admins can also see assigned and unassigned tickets.',
     },
     'support_ticket_create': {'label': 'Create Support Ticket', 'audience': 'All signed-in users'},
     'support_ticket_detail': {
         'label': 'Support Ticket Detail',
-        'perms': ['core.can_manage_supportticket'],
-        'extra_roles': ['IT Support', 'IT-Support', 'ITSupport'],
+        'audience': 'Ticket participants',
         'note': 'Ticket creators and assigned support users can access their own ticket records.',
     },
     'support_lockout_center': {'label': 'Login Security & Lockouts', 'perms': ['axes.view_accessattempt']},

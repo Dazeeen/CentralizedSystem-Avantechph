@@ -140,12 +140,19 @@ from .models import (
 )
 from .notifications import create_notification
 from .permission_catalog import build_permission_preview_groups, format_permission_summary
+from .context_processors import PAGE_ACCESS_RULES
 
 
 EMAIL_VERIFICATION_CODE_TTL = 10 * 60
 EMAIL_VERIFICATION_RESEND_COOLDOWN = 60
 INTERNET_ACCOUNT_UNLOCK_TTL_SECONDS = 5 * 60
 INTERNET_ACCOUNT_UNLOCK_SESSION_KEY = 'company_internet_account_unlocks'
+
+ROLE_PREVIEW_DEFAULT_AUDIENCES = {
+	'All signed-in users',
+	'The signed-in account',
+	'Ticket participants',
+}
 
 def _set_user_status(user, status):
 	profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -7658,6 +7665,60 @@ def assets_tag_batches_bulk_delete(request):
 	return redirect('assets_list')
 
 
+def _build_role_access_preview(role):
+	role_permission_names = {
+		f'{permission.content_type.app_label}.{permission.codename}'
+		for permission in role.permissions.select_related('content_type').all()
+	}
+	accessible_pages = []
+	unavailable_pages = []
+
+	for url_name, rule in PAGE_ACCESS_RULES.items():
+		label = rule.get('label') or url_name.replace('_', ' ').title()
+		audience = rule.get('audience') or ''
+		permission_names = set(rule.get('perms') or [])
+		extra_roles = set(rule.get('extra_roles') or [])
+		matched_permissions = sorted(role_permission_names & permission_names)
+		role_matches = role.name in extra_roles
+
+		if audience in ROLE_PREVIEW_DEFAULT_AUDIENCES:
+			accessible_pages.append(
+				{
+					'label': label,
+					'url_name': url_name,
+					'access_type': 'Default access',
+					'reason': audience,
+					'note': rule.get('note', ''),
+				}
+			)
+		elif matched_permissions or role_matches:
+			reason = f'Member of {role.name}' if role_matches else ', '.join(matched_permissions)
+			accessible_pages.append(
+				{
+					'label': label,
+					'url_name': url_name,
+					'access_type': 'Role permission',
+					'reason': reason,
+					'note': rule.get('note', ''),
+				}
+			)
+		else:
+			unavailable_pages.append(
+				{
+					'label': label,
+					'url_name': url_name,
+					'required': ', '.join(sorted(permission_names | extra_roles)) or 'Special access',
+				}
+			)
+
+	return {
+		'accessible_pages': accessible_pages,
+		'unavailable_pages': unavailable_pages,
+		'accessible_count': len(accessible_pages),
+		'unavailable_count': len(unavailable_pages),
+	}
+
+
 @login_required
 def roles_list(request):
 	restricted_response = _require_permission(request, 'auth.view_group')
@@ -7672,11 +7733,13 @@ def roles_list(request):
 	roles = list(roles)
 	role_member_profiles_map = {}
 	role_permissions_grouped_map = {}
+	role_access_preview_map = {}
 	for role in roles:
 		for member in role.user_set.all():
 			if member.id not in role_member_profiles_map:
 				role_member_profiles_map[member.id] = getattr(member, 'profile', None)
 		role_permissions_grouped_map[role.id] = build_permission_preview_groups(role.permissions.all())
+		role_access_preview_map[role.id] = _build_role_access_preview(role)
 
 	return render(
 		request,
@@ -7686,6 +7749,7 @@ def roles_list(request):
 			'query': query,
 			'role_member_profiles_map': role_member_profiles_map,
 			'role_permissions_grouped_map': role_permissions_grouped_map,
+			'role_access_preview_map': role_access_preview_map,
 		},
 	)
 
