@@ -1207,7 +1207,7 @@ def _notify_fund_request_requester(fund_request):
 
 	if fund_request.request_status == 'approved':
 		title = 'Payment Request Approved'
-		message = f'Your payment request was approved with serial number {fund_request.serial_number}.'
+		message = f'Your payment request was approved with control number {fund_request.serial_number}.'
 		link_url = reverse('fund_requests_list')
 	elif fund_request.request_status == 'cancelled':
 		title = 'Payment Request Cancelled'
@@ -1378,6 +1378,8 @@ def _build_fund_request_template_placeholders_from_values(
 ):
 	line_items = list(line_items or [])
 	placeholders = {
+		'{{ ctrl_no }}': serial_number or '',
+		'{{ control_number }}': serial_number or '',
 		'{{ serial_number }}': serial_number or '',
 		'{{ requester_name }}': requester_name or '',
 		'{{ request_date }}': _format_fund_request_date(request_date),
@@ -1420,6 +1422,16 @@ def _build_fund_request_template_placeholders_from_values(
 		placeholders[f'{{{{ item_{index}_uom }}}}'] = item_uom
 		placeholders[f'{{{{ item_{index}_estimated_cost }}}}'] = _format_fund_request_amount(item_estimated_cost)
 		placeholders[f'{{{{ item_{index}_estimated_cost_php }}}}'] = f'PHP {_format_fund_request_amount(item_estimated_cost)}'
+		placeholders[f'{{{{ line_{index}_date }}}}'] = item_date_label
+		placeholders[f'{{{{ line_{index}_particulars }}}}'] = item_particulars
+		placeholders[f'{{{{ line_{index}_amount }}}}'] = f'{item_amount:.2f}'
+		placeholders[f'{{{{ line_{index}_amount_php }}}}'] = f'PHP {_format_fund_request_amount(item_amount)}'
+		placeholders[f'{{{{ line_{index}_category }}}}'] = item_category
+		placeholders[f'{{{{ line_{index}_description }}}}'] = item_description
+		placeholders[f'{{{{ line_{index}_quantity }}}}'] = str(item_quantity)
+		placeholders[f'{{{{ line_{index}_uom }}}}'] = item_uom
+		placeholders[f'{{{{ line_{index}_estimated_cost }}}}'] = _format_fund_request_amount(item_estimated_cost)
+		placeholders[f'{{{{ line_{index}_estimated_cost_php }}}}'] = f'PHP {_format_fund_request_amount(item_estimated_cost)}'
 		line_items_lines.append(
 			f'{index}. {item_category} | {item_description} | Qty {item_quantity} {item_uom} | PHP {_format_fund_request_amount(item_estimated_cost)}'
 		)
@@ -1435,6 +1447,16 @@ def _build_fund_request_template_placeholders_from_values(
 		placeholders[f'{{{{ item_{index}_uom }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_estimated_cost }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_estimated_cost_php }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_date }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_particulars }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_amount }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_amount_php }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_category }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_description }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_quantity }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_uom }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_estimated_cost }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_estimated_cost_php }}}}'] = ''
 
 	placeholders['{{ line_items }}'] = '\n'.join(line_items_lines)
 	placeholders['{{ line_items_table }}'] = '\n'.join(line_items_lines)
@@ -1706,7 +1728,7 @@ def _build_sample_fund_request_preview_context(template_record):
 	)
 	return {
 		'sample_summary': {
-			'serial_number': '2026-0001',
+			'ctrl_no': '2026-0001',
 			'requester_name': 'Juan Dela Cruz',
 			'request_date': _format_fund_request_date(request_date),
 			'department': 'Operations',
@@ -1737,6 +1759,11 @@ def _build_sample_fund_request_preview_context(template_record):
 
 def _build_fund_request_template_placeholder_guide():
 	return [
+		{
+			'placeholder': '{{ ctrl_no }}',
+			'description': 'Shows the payment request control number.',
+			'use_case': 'Use beside the Control No. label.',
+		},
 		{
 			'placeholder': '{{ request_date }}',
 			'description': 'Shows the payment request date.',
@@ -1773,34 +1800,34 @@ def _build_fund_request_template_placeholder_guide():
 			'use_case': 'Use beside Mode of Release.',
 		},
 		{
+			'placeholder': '{{ line_1_category }}',
+			'description': 'Shows the category for fixed table line 1. Use `line_2_category`, `line_3_category`, up to `line_20_category` for more rows.',
+			'use_case': 'Use in a specific row Category cell, such as B20.',
+		},
+		{
+			'placeholder': '{{ line_1_description }}',
+			'description': 'Shows the description for fixed table line 1. Use `line_2_description`, `line_3_description`, up to `line_20_description` for more rows.',
+			'use_case': 'Use in a specific row Description cell, such as C20.',
+		},
+		{
+			'placeholder': '{{ line_1_quantity }}',
+			'description': 'Shows the quantity for fixed table line 1. Use `line_2_quantity`, `line_3_quantity`, up to `line_20_quantity` for more rows.',
+			'use_case': 'Use in a specific row Qty cell, such as D20.',
+		},
+		{
+			'placeholder': '{{ line_1_uom }}',
+			'description': 'Shows the unit of measurement for fixed table line 1. Use `line_2_uom`, `line_3_uom`, up to `line_20_uom` for more rows.',
+			'use_case': 'Use in a specific row UOM cell, such as E20.',
+		},
+		{
+			'placeholder': '{{ line_1_estimated_cost }}',
+			'description': 'Shows the estimated cost for fixed table line 1. Use `line_2_estimated_cost`, `line_3_estimated_cost`, up to `line_20_estimated_cost` for more rows.',
+			'use_case': 'Use in a specific row Estimated Cost cell, such as F20.',
+		},
+		{
 			'placeholder': '{{#line_items}} ... {{/line_items}}',
-			'description': 'Repeats the planned-expense table row once for each material/purchase, gas/fuel, delivery/transport, or other row.',
-			'use_case': 'For XLSX templates, wrap the B20-F20 row with this block so added rows are inserted starting at B20-F20.',
-		},
-		{
-			'placeholder': '{{ category }}',
-			'description': 'Available only inside `{{#line_items}}`. Shows the current row category.',
-			'use_case': 'Use in the Category cell, such as B20.',
-		},
-		{
-			'placeholder': '{{ description }}',
-			'description': 'Available only inside `{{#line_items}}`. Shows the current row description.',
-			'use_case': 'Use in the Description cell, such as C20.',
-		},
-		{
-			'placeholder': '{{ quantity }}',
-			'description': 'Available only inside `{{#line_items}}`. Shows the current row quantity.',
-			'use_case': 'Use in the Qty cell, such as D20.',
-		},
-		{
-			'placeholder': '{{ uom }}',
-			'description': 'Available only inside `{{#line_items}}`. Shows the current row unit of measurement.',
-			'use_case': 'Use in the UOM cell, such as E20.',
-		},
-		{
-			'placeholder': '{{ estimated_cost }}',
-			'description': 'Available only inside `{{#line_items}}`. Shows the current row estimated cost.',
-			'use_case': 'Use in the Estimated Cost cell, such as F20.',
+			'description': 'Optional dynamic repeating block for planned-expense rows.',
+			'use_case': 'Use only if your template needs rows inserted automatically instead of fixed line placeholders.',
 		},
 		{
 			'placeholder': '{{ fuel-gas_details }}',
@@ -1822,6 +1849,7 @@ def _build_fund_request_template_quick_placeholder_guide():
 		for item in placeholder_guide
 	}
 	featured_placeholders = [
+		'{{ ctrl_no }}',
 		'{{ request_date }}',
 		'{{ requester_name }}',
 		'{{ department }}',
@@ -1829,7 +1857,11 @@ def _build_fund_request_template_quick_placeholder_guide():
 		'{{ total_amount_php }}',
 		'{{ date_needed }}',
 		'{{ payment_mode }}',
-		'{{#line_items}} ... {{/line_items}}',
+		'{{ line_1_category }}',
+		'{{ line_1_description }}',
+		'{{ line_1_quantity }}',
+		'{{ line_1_uom }}',
+		'{{ line_1_estimated_cost }}',
 	]
 	return [
 		placeholder_map[placeholder]
@@ -2521,7 +2553,7 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 		if fund_request.created_by:
 			prepared_by = fund_request.created_by.get_full_name() or fund_request.created_by.username
 		summary_lines = [
-			f'Serial Number: {fund_request.serial_number or "For Approval"}',
+			f'Control Number: {fund_request.serial_number or "For Approval"}',
 			f'Requester Name: {fund_request.requester_name or "-"}',
 			f'Request Date: {_format_fund_request_date(fund_request.request_date) or "-"}',
 			f'Department: {fund_request.department or "-"}',
@@ -4399,9 +4431,9 @@ def _get_fund_request_records_context_data(request):
 	if created_to_datetime:
 		filter_parts.append(f'Created To: {timezone.localtime(created_to_datetime).strftime("%Y-%m-%d %H:%M")}')
 	if series_from:
-		filter_parts.append(f'Series From: {series_from}')
+		filter_parts.append(f'Control No. From: {series_from}')
 	if series_to:
-		filter_parts.append(f'Series To: {series_to}')
+		filter_parts.append(f'Control No. To: {series_to}')
 	if amount_min:
 		filter_parts.append(f'Min Amount: {amount_min}')
 	if amount_max:
@@ -4614,7 +4646,7 @@ def fund_requests_list(request):
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
 			_notify_fund_request_requester(fund_request)
-			messages.success(request, f'Payment request approved with serial number {fund_request.serial_number}.')
+			messages.success(request, f'Payment request approved with control number {fund_request.serial_number}.')
 			return redirect('fund_requests_list')
 		elif action_type == 'reject_request':
 			if not can_approve_fund_requests:
@@ -4941,9 +4973,9 @@ def fund_requests_list(request):
 	if created_to_datetime:
 		records_filter_parts.append(f'Created To: {timezone.localtime(created_to_datetime).strftime("%Y-%m-%d %H:%M")}')
 	if series_from:
-		records_filter_parts.append(f'Series From: {series_from}')
+		records_filter_parts.append(f'Control No. From: {series_from}')
 	if series_to:
-		records_filter_parts.append(f'Series To: {series_to}')
+		records_filter_parts.append(f'Control No. To: {series_to}')
 	if amount_min:
 		records_filter_parts.append(f'Min Amount: {amount_min}')
 	if amount_max:

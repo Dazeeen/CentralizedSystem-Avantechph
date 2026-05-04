@@ -30,7 +30,7 @@
             <form method="get" class="d-flex gap-2 flex-wrap align-items-end">
                 <div>
                     <label for="records-q" class="form-label small text-secondary mb-1">Search</label>
-                    <input id="records-q" type="text" name="q" value="{{ filter_state.query }}" class="form-control" placeholder="Series, requester, department, branch">
+                    <input id="records-q" type="text" name="q" value="{{ filter_state.query }}" class="form-control" placeholder="Control no., requester, department, branch">
                 </div>
                 <div>
                     <label for="records-status" class="form-label small text-secondary mb-1">Status</label>
@@ -54,11 +54,11 @@
                     <input id="records-created-to" type="datetime-local" name="created_to" value="{{ filter_state.created_to }}" class="form-control">
                 </div>
                 <div>
-                    <label for="records-series-from" class="form-label small text-secondary mb-1">Series From</label>
+                    <label for="records-series-from" class="form-label small text-secondary mb-1">Control No. From</label>
                     <input id="records-series-from" type="text" name="series_from" value="{{ filter_state.series_from }}" class="form-control" placeholder="2026-0001">
                 </div>
                 <div>
-                    <label for="records-series-to" class="form-label small text-secondary mb-1">Series To</label>
+                    <label for="records-series-to" class="form-label small text-secondary mb-1">Control No. To</label>
                     <input id="records-series-to" type="text" name="series_to" value="{{ filter_state.series_to }}" class="form-control" placeholder="2026-9999">
                 </div>
                 <div>
@@ -86,7 +86,7 @@
                 <thead>
                     <tr>
                         <th>Record ID</th>
-                        <th>Serial Number</th>
+                        <th>Control Number</th>
                         <th>Status</th>
                         <th>Requester Name</th>
                         <th>Request Date</th>

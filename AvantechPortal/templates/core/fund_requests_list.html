@@ -137,7 +137,7 @@
                             type="text"
                             id="pendingRequestsSearchInput"
                             class="form-control form-control-sm"
-                            placeholder="Search serial no., name, department, or branch"
+                            placeholder="Search control no., name, department, or branch"
                         >
                     </div>
                     <div class="col-lg-3">
@@ -175,7 +175,7 @@
                                     <input type="checkbox" class="form-check-input" id="pendingFundRequestsSelectAll" aria-label="Select all pending requests">
                                 </th>
                             {% endif %}
-                            <th>Serial No.</th>
+                            <th>Control No.</th>
                             <th>Name</th>
                             <th>Amount</th>
                             <th class="text-end">Actions</th>
@@ -426,7 +426,7 @@
                                     <path d="M20 20L16.6 16.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
                                 </svg>
                             </span>
-                            <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search serial no., requester name, department, or branch">
+                            <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search control no., requester name, department, or branch">
                         </div>
                         <div class="approved-filter-range-group">
                             <div class="approved-filter-range-label">Date Range</div>
@@ -436,10 +436,10 @@
                             </div>
                         </div>
                         <div class="approved-filter-range-group">
-                            <div class="approved-filter-range-label">Series Range</div>
+                            <div class="approved-filter-range-label">Control No. Range</div>
                             <div class="approved-filter-inline-inputs">
-                                <input type="text" name="series_from" value="{{ series_from }}" class="form-control form-control-sm approved-filter-range-input" placeholder="From" aria-label="Series from">
-                                <input type="text" name="series_to" value="{{ series_to }}" class="form-control form-control-sm approved-filter-range-input" placeholder="To" aria-label="Series to">
+                                <input type="text" name="series_from" value="{{ series_from }}" class="form-control form-control-sm approved-filter-range-input" placeholder="From" aria-label="Control number from">
+                                <input type="text" name="series_to" value="{{ series_to }}" class="form-control form-control-sm approved-filter-range-input" placeholder="To" aria-label="Control number to">
                             </div>
                         </div>
                         <button type="submit" class="btn btn-sm btn-success" title="Apply filters">Search</button>
@@ -456,7 +456,7 @@
                                 <th style="width: 52px;">
                                     <input type="checkbox" class="form-check-input" id="fundRequestsSelectAll" aria-label="Select all approved requests">
                                 </th>
-                                <th>Serial No.</th>
+                                <th>Control No.</th>
                                 <th>Name</th>
                                 <th>Amount</th>
                                 <th class="text-end">Actions</th>
@@ -3164,7 +3164,7 @@ document.addEventListener('DOMContentLoaded', function () {
         rowDetailsModalBody.innerHTML = `
             <div class="row g-3">
                 <div class="col-md-6">
-                    <div class="small text-secondary">Serial No.</div>
+                    <div class="small text-secondary">Control No.</div>
                     <div class="fw-semibold">${escapeHtml(serial)}</div>
                 </div>
                 <div class="col-md-6">

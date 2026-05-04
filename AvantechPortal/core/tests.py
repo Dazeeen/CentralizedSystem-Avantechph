@@ -255,11 +255,19 @@ class PaymentRequestPlaceholderTests(TestCase):
 
         self.assertEqual(placeholders['{{ date_needed }}'], placeholders['{{ request_date }}'])
         self.assertEqual(placeholders['{{ payment_mode }}'], 'Cash')
+        self.assertEqual(placeholders['{{ ctrl_no }}'], '')
         self.assertEqual(placeholders['{{ item_1_category }}'], 'Materials/Purchases')
         self.assertEqual(placeholders['{{ item_1_description }}'], 'PVC pipe')
         self.assertEqual(placeholders['{{ item_1_quantity }}'], '4')
         self.assertEqual(placeholders['{{ item_1_uom }}'], 'pcs')
         self.assertEqual(placeholders['{{ item_1_estimated_cost }}'], '2,500.00')
+        self.assertEqual(placeholders['{{ line_1_category }}'], 'Materials/Purchases')
+        self.assertEqual(placeholders['{{ line_1_description }}'], 'PVC pipe')
+        self.assertEqual(placeholders['{{ line_1_quantity }}'], '4')
+        self.assertEqual(placeholders['{{ line_1_uom }}'], 'pcs')
+        self.assertEqual(placeholders['{{ line_1_estimated_cost }}'], '2,500.00')
+        self.assertEqual(placeholders['{{ line_2_category }}'], '')
+        self.assertEqual(placeholders['{{ line_20_estimated_cost }}'], '')
         self.assertEqual(line_items[0]['category'], 'Materials/Purchases')
         self.assertEqual(line_items[0]['description'], 'PVC pipe')
         self.assertEqual(line_items[0]['quantity'], '4')
@@ -303,6 +311,7 @@ class PaymentRequestPlaceholderTests(TestCase):
         self.assertEqual(
             visible_placeholders,
             [
+                '{{ ctrl_no }}',
                 '{{ request_date }}',
                 '{{ requester_name }}',
                 '{{ department }}',
@@ -310,12 +319,12 @@ class PaymentRequestPlaceholderTests(TestCase):
                 '{{ total_amount_php }}',
                 '{{ date_needed }}',
                 '{{ payment_mode }}',
+                '{{ line_1_category }}',
+                '{{ line_1_description }}',
+                '{{ line_1_quantity }}',
+                '{{ line_1_uom }}',
+                '{{ line_1_estimated_cost }}',
                 '{{#line_items}} ... {{/line_items}}',
-                '{{ category }}',
-                '{{ description }}',
-                '{{ quantity }}',
-                '{{ uom }}',
-                '{{ estimated_cost }}',
                 '{{ fuel-gas_details }}',
                 '{{ supplier-server-details }}',
             ],
