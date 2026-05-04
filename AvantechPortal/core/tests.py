@@ -21,6 +21,8 @@ from .models import (
     AssetDepartment,
     AssetItem,
     AssetItemType,
+    FundRequest,
+    FundRequestLineItem,
     ManagedFileNode,
     ManagedFilePermission,
     SupportTicket,
@@ -158,6 +160,68 @@ class AssetItemParentTypeTests(TestCase):
         self.assertEqual(parent_item.department, views._get_default_asset_department())
         self.assertEqual(parent_item.created_by, self.user)
         self.assertTrue(parent_item.item_code.startswith('MSE'))
+
+
+class PaymentRequestPlaceholderTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='requester', password='password')
+
+    def test_supplier_and_fuel_placeholders_render_when_enabled(self):
+        request = FundRequest.objects.create(
+            requester_name='Requester One',
+            department='Operations',
+            branch='Alabang',
+            created_by=self.user,
+            request_metadata={
+                'supplier_details_known': True,
+                'supplier_store_name': 'Sample Hardware',
+                'contact_person_details': 'Maria Santos 0917-000-0000',
+                'line_items': [
+                    {
+                        'row_type': 'gas_fuel',
+                        'vehicle_to_be_used': 'Service Van',
+                        'plate_number': 'ABC 1234',
+                        'current_odometer_reading': '12000 km',
+                        'estimated_distance_to_travel': '35 km',
+                        'purpose_of_travel': 'Pickup materials',
+                    }
+                ],
+            },
+        )
+        FundRequestLineItem.objects.create(
+            fund_request=request,
+            entry_date=request.request_date,
+            particulars='Gas / Fuel | Fuel or gas expense',
+            amount='1500.00',
+        )
+
+        placeholders = views._build_fund_request_template_placeholders(request)
+
+        self.assertIn('Service Van', placeholders['{{ fuel_gas_details }}'])
+        self.assertIn('ABC 1234', placeholders['{{ fuel-gas_details }}'])
+        self.assertIn('Sample Hardware', placeholders['{{ supplier_service_details }}'])
+        self.assertIn('Maria Santos', placeholders['{{ supplier-server-details }}'])
+
+    def test_supplier_and_fuel_placeholders_are_empty_when_disabled(self):
+        request = FundRequest.objects.create(
+            requester_name='Requester Two',
+            department='Operations',
+            branch='Alabang',
+            created_by=self.user,
+            request_metadata={
+                'supplier_details_known': False,
+                'supplier_store_name': 'Should Not Render',
+                'contact_person_details': 'Should Not Render',
+                'line_items': [],
+            },
+        )
+
+        placeholders = views._build_fund_request_template_placeholders(request)
+
+        self.assertEqual(placeholders['{{ fuel_gas_details }}'], '')
+        self.assertEqual(placeholders['{{ fuel-gas_details }}'], '')
+        self.assertEqual(placeholders['{{ supplier_service_details }}'], '')
+        self.assertEqual(placeholders['{{ supplier-server-details }}'], '')
 
 
 class ImageUploadConversionTests(TestCase):

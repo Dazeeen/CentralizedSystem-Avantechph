@@ -825,6 +825,35 @@
                         </div>
                     </div>
 
+                    <div class="border rounded-3 p-3 p-lg-4 mb-4 bg-white">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                            <div>
+                                <div class="fw-semibold">Supplier / Service Details (if known)</div>
+                                <div class="small text-secondary">Choose Yes only when supplier or service contact details are already available.</div>
+                            </div>
+                            <div class="request-mode-release-group">
+                                {{ fund_request_form.supplier_details_known }}
+                            </div>
+                        </div>
+
+                        <div class="row g-3 d-none" id="fundRequestSupplierDetailsSection">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="{{ fund_request_form.supplier_store_name.id_for_label }}">{{ fund_request_form.supplier_store_name.label }}</label>
+                                {{ fund_request_form.supplier_store_name }}
+                                {% if fund_request_form.supplier_store_name.errors %}
+                                    <div class="text-danger small mt-1">{{ fund_request_form.supplier_store_name.errors|striptags }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="{{ fund_request_form.contact_person_details.id_for_label }}">{{ fund_request_form.contact_person_details.label }}</label>
+                                {{ fund_request_form.contact_person_details }}
+                                {% if fund_request_form.contact_person_details.errors %}
+                                    <div class="text-danger small mt-1">{{ fund_request_form.contact_person_details.errors|striptags }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="border rounded-3 overflow-hidden mb-3">
                         <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap px-3 py-3 border-bottom bg-white">
                             <div>
@@ -924,14 +953,6 @@
                             <div class="col-12">
                                 <label class="form-label fw-semibold" for="fundRequestPurposeOfTravel">Purpose of Travel</label>
                                 <textarea class="form-control" id="fundRequestPurposeOfTravel" rows="4" placeholder="Describe the purpose of travel"></textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold" for="fundRequestSupplierStoreName">Supplier / Store Name</label>
-                                <input type="text" class="form-control" id="fundRequestSupplierStoreName" placeholder="Enter the supplier or store name">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold" for="fundRequestContactPersonDetails">Contact Person / Details</label>
-                                <input type="text" class="form-control" id="fundRequestContactPersonDetails" placeholder="Enter the contact person or details">
                             </div>
                         </div>
                     </div>
@@ -2156,13 +2177,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const transportYes = document.getElementById('hasTransportYes');
     const transportNo = document.getElementById('hasTransportNo');
     const fuelDetailsSection = document.getElementById('fundRequestFuelDetailsSection');
+    const supplierDetailsSection = document.getElementById('fundRequestSupplierDetailsSection');
+    const supplierKnownInputs = document.querySelectorAll('input[name="{{ fund_request_form.supplier_details_known.html_name }}"]');
     const vehicleToBeUsedInput = document.getElementById('fundRequestVehicleToBeUsed');
     const plateNumberInput = document.getElementById('fundRequestPlateNumber');
     const currentOdometerInput = document.getElementById('fundRequestCurrentOdometerReading');
     const estimatedDistanceInput = document.getElementById('fundRequestEstimatedDistance');
     const purposeOfTravelInput = document.getElementById('fundRequestPurposeOfTravel');
-    const supplierStoreNameInput = document.getElementById('fundRequestSupplierStoreName');
-    const contactPersonDetailsInput = document.getElementById('fundRequestContactPersonDetails');
+    const supplierStoreNameInput = document.getElementById('{{ fund_request_form.supplier_store_name.id_for_label }}');
+    const contactPersonDetailsInput = document.getElementById('{{ fund_request_form.contact_person_details.id_for_label }}');
     let selectedImageFiles = [];
     let invalidImageItems = [];
     let draggedImageIndex = null;
@@ -2475,18 +2498,33 @@ document.addEventListener('DOMContentLoaded', function () {
             current_odometer_reading: cleanText(currentOdometerInput ? currentOdometerInput.value : ''),
             estimated_distance_to_travel: cleanText(estimatedDistanceInput ? estimatedDistanceInput.value : ''),
             purpose_of_travel: cleanText(purposeOfTravelInput ? purposeOfTravelInput.value : ''),
-            supplier_store_name: cleanText(supplierStoreNameInput ? supplierStoreNameInput.value : ''),
-            contact_person_details: cleanText(contactPersonDetailsInput ? contactPersonDetailsInput.value : ''),
         });
 
         const isGasFuelEnabled = () => !!(gasFuelYes && gasFuelYes.checked);
         const isTransportEnabled = () => !!(transportYes && transportYes.checked);
+        const isSupplierDetailsKnown = () => Array.from(supplierKnownInputs).some((input) => input.checked && input.value === 'yes');
 
         const setFuelDetailsVisibility = () => {
             if (!fuelDetailsSection) {
                 return;
             }
             fuelDetailsSection.classList.toggle('d-none', !isGasFuelEnabled());
+        };
+
+        const setSupplierDetailsVisibility = () => {
+            if (!supplierDetailsSection) {
+                return;
+            }
+            const showSupplierDetails = isSupplierDetailsKnown();
+            supplierDetailsSection.classList.toggle('d-none', !showSupplierDetails);
+            if (!showSupplierDetails) {
+                if (supplierStoreNameInput) {
+                    supplierStoreNameInput.value = '';
+                }
+                if (contactPersonDetailsInput) {
+                    contactPersonDetailsInput.value = '';
+                }
+            }
         };
 
         const getRowValue = (row, fieldName) => {
@@ -2537,6 +2575,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const syncRows = () => {
             const payload = [];
             let total = 0;
+            const fuelDetails = getFuelDetails();
             tbody.querySelectorAll('tr').forEach((row) => {
                 const rowType = row.dataset.rowKind || 'material';
                 const category = getRowValue(row, 'category');
@@ -2557,13 +2596,11 @@ document.addEventListener('DOMContentLoaded', function () {
                         estimated_cost: amountRaw,
                     };
                     if (rowType === 'gas_fuel') {
-                        rowPayload.vehicle_to_be_used = cleanText(vehicleToBeUsedInput ? vehicleToBeUsedInput.value : '');
-                        rowPayload.plate_number = cleanText(plateNumberInput ? plateNumberInput.value : '');
-                        rowPayload.current_odometer_reading = cleanText(currentOdometerInput ? currentOdometerInput.value : '');
-                        rowPayload.estimated_distance_to_travel = cleanText(estimatedDistanceInput ? estimatedDistanceInput.value : '');
-                        rowPayload.purpose_of_travel = cleanText(purposeOfTravelInput ? purposeOfTravelInput.value : '');
-                        rowPayload.supplier_store_name = cleanText(supplierStoreNameInput ? supplierStoreNameInput.value : '');
-                        rowPayload.contact_person_details = cleanText(contactPersonDetailsInput ? contactPersonDetailsInput.value : '');
+                        rowPayload.vehicle_to_be_used = fuelDetails.vehicle_to_be_used;
+                        rowPayload.plate_number = fuelDetails.plate_number;
+                        rowPayload.current_odometer_reading = fuelDetails.current_odometer_reading;
+                        rowPayload.estimated_distance_to_travel = fuelDetails.estimated_distance_to_travel;
+                        rowPayload.purpose_of_travel = fuelDetails.purpose_of_travel;
                     }
                     payload.push({
                         ...rowPayload,
@@ -2672,6 +2709,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (transportNo) {
             transportNo.addEventListener('change', syncSpecialRows);
         }
+        supplierKnownInputs.forEach((input) => {
+            input.addEventListener('change', function () {
+                setSupplierDetailsVisibility();
+                syncRows();
+            });
+        });
 
         [
             vehicleToBeUsedInput,
@@ -2687,6 +2730,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
 
+        setSupplierDetailsVisibility();
         syncSpecialRows();
     }
 

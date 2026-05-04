@@ -1314,8 +1314,6 @@ def _build_fund_request_gas_sections(request_metadata):
 		(item for item in line_items if str(item.get('row_type') or '').lower() == 'gas_fuel'),
 		None,
 	)
-	if not gas_item:
-		return '', ''
 
 	def clean_text(value):
 		return (value or '').strip()
@@ -1326,29 +1324,31 @@ def _build_fund_request_gas_sections(request_metadata):
 	placeholder_line = '__________________________'
 	purpose_placeholder = '____________________________________________________________________________'
 
-	vehicle = clean_text(gas_item.get('vehicle_to_be_used'))
-	plate_number = clean_text(gas_item.get('plate_number'))
-	current_odometer = clean_text(gas_item.get('current_odometer_reading'))
-	estimated_distance = clean_text(gas_item.get('estimated_distance_to_travel'))
-	purpose_of_travel = clean_text(gas_item.get('purpose_of_travel'))
-	supplier_name = clean_text(gas_item.get('supplier_store_name'))
-	contact_details = clean_text(gas_item.get('contact_person_details'))
+	fuel_lines = []
+	if gas_item:
+		vehicle = clean_text(gas_item.get('vehicle_to_be_used'))
+		plate_number = clean_text(gas_item.get('plate_number'))
+		current_odometer = clean_text(gas_item.get('current_odometer_reading'))
+		estimated_distance = clean_text(gas_item.get('estimated_distance_to_travel'))
+		purpose_of_travel = clean_text(gas_item.get('purpose_of_travel'))
 
-	fuel_lines = [
-		'Fuel / Gas Details (if applicable)',
-		f'Vehicle to be Used: {with_placeholder(vehicle, placeholder_line)}',
-		f'Plate Number: {with_placeholder(plate_number, placeholder_line)}',
-		f'Current Odometer Reading: {with_placeholder(current_odometer, placeholder_line)}',
-		f'Estimated Distance to Travel: {with_placeholder(estimated_distance, placeholder_line)}',
-		'Purpose of Travel:',
-	]
-	if purpose_of_travel:
-		fuel_lines.append(purpose_of_travel)
-	else:
-		fuel_lines.extend([purpose_placeholder, purpose_placeholder, purpose_placeholder])
+		fuel_lines = [
+			'Fuel / Gas Details (if applicable)',
+			f'Vehicle to be Used: {with_placeholder(vehicle, placeholder_line)}',
+			f'Plate Number: {with_placeholder(plate_number, placeholder_line)}',
+			f'Current Odometer Reading: {with_placeholder(current_odometer, placeholder_line)}',
+			f'Estimated Distance to Travel: {with_placeholder(estimated_distance, placeholder_line)}',
+			'Purpose of Travel:',
+		]
+		if purpose_of_travel:
+			fuel_lines.append(purpose_of_travel)
+		else:
+			fuel_lines.extend([purpose_placeholder, purpose_placeholder, purpose_placeholder])
 
 	supplier_lines = []
-	if supplier_name or contact_details:
+	if metadata.get('supplier_details_known'):
+		supplier_name = clean_text(metadata.get('supplier_store_name'))
+		contact_details = clean_text(metadata.get('contact_person_details'))
 		supplier_lines = [
 			'Supplier / Service Details (if known)',
 			f'Supplier/Store Name: {with_placeholder(supplier_name, placeholder_line)}',
@@ -1392,7 +1392,9 @@ def _build_fund_request_template_placeholders_from_values(
 		'{{ created_at }}': timezone.localtime(created_at).strftime('%Y-%m-%d %H:%M') if created_at else '',
 		'{{ template_name }}': template_name or '',
 		'{{ fuel-gas_details }}': fuel_gas_details or '',
+		'{{ fuel_gas_details }}': fuel_gas_details or '',
 		'{{ supplier-server-details }}': supplier_service_details or '',
+		'{{ supplier_service_details }}': supplier_service_details or '',
 	}
 
 	line_items_lines = []
@@ -1722,14 +1724,24 @@ def _build_fund_request_template_placeholder_guide():
 			'use_case': 'Use for display labels showing the requested amount.',
 		},
 		{
-			'placeholder': '{{ fuel-gas_details }}',
-			'description': 'Outputs the Fuel / Gas Details block only when a gas/fuel line item exists.',
+			'placeholder': '{{ fuel_gas_details }}',
+			'description': 'Outputs the Fuel / Gas Details block only when the request uses gas/fuel.',
 			'use_case': 'Use where the fuel/gas section should appear conditionally in the template.',
 		},
 		{
-			'placeholder': '{{ supplier-server-details }}',
-			'description': 'Outputs the Supplier / Service Details block when supplier info is available.',
+			'placeholder': '{{ supplier_service_details }}',
+			'description': 'Outputs the Supplier / Service Details block only when supplier/service details are marked Yes.',
 			'use_case': 'Use where supplier details should appear in the template.',
+		},
+		{
+			'placeholder': '{{ fuel-gas_details }}',
+			'description': 'Legacy alias for `{{ fuel_gas_details }}`.',
+			'use_case': 'Use only for older templates that already contain this placeholder.',
+		},
+		{
+			'placeholder': '{{ supplier-server-details }}',
+			'description': 'Legacy alias for `{{ supplier_service_details }}`.',
+			'use_case': 'Use only for older templates that already contain this placeholder.',
 		},
 		{
 			'placeholder': '{{ line_items }}',

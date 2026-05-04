@@ -698,11 +698,14 @@ class FundRequestForm(forms.ModelForm):
         help_text='Upload one or more supporting images. HEIC/HEIF files are converted to JPEG.',
     )
     supplier_details_known = forms.ChoiceField(
+        label='Do you know the supplier / service details?',
         choices=SUPPLIER_DETAILS_CHOICES,
         required=False,
+        widget=forms.RadioSelect(),
+        initial='no',
     )
-    supplier_store_name = forms.CharField(required=False)
-    contact_person_details = forms.CharField(required=False)
+    supplier_store_name = forms.CharField(label='Supplier / Store Name', required=False)
+    contact_person_details = forms.CharField(label='Contact Person / Details', required=False)
     MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
     ALLOWED_IMAGE_EXTENSIONS = CONVERTIBLE_IMAGE_EXTENSIONS
 
@@ -740,6 +743,9 @@ class FundRequestForm(forms.ModelForm):
         self.fields['requested_amount'].widget.attrs.update({'class': 'form-control text-end', 'placeholder': 'Calculated from the breakdown'})
         self.fields['request_date'].widget.attrs.setdefault('class', 'form-control')
         self.fields['mode_of_release'].widget.attrs.setdefault('class', 'd-flex flex-wrap gap-3 align-items-center')
+        self.fields['supplier_details_known'].widget.attrs.setdefault('class', 'd-flex flex-wrap gap-3 align-items-center')
+        self.fields['supplier_store_name'].widget.attrs.setdefault('placeholder', 'Enter the supplier or store name')
+        self.fields['contact_person_details'].widget.attrs.setdefault('placeholder', 'Enter the contact person or details')
         self.fields['line_items_payload'].initial = self.fields['line_items_payload'].initial or '[]'
         self.fields['supplier_details_known'].initial = self.fields['supplier_details_known'].initial or 'no'
 
@@ -762,6 +768,7 @@ class FundRequestForm(forms.ModelForm):
         self.fields['supplier_store_name'].required = False
         self.fields['contact_person_details'].required = False
         self._parsed_line_items = []
+        self._raw_line_items_payload = []
         self._computed_requested_total = Decimal('0.00')
         self._request_metadata = {}
 
@@ -865,20 +872,25 @@ class FundRequestForm(forms.ModelForm):
             total_amount += estimated_cost
 
         self._parsed_line_items = cleaned_items
+        self._raw_line_items_payload = parsed
         self._computed_requested_total = total_amount.quantize(Decimal('0.01'))
+        return raw_payload
+
+    def clean(self):
+        cleaned_data = super().clean()
         supplier_known = (self.cleaned_data.get('supplier_details_known') or '').strip().lower() == 'yes'
         supplier_store_name = (self.cleaned_data.get('supplier_store_name') or '').strip()
         contact_person_details = (self.cleaned_data.get('contact_person_details') or '').strip()
         self._request_metadata = {
-            'purpose_of_request': self.cleaned_data.get('purpose_of_request', ''),
-            'mode_of_release': self.cleaned_data.get('mode_of_release', ''),
+            'purpose_of_request': (self.cleaned_data.get('purpose_of_request') or '').strip(),
+            'mode_of_release': (self.cleaned_data.get('mode_of_release') or '').strip(),
             'requested_amount': str(self._computed_requested_total),
-            'line_items': parsed,
+            'line_items': list(self._raw_line_items_payload),
             'supplier_details_known': supplier_known,
             'supplier_store_name': supplier_store_name if supplier_known else '',
             'contact_person_details': contact_person_details if supplier_known else '',
         }
-        return raw_payload
+        return cleaned_data
 
     def get_line_items(self):
         return list(self._parsed_line_items)
