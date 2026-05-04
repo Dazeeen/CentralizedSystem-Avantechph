@@ -31,6 +31,9 @@
     </div>
     <div class="d-flex align-items-center gap-2">
         <a href="#ticketCreateFormCard" class="btn btn-success">Create Ticket</a>
+        <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#pastTicketsModal">
+            Past Tickets ({{ past_ticket_count }})
+        </button>
         {% if is_admin %}
             <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#archivedTicketsModal">
                 Archived ({{ archived_ticket_count }})
@@ -61,6 +64,7 @@
             <div class="card-body">
                 <p class="text-secondary mb-1">Resolved</p>
                 <h4 class="mb-0">{{ resolved_count }}</h4>
+                <div class="small text-secondary mt-1">In Past Tickets</div>
             </div>
         </div>
     </div>
@@ -69,6 +73,7 @@
             <div class="card-body">
                 <p class="text-secondary mb-1">Closed</p>
                 <h4 class="mb-0">{{ closed_count }}</h4>
+                <div class="small text-secondary mt-1">In Past Tickets</div>
             </div>
         </div>
     </div>
@@ -218,7 +223,7 @@
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="8" class="text-center py-4 text-secondary">No tickets found for this filter.</td>
+                                <td colspan="8" class="text-center py-4 text-secondary">No active tickets found for this filter.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
@@ -283,6 +288,104 @@
     <div id="bulkDeleteInputs"></div>
 </form>
 
+<div class="modal fade" id="pastTicketsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Past Tickets</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <form method="get" class="row g-2 align-items-end p-3 border-bottom bg-light-subtle">
+                    <div class="col-12 col-lg-5">
+                        <label class="form-label mb-1" for="past-ticket-q">Search</label>
+                        <input id="past-ticket-q" type="search" name="past_q" value="{{ past_query }}" class="form-control" placeholder="Ticket #, title, reporter, assignee">
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <label class="form-label mb-1" for="past-ticket-status">Status</label>
+                        <select id="past-ticket-status" name="past_status" class="form-select">
+                            {% for value, label in past_status_choices %}
+                                <option value="{{ value }}" {% if past_status_filter == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-6 col-lg-2">
+                        <label class="form-label mb-1" for="past-ticket-priority">Priority</label>
+                        <select id="past-ticket-priority" name="past_priority" class="form-select">
+                            {% for value, label in priority_choices %}
+                                <option value="{{ value }}" {% if past_priority_filter == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-lg-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-outline-success w-100">Filter</button>
+                        <a href="{% url 'support_tickets_list' %}" class="btn btn-outline-secondary">Clear</a>
+                    </div>
+                </form>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Status</th>
+                                <th>Priority</th>
+                                <th>Reporter</th>
+                                <th>Assigned IT</th>
+                                <th>Closed</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for past_ticket in past_tickets_preview %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">{{ past_ticket.ticket_number }}</div>
+                                        <div class="small text-secondary">{{ past_ticket.title }}</div>
+                                    </td>
+                                    <td>
+                                        {% if past_ticket.status == 'resolved' %}
+                                            <span class="badge bg-success">Resolved</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Closed</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ past_ticket.effective_priority|title }}</td>
+                                    <td>{{ past_ticket.created_by.get_full_name|default:past_ticket.created_by.username }}</td>
+                                    <td>
+                                        {% if past_ticket.assigned_to %}
+                                            {{ past_ticket.assigned_to.get_full_name|default:past_ticket.assigned_to.username }}
+                                        {% else %}
+                                            <span class="text-secondary">Unassigned</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if past_ticket.closed_at %}
+                                            {{ past_ticket.closed_at|date:'Y-m-d H:i' }}
+                                        {% else %}
+                                            {{ past_ticket.updated_at|date:'Y-m-d H:i' }}
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        <a href="{% url 'support_ticket_detail' past_ticket.id %}" class="btn btn-sm btn-outline-success">Open</a>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-secondary">No past tickets found for this filter.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <small class="text-secondary">Showing {{ past_tickets_preview|length }} of {{ past_filtered_count }} matched past ticket(s).</small>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if is_admin %}
     <div class="modal fade" id="archiveConfirmModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -311,6 +414,32 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body p-0">
+                    <form method="get" class="row g-2 align-items-end p-3 border-bottom bg-light-subtle">
+                        <div class="col-12 col-lg-5">
+                            <label class="form-label mb-1" for="archived-ticket-q">Search</label>
+                            <input id="archived-ticket-q" type="search" name="archived_q" value="{{ archived_query }}" class="form-control" placeholder="Ticket #, title, reporter, assignee">
+                        </div>
+                        <div class="col-6 col-lg-3">
+                            <label class="form-label mb-1" for="archived-ticket-status">Status</label>
+                            <select id="archived-ticket-status" name="archived_status" class="form-select">
+                                {% for value, label in archived_status_choices %}
+                                    <option value="{{ value }}" {% if archived_status_filter == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-lg-2">
+                            <label class="form-label mb-1" for="archived-ticket-priority">Priority</label>
+                            <select id="archived-ticket-priority" name="archived_priority" class="form-select">
+                                {% for value, label in priority_choices %}
+                                    <option value="{{ value }}" {% if archived_priority_filter == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-lg-2 d-flex gap-2">
+                            <button type="submit" class="btn btn-outline-success w-100">Filter</button>
+                            <a href="{% url 'support_tickets_list' %}" class="btn btn-outline-secondary">Clear</a>
+                        </div>
+                    </form>
                     <div class="table-responsive">
                         <table class="table table-sm align-middle mb-0">
                             <thead class="table-light">
@@ -348,7 +477,7 @@
                                     </tr>
                                 {% empty %}
                                     <tr>
-                                        <td colspan="7" class="text-center py-4 text-secondary">No archived tickets yet.</td>
+                                        <td colspan="7" class="text-center py-4 text-secondary">No archived tickets found for this filter.</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -356,7 +485,7 @@
                     </div>
                 </div>
                 <div class="modal-footer d-flex justify-content-between">
-                    <small class="text-secondary">Showing latest {{ archived_tickets_preview|length }} archived ticket(s).</small>
+                    <small class="text-secondary">Showing {{ archived_tickets_preview|length }} of {{ archived_filtered_count }} matched archived ticket(s).</small>
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
@@ -381,6 +510,19 @@
         var deleteInputs = document.getElementById('bulkDeleteInputs');
         var archiveConfirmButton = document.getElementById('archiveConfirmButton');
         var bulkDeleteButton = document.getElementById('bulkDeleteButton');
+
+        {% if should_open_past_modal %}
+            var pastTicketsModalElement = document.getElementById('pastTicketsModal');
+            if (pastTicketsModalElement && window.bootstrap && window.bootstrap.Modal) {
+                window.bootstrap.Modal.getOrCreateInstance(pastTicketsModalElement).show();
+            }
+        {% endif %}
+        {% if should_open_archived_modal %}
+            var archivedTicketsModalElement = document.getElementById('archivedTicketsModal');
+            if (archivedTicketsModalElement && window.bootstrap && window.bootstrap.Modal) {
+                window.bootstrap.Modal.getOrCreateInstance(archivedTicketsModalElement).show();
+            }
+        {% endif %}
 
         function isInteractiveTarget(target) {
             return !!target.closest('a, button, input, select, textarea, label, [role="button"]');

@@ -1,8 +1,8 @@
 {% extends 'base_app.html' %}
 {% load core_extras %}
 
-{% block title %}Avantech Portal | Fund Request{% endblock %}
-{% block page_heading %}Fund Request{% endblock %}
+{% block title %}Avantech Portal | Payment Request{% endblock %}
+{% block page_heading %}Payment Request{% endblock %}
 
 {% block content %}
 <div class="row g-3 g-md-4 mb-4 fund-record-no-print">
@@ -79,7 +79,7 @@
                         data-bs-target="#fundRequestCreateModal"
                         {% if not all_templates %}disabled{% endif %}
                     >
-                        New Fund Request
+                        New Payment Request
                     </button>
                 {% endif %}
             </div>
@@ -96,9 +96,9 @@
             </button>
         </div>
         {% if can_add_fund_requests and not all_templates %}
-            <div class="small text-danger mt-1">Upload at least one template first to enable saving fund requests.</div>
+            <div class="small text-danger mt-1">Upload at least one template first to enable saving payment requests.</div>
         {% elif not can_add_fund_requests %}
-            <div class="small text-warning mt-1">You can view fund requests, but you do not have permission to create one.</div>
+            <div class="small text-warning mt-1">You can view payment requests, but you do not have permission to create one.</div>
         {% endif %}
     </div>
 
@@ -111,9 +111,9 @@
                             <h2 class="h5 mb-1" id="pendingFundRequestsModalLabel">Pending Request</h2>
                             <p class="text-secondary mb-0">
                                 {% if can_approve_fund_requests or request.user.is_superuser %}
-                                    All pending fund requests are listed here for review.
+                                    All pending payment requests are listed here for review.
                                 {% else %}
-                                    Your current pending fund requests are listed here.
+                                    Your current pending payment requests are listed here.
                                 {% endif %}
                             </p>
                         </div>
@@ -187,7 +187,7 @@
                                 class="fund-request-row-clickable js-fund-request-row js-pending-request-row"
                                 tabindex="0"
                                 role="button"
-                                aria-label="View details for pending fund request {{ fund_request.requester_name }}"
+                                aria-label="View details for pending payment request {{ fund_request.requester_name }}"
                                 data-request-status="Pending"
                                 data-request-serial="{% if fund_request.serial_number %}{{ fund_request.serial_number }}{% else %}For Approval{% endif %}"
                                 data-request-name="{{ fund_request.requester_name }}"
@@ -225,7 +225,7 @@
                                 <td>PHP {{ fund_request.total_amount|comma2 }}</td>
                                 <td class="text-end">
                                     <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Pending fund request actions">
+                                        <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Pending payment request actions">
                                             ...
                                         </button>
                                         <ul class="dropdown-menu dropdown-menu-end">
@@ -345,7 +345,7 @@
                 {% endfor %}
             </div>
             {% if can_approve_fund_requests %}
-                <div id="pendingFundRequestsBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="Pending fund request bulk actions">
+                <div id="pendingFundRequestsBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="Pending payment request bulk actions">
                     <div class="bulk-action-content">
                         <span class="bulk-action-count"><span id="pendingFundRequestsSelectedCount">0</span> selected</span>
                         <button type="button" class="btn btn-sm btn-success d-inline-flex align-items-center justify-content-center" id="pendingFundRequestsBulkApproveBtn" title="Approve selected" aria-label="Approve selected" style="width: 34px; height: 30px;">
@@ -468,7 +468,7 @@
                                     class="fund-request-row-clickable js-fund-request-row"
                                     tabindex="0"
                                     role="button"
-                                    aria-label="View details for approved fund request {{ fund_request.requester_name }}"
+                                    aria-label="View details for approved payment request {{ fund_request.requester_name }}"
                                     data-request-status="Approved"
                                     data-request-serial="{{ fund_request.serial_number }}"
                                     data-request-name="{{ fund_request.requester_name }}"
@@ -498,7 +498,7 @@
                                     <td>PHP {{ fund_request.calculated_total_amount|default:fund_request.total_amount|comma2 }}</td>
                                     <td class="text-end">
                                         <div class="dropdown">
-                                            <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Approved fund request actions">
+                                            <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Approved payment request actions">
                                                 ...
                                             </button>
                                             <ul class="dropdown-menu dropdown-menu-end">
@@ -699,7 +699,7 @@
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-white">
                 <div>
-                    <h5 class="modal-title" id="fundRequestCreateModalLabel">Create Fund Request</h5>
+                    <h5 class="modal-title" id="fundRequestCreateModalLabel">Create Payment Request</h5>
                     <div class="small text-secondary">Serial numbers are assigned automatically as `YYYY-XXXX` when the request is saved.</div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -726,7 +726,7 @@
                         </div>
 
                         {% if not all_templates %}
-                            <div class="alert alert-warning mb-0">No uploaded templates available yet. Upload a template first to enable saving fund requests.</div>
+                            <div class="alert alert-warning mb-0">No uploaded templates available yet. Upload a template first to enable saving payment requests.</div>
                         {% else %}
                             <div class="row g-3">
                                 {% for template_record in all_templates %}
@@ -856,7 +856,7 @@
                         <button type="button" class="btn btn-outline-secondary" id="addFundRequestRowBtn">Add Row</button>
                         <div class="d-flex gap-2">
                             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="submit" class="btn btn-success" {% if not all_templates %}disabled{% endif %}>Save Fund Request</button>
+                            <button type="submit" class="btn btn-success" {% if not all_templates %}disabled{% endif %}>Save Payment Request</button>
                         </div>
                     </div>
                 </form>
@@ -873,7 +873,7 @@
             <div class="modal-header bg-white">
                 <div>
                     <h5 class="modal-title" id="fundRequestTemplateModalLabel">Preferred Template</h5>
-                    <div class="small text-secondary">Upload a template to make it available in the fund request form.</div>
+                    <div class="small text-secondary">Upload a template to make it available in the payment request form.</div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -1014,7 +1014,7 @@
                         </div>
                     </form>
                 {% else %}
-                    <div class="border rounded-3 p-4 text-center text-secondary">No uploaded templates yet. Upload one to enable saving fund requests.</div>
+                    <div class="border rounded-3 p-4 text-center text-secondary">No uploaded templates yet. Upload one to enable saving payment requests.</div>
                 {% endif %}
             </div>
         </div>
@@ -1028,7 +1028,7 @@
         <div class="modal-content border-0 shadow">
             <div class="modal-header">
                 <div>
-                    <h5 class="modal-title" id="rejectedFundRequestModalLabel">Rejected Fund Request Details</h5>
+                    <h5 class="modal-title" id="rejectedFundRequestModalLabel">Rejected Payment Request Details</h5>
                     <div class="small text-secondary">
                         {{ rejected_request_modal.requester_name }} | {{ rejected_request_modal.request_date|date:'F d, Y' }} | {{ rejected_request_modal.department }} / {{ rejected_request_modal.branch }}
                     </div>
@@ -1134,7 +1134,7 @@
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header">
-                <h5 class="modal-title" id="fundRequestRowDetailsModalLabel">Fund Request Details</h5>
+                <h5 class="modal-title" id="fundRequestRowDetailsModalLabel">Payment Request Details</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="fundRequestRowDetailsModalBody"></div>
@@ -1191,7 +1191,7 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow">
             <div class="modal-header">
-                <h5 class="modal-title" id="fundRequestApproveModalLabel">Approve Fund Request</h5>
+                <h5 class="modal-title" id="fundRequestApproveModalLabel">Approve Payment Request</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -1211,7 +1211,7 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow">
             <div class="modal-header">
-                <h5 class="modal-title" id="fundRequestRejectModalLabel">Reject Fund Request</h5>
+                <h5 class="modal-title" id="fundRequestRejectModalLabel">Reject Payment Request</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -1231,11 +1231,11 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-sm">
             <div class="modal-header">
-                <h5 class="modal-title" id="fundRequestCancelModalLabel">Cancel Fund Request</h5>
+                <h5 class="modal-title" id="fundRequestCancelModalLabel">Cancel Payment Request</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="small text-secondary mb-2" id="fundRequestCancelModalMeta">Cancel this pending fund request. Reason is optional.</div>
+                <div class="small text-secondary mb-2" id="fundRequestCancelModalMeta">Cancel this pending payment request. Reason is optional.</div>
                 <label for="fundRequestCancelModalReason" class="form-label fw-semibold">Cancellation Reason (Optional)</label>
                 <textarea class="form-control" id="fundRequestCancelModalReason" rows="4" placeholder="Enter cancellation reason (optional)"></textarea>
             </div>
@@ -1260,7 +1260,7 @@
                 <input type="hidden" name="action_type" value="save_auto_approve_rule">
                 <div class="modal-body">
                     <div class="alert alert-warning py-2">
-                        Active rules auto-approve new <strong>pending</strong> fund requests that match the conditions below.
+                        Active rules auto-approve new <strong>pending</strong> payment requests that match the conditions below.
                     </div>
                     <div class="row g-3">
                         <div class="col-md-6">
@@ -2520,7 +2520,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 fundRequestForm.dataset.submitting = 'false';
                 submitButtons.forEach((button) => {
                     button.disabled = false;
-                    button.textContent = 'Save Fund Request';
+                    button.textContent = 'Save Payment Request';
                 });
                 progressLabels.forEach((label) => {
                     label.textContent = 'Upload failed';
@@ -2802,7 +2802,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const status = row.dataset.requestStatus || 'Fund Request';
+        const status = row.dataset.requestStatus || 'Payment Request';
         const serial = row.dataset.requestSerial || '-';
         const requesterName = row.dataset.requestName || '-';
         const amount = row.dataset.requestAmount || '-';
@@ -2911,16 +2911,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
-    const openApproveModal = ({ mode = 'single', requestId = '', label = 'this fund request', selectedIds = [] } = {}) => {
+    const openApproveModal = ({ mode = 'single', requestId = '', label = 'this payment request', selectedIds = [] } = {}) => {
         approveModalMode = mode === 'bulk' ? 'bulk' : 'single';
         approveModalRequestId = requestId || '';
         approveModalSelectedIds = Array.isArray(selectedIds) ? selectedIds.filter((value) => String(value || '').trim()) : [];
         if (approveModalMeta) {
             if (approveModalMode === 'bulk') {
                 const selectedCount = approveModalSelectedIds.length;
-                approveModalMeta.textContent = `Approve ${selectedCount} selected fund request(s). Approval note is optional.`;
+                approveModalMeta.textContent = `Approve ${selectedCount} selected payment request(s). Approval note is optional.`;
             } else {
-                approveModalMeta.textContent = `Approve fund request for ${label || 'this fund request'}. Approval note is optional.`;
+                approveModalMeta.textContent = `Approve payment request for ${label || 'this payment request'}. Approval note is optional.`;
             }
         }
         if (approveModalSubmitButton) {
@@ -2942,19 +2942,19 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             return;
         }
-        showInfoModal('Approve Fund Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+        showInfoModal('Approve Payment Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
     };
 
-    const openRejectModal = ({ mode = 'single', requestId = '', label = 'this fund request', selectedIds = [] } = {}) => {
+    const openRejectModal = ({ mode = 'single', requestId = '', label = 'this payment request', selectedIds = [] } = {}) => {
         rejectModalMode = mode === 'bulk' ? 'bulk' : 'single';
         rejectModalSelectedIds = Array.isArray(selectedIds) ? selectedIds.filter((value) => String(value || '').trim()) : [];
         rejectModalRequestId = requestId || '';
-        rejectModalRequestLabel = label || 'this fund request';
+        rejectModalRequestLabel = label || 'this payment request';
         if (rejectModalMeta) {
             if (rejectModalMode === 'bulk') {
-                rejectModalMeta.textContent = `Reject ${rejectModalSelectedIds.length} selected fund request(s). Reason is optional.`;
+                rejectModalMeta.textContent = `Reject ${rejectModalSelectedIds.length} selected payment request(s). Reason is optional.`;
             } else {
-                rejectModalMeta.textContent = `Reject fund request for ${rejectModalRequestLabel}. Reason is optional.`;
+                rejectModalMeta.textContent = `Reject payment request for ${rejectModalRequestLabel}. Reason is optional.`;
             }
         }
         if (rejectModalSubmitButton) {
@@ -2976,14 +2976,14 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             return;
         }
-        showInfoModal('Reject Fund Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+        showInfoModal('Reject Payment Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
     };
 
-    const openCancelModal = ({ requestId = '', label = 'this fund request' } = {}) => {
+    const openCancelModal = ({ requestId = '', label = 'this payment request' } = {}) => {
         cancelModalRequestId = requestId || '';
-        cancelModalRequestLabel = label || 'this fund request';
+        cancelModalRequestLabel = label || 'this payment request';
         if (cancelModalMeta) {
-            cancelModalMeta.textContent = `Cancel fund request for ${cancelModalRequestLabel}. Reason is optional.`;
+            cancelModalMeta.textContent = `Cancel payment request for ${cancelModalRequestLabel}. Reason is optional.`;
         }
         if (cancelModalReason) {
             cancelModalReason.value = '';
@@ -2996,7 +2996,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             return;
         }
-        showInfoModal('Cancel Fund Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
+        showInfoModal('Cancel Payment Request', 'Bootstrap modal is unavailable. Please reload the page and try again.');
     };
 
     if (confirmModalSubmitButton) {
@@ -3478,15 +3478,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            const serialNumber = button.dataset.requestSerial || 'this fund request';
+            const serialNumber = button.dataset.requestSerial || 'this payment request';
             const requestId = button.dataset.requestId;
             if (!requestId) {
                 return;
             }
 
             openConfirmModal({
-                title: 'Remove Fund Request',
-                message: `Remove fund request ${serialNumber}?`,
+                title: 'Remove Payment Request',
+                message: `Remove payment request ${serialNumber}?`,
                 confirmLabel: 'Remove',
                 confirmButtonClass: 'btn-danger',
                 onConfirm: function () {
@@ -3500,7 +3500,7 @@ document.addEventListener('DOMContentLoaded', function () {
     approveButtons.forEach((button) => {
         button.addEventListener('click', function () {
             const requestId = button.dataset.requestId;
-            const label = button.dataset.requestLabel || 'this fund request';
+            const label = button.dataset.requestLabel || 'this payment request';
             if (!requestId) {
                 return;
             }
@@ -3516,7 +3516,7 @@ document.addEventListener('DOMContentLoaded', function () {
     rejectButtons.forEach((button) => {
         button.addEventListener('click', function () {
             const requestId = button.dataset.requestId;
-            const label = button.dataset.requestLabel || 'this fund request';
+            const label = button.dataset.requestLabel || 'this payment request';
             if (!requestId) {
                 return;
             }
@@ -3532,7 +3532,7 @@ document.addEventListener('DOMContentLoaded', function () {
     cancelButtons.forEach((button) => {
         button.addEventListener('click', function () {
             const requestId = button.dataset.requestId;
-            const label = button.dataset.requestLabel || 'this fund request';
+            const label = button.dataset.requestLabel || 'this payment request';
             if (!requestId) {
                 return;
             }

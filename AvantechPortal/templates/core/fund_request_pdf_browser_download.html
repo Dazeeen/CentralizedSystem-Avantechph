@@ -1,16 +1,16 @@
 {% extends 'base_app.html' %}
 
-{% block title %}Avantech Portal | Fund Request PDF Preview{% endblock %}
-{% block page_heading %}Fund Request PDF Preview{% endblock %}
+{% block title %}Avantech Portal | Payment Request PDF Preview{% endblock %}
+{% block page_heading %}Payment Request PDF Preview{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
     <div>
-        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Approved Fund Request" }}</h2>
+        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Approved Payment Request" }}</h2>
         <p class="text-secondary mb-0">Preview the generated PDF before downloading.</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Payment Requests</a>
         <a class="btn btn-success" href="{{ download_pdf_url }}">Download PDF</a>
     </div>
 </div>
@@ -27,7 +27,7 @@
                     <span class="badge text-bg-light border">{{ template_extension|upper|default:'PDF' }}</span>
                 </div>
                 <div class="fund-pdf-preview-frame">
-                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="Fund request PDF preview"></iframe>
+                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="Payment request PDF preview"></iframe>
                 </div>
             </div>
         </div>

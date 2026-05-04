@@ -1,12 +1,12 @@
 {% extends 'base_app.html' %}
 
 {% block title %}Avantech Portal | Client-side Conversion{% endblock %}
-{% block page_heading %}Fund Request Client-side Conversion{% endblock %}
+{% block page_heading %}Payment Request Client-side Conversion{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
     <div>
-        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Approved Fund Request" }}</h2>
+        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Approved Payment Request" }}</h2>
         <p class="text-secondary mb-0">
             Server conversion failed. The portal is now running a browser conversion fallback for <strong>{{ template_extension|upper }}</strong>.
         </p>

@@ -1,19 +1,46 @@
-.venv/
-.database/
-database/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Django/local runtime data
 *.db
 *.sqlite3
 *.log
-.logs/
 logs/
-README.md
-.env/
-.env 
+.logs/
+database/
+.database/
+AvantechPortal/logs/
+AvantechPortal/database/
+
+# User uploads, generated files, and backups
 .media/
+media/
 AvantechPortal/media/
-.pycache/
+
+# Local tooling
 .codex
+.codex/
+.pycache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

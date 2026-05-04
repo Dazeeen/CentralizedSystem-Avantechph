@@ -22,6 +22,7 @@ from .models import SupportTicket, SupportTicketMessage
 from .activity import record_activity
 from .notifications import create_notification
 from .ticketing_services import (
+    CLOSED_TICKET_STATUS_VALUES,
     IMPORTANT_PRIORITY_VALUES,
     OPEN_TICKET_STATUS_VALUES,
     assign_ticket_fairly,
@@ -72,6 +73,8 @@ def _can_access_ticket(user, ticket, can_manage=None):
 def _can_chat_on_ticket(user, ticket):
     if not user or not user.is_authenticated:
         return False
+    if ticket.status in CLOSED_TICKET_STATUS_VALUES:
+        return False
     return user.id in {ticket.created_by_id, ticket.assigned_to_id}
 
 
@@ -85,6 +88,34 @@ def _parse_selected_ticket_ids(post_data):
     return sorted(set(parsed_ids))
 
 
+def _filter_ticket_search(queryset, query):
+    if not query:
+        return queryset
+    return queryset.filter(
+        Q(ticket_number__icontains=query)
+        | Q(title__icontains=query)
+        | Q(description__icontains=query)
+        | Q(created_by__username__icontains=query)
+        | Q(created_by__first_name__icontains=query)
+        | Q(created_by__last_name__icontains=query)
+        | Q(assigned_to__username__icontains=query)
+        | Q(assigned_to__first_name__icontains=query)
+        | Q(assigned_to__last_name__icontains=query)
+    )
+
+
+def _filter_ticket_status(queryset, status_filter, valid_statuses):
+    if status_filter in valid_statuses:
+        return queryset.filter(status=status_filter), status_filter
+    return queryset, 'all'
+
+
+def _filter_ticket_priority(queryset, priority_filter, valid_priorities):
+    if priority_filter in valid_priorities:
+        return queryset.filter(effective_priority_filter(priority_filter)), priority_filter
+    return queryset, 'all'
+
+
 @login_required
 def support_tickets_list(request):
     can_manage = can_manage_support_tickets(request.user)
@@ -92,6 +123,12 @@ def support_tickets_list(request):
     query = (request.GET.get('q') or '').strip()
     status_filter = (request.GET.get('status') or 'all').strip().lower()
     priority_filter = (request.GET.get('priority') or 'all').strip().lower()
+    past_query = (request.GET.get('past_q') or '').strip()
+    past_status_filter = (request.GET.get('past_status') or 'all').strip().lower()
+    past_priority_filter = (request.GET.get('past_priority') or 'all').strip().lower()
+    archived_query = (request.GET.get('archived_q') or '').strip()
+    archived_status_filter = (request.GET.get('archived_status') or 'all').strip().lower()
+    archived_priority_filter = (request.GET.get('archived_priority') or 'all').strip().lower()
 
     visible_tickets = SupportTicket.objects.select_related('created_by', 'assigned_to').filter(is_archived=False)
     if can_manage and not request.user.is_superuser:
@@ -101,45 +138,59 @@ def support_tickets_list(request):
     elif not can_manage:
         visible_tickets = visible_tickets.filter(created_by=request.user)
 
-    ticket_queryset = visible_tickets
-    if query:
-        ticket_queryset = ticket_queryset.filter(
-            Q(ticket_number__icontains=query)
-            | Q(title__icontains=query)
-            | Q(description__icontains=query)
-            | Q(created_by__username__icontains=query)
-            | Q(created_by__first_name__icontains=query)
-            | Q(created_by__last_name__icontains=query)
-            | Q(assigned_to__username__icontains=query)
-            | Q(assigned_to__first_name__icontains=query)
-            | Q(assigned_to__last_name__icontains=query)
-        )
+    active_tickets = visible_tickets.filter(status__in=OPEN_TICKET_STATUS_VALUES)
+    past_tickets = visible_tickets.filter(status__in=CLOSED_TICKET_STATUS_VALUES)
 
-    valid_statuses = {choice[0] for choice in SupportTicket.STATUS_CHOICES}
-    if status_filter in valid_statuses:
-        ticket_queryset = ticket_queryset.filter(status=status_filter)
-    else:
-        status_filter = 'all'
-
+    active_status_choices = [
+        choice
+        for choice in SupportTicket.STATUS_CHOICES
+        if choice[0] in OPEN_TICKET_STATUS_VALUES
+    ]
+    past_status_choices = [
+        choice
+        for choice in SupportTicket.STATUS_CHOICES
+        if choice[0] in CLOSED_TICKET_STATUS_VALUES
+    ]
+    valid_active_statuses = {choice[0] for choice in active_status_choices}
+    valid_past_statuses = {choice[0] for choice in past_status_choices}
+    valid_all_statuses = {choice[0] for choice in SupportTicket.STATUS_CHOICES}
     valid_priorities = {choice[0] for choice in SupportTicket.PRIORITY_CHOICES}
-    if priority_filter in valid_priorities:
-        ticket_queryset = ticket_queryset.filter(effective_priority_filter(priority_filter))
-    else:
-        priority_filter = 'all'
+
+    ticket_queryset = _filter_ticket_search(active_tickets, query)
+    ticket_queryset, status_filter = _filter_ticket_status(ticket_queryset, status_filter, valid_active_statuses)
+    ticket_queryset, priority_filter = _filter_ticket_priority(ticket_queryset, priority_filter, valid_priorities)
+
+    past_queryset = _filter_ticket_search(past_tickets, past_query)
+    past_queryset, past_status_filter = _filter_ticket_status(past_queryset, past_status_filter, valid_past_statuses)
+    past_queryset, past_priority_filter = _filter_ticket_priority(past_queryset, past_priority_filter, valid_priorities)
 
     ticket_page = Paginator(ticket_queryset.order_by('-created_at'), 10).get_page(request.GET.get('page'))
-    important_open_count = visible_tickets.filter(status__in=OPEN_TICKET_STATUS_VALUES).filter(
+    important_open_count = active_tickets.filter(
         effective_priority_filter('high') | effective_priority_filter('critical')
     ).count()
-    open_count = visible_tickets.filter(status__in=OPEN_TICKET_STATUS_VALUES).count()
-    resolved_count = visible_tickets.filter(status='resolved').count()
-    closed_count = visible_tickets.filter(status='closed').count()
+    open_count = active_tickets.count()
+    resolved_count = past_tickets.filter(status='resolved').count()
+    closed_count = past_tickets.filter(status='closed').count()
+    past_ticket_count = past_tickets.count()
+    past_tickets_preview = past_queryset.order_by('-closed_at', '-updated_at')[:25]
+    past_filtered_count = past_queryset.count()
     archived_ticket_count = 0
+    archived_filtered_count = 0
     archived_tickets_preview = []
     if is_admin:
         archived_tickets_qs = SupportTicket.objects.select_related('created_by', 'assigned_to', 'archived_by').filter(is_archived=True)
         archived_ticket_count = archived_tickets_qs.count()
-        archived_tickets_preview = archived_tickets_qs.order_by('-archived_at', '-updated_at')[:25]
+        archived_queryset = _filter_ticket_search(archived_tickets_qs, archived_query)
+        archived_queryset, archived_status_filter = _filter_ticket_status(archived_queryset, archived_status_filter, valid_all_statuses)
+        archived_queryset, archived_priority_filter = _filter_ticket_priority(archived_queryset, archived_priority_filter, valid_priorities)
+        archived_filtered_count = archived_queryset.count()
+        archived_tickets_preview = archived_queryset.order_by('-archived_at', '-updated_at')[:25]
+    else:
+        archived_status_filter = 'all'
+        archived_priority_filter = 'all'
+
+    should_open_past_modal = bool(past_query or past_status_filter != 'all' or past_priority_filter != 'all')
+    should_open_archived_modal = bool(is_admin and (archived_query or archived_status_filter != 'all' or archived_priority_filter != 'all'))
 
     context = {
         'can_manage_support_tickets': can_manage,
@@ -153,9 +204,23 @@ def support_tickets_list(request):
         'resolved_count': resolved_count,
         'closed_count': closed_count,
         'important_open_count': important_open_count,
+        'past_ticket_count': past_ticket_count,
+        'past_filtered_count': past_filtered_count,
+        'past_tickets_preview': past_tickets_preview,
+        'past_query': past_query,
+        'past_status_filter': past_status_filter,
+        'past_priority_filter': past_priority_filter,
+        'should_open_past_modal': should_open_past_modal,
         'archived_ticket_count': archived_ticket_count,
+        'archived_filtered_count': archived_filtered_count,
         'archived_tickets_preview': archived_tickets_preview,
-        'status_choices': [('all', 'All Statuses')] + list(SupportTicket.STATUS_CHOICES),
+        'archived_query': archived_query,
+        'archived_status_filter': archived_status_filter,
+        'archived_priority_filter': archived_priority_filter,
+        'should_open_archived_modal': should_open_archived_modal,
+        'status_choices': [('all', 'All Active Statuses')] + active_status_choices,
+        'past_status_choices': [('all', 'All Past Statuses')] + past_status_choices,
+        'archived_status_choices': [('all', 'All Statuses')] + list(SupportTicket.STATUS_CHOICES),
         'priority_choices': [('all', 'All Priorities')] + list(SupportTicket.PRIORITY_CHOICES),
     }
     return render(request, 'core/support_tickets_list.html', context)
@@ -226,9 +291,14 @@ def support_ticket_detail(request, ticket_id):
     if not _can_access_ticket(request.user, ticket, can_manage=can_manage):
         return _permission_denied_response(request, 'You do not have permission to view this ticket.')
 
+    is_closed_ticket = ticket.status in CLOSED_TICKET_STATUS_VALUES
     can_chat = (not ticket.is_archived) and _can_chat_on_ticket(request.user, ticket)
     can_update_support = (not ticket.is_archived) and (can_manage or request.user.id == ticket.assigned_to_id)
-    can_update_requested_priority = (not ticket.is_archived) and (request.user.id == ticket.created_by_id or request.user.is_superuser)
+    can_update_requested_priority = (
+        (not ticket.is_archived)
+        and (not is_closed_ticket)
+        and (request.user.id == ticket.created_by_id or request.user.is_superuser)
+    )
     messages_qs = ticket.messages.select_related('sender', 'deleted_by').all()
 
     if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
@@ -251,6 +321,7 @@ def support_ticket_detail(request, ticket_id):
         'can_chat': can_chat,
         'can_update_support': can_update_support,
         'can_update_requested_priority': can_update_requested_priority,
+        'is_closed_ticket': is_closed_ticket,
         'message_form': SupportTicketMessageForm(),
         'requester_priority_form': SupportTicketRequesterPriorityForm(instance=ticket),
         'support_update_form': SupportTicketSupportUpdateForm(instance=ticket),
@@ -264,6 +335,8 @@ def support_ticket_add_message(request, ticket_id):
     ticket = get_object_or_404(SupportTicket.objects.select_related('created_by', 'assigned_to'), pk=ticket_id)
     if ticket.is_archived:
         return _permission_denied_response(request, 'Archived tickets are read-only.')
+    if ticket.status in CLOSED_TICKET_STATUS_VALUES:
+        return _permission_denied_response(request, 'Closed tickets are read-only. Reopen the ticket before replying.')
     can_manage = can_manage_support_tickets(request.user)
     if not _can_access_ticket(request.user, ticket, can_manage=can_manage):
         return _permission_denied_response(request, 'You do not have permission to view this ticket.')
@@ -353,6 +426,8 @@ def support_ticket_message_delete(request, ticket_id, message_id):
     ticket = get_object_or_404(SupportTicket.objects.select_related('created_by', 'assigned_to'), pk=ticket_id)
     if ticket.is_archived:
         return _permission_denied_response(request, 'Archived tickets are read-only.')
+    if ticket.status in CLOSED_TICKET_STATUS_VALUES:
+        return _permission_denied_response(request, 'Closed tickets are read-only.')
     can_manage = can_manage_support_tickets(request.user)
     if not _can_access_ticket(request.user, ticket, can_manage=can_manage):
         return _permission_denied_response(request, 'You do not have permission to view this ticket.')
@@ -397,6 +472,8 @@ def support_ticket_update_requested_priority(request, ticket_id):
     ticket = get_object_or_404(SupportTicket.objects.select_related('created_by', 'assigned_to'), pk=ticket_id)
     if ticket.is_archived:
         return _permission_denied_response(request, 'Archived tickets are read-only.')
+    if ticket.status in CLOSED_TICKET_STATUS_VALUES:
+        return _permission_denied_response(request, 'Closed tickets are read-only.')
     if not (request.user.id == ticket.created_by_id or request.user.is_superuser):
         return _permission_denied_response(request, 'Only the ticket requester can update requested priority.')
 

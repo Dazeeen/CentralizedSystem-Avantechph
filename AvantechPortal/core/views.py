@@ -1182,8 +1182,8 @@ def _notify_fund_request_approvers(fund_request):
 			continue
 		create_notification(
 			user=approver,
-			title='Fund request approval needed',
-			message=f'{requester_name} submitted a fund request for {total_label}.',
+			title='Payment request approval needed',
+			message=f'{requester_name} submitted a payment request for {total_label}.',
 			link_url=approval_link,
 		)
 
@@ -1193,18 +1193,18 @@ def _notify_fund_request_requester(fund_request):
 		return
 
 	if fund_request.request_status == 'approved':
-		title = 'Fund Request Approved'
-		message = f'Your fund request was approved with serial number {fund_request.serial_number}.'
+		title = 'Payment Request Approved'
+		message = f'Your payment request was approved with serial number {fund_request.serial_number}.'
 		link_url = reverse('fund_requests_list')
 	elif fund_request.request_status == 'cancelled':
-		title = 'Fund Request Cancelled'
+		title = 'Payment Request Cancelled'
 		reason_suffix = f' Reason: {fund_request.decision_reason}' if fund_request.decision_reason else ''
-		message = f'Your fund request was cancelled.{reason_suffix}'
+		message = f'Your payment request was cancelled.{reason_suffix}'
 		link_url = reverse('fund_requests_list')
 	else:
-		title = 'Fund Request Rejected'
+		title = 'Payment Request Rejected'
 		reason_suffix = f' Reason: {fund_request.decision_reason}' if fund_request.decision_reason else ''
-		message = f'Your fund request was rejected.{reason_suffix}'
+		message = f'Your payment request was rejected.{reason_suffix}'
 		link_url = f"{reverse('fund_requests_list')}?{urlencode({'rejected_request': fund_request.pk})}"
 
 	create_notification(
@@ -1505,7 +1505,7 @@ def _render_fund_request_template_binary(fund_request):
 	extension = _fund_request_template_extension(template_record)
 	placeholders = _build_fund_request_template_placeholders(fund_request)
 	line_items = _build_fund_request_line_items_context(fund_request)
-	output_name = f'fund-request-{fund_request.serial_number}{extension}'
+	output_name = f'payment-request-{fund_request.serial_number}{extension}'
 	return _render_fund_request_template_binary_from_template(template_record, placeholders, line_items, output_name)
 
 
@@ -1548,7 +1548,7 @@ def _build_fund_request_template_placeholder_guide():
 	return [
 		{
 			'placeholder': '{{ serial_number }}',
-			'description': 'Shows the approved fund request serial number (blank while pending).',
+			'description': 'Shows the approved payment request serial number (blank while pending).',
 			'use_case': 'Use in the document header, title bar, or control number area.',
 		},
 		{
@@ -1579,7 +1579,7 @@ def _build_fund_request_template_placeholder_guide():
 		{
 			'placeholder': '{{ total_amount_php }}',
 			'description': 'Outputs the computed total amount with the `PHP` currency prefix and thousands separators.',
-			'use_case': 'Use for grand total labels in printed fund request forms.',
+			'use_case': 'Use for grand total labels in printed payment request forms.',
 		},
 		{
 			'placeholder': '{{ prepared_by }}',
@@ -1593,7 +1593,7 @@ def _build_fund_request_template_placeholder_guide():
 		},
 		{
 			'placeholder': '{{ template_name }}',
-			'description': 'Outputs the current fund request template name.',
+			'description': 'Outputs the current payment request template name.',
 			'use_case': 'Use in document footers or internal reference labels.',
 		},
 		{
@@ -2142,7 +2142,7 @@ def _convert_office_bytes_to_pdf(file_bytes, filename, allow_structured_preview_
 	return None
 
 
-def _render_html_bytes_to_pdf(html_bytes, filename='fund-request.html'):
+def _render_html_bytes_to_pdf(html_bytes, filename='payment-request.html'):
 	return _convert_office_bytes_to_pdf(html_bytes, filename, allow_structured_preview_fallback=False)
 
 
@@ -2283,7 +2283,7 @@ def _merge_pdf_parts(pdf_parts):
 	if not pdfunite_path:
 		return None
 
-	with tempfile.TemporaryDirectory(prefix='fund-request-pdf-merge-') as temp_dir:
+	with tempfile.TemporaryDirectory(prefix='payment-request-pdf-merge-') as temp_dir:
 		temp_path = Path(temp_dir)
 		input_paths = []
 		for index, content in enumerate(valid_parts, start=1):
@@ -2308,7 +2308,7 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 			with template_record.file.open('rb') as template_file:
 				return {
 					'content': template_file.read(),
-					'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+					'filename': f'payment-request-{fund_request.serial_number or fund_request.pk}.pdf',
 					'source': 'template_pdf',
 				}
 
@@ -2349,7 +2349,7 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 			'template_extension': template_extension,
 		},
 	)
-	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), f'fund-request-{fund_request.serial_number or fund_request.pk}.html')
+	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), f'payment-request-{fund_request.serial_number or fund_request.pk}.html')
 	if not pdf_bytes:
 		prepared_by = '-'
 		if fund_request.created_by:
@@ -2372,18 +2372,18 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 			)
 		if not fund_request.items.exists():
 			summary_lines.append('No line items recorded.')
-		pdf_bytes = _build_notice_pdf_bytes('Fund Request Document Summary', summary_lines)
+		pdf_bytes = _build_notice_pdf_bytes('Payment Request Document Summary', summary_lines)
 		if not pdf_bytes:
 			return None
 		return {
 			'content': pdf_bytes,
-			'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+			'filename': f'payment-request-{fund_request.serial_number or fund_request.pk}.pdf',
 			'source': 'generated_summary_pdf',
 		}
 
 	return {
 		'content': pdf_bytes,
-		'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+		'filename': f'payment-request-{fund_request.serial_number or fund_request.pk}.pdf',
 		'source': 'generated_pdf',
 	}
 
@@ -2421,7 +2421,7 @@ def _build_fund_request_client_side_conversion_payload(fund_request):
 			return None
 		with template_record.file.open('rb') as template_file:
 			source_bytes = template_file.read()
-		source_filename = Path(template_record.file.name).name or f'fund-request-client-source{template_extension}'
+		source_filename = Path(template_record.file.name).name or f'payment-request-client-source{template_extension}'
 
 	if not source_bytes:
 		return None
@@ -2466,7 +2466,7 @@ def _build_fund_request_template_file_payload(fund_request):
 	with template_record.file.open('rb') as template_file:
 		return {
 			'content': template_file.read(),
-			'filename': Path(template_record.file.name).name or f'fund-request-template{template_extension or ""}',
+			'filename': Path(template_record.file.name).name or f'payment-request-template{template_extension or ""}',
 			'content_type': content_type_map.get(template_extension, 'application/octet-stream'),
 			'source': 'template_original_file',
 		}
@@ -2483,7 +2483,7 @@ def _build_template_preview_pdf_payload(template_record):
 	if extension == '.pdf':
 		return {
 			'content': original_bytes,
-			'filename': f'{Path(template_record.file.name).stem or "fund-request-template"}-preview.pdf',
+			'filename': f'{Path(template_record.file.name).stem or "payment-request-template"}-preview.pdf',
 			'mode': 'original_pdf',
 		}
 
@@ -2493,7 +2493,7 @@ def _build_template_preview_pdf_payload(template_record):
 			template_record,
 			sample_context['placeholders'],
 			sample_context['line_items'],
-			f'{Path(template_record.file.name).stem or "fund-request-template"}-filled{extension}',
+			f'{Path(template_record.file.name).stem or "payment-request-template"}-filled{extension}',
 		)
 		if rendered_template:
 			pdf_bytes = _convert_office_bytes_to_pdf(
@@ -2517,7 +2517,7 @@ def _build_template_preview_pdf_payload(template_record):
 		if pdf_bytes:
 			return {
 				'content': pdf_bytes,
-				'filename': f'{Path(template_record.file.name).stem or "fund-request-template"}-preview.pdf',
+				'filename': f'{Path(template_record.file.name).stem or "payment-request-template"}-preview.pdf',
 				'mode': 'converted_original',
 			}
 
@@ -3437,11 +3437,25 @@ def users_bulk_update_role(request):
 	return redirect('users_list')
 
 
+def _user_in_super_users_group(user):
+	return bool(user and user.groups.filter(name__iexact='Super Users').exists())
+
+
+def _get_super_users_fallback_branch():
+	for user in User.objects.filter(groups__name__iexact='Super Users').select_related('profile').order_by('id'):
+		branch_name = (getattr(getattr(user, 'profile', None), 'branch', '') or '').strip()
+		if branch_name:
+			return branch_name
+	return 'Unassigned Branch'
+
+
 def _get_user_file_context(user):
 	profile = getattr(user, 'profile', None)
 	branch_name = (getattr(profile, 'branch', '') or '').strip() or 'Unassigned Branch'
 	role_names = [group.name for group in user.groups.all()]
 	role_name = (role_names[0] if role_names else '').strip() or 'Unassigned Role'
+	if branch_name == 'Unassigned Branch' and _user_in_super_users_group(user):
+		branch_name = _get_super_users_fallback_branch()
 	department_name = role_name
 	for delimiter in [' - ', ':', '/']:
 		if delimiter in role_name:
@@ -3455,6 +3469,26 @@ def _get_user_file_context(user):
 	return branch_name, department_name, role_name
 
 
+def _build_file_manager_scope_label(selected_node, fallback_parts):
+	if selected_node:
+		path_parts = []
+		current_node = selected_node
+		while current_node:
+			path_parts.append(current_node.name)
+			current_node = current_node.parent
+		return ' > '.join(reversed(path_parts))
+
+	deduped_parts = []
+	for part in fallback_parts:
+		part = (part or '').strip()
+		if not part:
+			continue
+		if deduped_parts and _is_same_file_manager_level(deduped_parts[-1], part):
+			continue
+		deduped_parts.append(part)
+	return ' > '.join(deduped_parts)
+
+
 def _user_can_access_node(user, node):
 	if user.is_superuser or node.owner_id == user.id:
 		return True
@@ -3466,6 +3500,48 @@ def _user_can_write_node(user, node):
 		return True
 	permission = ManagedFilePermission.objects.filter(node=node, user=user).values_list('access_level', flat=True).first()
 	return permission in {'write', 'read_write'}
+
+
+def _get_user_default_file_manager_node(user):
+	if not user or not user.is_authenticated:
+		return None
+	if user.is_superuser:
+		return None
+	return (
+		ManagedFileNode.objects.filter(owner=user, node_type__in=('folder', 'shared_folder'))
+		.filter(Q(name=user.username) | Q(permissions__user=user, permissions__access_level='read_write'))
+		.order_by('-updated_at', '-id')
+		.first()
+	)
+
+
+def _resolve_file_manager_parent_for_write(request, parent_id, allow_root=False):
+	parent = None
+	if parent_id.isdigit():
+		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
+		if parent.node_type == 'file':
+			return None, _fm_response(request, ok=False, message='Select a folder before uploading or creating items.', status=400)
+		if not _user_can_access_node(request.user, parent):
+			return None, _permission_denied_response(request, 'You do not have access to this folder.')
+		if not _user_can_write_node(request.user, parent):
+			return None, _permission_denied_response(request, 'You only have read access to this folder. Open your user folder or request write access.')
+		return parent, None
+
+	if allow_root and (request.user.is_superuser or request.user.has_perm('core.add_managedfilenode')):
+		return None, None
+	return None, _fm_response(request, ok=False, message='Select a writable folder first.', status=400)
+
+
+def _get_available_managed_file_name(parent, owner, desired_name):
+	name = (desired_name or '').strip() or 'Untitled'
+	base_name = Path(name).stem or name
+	extension = Path(name).suffix
+	candidate = name
+	counter = 2
+	while ManagedFileNode.objects.filter(parent=parent, owner=owner, name=candidate).exists():
+		candidate = f'{base_name} ({counter}){extension}'
+		counter += 1
+	return candidate
 
 
 def _can_view_all_file_manager_nodes(user):
@@ -3488,10 +3564,107 @@ def _get_user_storage_quota_mb(user):
 	return int(quota or 0)
 
 
+def _is_same_file_manager_level(left_name, right_name):
+	return (left_name or '').strip().casefold() == (right_name or '').strip().casefold()
+
+
+def _sync_managed_file_permission(source_node, target_node):
+	permission_rank = {'read': 1, 'write': 2, 'read_write': 3}
+	for source_permission in ManagedFilePermission.objects.filter(node=source_node).select_related('user', 'created_by'):
+		target_permission, created = ManagedFilePermission.objects.get_or_create(
+			node=target_node,
+			user=source_permission.user,
+			defaults={
+				'access_level': source_permission.access_level,
+				'created_by': source_permission.created_by,
+			},
+		)
+		if not created and permission_rank.get(source_permission.access_level, 0) > permission_rank.get(target_permission.access_level, 0):
+			target_permission.access_level = source_permission.access_level
+			target_permission.save(update_fields=['access_level'])
+
+
+def _collapse_duplicate_file_manager_folder_levels():
+	duplicate_nodes = (
+		ManagedFileNode.objects
+		.filter(parent__isnull=False, node_type__in=('folder', 'shared_folder'))
+		.select_related('parent')
+		.order_by('id')
+	)
+	for duplicate_node in duplicate_nodes:
+		parent_node = duplicate_node.parent
+		if not parent_node or not _is_same_file_manager_level(parent_node.name, duplicate_node.name):
+			continue
+
+		with transaction.atomic():
+			_sync_managed_file_permission(duplicate_node, parent_node)
+			for child_node in list(duplicate_node.children.all().order_by('id')):
+				if ManagedFileNode.objects.filter(parent=parent_node, owner=child_node.owner, name=child_node.name).exclude(pk=child_node.pk).exists():
+					continue
+				child_node.parent = parent_node
+				child_node.save(update_fields=['parent', 'updated_at'])
+			if not duplicate_node.children.exists():
+				duplicate_node.delete()
+
+
+def _get_or_move_user_file_manager_folder(parent_node, target_user, defaults):
+	existing_node = (
+		ManagedFileNode.objects
+		.filter(owner=target_user, name=target_user.username, node_type__in=('folder', 'shared_folder'))
+		.order_by('id')
+		.first()
+	)
+	if existing_node:
+		if existing_node.parent_id != parent_node.id and not ManagedFileNode.objects.filter(
+			parent=parent_node,
+			owner=target_user,
+			name=target_user.username,
+		).exclude(pk=existing_node.pk).exists():
+			existing_node.parent = parent_node
+			existing_node.branch_name_snapshot = defaults.get('branch_name_snapshot', existing_node.branch_name_snapshot)
+			existing_node.department_name_snapshot = defaults.get('department_name_snapshot', existing_node.department_name_snapshot)
+			existing_node.role_name_snapshot = defaults.get('role_name_snapshot', existing_node.role_name_snapshot)
+			existing_node.storage_endpoint = defaults.get('storage_endpoint', existing_node.storage_endpoint)
+			existing_node.updated_by = defaults.get('updated_by', existing_node.updated_by)
+			existing_node.save(update_fields=[
+				'parent',
+				'branch_name_snapshot',
+				'department_name_snapshot',
+				'role_name_snapshot',
+				'storage_endpoint',
+				'updated_by',
+				'updated_at',
+			])
+		return existing_node
+
+	return ManagedFileNode.objects.create(
+		parent=parent_node,
+		owner=target_user,
+		name=target_user.username,
+		**defaults,
+	)
+
+
+def _prune_empty_legacy_super_user_branch_folders():
+	for node in list(
+		ManagedFileNode.objects
+		.filter(name__iexact='Super Users', parent__name__iexact='Unassigned Branch')
+		.order_by('id')
+	):
+		parent_node = node.parent
+		if node.children.exists():
+			continue
+		node.delete()
+		if parent_node and parent_node.name == 'Unassigned Branch' and not parent_node.children.exists():
+			parent_node.delete()
+
+
 def _ensure_file_manager_default_hierarchy():
 	system_owner = User.objects.filter(is_superuser=True).order_by('id').first() or User.objects.order_by('id').first()
 	if not system_owner:
 		return
+
+	_collapse_duplicate_file_manager_folder_levels()
 
 	default_root_endpoint = _get_default_root_storage_endpoint()
 	all_users = User.objects.prefetch_related('groups', 'profile').order_by('id')
@@ -3530,27 +3703,29 @@ def _ensure_file_manager_default_hierarchy():
 			},
 		)
 
-		role_node, _ = ManagedFileNode.objects.get_or_create(
-			parent=department_node,
-			owner=system_owner,
-			name=role_name,
-			defaults={
-				'node_type': 'folder',
-				'access_scope': 'shared',
-				'branch_name_snapshot': branch_name,
-				'department_name_snapshot': department_name,
-				'role_name_snapshot': role_name,
-				'storage_endpoint': default_root_endpoint,
-				'created_by': system_owner,
-				'updated_by': system_owner,
-			},
-		)
+		if _is_same_file_manager_level(department_name, role_name):
+			role_node = department_node
+		else:
+			role_node, _ = ManagedFileNode.objects.get_or_create(
+				parent=department_node,
+				owner=system_owner,
+				name=role_name,
+				defaults={
+					'node_type': 'folder',
+					'access_scope': 'shared',
+					'branch_name_snapshot': branch_name,
+					'department_name_snapshot': department_name,
+					'role_name_snapshot': role_name,
+					'storage_endpoint': default_root_endpoint,
+					'created_by': system_owner,
+					'updated_by': system_owner,
+				},
+			)
 
-		user_node, _ = ManagedFileNode.objects.get_or_create(
-			parent=role_node,
-			owner=target_user,
-			name=target_user.username,
-			defaults={
+		user_node = _get_or_move_user_file_manager_folder(
+			role_node,
+			target_user,
+			{
 				'node_type': 'folder',
 				'access_scope': 'private',
 				'branch_name_snapshot': branch_name,
@@ -3583,6 +3758,8 @@ def _ensure_file_manager_default_hierarchy():
 			defaults={'access_level': 'read_write', 'created_by': system_owner},
 		)
 
+	_prune_empty_legacy_super_user_branch_folders()
+
 
 @login_required
 def file_manager_list(request):
@@ -3608,6 +3785,9 @@ def file_manager_list(request):
 			selected_node = candidate
 
 	if selected_node is None:
+		selected_node = _get_user_default_file_manager_node(request.user)
+
+	if selected_node is None:
 		selected_node = root_nodes.order_by('name').first()
 
 	children = ManagedFileNode.objects.none()
@@ -3624,6 +3804,7 @@ def file_manager_list(request):
 	context = {
 		'root_nodes': root_nodes.order_by('name'),
 		'selected_node': selected_node,
+		'parent_node': selected_node.parent if selected_node and selected_node.parent_id else None,
 		'children': children,
 		'storage_endpoints': FileStorageEndpoint.objects.order_by('name'),
 		'users': User.objects.order_by('username'),
@@ -3631,6 +3812,10 @@ def file_manager_list(request):
 		'branch_name': branch_name,
 		'department_name': department_name,
 		'role_name': role_name,
+		'scope_label': _build_file_manager_scope_label(
+			selected_node,
+			[branch_name, department_name, role_name, request.user.username],
+		),
 	}
 	return render(request, 'core/file_manager_list.html', context)
 
@@ -3722,22 +3907,16 @@ def file_manager_browse_directories(request):
 @login_required
 @require_POST
 def file_manager_create_folder(request):
-	restricted_response = _require_permission(request, 'core.add_managedfilenode')
-	if restricted_response:
-		return restricted_response
-
-	parent = None
 	parent_id = (request.POST.get('parent_id') or '').strip()
-	if parent_id.isdigit():
-		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
-		if not _user_can_write_node(request.user, parent):
-			return _permission_denied_response(request)
+	parent, parent_error = _resolve_file_manager_parent_for_write(request, parent_id, allow_root=True)
+	if parent_error:
+		return parent_error
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	default_root_endpoint = _get_default_root_storage_endpoint()
 	ManagedFileNode.objects.create(
 		parent=parent,
-		name=(request.POST.get('folder_name') or '').strip() or 'New Folder',
+		name=_get_available_managed_file_name(parent, request.user, (request.POST.get('folder_name') or '').strip() or 'New Folder'),
 		node_type=(request.POST.get('folder_type') or 'folder').strip() if (request.POST.get('folder_type') or 'folder').strip() in {'folder', 'shared_folder'} else 'folder',
 		access_scope=(request.POST.get('access_scope') or 'private').strip() if (request.POST.get('access_scope') or 'private').strip() in {'private', 'shared'} else 'private',
 		owner=request.user,
@@ -3754,16 +3933,10 @@ def file_manager_create_folder(request):
 @login_required
 @require_POST
 def file_manager_upload(request):
-	restricted_response = _require_permission(request, 'core.add_managedfilenode')
-	if restricted_response:
-		return restricted_response
-
-	parent = None
 	parent_id = (request.POST.get('parent_id') or '').strip()
-	if parent_id.isdigit():
-		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
-		if not _user_can_write_node(request.user, parent):
-			return _permission_denied_response(request)
+	parent, parent_error = _resolve_file_manager_parent_for_write(request, parent_id, allow_root=True)
+	if parent_error:
+		return parent_error
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	default_root_endpoint = _get_default_root_storage_endpoint()
@@ -3793,9 +3966,10 @@ def file_manager_upload(request):
 
 	for incoming_file in uploaded_files:
 		guessed_type, _ = mimetypes.guess_type(incoming_file.name or '')
+		node_name = _get_available_managed_file_name(parent, request.user, incoming_file.name or 'Uploaded File')
 		ManagedFileNode.objects.create(
 			parent=parent,
-			name=(incoming_file.name or 'Uploaded File').strip(),
+			name=node_name,
 			node_type='file',
 			owner=request.user,
 			storage_endpoint_id=int((request.POST.get('storage_endpoint_id') or '0') or 0) or (default_root_endpoint.id if default_root_endpoint else None),
@@ -4116,7 +4290,7 @@ def fund_requests_list(request):
 			action_type = 'create_request'
 		if action_type == 'upload_template':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to upload fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to upload payment request templates.')
 
 			template_form = FundRequestTemplateForm(request.POST, request.FILES)
 			request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
@@ -4124,21 +4298,21 @@ def fund_requests_list(request):
 				template_record = template_form.save(commit=False)
 				template_record.uploaded_by = request.user
 				template_record.save()
-				messages.success(request, f'Fund request template "{template_record.name}" uploaded successfully.')
+				messages.success(request, f'Payment request template "{template_record.name}" uploaded successfully.')
 				return redirect('fund_requests_list')
 		elif action_type == 'delete_request':
 			if not can_delete_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to remove fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment requests.')
 
 			request_id = request.POST.get('request_id')
 			fund_request = get_object_or_404(visible_fund_requests_queryset, pk=request_id)
 			record_label = fund_request.serial_number or fund_request.requester_name or f'#{fund_request.pk}'
 			fund_request.delete()
-			messages.success(request, f'Fund request {record_label} removed successfully.')
+			messages.success(request, f'Payment request {record_label} removed successfully.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_delete_requests':
 			if not can_delete_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to remove fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment requests.')
 
 			selected_ids = [
 				int(value)
@@ -4146,20 +4320,20 @@ def fund_requests_list(request):
 				if str(value).isdigit()
 			]
 			if not selected_ids:
-				messages.warning(request, 'Select at least one fund request to remove.')
+				messages.warning(request, 'Select at least one payment request to remove.')
 				return redirect('fund_requests_list')
 
 			fund_requests_to_delete = list(visible_fund_requests_queryset.filter(pk__in=selected_ids, request_status='approved'))
 			deleted_count = len(fund_requests_to_delete)
 			visible_fund_requests_queryset.filter(pk__in=selected_ids, request_status='approved').delete()
 			if deleted_count == 0:
-				messages.warning(request, 'No approved fund requests matched the selected records.')
+				messages.warning(request, 'No approved payment requests matched the selected records.')
 				return redirect('fund_requests_list')
-			messages.success(request, f'{deleted_count} fund request(s) removed successfully.')
+			messages.success(request, f'{deleted_count} payment request(s) removed successfully.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_delete_templates':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to remove fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment request templates.')
 
 			selected_template_ids = [
 				int(value)
@@ -4177,7 +4351,7 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		elif action_type == 'set_default_template':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to update fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to update payment request templates.')
 
 			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
 			if not template_id.isdigit():
@@ -4195,7 +4369,7 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		elif action_type == 'delete_template':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to remove fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment request templates.')
 
 			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
 			if not template_id.isdigit():
@@ -4210,61 +4384,61 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		elif action_type == 'approve_request':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to approve fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to approve payment requests.')
 
 			request_id = request.POST.get('request_id')
 			reason = (request.POST.get('reason') or '').strip()
 
 			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
 			if fund_request.request_status != 'pending':
-				messages.info(request, 'This fund request has already been reviewed.')
+				messages.info(request, 'This payment request has already been reviewed.')
 				return redirect('fund_requests_list')
 
 			with transaction.atomic():
 				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
 				if fund_request.request_status != 'pending':
-					messages.info(request, 'This fund request has already been reviewed.')
+					messages.info(request, 'This payment request has already been reviewed.')
 					return redirect('fund_requests_list')
 				fund_request.mark_approved(processed_by=request.user, reason=reason)
 			record_activity(
 				request,
 				'approve',
 				'finance',
-				f'Approved fund request {fund_request.serial_number or fund_request.pk}.',
+				f'Approved payment request {fund_request.serial_number or fund_request.pk}.',
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
 			_notify_fund_request_requester(fund_request)
-			messages.success(request, f'Fund request approved with serial number {fund_request.serial_number}.')
+			messages.success(request, f'Payment request approved with serial number {fund_request.serial_number}.')
 			return redirect('fund_requests_list')
 		elif action_type == 'reject_request':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to reject fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to reject payment requests.')
 
 			request_id = request.POST.get('request_id')
 			reason = (request.POST.get('reason') or '').strip()
 
 			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
 			if fund_request.request_status != 'pending':
-				messages.info(request, 'This fund request has already been reviewed.')
+				messages.info(request, 'This payment request has already been reviewed.')
 				return redirect('fund_requests_list')
 
 			with transaction.atomic():
 				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
 				if fund_request.request_status != 'pending':
-					messages.info(request, 'This fund request has already been reviewed.')
+					messages.info(request, 'This payment request has already been reviewed.')
 					return redirect('fund_requests_list')
 				fund_request.mark_rejected(processed_by=request.user, reason=reason)
 			record_activity(
 				request,
 				'reject',
 				'finance',
-				f'Rejected fund request {fund_request.requester_name or fund_request.pk}.',
+				f'Rejected payment request {fund_request.requester_name or fund_request.pk}.',
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
 			_notify_fund_request_requester(fund_request)
-			messages.info(request, 'Fund request rejected.')
+			messages.info(request, 'Payment request rejected.')
 			return redirect('fund_requests_list')
 		elif action_type == 'cancel_request':
 			request_id = request.POST.get('request_id')
@@ -4276,9 +4450,9 @@ def fund_requests_list(request):
 				or can_cancel_other_fund_requests
 			)
 			if not can_cancel_request:
-				return _permission_denied_response(request, 'You do not have permission to cancel this fund request.')
+				return _permission_denied_response(request, 'You do not have permission to cancel this payment request.')
 			if fund_request.request_status != 'pending':
-				messages.info(request, 'Only pending fund requests can be cancelled.')
+				messages.info(request, 'Only pending payment requests can be cancelled.')
 				return redirect('fund_requests_list')
 
 			with transaction.atomic():
@@ -4288,16 +4462,16 @@ def fund_requests_list(request):
 					or can_cancel_other_fund_requests
 				)
 				if not can_cancel_request:
-					return _permission_denied_response(request, 'You do not have permission to cancel this fund request.')
+					return _permission_denied_response(request, 'You do not have permission to cancel this payment request.')
 				if fund_request.request_status != 'pending':
-					messages.info(request, 'Only pending fund requests can be cancelled.')
+					messages.info(request, 'Only pending payment requests can be cancelled.')
 					return redirect('fund_requests_list')
 				fund_request.mark_cancelled(processed_by=request.user, reason=reason)
 			record_activity(
 				request,
 				'cancel',
 				'finance',
-				f'Cancelled fund request {fund_request.requester_name or fund_request.pk}.',
+				f'Cancelled payment request {fund_request.requester_name or fund_request.pk}.',
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
@@ -4305,14 +4479,14 @@ def fund_requests_list(request):
 			if fund_request.created_by_id and fund_request.created_by_id != request.user.id:
 				_notify_fund_request_requester(fund_request)
 			if fund_request.created_by_id == request.user.id:
-				messages.success(request, 'Your fund request has been cancelled.')
+				messages.success(request, 'Your payment request has been cancelled.')
 			else:
 				request_label = fund_request.requester_name or f'#{fund_request.pk}'
-				messages.success(request, f'Fund request for {request_label} has been cancelled.')
+				messages.success(request, f'Payment request for {request_label} has been cancelled.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_decide_pending_requests':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to review pending fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to review pending payment requests.')
 
 			decision = (request.POST.get('decision') or '').strip().lower()
 			if decision not in {'approve', 'reject'}:
@@ -4339,7 +4513,7 @@ def fund_requests_list(request):
 			parsed_ids = sorted(set(parsed_ids))
 
 			if not parsed_ids:
-				messages.warning(request, 'No pending fund requests selected.')
+				messages.warning(request, 'No pending payment requests selected.')
 				return redirect('fund_requests_list')
 
 			pending_queryset = FundRequest.objects.select_related('created_by').filter(
@@ -4364,18 +4538,18 @@ def fund_requests_list(request):
 
 			if processed_count:
 				if decision == 'approve':
-					messages.success(request, f'{processed_count} pending fund request(s) approved successfully.')
+					messages.success(request, f'{processed_count} pending payment request(s) approved successfully.')
 				else:
-					messages.info(request, f'{processed_count} pending fund request(s) rejected.')
+					messages.info(request, f'{processed_count} pending payment request(s) rejected.')
 				record_activity(
 					request,
 					'approve' if decision == 'approve' else 'reject',
 					'finance',
-					f'{decision.title()}d {processed_count} pending fund request(s).',
+					f'{decision.title()}d {processed_count} pending payment request(s).',
 					metadata={'processed_count': processed_count, 'selected_count': len(parsed_ids)},
 				)
 			else:
-				messages.warning(request, 'No pending fund requests matched the selected records.')
+				messages.warning(request, 'No pending payment requests matched the selected records.')
 
 			skipped_count = max(0, len(parsed_ids) - processed_count)
 			if skipped_count:
@@ -4383,7 +4557,7 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		elif action_type == 'save_auto_approve_rule':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to auto approve pending fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to auto approve pending payment requests.')
 
 			rule_name = (request.POST.get('auto_rule_name') or '').strip()
 			if not rule_name:
@@ -4436,7 +4610,7 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		else:
 			if not can_add_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to create fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to create payment requests.')
 
 			request_form = FundRequestForm(request.POST, request.FILES, user=request.user)
 			template_form = FundRequestTemplateForm()
@@ -4447,7 +4621,7 @@ def fund_requests_list(request):
 				selected_template = FundRequestTemplate.objects.filter(pk=int(selected_template_id)).first()
 
 			if not selected_template:
-				request_form.add_error(None, 'Select an uploaded template before saving the fund request.')
+				request_form.add_error(None, 'Select an uploaded template before saving the payment request.')
 
 			if is_request_form_valid and selected_template:
 				fund_request = request_form.save(commit=False)
@@ -4466,23 +4640,23 @@ def fund_requests_list(request):
 						request,
 						'submit',
 						'finance',
-						f'Submitted and auto-approved fund request {fund_request.serial_number or fund_request.pk}.',
+						f'Submitted and auto-approved payment request {fund_request.serial_number or fund_request.pk}.',
 						target=fund_request,
 						target_label=fund_request.serial_number or fund_request.requester_name,
 						metadata={'auto_rule': matching_auto_rule.name},
 					)
-					messages.success(request, f'Fund request auto-approved by rule "{matching_auto_rule.name}".')
+					messages.success(request, f'Payment request auto-approved by rule "{matching_auto_rule.name}".')
 				else:
 					_notify_fund_request_approvers(fund_request)
 					record_activity(
 						request,
 						'submit',
 						'finance',
-						f'Submitted fund request {fund_request.requester_name or fund_request.pk}.',
+						f'Submitted payment request {fund_request.requester_name or fund_request.pk}.',
 						target=fund_request,
 						target_label=fund_request.requester_name,
 					)
-					messages.success(request, 'Fund request submitted for admin approval.')
+					messages.success(request, 'Payment request submitted for admin approval.')
 				return redirect('fund_requests_list')
 	else:
 		request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
@@ -4684,7 +4858,7 @@ def fund_request_records_pdf(request):
 			'filter_summary': records_context['filter_summary'],
 		},
 	)
-	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), 'fund-request-records.html')
+	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), 'payment-request-records.html')
 	if not pdf_bytes:
 		return HttpResponse('PDF download is not available for this report right now.', content_type='text/plain; charset=utf-8', status=415)
 
@@ -5286,7 +5460,7 @@ def fund_request_review_pdf(request, request_id):
 	)
 	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=True)
 	if not payload:
-		return HttpResponse('PDF preview is not available for this fund request.', content_type='text/plain; charset=utf-8', status=415)
+		return HttpResponse('PDF preview is not available for this payment request.', content_type='text/plain; charset=utf-8', status=415)
 
 	response = HttpResponse(payload['content'], content_type='application/pdf')
 	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
@@ -5304,7 +5478,7 @@ def fund_request_document(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be opened or printed.')
+		messages.warning(request, 'Only approved payment requests can be opened or printed.')
 		return redirect('fund_requests_list')
 	template_payload = _build_fund_request_template_file_payload(fund_request)
 	if template_payload:
@@ -5312,7 +5486,7 @@ def fund_request_document(request, request_id):
 		response['Content-Disposition'] = f'inline; filename="{template_payload["filename"]}"'
 		return response
 
-	messages.error(request, 'No template file is attached to this approved fund request.')
+	messages.error(request, 'No template file is attached to this approved payment request.')
 	return redirect('fund_requests_list')
 
 
@@ -5327,11 +5501,11 @@ def fund_request_print(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be printed.')
+		messages.warning(request, 'Only approved payment requests can be printed.')
 		return redirect('fund_requests_list')
 	template_record = fund_request.template
 	if not template_record or not getattr(template_record, 'file', None):
-		messages.error(request, 'No preferred template file is attached to this approved fund request.')
+		messages.error(request, 'No preferred template file is attached to this approved payment request.')
 		return redirect('fund_requests_list')
 
 	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
@@ -5375,7 +5549,7 @@ def fund_request_client_side_preview(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be opened or printed.')
+		messages.warning(request, 'Only approved payment requests can be opened or printed.')
 		return redirect('fund_requests_list')
 
 	client_payload = _build_fund_request_client_side_conversion_payload(fund_request)
@@ -5426,7 +5600,7 @@ def fund_request_template_preview_pdf(request, template_id):
 	template_record = get_object_or_404(FundRequestTemplate, pk=template_id)
 	payload = _build_template_preview_pdf_payload(template_record)
 	if not payload:
-		template_name = template_record.name or Path(getattr(template_record.file, 'name', '')).stem or 'Fund Request Template'
+		template_name = template_record.name or Path(getattr(template_record.file, 'name', '')).stem or 'Payment Request Template'
 		original_name = Path(getattr(template_record.file, 'name', '')).name or 'uploaded template'
 		notice_pdf = _build_notice_pdf_bytes(
 			f'{template_name} Preview Unavailable',
@@ -5440,7 +5614,7 @@ def fund_request_template_preview_pdf(request, template_id):
 		if notice_pdf:
 			payload = {
 				'content': notice_pdf,
-				'filename': f'{Path(original_name).stem or "fund-request-template"}-preview-unavailable.pdf',
+				'filename': f'{Path(original_name).stem or "payment-request-template"}-preview-unavailable.pdf',
 			}
 		else:
 			return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
@@ -5461,7 +5635,7 @@ def fund_request_document_download(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be downloaded.')
+		messages.warning(request, 'Only approved payment requests can be downloaded.')
 		return redirect('fund_requests_list')
 
 	is_forced_download = (request.GET.get('download') or '').strip() == '1'
@@ -5524,11 +5698,11 @@ def fund_request_bulk_print(request):
 
 	selected_ids = _parse_fund_request_selected_ids((request.GET.get('selected_ids') or '').strip())
 	if not selected_ids:
-		return HttpResponse('No approved fund requests selected for print.', content_type='text/plain; charset=utf-8', status=400)
+		return HttpResponse('No approved payment requests selected for print.', content_type='text/plain; charset=utf-8', status=400)
 
 	visible_requests = _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids)
 	if not visible_requests:
-		return HttpResponse('No accessible approved fund requests were selected for print.', content_type='text/plain; charset=utf-8', status=404)
+		return HttpResponse('No accessible approved payment requests were selected for print.', content_type='text/plain; charset=utf-8', status=404)
 
 	pdf_parts = []
 	for fund_request in visible_requests:
@@ -5554,11 +5728,11 @@ def fund_request_bulk_download(request):
 
 	selected_ids = _parse_fund_request_selected_ids((request.GET.get('selected_ids') or '').strip())
 	if not selected_ids:
-		return HttpResponse('No approved fund requests selected for download.', content_type='text/plain; charset=utf-8', status=400)
+		return HttpResponse('No approved payment requests selected for download.', content_type='text/plain; charset=utf-8', status=400)
 
 	visible_requests = _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids)
 	if not visible_requests:
-		return HttpResponse('No accessible approved fund requests were selected for download.', content_type='text/plain; charset=utf-8', status=404)
+		return HttpResponse('No accessible approved payment requests were selected for download.', content_type='text/plain; charset=utf-8', status=404)
 
 	pdf_parts = []
 	for fund_request in visible_requests:

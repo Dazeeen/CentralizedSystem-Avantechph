@@ -7,6 +7,7 @@ from .models import SupportTicket
 User = get_user_model()
 
 OPEN_TICKET_STATUS_VALUES = ('open', 'in_progress', 'waiting_user')
+CLOSED_TICKET_STATUS_VALUES = ('resolved', 'closed')
 IMPORTANT_PRIORITY_VALUES = ('high', 'critical')
 
 _IT_SUPPORT_ROLE_NAMES = (

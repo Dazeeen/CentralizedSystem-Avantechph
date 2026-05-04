@@ -5,13 +5,25 @@ from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.urls import reverse
 from PIL import Image
 
 from . import views
 from .forms import AssetItemForm, prepare_image_upload
-from .models import AssetAccountability, AssetAccountabilityFormBatch, AssetAccountabilityTemplate, AssetDepartment, AssetItem, AssetItemType
+from .models import (
+    AssetAccountability,
+    AssetAccountabilityFormBatch,
+    AssetAccountabilityTemplate,
+    AssetDepartment,
+    AssetItem,
+    AssetItemType,
+    ManagedFileNode,
+    ManagedFilePermission,
+    SupportTicket,
+)
 
 
 def _build_docx_template_bytes(text):
@@ -210,3 +222,277 @@ class AssetAccountabilityPdfPayloadTests(TestCase):
                 document_xml = archive.read('word/document.xml').decode('utf-8')
             self.assertIn(form_batch.control_number, document_xml)
             template.file.delete(save=False)
+
+
+class SupportTicketListLifecycleTests(TestCase):
+    def setUp(self):
+        self.reporter = get_user_model().objects.create_user(username='reporter', password='password')
+        self.support_user = get_user_model().objects.create_superuser(
+            username='support-admin',
+            email='support@example.com',
+            password='password',
+        )
+
+    def test_resolved_ticket_moves_out_of_active_list_and_into_past_tickets(self):
+        active_ticket = SupportTicket.objects.create(
+            title='Laptop cannot connect',
+            description='Needs help',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='open',
+        )
+        resolved_ticket = SupportTicket.objects.create(
+            title='Printer fixed',
+            description='Already handled',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='resolved',
+        )
+
+        self.client.force_login(self.support_user)
+        response = self.client.get(reverse('support_tickets_list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(active_ticket, response.context['ticket_page'].object_list)
+        self.assertNotIn(resolved_ticket, response.context['ticket_page'].object_list)
+        self.assertIn(resolved_ticket, list(response.context['past_tickets_preview']))
+        self.assertEqual(response.context['resolved_count'], 1)
+
+    def test_resolved_ticket_rejects_new_messages(self):
+        resolved_ticket = SupportTicket.objects.create(
+            title='Network restored',
+            description='Already resolved',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='resolved',
+        )
+
+        self.client.force_login(self.reporter)
+        response = self.client.post(
+            reverse('support_ticket_add_message', args=[resolved_ticket.id]),
+            {'message': 'Following up'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(resolved_ticket.messages.exists())
+
+    def test_past_ticket_filters_apply_to_past_preview_only(self):
+        active_ticket = SupportTicket.objects.create(
+            title='Active keyboard problem',
+            description='Still active',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='open',
+        )
+        matching_ticket = SupportTicket.objects.create(
+            title='Printer fixed',
+            description='Resolved printer issue',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='resolved',
+            support_priority='high',
+        )
+        other_past_ticket = SupportTicket.objects.create(
+            title='Monitor replaced',
+            description='Closed monitor issue',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='closed',
+            support_priority='low',
+        )
+
+        self.client.force_login(self.support_user)
+        response = self.client.get(
+            reverse('support_tickets_list'),
+            {'past_q': 'printer', 'past_status': 'resolved', 'past_priority': 'high'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(active_ticket, response.context['ticket_page'].object_list)
+        self.assertIn(matching_ticket, list(response.context['past_tickets_preview']))
+        self.assertNotIn(other_past_ticket, list(response.context['past_tickets_preview']))
+        self.assertTrue(response.context['should_open_past_modal'])
+
+    def test_archived_ticket_filters_apply_to_archived_preview(self):
+        matching_ticket = SupportTicket.objects.create(
+            title='Archived network issue',
+            description='Old network case',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='closed',
+            support_priority='critical',
+            is_archived=True,
+            archived_by=self.support_user,
+        )
+        other_archived_ticket = SupportTicket.objects.create(
+            title='Archived mouse issue',
+            description='Old hardware case',
+            created_by=self.reporter,
+            assigned_to=self.support_user,
+            status='resolved',
+            support_priority='low',
+            is_archived=True,
+            archived_by=self.support_user,
+        )
+
+        self.client.force_login(self.support_user)
+        response = self.client.get(
+            reverse('support_tickets_list'),
+            {'archived_q': 'network', 'archived_status': 'closed', 'archived_priority': 'critical'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(matching_ticket, list(response.context['archived_tickets_preview']))
+        self.assertNotIn(other_archived_ticket, list(response.context['archived_tickets_preview']))
+        self.assertTrue(response.context['should_open_archived_modal'])
+
+
+class FileManagerUploadTests(TestCase):
+    def setUp(self):
+        self._media_root = tempfile.mkdtemp(prefix='file-manager-test-media-')
+        self.owner = get_user_model().objects.create_superuser(
+            username='file-owner',
+            email='owner@example.com',
+            password='password',
+        )
+        self.user = get_user_model().objects.create_user(username='file-user', password='password')
+        self.folder = ManagedFileNode.objects.create(
+            name='file-user',
+            node_type='folder',
+            owner=self.owner,
+            created_by=self.owner,
+            updated_by=self.owner,
+        )
+        ManagedFilePermission.objects.create(
+            node=self.folder,
+            user=self.user,
+            access_level='read_write',
+            created_by=self.owner,
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self._media_root, ignore_errors=True)
+
+    def test_user_with_folder_write_permission_can_upload_without_global_add_permission(self):
+        self.client.force_login(self.user)
+        with self.settings(MEDIA_ROOT=self._media_root):
+            response = self.client.post(
+                reverse('file_manager_upload'),
+                {
+                    'parent_id': str(self.folder.id),
+                    'files': SimpleUploadedFile('notes.txt', b'hello', content_type='text/plain'),
+                },
+                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        uploaded_node = ManagedFileNode.objects.get(parent=self.folder, name='notes.txt')
+        self.assertEqual(uploaded_node.owner, self.user)
+
+    def test_user_with_read_only_folder_permission_cannot_upload(self):
+        ManagedFilePermission.objects.filter(node=self.folder, user=self.user).update(access_level='read')
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('file_manager_upload'),
+            {
+                'parent_id': str(self.folder.id),
+                'files': SimpleUploadedFile('blocked.txt', b'hello', content_type='text/plain'),
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['ok'])
+        self.assertFalse(ManagedFileNode.objects.filter(parent=self.folder, name='blocked.txt').exists())
+
+    def test_duplicate_upload_name_gets_copy_suffix(self):
+        ManagedFileNode.objects.create(
+            parent=self.folder,
+            name='notes.txt',
+            node_type='file',
+            owner=self.user,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        with self.settings(MEDIA_ROOT=self._media_root):
+            response = self.client.post(
+                reverse('file_manager_upload'),
+                {
+                    'parent_id': str(self.folder.id),
+                    'files': SimpleUploadedFile('notes.txt', b'new copy', content_type='text/plain'),
+                },
+                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertTrue(ManagedFileNode.objects.filter(parent=self.folder, name='notes (2).txt').exists())
+
+    def test_duplicate_folder_level_is_collapsed(self):
+        branch = ManagedFileNode.objects.create(
+            name='Avantech',
+            node_type='folder',
+            owner=self.owner,
+            created_by=self.owner,
+            updated_by=self.owner,
+        )
+        csr = ManagedFileNode.objects.create(
+            parent=branch,
+            name='CSR',
+            node_type='folder',
+            owner=self.owner,
+            created_by=self.owner,
+            updated_by=self.owner,
+        )
+        duplicate_csr = ManagedFileNode.objects.create(
+            parent=csr,
+            name='CSR',
+            node_type='folder',
+            owner=self.owner,
+            created_by=self.owner,
+            updated_by=self.owner,
+        )
+        user_folder = ManagedFileNode.objects.create(
+            parent=duplicate_csr,
+            name='agent-user',
+            node_type='folder',
+            owner=self.user,
+            created_by=self.owner,
+            updated_by=self.owner,
+        )
+
+        views._collapse_duplicate_file_manager_folder_levels()
+
+        user_folder.refresh_from_db()
+        self.assertEqual(user_folder.parent, csr)
+        self.assertFalse(ManagedFileNode.objects.filter(pk=duplicate_csr.pk).exists())
+
+    def test_super_user_without_branch_uses_existing_super_user_branch(self):
+        super_group = Group.objects.create(name='Super Users')
+        first_super = get_user_model().objects.create_superuser(
+            username='first-super',
+            email='first@example.com',
+            password='password',
+        )
+        second_super = get_user_model().objects.create_superuser(
+            username='second-super',
+            email='second@example.com',
+            password='password',
+        )
+        first_super.groups.add(super_group)
+        second_super.groups.add(super_group)
+        first_super.profile.branch = 'Alabang'
+        first_super.profile.save(update_fields=['branch'])
+
+        views._ensure_file_manager_default_hierarchy()
+
+        super_users_node = ManagedFileNode.objects.get(parent__name='Alabang', name='Super Users')
+        self.assertEqual(
+            set(super_users_node.children.values_list('name', flat=True)),
+            {'first-super', 'second-super'},
+        )
+        self.assertFalse(ManagedFileNode.objects.filter(parent__name='Unassigned Branch', name='Super Users').exists())

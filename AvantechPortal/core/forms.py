@@ -608,7 +608,7 @@ class FundRequestTemplateForm(forms.ModelForm):
                 field.widget.attrs.setdefault('class', 'form-check-input')
             else:
                 field.widget.attrs.setdefault('class', 'form-control')
-        self.fields['is_active'].help_text = 'When enabled, new fund requests will use this as the preferred template.'
+        self.fields['is_active'].help_text = 'When enabled, new payment requests will use this as the preferred template.'
 
     def clean_file(self):
         file = self.cleaned_data.get('file')
@@ -715,7 +715,7 @@ class FundRequestForm(forms.ModelForm):
     def clean_line_items_payload(self):
         raw_payload = (self.cleaned_data.get('line_items_payload') or '').strip()
         if not raw_payload:
-            raise ValidationError('Add at least one fund request line item.')
+            raise ValidationError('Add at least one payment request line item.')
 
         try:
             parsed = json.loads(raw_payload)
@@ -723,7 +723,7 @@ class FundRequestForm(forms.ModelForm):
             raise ValidationError('Line items could not be parsed. Please review the table rows.') from exc
 
         if not isinstance(parsed, list) or not parsed:
-            raise ValidationError('Add at least one fund request line item.')
+            raise ValidationError('Add at least one payment request line item.')
 
         cleaned_items = []
         for index, item in enumerate(parsed, start=1):
