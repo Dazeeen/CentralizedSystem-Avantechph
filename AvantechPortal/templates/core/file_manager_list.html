@@ -141,9 +141,22 @@
                                     <td>{{ node.owner.username }}</td>
                                     <td>{{ node.storage_endpoint.name|default:'-' }}</td>
                                     <td class="text-end">
-                                        {% if node.node_type == 'file' %}
-                                        <a data-no-ajax="1" class="btn btn-sm btn-outline-primary" href="{% url 'file_manager_download' node.id %}">Download</a>
-                                        {% endif %}
+                                        <div class="dropdown d-inline-block">
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="nodeActions{{ node.id }}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions"></button>
+                                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="nodeActions{{ node.id }}">
+                                                {% if node.node_type == 'file' %}
+                                                <li><a data-no-ajax="1" class="dropdown-item" href="{% url 'file_manager_download' node.id %}">Download</a></li>
+                                                {% endif %}
+                                                <li>
+                                                    <form class="fm-rename-form" method="post" action="{% url 'file_manager_rename' %}">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="node_id" value="{{ node.id }}">
+                                                        <input type="hidden" name="new_name" value="">
+                                                        <button type="button" class="dropdown-item fm-rename-btn" data-current-name="{{ node.name|escapejs }}">Rename</button>
+                                                    </form>
+                                                </li>
+                                            </ul>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% empty %}
@@ -337,6 +350,35 @@
             event.preventDefault();
             window.history.pushState({}, '', url);
             await refreshFileManager(url);
+            return;
+        }
+
+        const renameButton = event.target.closest('.fm-rename-btn');
+        if (renameButton) {
+            event.preventDefault();
+            const form = renameButton.closest('form');
+            if (!form) {
+                return;
+            }
+            const currentName = renameButton.getAttribute('data-current-name') || '';
+            const nextName = window.prompt('Rename item:', currentName || '');
+            if (nextName === null) {
+                return;
+            }
+            const trimmedName = nextName.trim();
+            if (!trimmedName) {
+                showToast('Name cannot be empty.', true);
+                return;
+            }
+            const nameInput = form.querySelector('input[name="new_name"]');
+            if (nameInput) {
+                nameInput.value = trimmedName;
+            }
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+            } else {
+                form.submit();
+            }
             return;
         }
 

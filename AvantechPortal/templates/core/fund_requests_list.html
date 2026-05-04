@@ -709,6 +709,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="action_type" value="create_request">
                     {{ fund_request_form.line_items_payload }}
+                    {{ fund_request_form.branch }}
 
                     {% if fund_request_form.non_field_errors %}
                         <div class="alert alert-danger">{{ fund_request_form.non_field_errors }}</div>
@@ -768,53 +769,86 @@
                         {% endif %}
                     </div>
 
-                    <div class="row g-3 mb-3">
+                    <div class="row g-3 mb-4">
                         <div class="col-md-6">
-                            <label for="{{ fund_request_form.requester_name.id_for_label }}" class="form-label fw-semibold">Name</label>
+                            <label for="{{ fund_request_form.requester_name.id_for_label }}" class="form-label fw-semibold">{{ fund_request_form.requester_name.label }}</label>
                             {{ fund_request_form.requester_name }}
-                            <div class="form-text">Optional. Auto-filled with your name, but you can replace it with any name.</div>
+                            <div class="form-text">Auto-filled with your name, but you can replace it with any requestor name.</div>
                             {% if fund_request_form.requester_name.errors %}
                                 <div class="text-danger small mt-1">{{ fund_request_form.requester_name.errors|striptags }}</div>
                             {% endif %}
                         </div>
                         <div class="col-md-6">
-                            <label for="{{ fund_request_form.request_date.id_for_label }}" class="form-label fw-semibold">Date</label>
+                            <label for="{{ fund_request_form.department.id_for_label }}" class="form-label fw-semibold">{{ fund_request_form.department.label }}</label>
+                            {{ fund_request_form.department }}
+                            <datalist id="fundRequestDepartmentSuggestions">
+                                {% for suggestion in fund_request_department_suggestions %}
+                                    <option value="{{ suggestion }}"></option>
+                                {% endfor %}
+                            </datalist>
+                            <div class="form-text">Type a department or project. Suggestions appear as you focus the field.</div>
+                            {% if fund_request_form.department.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.department.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-12">
+                            <label for="{{ fund_request_form.purpose_of_request.id_for_label }}" class="form-label fw-semibold">{{ fund_request_form.purpose_of_request.label }}</label>
+                            {{ fund_request_form.purpose_of_request }}
+                            <div class="form-text">Describe what the funds will be used for.</div>
+                            {% if fund_request_form.purpose_of_request.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.purpose_of_request.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ fund_request_form.requested_amount.id_for_label }}" class="form-label fw-semibold">{{ fund_request_form.requested_amount.label }}</label>
+                            {{ fund_request_form.requested_amount }}
+                            <div class="form-text">This is the total of all breakdown rows.</div>
+                            {% if fund_request_form.requested_amount.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.requested_amount.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ fund_request_form.request_date.id_for_label }}" class="form-label fw-semibold">{{ fund_request_form.request_date.label }}</label>
                             {{ fund_request_form.request_date }}
                             {% if fund_request_form.request_date.errors %}
                                 <div class="text-danger small mt-1">{{ fund_request_form.request_date.errors|striptags }}</div>
                             {% endif %}
                         </div>
-                        <div class="col-md-6">
-                            <label for="{{ fund_request_form.department.id_for_label }}" class="form-label fw-semibold">Department</label>
-                            {{ fund_request_form.department }}
-                            {% if fund_request_form.department.errors %}
-                                <div class="text-danger small mt-1">{{ fund_request_form.department.errors|striptags }}</div>
-                            {% endif %}
-                        </div>
-                        <div class="col-md-6">
-                            <label for="{{ fund_request_form.branch.id_for_label }}" class="form-label fw-semibold">Branch</label>
-                            {{ fund_request_form.branch }}
-                            {% if fund_request_form.branch.errors %}
-                                <div class="text-danger small mt-1">{{ fund_request_form.branch.errors|striptags }}</div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold d-block">{{ fund_request_form.mode_of_release.label }}</label>
+                            <div class="request-mode-release-group">
+                                {{ fund_request_form.mode_of_release }}
+                            </div>
+                            {% if fund_request_form.mode_of_release.errors %}
+                                <div class="text-danger small mt-1">{{ fund_request_form.mode_of_release.errors|striptags }}</div>
                             {% endif %}
                         </div>
                     </div>
 
-                    <div class="border rounded-3 overflow-hidden">
+                    <div class="border rounded-3 overflow-hidden mb-3">
+                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap px-3 py-3 border-bottom bg-white">
+                            <div>
+                                <div class="fw-semibold">Planned Expenses Breakdown</div>
+                                <div class="small text-secondary">Add the materials / purchases rows first, then optionally include gas/fuel and delivery / transport.</div>
+                            </div>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="addFundRequestRowBtn">Add Materials Row</button>
+                        </div>
                         <div class="table-responsive">
                             <table class="table align-middle mb-0" id="fundRequestItemsTable">
                                 <thead class="table-success">
                                     <tr>
-                                        <th style="min-width: 150px;">Date</th>
-                                        <th style="min-width: 240px;">Particulars</th>
-                                        <th style="min-width: 140px;">Amount</th>
-                                        <th style="width: 70px;" class="text-center">Action</th>
+                                        <th style="min-width: 140px;">Category</th>
+                                        <th style="min-width: 280px;">Description</th>
+                                        <th style="min-width: 120px;">Quantity</th>
+                                        <th style="min-width: 140px;">Unit of Measurement</th>
+                                        <th style="min-width: 150px;">Estimated cost</th>
+                                        <th style="width: 90px;" class="text-center">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody id="fundRequestItemsBody"></tbody>
                                 <tfoot>
                                     <tr>
-                                        <th colspan="2" class="text-end">Total Amount</th>
+                                        <th colspan="4" class="text-end">Total Requested Amount</th>
                                         <th id="fundRequestTotalLabel">PHP 0.00</th>
                                         <th></th>
                                     </tr>
@@ -826,6 +860,81 @@
                     {% if fund_request_form.line_items_payload.errors %}
                         <div class="text-danger small mt-2">{{ fund_request_form.line_items_payload.errors|striptags }}</div>
                     {% endif %}
+
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <div class="border rounded-3 p-3 h-100 bg-white">
+                                <div class="fw-semibold">Gas / Fuel</div>
+                                <div class="small text-secondary mb-2">Add an extra row when the request includes fuel or gas.</div>
+                                <div class="d-flex gap-3 flex-wrap">
+                                    <label class="form-check form-check-inline m-0">
+                                        <input class="form-check-input" type="radio" name="has_gas_fuel" id="hasGasFuelYes" value="yes">
+                                        <span class="form-check-label">Yes</span>
+                                    </label>
+                                    <label class="form-check form-check-inline m-0">
+                                        <input class="form-check-input" type="radio" name="has_gas_fuel" id="hasGasFuelNo" value="no" checked>
+                                        <span class="form-check-label">No</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="border rounded-3 p-3 h-100 bg-white">
+                                <div class="fw-semibold">Deliver / Transport</div>
+                                <div class="small text-secondary mb-2">Add an extra row when the request includes delivery or transport.</div>
+                                <div class="d-flex gap-3 flex-wrap">
+                                    <label class="form-check form-check-inline m-0">
+                                        <input class="form-check-input" type="radio" name="has_transport" id="hasTransportYes" value="yes">
+                                        <span class="form-check-label">Yes</span>
+                                    </label>
+                                    <label class="form-check form-check-inline m-0">
+                                        <input class="form-check-input" type="radio" name="has_transport" id="hasTransportNo" value="no" checked>
+                                        <span class="form-check-label">No</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded-3 p-3 p-lg-4 mb-4 d-none" id="fundRequestFuelDetailsSection">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                            <div>
+                                <div class="fw-semibold">Fuel / Gas Details (if applicable)</div>
+                                <div class="small text-secondary">Fill this section only when gas / fuel is included in the request.</div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="fundRequestVehicleToBeUsed">Vehicle to be Used</label>
+                                <input type="text" class="form-control" id="fundRequestVehicleToBeUsed" placeholder="Enter the vehicle name or type">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="fundRequestPlateNumber">Plate Number</label>
+                                <input type="text" class="form-control" id="fundRequestPlateNumber" placeholder="Enter the plate number">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="fundRequestCurrentOdometerReading">Current Odometer Reading</label>
+                                <input type="text" class="form-control" id="fundRequestCurrentOdometerReading" placeholder="Enter the current odometer reading">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="fundRequestEstimatedDistance">Estimated Distance to Travel</label>
+                                <input type="text" class="form-control" id="fundRequestEstimatedDistance" placeholder="Enter the estimated distance">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-semibold" for="fundRequestPurposeOfTravel">Purpose of Travel</label>
+                                <textarea class="form-control" id="fundRequestPurposeOfTravel" rows="4" placeholder="Describe the purpose of travel"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="fundRequestSupplierStoreName">Supplier / Store Name</label>
+                                <input type="text" class="form-control" id="fundRequestSupplierStoreName" placeholder="Enter the supplier or store name">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="fundRequestContactPersonDetails">Contact Person / Details</label>
+                                <input type="text" class="form-control" id="fundRequestContactPersonDetails" placeholder="Enter the contact person or details">
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="mt-4">
                         <label for="{{ fund_request_form.request_images.id_for_label }}" class="form-label fw-semibold">Supporting Images</label>
@@ -853,7 +962,7 @@
                     </div>
 
                     <div class="d-flex justify-content-between align-items-center gap-2 mt-3">
-                        <button type="button" class="btn btn-outline-secondary" id="addFundRequestRowBtn">Add Row</button>
+                        <div class="small text-secondary">Start with at least one materials / purchases row. The total updates automatically.</div>
                         <div class="d-flex gap-2">
                             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                             <button type="submit" class="btn btn-success" {% if not all_templates %}disabled{% endif %}>Save Payment Request</button>
@@ -2035,12 +2144,25 @@ document.addEventListener('DOMContentLoaded', function () {
     const addRowButton = document.getElementById('addFundRequestRowBtn');
     const payloadInput = document.getElementById('{{ fund_request_form.line_items_payload.id_for_label }}');
     const totalLabel = document.getElementById('fundRequestTotalLabel');
+    const requestedAmountField = document.getElementById('{{ fund_request_form.requested_amount.id_for_label }}');
     const requestDateField = document.getElementById('{{ fund_request_form.request_date.id_for_label }}');
     const imageInput = document.getElementById('{{ fund_request_form.request_images.id_for_label }}');
     const dropzone = document.getElementById('fundRequestDropzone');
     const uploadAlert = document.getElementById('fundRequestUploadAlert');
     const previewStrip = document.getElementById('fundRequestPreviewStrip');
     const invalidStrip = document.getElementById('fundRequestInvalidStrip');
+    const gasFuelYes = document.getElementById('hasGasFuelYes');
+    const gasFuelNo = document.getElementById('hasGasFuelNo');
+    const transportYes = document.getElementById('hasTransportYes');
+    const transportNo = document.getElementById('hasTransportNo');
+    const fuelDetailsSection = document.getElementById('fundRequestFuelDetailsSection');
+    const vehicleToBeUsedInput = document.getElementById('fundRequestVehicleToBeUsed');
+    const plateNumberInput = document.getElementById('fundRequestPlateNumber');
+    const currentOdometerInput = document.getElementById('fundRequestCurrentOdometerReading');
+    const estimatedDistanceInput = document.getElementById('fundRequestEstimatedDistance');
+    const purposeOfTravelInput = document.getElementById('fundRequestPurposeOfTravel');
+    const supplierStoreNameInput = document.getElementById('fundRequestSupplierStoreName');
+    const contactPersonDetailsInput = document.getElementById('fundRequestContactPersonDetails');
     let selectedImageFiles = [];
     let invalidImageItems = [];
     let draggedImageIndex = null;
@@ -2327,16 +2449,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        const getDefaultDate = () => {
-            if (requestDateField && requestDateField.value) {
-                return requestDateField.value;
-            }
-            const now = new Date();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            return `${now.getFullYear()}-${month}-${day}`;
-        };
-
         const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const normalizeAmountValue = (rawValue) => String(rawValue || '').replace(/,/g, '').trim();
         const parseAmountValue = (rawValue) => {
@@ -2355,39 +2467,131 @@ document.addEventListener('DOMContentLoaded', function () {
             return parsed.numeric.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
 
+        const cleanText = (value) => String(value || '').trim();
+
+        const getFuelDetails = () => ({
+            vehicle_to_be_used: cleanText(vehicleToBeUsedInput ? vehicleToBeUsedInput.value : ''),
+            plate_number: cleanText(plateNumberInput ? plateNumberInput.value : ''),
+            current_odometer_reading: cleanText(currentOdometerInput ? currentOdometerInput.value : ''),
+            estimated_distance_to_travel: cleanText(estimatedDistanceInput ? estimatedDistanceInput.value : ''),
+            purpose_of_travel: cleanText(purposeOfTravelInput ? purposeOfTravelInput.value : ''),
+            supplier_store_name: cleanText(supplierStoreNameInput ? supplierStoreNameInput.value : ''),
+            contact_person_details: cleanText(contactPersonDetailsInput ? contactPersonDetailsInput.value : ''),
+        });
+
+        const isGasFuelEnabled = () => !!(gasFuelYes && gasFuelYes.checked);
+        const isTransportEnabled = () => !!(transportYes && transportYes.checked);
+
+        const setFuelDetailsVisibility = () => {
+            if (!fuelDetailsSection) {
+                return;
+            }
+            fuelDetailsSection.classList.toggle('d-none', !isGasFuelEnabled());
+        };
+
+        const getRowValue = (row, fieldName) => {
+            const field = row.querySelector(`[data-line-item="${fieldName}"]`);
+            return field ? field.value.trim() : '';
+        };
+
+        const clearSpecialRow = (rowKind) => {
+            const existingRow = tbody.querySelector(`tr[data-row-kind="${rowKind}"]`);
+            if (existingRow) {
+                existingRow.remove();
+            }
+        };
+
+        const syncSpecialRows = () => {
+            setFuelDetailsVisibility();
+
+            const specialRows = [
+                { kind: 'gas_fuel', enabled: isGasFuelEnabled(), label: 'Gas / Fuel', description: 'Fuel or gas expense' },
+                { kind: 'transport', enabled: isTransportEnabled(), label: 'Deliver / Transport', description: 'Delivery or transport expense' },
+            ];
+
+            specialRows.forEach((rowConfig) => {
+                if (!rowConfig.enabled) {
+                    clearSpecialRow(rowConfig.kind);
+                    return;
+                }
+                let existingRow = tbody.querySelector(`tr[data-row-kind="${rowConfig.kind}"]`);
+                if (!existingRow) {
+                    addRow({
+                        rowType: rowConfig.kind,
+                        category: rowConfig.label,
+                        description: rowConfig.description,
+                        quantity: '1',
+                        unit_of_measurement: rowConfig.kind === 'gas_fuel' ? 'lot' : 'trip',
+                        estimated_cost: '',
+                    });
+                    existingRow = tbody.querySelector(`tr[data-row-kind="${rowConfig.kind}"]`);
+                }
+                if (existingRow) {
+                    tbody.appendChild(existingRow);
+                }
+            });
+
+            syncRows();
+        };
+
         const syncRows = () => {
             const payload = [];
             let total = 0;
             tbody.querySelectorAll('tr').forEach((row) => {
-                const date = row.querySelector('[data-line-item="date"]').value.trim();
-                const particulars = row.querySelector('[data-line-item="particulars"]').value.trim();
-                const amountInput = row.querySelector('[data-line-item="amount"]');
+                const rowType = row.dataset.rowKind || 'material';
+                const category = getRowValue(row, 'category');
+                const description = getRowValue(row, 'description');
+                const quantityInput = row.querySelector('[data-line-item="quantity"]');
+                const unit = getRowValue(row, 'unit_of_measurement');
+                const amountInput = row.querySelector('[data-line-item="estimated_cost"]');
+                const parsedQuantity = parseAmountValue(quantityInput ? quantityInput.value : '');
                 const parsedAmount = parseAmountValue(amountInput ? amountInput.value : '');
                 const amountRaw = parsedAmount.normalized;
-                if (date || particulars || amountRaw) {
+                if (category || description || parsedQuantity.normalized || unit || amountRaw) {
+                    const rowPayload = {
+                        row_type: rowType,
+                        category,
+                        description,
+                        quantity: parsedQuantity.normalized,
+                        unit_of_measurement: unit,
+                        estimated_cost: amountRaw,
+                    };
+                    if (rowType === 'gas_fuel') {
+                        rowPayload.vehicle_to_be_used = cleanText(vehicleToBeUsedInput ? vehicleToBeUsedInput.value : '');
+                        rowPayload.plate_number = cleanText(plateNumberInput ? plateNumberInput.value : '');
+                        rowPayload.current_odometer_reading = cleanText(currentOdometerInput ? currentOdometerInput.value : '');
+                        rowPayload.estimated_distance_to_travel = cleanText(estimatedDistanceInput ? estimatedDistanceInput.value : '');
+                        rowPayload.purpose_of_travel = cleanText(purposeOfTravelInput ? purposeOfTravelInput.value : '');
+                        rowPayload.supplier_store_name = cleanText(supplierStoreNameInput ? supplierStoreNameInput.value : '');
+                        rowPayload.contact_person_details = cleanText(contactPersonDetailsInput ? contactPersonDetailsInput.value : '');
+                    }
                     payload.push({
-                        date,
-                        particulars,
-                        amount: amountRaw,
+                        ...rowPayload,
                     });
                 }
                 total += parsedAmount.valid ? parsedAmount.numeric : 0;
             });
             payloadInput.value = JSON.stringify(payload);
             totalLabel.textContent = formatCurrency(total);
+            if (requestedAmountField) {
+                requestedAmountField.value = formatCurrency(total);
+            }
         };
 
         const attachRowEvents = (row) => {
-            const dateInput = row.querySelector('[data-line-item="date"]');
-            const particularsInput = row.querySelector('[data-line-item="particulars"]');
-            const amountInput = row.querySelector('[data-line-item="amount"]');
+            const categoryInput = row.querySelector('[data-line-item="category"]');
+            const descriptionInput = row.querySelector('[data-line-item="description"]');
+            const quantityInput = row.querySelector('[data-line-item="quantity"]');
+            const amountInput = row.querySelector('[data-line-item="estimated_cost"]');
 
-            if (dateInput) {
-                dateInput.addEventListener('input', syncRows);
-                dateInput.addEventListener('change', syncRows);
+            if (categoryInput) {
+                categoryInput.addEventListener('input', syncRows);
             }
-            if (particularsInput) {
-                particularsInput.addEventListener('input', syncRows);
+            if (descriptionInput) {
+                descriptionInput.addEventListener('input', syncRows);
+            }
+            if (quantityInput) {
+                quantityInput.addEventListener('input', syncRows);
             }
             if (amountInput) {
                 amountInput.addEventListener('focus', function () {
@@ -2401,23 +2605,46 @@ document.addEventListener('DOMContentLoaded', function () {
                 amountInput.value = formatAmountInputValue(amountInput.value);
             }
 
-            row.querySelector('[data-remove-row]').addEventListener('click', function () {
-                row.remove();
-                if (!tbody.children.length) {
-                    addRow();
+                const removeButton = row.querySelector('[data-remove-row]');
+                if (removeButton) {
+                    removeButton.addEventListener('click', function () {
+                        row.remove();
+                        if (!tbody.querySelector('tr[data-row-kind="material"]')) {
+                            addRow({ rowType: 'material' });
+                        }
+                        syncSpecialRows();
+                        syncRows();
+                    });
                 }
-                syncRows();
-            });
         };
 
         const addRow = (values = {}) => {
+                const rowType = (values.rowType || values.row_type || 'material').toLowerCase();
             const row = document.createElement('tr');
-            row.innerHTML = `
-                <td><input type="date" class="form-control" data-line-item="date" value="${values.entry_date || values.date || getDefaultDate()}"></td>
-                <td><input type="text" class="form-control" data-line-item="particulars" placeholder="Enter particulars" value="${values.particulars || ''}"></td>
-                <td><input type="text" class="form-control" data-line-item="amount" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${values.amount || ''}"></td>
-                <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Remove</button></td>
-            `;
+                row.dataset.rowKind = rowType === 'gas_fuel' || rowType === 'transport' ? rowType : 'material';
+                const categoryValue = values.category || (row.dataset.rowKind === 'gas_fuel' ? 'Gas / Fuel' : row.dataset.rowKind === 'transport' ? 'Deliver / Transport' : 'Materials / Purchases');
+                const descriptionValue = values.description || '';
+                const quantityValue = values.quantity || '';
+                const unitValue = values.unit_of_measurement || '';
+                const amountValue = values.estimated_cost || values.amount || '';
+                row.innerHTML = row.dataset.rowKind === 'material' ? `
+                    <td><input type="text" class="form-control" data-line-item="category" placeholder="Materials / Purchases" value="${escapeHtml(categoryValue)}"></td>
+                    <td><input type="text" class="form-control" data-line-item="description" placeholder="Enter the item description" value="${escapeHtml(descriptionValue)}"></td>
+                    <td><input type="text" class="form-control" data-line-item="quantity" inputmode="decimal" placeholder="1" value="${escapeHtml(quantityValue)}"></td>
+                    <td><input type="text" class="form-control" data-line-item="unit_of_measurement" placeholder="pcs, set, lot, etc." value="${escapeHtml(unitValue)}"></td>
+                    <td><input type="text" class="form-control text-end" data-line-item="estimated_cost" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${escapeHtml(amountValue)}"></td>
+                    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Remove</button></td>
+                ` : `
+                    <td>
+                        <input type="text" class="form-control" data-line-item="category" value="${escapeHtml(categoryValue)}" readonly>
+                        <div class="small text-secondary mt-1">Auto-added row</div>
+                    </td>
+                    <td><input type="text" class="form-control" data-line-item="description" placeholder="Enter the expense description" value="${escapeHtml(descriptionValue)}"></td>
+                    <td><input type="text" class="form-control" data-line-item="quantity" inputmode="decimal" placeholder="1" value="${escapeHtml(quantityValue)}"></td>
+                    <td><input type="text" class="form-control" data-line-item="unit_of_measurement" placeholder="trip, lot, liter, etc." value="${escapeHtml(unitValue)}"></td>
+                    <td><input type="text" class="form-control text-end" data-line-item="estimated_cost" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${escapeHtml(amountValue)}"></td>
+                    <td class="text-center"><span class="small text-secondary">Auto-added</span></td>
+                `;
             tbody.appendChild(row);
             attachRowEvents(row);
             syncRows();
@@ -2430,21 +2657,37 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         addRowButton.addEventListener('click', function () {
-            addRow();
+            addRow({ rowType: 'material' });
         });
 
-        if (requestDateField) {
-            requestDateField.addEventListener('change', function () {
-                tbody.querySelectorAll('[data-line-item="date"]').forEach((input) => {
-                    if (!input.value) {
-                        input.value = requestDateField.value;
-                    }
-                });
-                syncRows();
-            });
+        if (gasFuelYes) {
+            gasFuelYes.addEventListener('change', syncSpecialRows);
+        }
+        if (gasFuelNo) {
+            gasFuelNo.addEventListener('change', syncSpecialRows);
+        }
+        if (transportYes) {
+            transportYes.addEventListener('change', syncSpecialRows);
+        }
+        if (transportNo) {
+            transportNo.addEventListener('change', syncSpecialRows);
         }
 
-        syncRows();
+        [
+            vehicleToBeUsedInput,
+            plateNumberInput,
+            currentOdometerInput,
+            estimatedDistanceInput,
+            purposeOfTravelInput,
+            supplierStoreNameInput,
+            contactPersonDetailsInput,
+        ].forEach((field) => {
+            if (field) {
+                field.addEventListener('input', syncRows);
+            }
+        });
+
+        syncSpecialRows();
     }
 
     if (fundRequestForm && imageInput) {

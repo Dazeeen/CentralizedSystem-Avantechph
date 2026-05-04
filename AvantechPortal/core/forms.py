@@ -663,13 +663,46 @@ class AssetAccountabilityTemplateForm(forms.ModelForm):
 
 
 class FundRequestForm(forms.ModelForm):
-    line_items_payload = forms.CharField(widget=forms.HiddenInput())
+    MODE_OF_RELEASE_CHOICES = [
+        ('cash', 'Cash'),
+        ('bank_transfer', 'Bank Transfer'),
+        ('gcash', 'GCash'),
+        ('check', 'Check'),
+    ]
+    SUPPLIER_DETAILS_CHOICES = [
+        ('yes', 'Yes'),
+        ('no', 'No'),
+    ]
+
+    line_items_payload = forms.CharField(widget=forms.HiddenInput(), required=False)
+    purpose_of_request = forms.CharField(
+        label='Purpose of Request',
+        widget=forms.Textarea(attrs={'rows': 3, 'placeholder': 'State the purpose of the payment request'}),
+    )
+    requested_amount = forms.CharField(
+        label='Requested Amount',
+        required=False,
+        disabled=True,
+        widget=forms.TextInput(attrs={'readonly': 'readonly', 'placeholder': 'Automatically calculated from the breakdown'}),
+    )
+    mode_of_release = forms.ChoiceField(
+        label='Mode of release',
+        choices=MODE_OF_RELEASE_CHOICES,
+        widget=forms.RadioSelect(),
+        initial='cash',
+    )
     request_images = MultipleFileField(
         required=True,
         widget=MultipleFileInput(attrs={'class': 'form-control', 'accept': '.png,.jpg,.jpeg,.webp,.heic,.heif', 'multiple': True}),
         label='Supporting Images',
         help_text='Upload one or more supporting images. HEIC/HEIF files are converted to JPEG.',
     )
+    supplier_details_known = forms.ChoiceField(
+        choices=SUPPLIER_DETAILS_CHOICES,
+        required=False,
+    )
+    supplier_store_name = forms.CharField(required=False)
+    contact_person_details = forms.CharField(required=False)
     MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
     ALLOWED_IMAGE_EXTENSIONS = CONVERTIBLE_IMAGE_EXTENSIONS
 
@@ -678,20 +711,59 @@ class FundRequestForm(forms.ModelForm):
         fields = ['requester_name', 'request_date', 'department', 'branch']
         widgets = {
             'request_date': forms.DateInput(attrs={'type': 'date'}),
+            'branch': forms.HiddenInput(),
         }
 
     def __init__(self, *args, **kwargs):
         self._request_user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
-        for _, field in self.fields.items():
-            field.widget.attrs.setdefault('class', 'form-control')
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.RadioSelect):
+                field.widget.attrs.setdefault('class', 'd-flex flex-wrap gap-3')
+            elif isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            elif isinstance(field.widget, forms.HiddenInput):
+                continue
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+
+        self.fields['requester_name'].label = 'Requestor name'
+        self.fields['department'].label = 'Department / Project'
+        self.fields['request_date'].label = 'Date needed'
+        self.fields['department'].widget = forms.TextInput(attrs={
+            'class': 'form-control',
+            'list': 'fundRequestDepartmentSuggestions',
+            'placeholder': 'Type a department or project',
+        })
+        self.fields['requester_name'].widget.attrs.setdefault('placeholder', 'Enter the requestor name')
+        self.fields['purpose_of_request'].widget.attrs.setdefault('class', 'form-control')
+        self.fields['requested_amount'].widget.attrs.update({'class': 'form-control text-end', 'placeholder': 'Calculated from the breakdown'})
+        self.fields['request_date'].widget.attrs.setdefault('class', 'form-control')
+        self.fields['mode_of_release'].widget.attrs.setdefault('class', 'd-flex flex-wrap gap-3 align-items-center')
+        self.fields['line_items_payload'].initial = self.fields['line_items_payload'].initial or '[]'
+        self.fields['supplier_details_known'].initial = self.fields['supplier_details_known'].initial or 'no'
+
         self.fields['requester_name'].required = False
         if not self.initial.get('requester_name'):
             default_name = self._default_requester_name()
             if default_name:
                 self.fields['requester_name'].initial = default_name
                 self.initial['requester_name'] = default_name
+        if not self.initial.get('department'):
+            self.fields['department'].initial = ''
+        if not self.initial.get('branch'):
+            default_branch = self._default_branch_name()
+            if default_branch:
+                self.fields['branch'].initial = default_branch
+                self.initial['branch'] = default_branch
+        self.fields['purpose_of_request'].required = True
+        self.fields['mode_of_release'].required = True
+        self.fields['requested_amount'].required = False
+        self.fields['supplier_store_name'].required = False
+        self.fields['contact_person_details'].required = False
         self._parsed_line_items = []
+        self._computed_requested_total = Decimal('0.00')
+        self._request_metadata = {}
 
     def _default_requester_name(self):
         if not self._request_user:
@@ -700,6 +772,11 @@ class FundRequestForm(forms.ModelForm):
         if full_name:
             return full_name
         return (self._request_user.username or '').strip()
+
+    def _default_branch_name(self):
+        profile = getattr(self._request_user, 'profile', None) if self._request_user else None
+        branch_name = (getattr(profile, 'branch', '') or '').strip()
+        return branch_name or 'General'
 
     def clean_requester_name(self):
         requester_name = (self.cleaned_data.get('requester_name') or '').strip()
@@ -729,37 +806,78 @@ class FundRequestForm(forms.ModelForm):
         if not isinstance(parsed, list) or not parsed:
             raise ValidationError('Add at least one payment request line item.')
 
+        def clean_text(value):
+            return (value or '').strip()
+
+        def clean_decimal(value, *, field_label, allow_zero=False):
+            raw_value = str(value or '').strip().replace(',', '')
+            if not raw_value:
+                raise ValidationError(f'{field_label} is required.')
+            try:
+                decimal_value = Decimal(raw_value)
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValidationError(f'{field_label} must be a valid number.') from exc
+            if decimal_value < 0 or (not allow_zero and decimal_value <= 0):
+                raise ValidationError(f'{field_label} must be greater than zero.')
+            return decimal_value
+
+        def summarize_row(category, description, quantity, unit, estimated_cost):
+            parts = [category, description]
+            quantity_text = f'{quantity.normalize():f}' if hasattr(quantity, 'normalize') else str(quantity)
+            parts.append(f'Qty {quantity_text} {unit}')
+            parts.append(f'PHP {estimated_cost.quantize(Decimal("0.01"))}')
+            return ' | '.join(part for part in parts if part)
+
         cleaned_items = []
+        total_amount = Decimal('0.00')
         for index, item in enumerate(parsed, start=1):
             if not isinstance(item, dict):
                 raise ValidationError(f'Line item #{index} is invalid.')
 
-            entry_date = (item.get('date') or '').strip()
-            particulars = (item.get('particulars') or '').strip()
-            amount_raw = str(item.get('amount') or '').strip().replace(',', '')
+            row_type = clean_text(item.get('row_type') or 'material').lower()
+            if row_type not in {'material', 'gas_fuel', 'transport'}:
+                row_type = 'material'
 
-            if not entry_date:
-                raise ValidationError(f'Line item #{index} is missing a date.')
-            if not particulars:
-                raise ValidationError(f'Line item #{index} is missing particulars.')
+            category = clean_text(item.get('category'))
+            description = clean_text(item.get('description'))
+            quantity = clean_decimal(item.get('quantity'), field_label=f'Line item #{index} quantity')
+            unit = clean_text(item.get('unit_of_measurement'))
+            estimated_cost = clean_decimal(item.get('estimated_cost'), field_label=f'Line item #{index} estimated cost')
 
-            try:
-                amount = Decimal(amount_raw)
-            except (InvalidOperation, TypeError, ValueError) as exc:
-                raise ValidationError(f'Line item #{index} has an invalid amount.') from exc
-
-            if amount <= 0:
-                raise ValidationError(f'Line item #{index} amount must be greater than zero.')
+            if not category:
+                raise ValidationError(f'Line item #{index} is missing a category.')
+            if not description:
+                raise ValidationError(f'Line item #{index} is missing a description.')
+            if not unit:
+                raise ValidationError(f'Line item #{index} is missing a unit of measurement.')
 
             cleaned_items.append(
                 {
-                    'entry_date': entry_date,
-                    'particulars': particulars,
-                    'amount': amount.quantize(Decimal('0.01')),
+                    'row_type': row_type,
+                    'category': category,
+                    'description': description,
+                    'quantity': quantity,
+                    'unit_of_measurement': unit,
+                    'estimated_cost': estimated_cost.quantize(Decimal('0.01')),
+                    'summary': summarize_row(category, description, quantity, unit, estimated_cost),
                 }
             )
+            total_amount += estimated_cost
 
         self._parsed_line_items = cleaned_items
+        self._computed_requested_total = total_amount.quantize(Decimal('0.01'))
+        supplier_known = (self.cleaned_data.get('supplier_details_known') or '').strip().lower() == 'yes'
+        supplier_store_name = (self.cleaned_data.get('supplier_store_name') or '').strip()
+        contact_person_details = (self.cleaned_data.get('contact_person_details') or '').strip()
+        self._request_metadata = {
+            'purpose_of_request': self.cleaned_data.get('purpose_of_request', ''),
+            'mode_of_release': self.cleaned_data.get('mode_of_release', ''),
+            'requested_amount': str(self._computed_requested_total),
+            'line_items': parsed,
+            'supplier_details_known': supplier_known,
+            'supplier_store_name': supplier_store_name if supplier_known else '',
+            'contact_person_details': contact_person_details if supplier_known else '',
+        }
         return raw_payload
 
     def get_line_items(self):
@@ -771,11 +889,12 @@ class FundRequestForm(forms.ModelForm):
 
         FundRequestLineItem.objects.filter(fund_request=fund_request).delete()
         for item in self.get_line_items():
+            entry_date = parse_date(str(item.get('entry_date') or '')) or fund_request.request_date
             FundRequestLineItem.objects.create(
                 fund_request=fund_request,
-                entry_date=item['entry_date'],
-                particulars=item['particulars'],
-                amount=item['amount'],
+                entry_date=entry_date,
+                particulars=item['summary'],
+                amount=item['estimated_cost'],
             )
         fund_request.refresh_total_amount(save=True)
 
@@ -789,6 +908,17 @@ class FundRequestForm(forms.ModelForm):
                 image=upload,
                 uploaded_by=uploaded_by,
             )
+
+    def get_request_metadata(self):
+        return dict(self._request_metadata)
+
+    def save(self, commit=True):
+        fund_request = super().save(commit=False)
+        fund_request.request_metadata = self.get_request_metadata()
+        if commit:
+            fund_request.save()
+            self.save_m2m()
+        return fund_request
 
 
 class LiquidationTemplateForm(forms.ModelForm):
@@ -903,7 +1033,6 @@ class LiquidationForm(forms.ModelForm):
 
         if not isinstance(parsed, list) or not parsed:
             raise ValidationError('Select at least one approved line item.')
-
         cleaned_items = []
         for index, item in enumerate(parsed, start=1):
             if not isinstance(item, dict):

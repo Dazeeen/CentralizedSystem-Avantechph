@@ -660,6 +660,7 @@ class FundRequest(models.Model):
 	department = models.CharField(max_length=120)
 	branch = models.CharField(max_length=120)
 	total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	request_metadata = models.JSONField(default=dict, blank=True)
 	request_status = models.CharField(max_length=20, choices=REQUEST_STATUS_CHOICES, default='pending', db_index=True)
 	decision_reason = models.TextField(blank=True)
 	template = models.ForeignKey(

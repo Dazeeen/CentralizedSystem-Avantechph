@@ -147,12 +147,18 @@ EMAIL_VERIFICATION_RESEND_COOLDOWN = 60
 INTERNET_ACCOUNT_UNLOCK_TTL_SECONDS = 5 * 60
 INTERNET_ACCOUNT_UNLOCK_SESSION_KEY = 'company_internet_account_unlocks'
 
-
 def _set_user_status(user, status):
 	profile, _ = UserProfile.objects.get_or_create(user=user)
 	if profile.status != status:
 		profile.status = status
 		profile.save(update_fields=['status'])
+
+
+def _get_fund_request_department_suggestions():
+	return list(
+		AssetDepartment.objects.order_by('name')
+		.values_list('name', flat=True)
+	)
 
 
 def _sync_presence_session(request, status, event_ms=None):
@@ -1294,6 +1300,57 @@ def _format_fund_request_amount(amount_value):
 	return f'{amount:,.2f}'
 
 
+def _build_fund_request_gas_sections(request_metadata):
+	metadata = request_metadata or {}
+	line_items = metadata.get('line_items') or []
+	gas_item = next(
+		(item for item in line_items if str(item.get('row_type') or '').lower() == 'gas_fuel'),
+		None,
+	)
+	if not gas_item:
+		return '', ''
+
+	def clean_text(value):
+		return (value or '').strip()
+
+	def with_placeholder(value, fallback):
+		return value if value else fallback
+
+	placeholder_line = '__________________________'
+	purpose_placeholder = '____________________________________________________________________________'
+
+	vehicle = clean_text(gas_item.get('vehicle_to_be_used'))
+	plate_number = clean_text(gas_item.get('plate_number'))
+	current_odometer = clean_text(gas_item.get('current_odometer_reading'))
+	estimated_distance = clean_text(gas_item.get('estimated_distance_to_travel'))
+	purpose_of_travel = clean_text(gas_item.get('purpose_of_travel'))
+	supplier_name = clean_text(gas_item.get('supplier_store_name'))
+	contact_details = clean_text(gas_item.get('contact_person_details'))
+
+	fuel_lines = [
+		'Fuel / Gas Details (if applicable)',
+		f'Vehicle to be Used: {with_placeholder(vehicle, placeholder_line)}',
+		f'Plate Number: {with_placeholder(plate_number, placeholder_line)}',
+		f'Current Odometer Reading: {with_placeholder(current_odometer, placeholder_line)}',
+		f'Estimated Distance to Travel: {with_placeholder(estimated_distance, placeholder_line)}',
+		'Purpose of Travel:',
+	]
+	if purpose_of_travel:
+		fuel_lines.append(purpose_of_travel)
+	else:
+		fuel_lines.extend([purpose_placeholder, purpose_placeholder, purpose_placeholder])
+
+	supplier_lines = []
+	if supplier_name or contact_details:
+		supplier_lines = [
+			'Supplier / Service Details (if known)',
+			f'Supplier/Store Name: {with_placeholder(supplier_name, placeholder_line)}',
+			f'Contact Person/Details: {with_placeholder(contact_details, placeholder_line)}',
+		]
+
+	return '\n'.join(fuel_lines), '\n'.join(supplier_lines)
+
+
 def _build_fund_request_template_placeholders_from_values(
 	*,
 	serial_number='',
@@ -1302,9 +1359,14 @@ def _build_fund_request_template_placeholders_from_values(
 	department='',
 	branch='',
 	total_amount=0,
+	purpose_of_request='',
+	mode_of_release='',
+	requested_amount=0,
 	prepared_by='-',
 	created_at=None,
 	template_name='',
+	fuel_gas_details='',
+	supplier_service_details='',
 	line_items=None,
 ):
 	line_items = list(line_items or [])
@@ -1313,12 +1375,17 @@ def _build_fund_request_template_placeholders_from_values(
 		'{{ requester_name }}': requester_name or '',
 		'{{ request_date }}': _format_fund_request_date(request_date),
 		'{{ department }}': department or '',
-		'{{ branch }}': branch or '',
 		'{{ total_amount }}': _format_fund_request_amount(total_amount),
 		'{{ total_amount_php }}': f'PHP {_format_fund_request_amount(total_amount)}',
+		'{{ purpose_of_request }}': purpose_of_request or '',
+		'{{ mode_of_release }}': mode_of_release or '',
+		'{{ requested_amount }}': _format_fund_request_amount(requested_amount),
+		'{{ requested_amount_php }}': f'PHP {_format_fund_request_amount(requested_amount)}',
 		'{{ prepared_by }}': prepared_by or '-',
 		'{{ created_at }}': timezone.localtime(created_at).strftime('%Y-%m-%d %H:%M') if created_at else '',
 		'{{ template_name }}': template_name or '',
+		'{{ fuel-gas_details }}': fuel_gas_details or '',
+		'{{ supplier-server-details }}': supplier_service_details or '',
 	}
 
 	line_items_lines = []
@@ -1356,6 +1423,16 @@ def _build_fund_request_template_placeholders(fund_request):
 	prepared_by = '-'
 	if fund_request.created_by:
 		prepared_by = fund_request.created_by.get_full_name() or fund_request.created_by.username
+	request_metadata = fund_request.request_metadata or {}
+	purpose_of_request = (request_metadata.get('purpose_of_request') or '').strip()
+	mode_of_release_key = (request_metadata.get('mode_of_release') or '').strip()
+	mode_of_release = dict(FundRequestForm.MODE_OF_RELEASE_CHOICES).get(mode_of_release_key, mode_of_release_key)
+	requested_amount_value = request_metadata.get('requested_amount')
+	try:
+		requested_amount = Decimal(str(requested_amount_value)) if requested_amount_value not in (None, '') else fund_request.total_amount or 0
+	except (InvalidOperation, TypeError, ValueError):
+		requested_amount = fund_request.total_amount or 0
+	fuel_gas_details, supplier_details = _build_fund_request_gas_sections(fund_request.request_metadata)
 	return _build_fund_request_template_placeholders_from_values(
 		serial_number=fund_request.serial_number or '',
 		requester_name=fund_request.requester_name or '',
@@ -1363,9 +1440,14 @@ def _build_fund_request_template_placeholders(fund_request):
 		department=fund_request.department or '',
 		branch=fund_request.branch or '',
 		total_amount=fund_request.total_amount or 0,
+		purpose_of_request=purpose_of_request,
+		mode_of_release=mode_of_release,
+		requested_amount=requested_amount,
 		prepared_by=prepared_by,
 		created_at=fund_request.created_at,
 		template_name=fund_request.template.name if fund_request.template else '',
+		fuel_gas_details=fuel_gas_details,
+		supplier_service_details=supplier_details,
 		line_items=line_items,
 	)
 
@@ -1518,6 +1600,22 @@ def _build_sample_fund_request_preview_context(template_record):
 		{'entry_date': request_date, 'particulars': 'Project supplies', 'amount': 2499.50},
 	]
 	total_amount = sum(item['amount'] for item in line_items)
+	purpose_of_request = 'Site inspection, minor tools purchase, and fuel allocation.'
+	mode_of_release = 'Cash'
+	fuel_gas_details = (
+		'Fuel / Gas Details (if applicable)\n'
+		'Vehicle to be Used: Company Service Van\n'
+		'Plate Number: ABC-1234\n'
+		'Current Odometer Reading: 12345 km\n'
+		'Estimated Distance to Travel: 18 km\n'
+		'Purpose of Travel:\n'
+		'Site inspection and supply pickup.'
+	)
+	supplier_service_details = (
+		'Supplier / Service Details (if known)\n'
+		'Supplier/Store Name: Sample Hardware\n'
+		'Contact Person/Details: Juan Dela Cruz (0917-555-0101)'
+	)
 	return {
 		'sample_summary': {
 			'serial_number': '2026-0001',
@@ -1535,9 +1633,14 @@ def _build_sample_fund_request_preview_context(template_record):
 			department='Operations',
 			branch='Main Branch',
 			total_amount=total_amount,
+			purpose_of_request=purpose_of_request,
+			mode_of_release=mode_of_release,
+			requested_amount=total_amount,
 			prepared_by='Portal Demo User',
 			created_at=created_at,
 			template_name=template_record.name if template_record else '',
+			fuel_gas_details=fuel_gas_details,
+			supplier_service_details=supplier_service_details,
 			line_items=line_items,
 		),
 		'line_items': _build_fund_request_line_items_context_from_values(line_items),
@@ -1567,11 +1670,6 @@ def _build_fund_request_template_placeholder_guide():
 			'use_case': 'Use in the requester details section or routing block.',
 		},
 		{
-			'placeholder': '{{ branch }}',
-			'description': 'Shows the selected branch or office.',
-			'use_case': 'Use under department, office, or branch labels.',
-		},
-		{
 			'placeholder': '{{ total_amount }}',
 			'description': 'Outputs the computed total amount as a numeric value with thousands separators.',
 			'use_case': 'Use inside formulas or cells that should not include the `PHP` prefix.',
@@ -1595,6 +1693,36 @@ def _build_fund_request_template_placeholder_guide():
 			'placeholder': '{{ template_name }}',
 			'description': 'Outputs the current payment request template name.',
 			'use_case': 'Use in document footers or internal reference labels.',
+		},
+		{
+			'placeholder': '{{ purpose_of_request }}',
+			'description': 'Shows the purpose of request text from the form.',
+			'use_case': 'Use in narrative fields describing why the request is made.',
+		},
+		{
+			'placeholder': '{{ mode_of_release }}',
+			'description': 'Shows the selected mode of release (Cash, Bank Transfer, GCash, Check).',
+			'use_case': 'Use in the payment release section of the document.',
+		},
+		{
+			'placeholder': '{{ requested_amount }}',
+			'description': 'Outputs the requested amount as a numeric value without the PHP prefix.',
+			'use_case': 'Use in numeric-only cells or formulas.',
+		},
+		{
+			'placeholder': '{{ requested_amount_php }}',
+			'description': 'Outputs the requested amount with the PHP prefix.',
+			'use_case': 'Use for display labels showing the requested amount.',
+		},
+		{
+			'placeholder': '{{ fuel-gas_details }}',
+			'description': 'Outputs the Fuel / Gas Details block only when a gas/fuel line item exists.',
+			'use_case': 'Use where the fuel/gas section should appear conditionally in the template.',
+		},
+		{
+			'placeholder': '{{ supplier-server-details }}',
+			'description': 'Outputs the Supplier / Service Details block when supplier info is available.',
+			'use_case': 'Use where supplier details should appear in the template.',
 		},
 		{
 			'placeholder': '{{ line_items }}',
@@ -3987,6 +4115,45 @@ def file_manager_upload(request):
 
 @login_required
 @require_POST
+def file_manager_rename(request):
+	restricted_response = _require_permission(request, 'core.change_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	node_id = (request.POST.get('node_id') or '').strip()
+	new_name = (request.POST.get('new_name') or '').strip()
+	if not node_id.isdigit():
+		return _fm_response(request, ok=False, message='Invalid file selection.', status=400)
+	if not new_name:
+		return _fm_response(request, ok=False, message='New name is required.', status=400)
+	if '/' in new_name or '\\' in new_name:
+		return _fm_response(request, ok=False, message='Name cannot include slashes.', status=400)
+	if len(new_name) > 180:
+		return _fm_response(request, ok=False, message='Name must be 180 characters or less.', status=400)
+
+	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+	if not _user_can_write_node(request.user, node):
+		return _permission_denied_response(request)
+
+	if node.name == new_name:
+		return _fm_response(request, ok=True, message='Name unchanged.', redirect_node_id=node.parent_id)
+
+	conflict_exists = ManagedFileNode.objects.filter(
+		parent=node.parent,
+		owner=node.owner,
+		name=new_name,
+	).exclude(pk=node.pk).exists()
+	if conflict_exists:
+		return _fm_response(request, ok=False, message='A file or folder with that name already exists.', status=400)
+
+	node.name = new_name
+	node.updated_by = request.user
+	node.save(update_fields=['name', 'updated_by', 'updated_at'])
+	return _fm_response(request, ok=True, message='Item renamed.', redirect_node_id=node.parent_id)
+
+
+@login_required
+@require_POST
 def file_manager_bulk_action(request):
 	action = (request.POST.get('bulk_action') or '').strip()
 	if action == 'delete':
@@ -4662,6 +4829,8 @@ def fund_requests_list(request):
 		request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
 		template_form = FundRequestTemplateForm()
 
+	department_suggestions = _get_fund_request_department_suggestions()
+
 	pending_requests_queryset = visible_fund_requests_queryset.filter(request_status='pending')
 
 	rejected_request_modal = None
@@ -4751,6 +4920,7 @@ def fund_requests_list(request):
 		'creator_profiles_map': creator_profiles_map,
 		'fund_request_form': request_form,
 		'template_form': template_form,
+		'fund_request_department_suggestions': department_suggestions,
 		'quick_placeholder_guide': _build_fund_request_template_quick_placeholder_guide(),
 		'all_templates': all_templates,
 		'guide_template': guide_template,
