@@ -825,35 +825,6 @@
                         </div>
                     </div>
 
-                    <div class="border rounded-3 p-3 p-lg-4 mb-4 bg-white">
-                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-                            <div>
-                                <div class="fw-semibold">Supplier / Service Details (if known)</div>
-                                <div class="small text-secondary">Choose Yes only when supplier or service contact details are already available.</div>
-                            </div>
-                            <div class="request-mode-release-group">
-                                {{ fund_request_form.supplier_details_known }}
-                            </div>
-                        </div>
-
-                        <div class="row g-3 d-none" id="fundRequestSupplierDetailsSection">
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold" for="{{ fund_request_form.supplier_store_name.id_for_label }}">{{ fund_request_form.supplier_store_name.label }}</label>
-                                {{ fund_request_form.supplier_store_name }}
-                                {% if fund_request_form.supplier_store_name.errors %}
-                                    <div class="text-danger small mt-1">{{ fund_request_form.supplier_store_name.errors|striptags }}</div>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold" for="{{ fund_request_form.contact_person_details.id_for_label }}">{{ fund_request_form.contact_person_details.label }}</label>
-                                {{ fund_request_form.contact_person_details }}
-                                {% if fund_request_form.contact_person_details.errors %}
-                                    <div class="text-danger small mt-1">{{ fund_request_form.contact_person_details.errors|striptags }}</div>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="border rounded-3 overflow-hidden mb-3">
                         <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap px-3 py-3 border-bottom bg-white">
                             <div>
@@ -921,6 +892,35 @@
                                         <span class="form-check-label">No</span>
                                     </label>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded-3 p-3 p-lg-4 mb-4 bg-white">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                            <div>
+                                <div class="fw-semibold">Supplier / Service Details (if known)</div>
+                                <div class="small text-secondary">Choose Yes only when supplier or service contact details are already available.</div>
+                            </div>
+                            <div class="request-mode-release-group">
+                                {{ fund_request_form.supplier_details_known }}
+                            </div>
+                        </div>
+
+                        <div class="row g-3 d-none" id="fundRequestSupplierDetailsSection">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="{{ fund_request_form.supplier_store_name.id_for_label }}">{{ fund_request_form.supplier_store_name.label }}</label>
+                                {{ fund_request_form.supplier_store_name }}
+                                {% if fund_request_form.supplier_store_name.errors %}
+                                    <div class="text-danger small mt-1">{{ fund_request_form.supplier_store_name.errors|striptags }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="{{ fund_request_form.contact_person_details.id_for_label }}">{{ fund_request_form.contact_person_details.label }}</label>
+                                {{ fund_request_form.contact_person_details }}
+                                {% if fund_request_form.contact_person_details.errors %}
+                                    <div class="text-danger small mt-1">{{ fund_request_form.contact_person_details.errors|striptags }}</div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
