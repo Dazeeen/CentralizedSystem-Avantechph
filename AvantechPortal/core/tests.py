@@ -24,6 +24,7 @@ from .models import (
     AssetItemType,
     FundRequest,
     FundRequestLineItem,
+    FundRequestTemplate,
     ManagedFileNode,
     ManagedFilePermission,
     SupportTicket,
@@ -401,6 +402,42 @@ class PaymentRequestPlaceholderTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.get_line_items()[0]['row_type'], 'others')
         self.assertEqual(form.get_request_metadata()['line_items'][0]['row_type'], 'others')
+
+
+class PaymentRequestTemplateSyncTests(TestCase):
+    def test_pending_requests_sync_to_new_default_template_only(self):
+        old_template = FundRequestTemplate.objects.create(
+            name='Old Template',
+            file=SimpleUploadedFile('old-template.docx', _build_docx_template_bytes('Old {{ ctrl_no }}')),
+            is_active=True,
+        )
+        pending_request = FundRequest.objects.create(
+            requester_name='Pending Requester',
+            department='Operations',
+            branch='Alabang',
+            template=old_template,
+            request_status='pending',
+        )
+        approved_request = FundRequest.objects.create(
+            requester_name='Approved Requester',
+            department='Operations',
+            branch='Alabang',
+            template=old_template,
+            request_status='approved',
+        )
+        new_template = FundRequestTemplate.objects.create(
+            name='New Template',
+            file=SimpleUploadedFile('new-template.docx', _build_docx_template_bytes('New {{ ctrl_no }}')),
+            is_active=True,
+        )
+
+        synced_count = views._sync_pending_fund_requests_to_template(new_template)
+
+        pending_request.refresh_from_db()
+        approved_request.refresh_from_db()
+        self.assertEqual(synced_count, 1)
+        self.assertEqual(pending_request.template_id, new_template.pk)
+        self.assertEqual(approved_request.template_id, old_template.pk)
 
 
 class ImageUploadConversionTests(TestCase):

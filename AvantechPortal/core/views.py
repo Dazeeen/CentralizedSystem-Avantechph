@@ -1880,6 +1880,19 @@ def _ensure_active_fund_request_template():
 	fallback_template.save(update_fields=['is_active'])
 
 
+def _sync_pending_fund_requests_to_template(template_record=None):
+	if template_record is None:
+		template_record = FundRequestTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
+	if not template_record:
+		return 0
+	return (
+		FundRequest.objects
+		.filter(request_status='pending')
+		.exclude(template_id=template_record.pk)
+		.update(template=template_record, updated_at=timezone.now())
+	)
+
+
 def _ensure_active_liquidation_template():
 	if LiquidationTemplate.objects.filter(is_active=True).exists():
 		return
@@ -4535,7 +4548,9 @@ def fund_requests_list(request):
 				template_record = template_form.save(commit=False)
 				template_record.uploaded_by = request.user
 				template_record.save()
-				messages.success(request, f'Payment request template "{template_record.name}" uploaded successfully.')
+				synced_count = _sync_pending_fund_requests_to_template(template_record) if template_record.is_active else 0
+				sync_suffix = f' {synced_count} pending request(s) updated to use it.' if synced_count else ''
+				messages.success(request, f'Payment request template "{template_record.name}" uploaded successfully.{sync_suffix}')
 				return redirect('fund_requests_list')
 		elif action_type == 'delete_request':
 			if not can_delete_fund_requests:
@@ -4584,7 +4599,9 @@ def fund_requests_list(request):
 			template_count = FundRequestTemplate.objects.filter(pk__in=selected_template_ids).count()
 			FundRequestTemplate.objects.filter(pk__in=selected_template_ids).delete()
 			_ensure_active_fund_request_template()
-			messages.success(request, f'{template_count} uploaded template(s) removed successfully.')
+			synced_count = _sync_pending_fund_requests_to_template()
+			sync_suffix = f' {synced_count} pending request(s) updated to the current default template.' if synced_count else ''
+			messages.success(request, f'{template_count} uploaded template(s) removed successfully.{sync_suffix}')
 			return redirect('fund_requests_list')
 		elif action_type == 'set_default_template':
 			if not can_manage_templates:
@@ -4597,12 +4614,16 @@ def fund_requests_list(request):
 
 			template_record = get_object_or_404(FundRequestTemplate, pk=int(template_id))
 			if template_record.is_active:
-				messages.info(request, f'"{template_record.name}" is already the default template.')
+				synced_count = _sync_pending_fund_requests_to_template(template_record)
+				sync_suffix = f' {synced_count} pending request(s) updated to use it.' if synced_count else ''
+				messages.info(request, f'"{template_record.name}" is already the default template.{sync_suffix}')
 				return redirect('fund_requests_list')
 
 			template_record.is_active = True
 			template_record.save(update_fields=['is_active'])
-			messages.success(request, f'"{template_record.name}" is now the default template.')
+			synced_count = _sync_pending_fund_requests_to_template(template_record)
+			sync_suffix = f' {synced_count} pending request(s) updated to use it.' if synced_count else ''
+			messages.success(request, f'"{template_record.name}" is now the default template.{sync_suffix}')
 			return redirect('fund_requests_list')
 		elif action_type == 'delete_template':
 			if not can_manage_templates:
@@ -4617,7 +4638,9 @@ def fund_requests_list(request):
 			template_name = template_record.name
 			template_record.delete()
 			_ensure_active_fund_request_template()
-			messages.success(request, f'Template "{template_name}" removed successfully.')
+			synced_count = _sync_pending_fund_requests_to_template()
+			sync_suffix = f' {synced_count} pending request(s) updated to the current default template.' if synced_count else ''
+			messages.success(request, f'Template "{template_name}" removed successfully.{sync_suffix}')
 			return redirect('fund_requests_list')
 		elif action_type == 'approve_request':
 			if not can_approve_fund_requests:
