@@ -2,6 +2,7 @@ import shutil
 import tempfile
 import zipfile
 from io import BytesIO
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -12,7 +13,7 @@ from django.urls import reverse
 from PIL import Image
 
 from . import views
-from .forms import AssetItemForm, RoleForm, prepare_image_upload
+from .forms import AssetItemForm, FundRequestForm, RoleForm, prepare_image_upload
 from .permission_catalog import BASIC_ROLE_PERMISSION_KEYS, get_basic_role_permission_ids
 from .models import (
     AssetAccountability,
@@ -319,6 +320,42 @@ class PaymentRequestPlaceholderTests(TestCase):
                 '{{ supplier-server-details }}',
             ],
         )
+
+    def test_payment_request_form_defaults_blank_quantity_to_one(self):
+        image_bytes = BytesIO()
+        Image.new('RGB', (2, 2), 'white').save(image_bytes, format='JPEG')
+        form = FundRequestForm(
+            data={
+                'requester_name': 'Requester Four',
+                'request_date': '2026-05-04',
+                'department': 'Operations',
+                'branch': 'Alabang',
+                'purpose_of_request': 'Materials',
+                'mode_of_release': 'cash',
+                'supplier_details_known': 'no',
+                'line_items_payload': json.dumps(
+                    [
+                        {
+                            'row_type': 'material',
+                            'category': 'Materials/Purchases',
+                            'description': 'PVC pipe',
+                            'quantity': '',
+                            'unit_of_measurement': 'pcs',
+                            'estimated_cost': '2500',
+                        }
+                    ]
+                ),
+            },
+            files={
+                'request_images': SimpleUploadedFile('proof.jpg', image_bytes.getvalue(), content_type='image/jpeg'),
+            },
+            user=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        line_item = form.get_line_items()[0]
+        self.assertEqual(line_item['quantity'], 1)
+        self.assertIn('Qty 1 pcs', line_item['summary'])
 
 
 class ImageUploadConversionTests(TestCase):

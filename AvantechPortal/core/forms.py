@@ -847,7 +847,7 @@ class FundRequestForm(forms.ModelForm):
 
             category = clean_text(item.get('category'))
             description = clean_text(item.get('description'))
-            quantity = clean_decimal(item.get('quantity'), field_label=f'Line item #{index} quantity')
+            quantity = clean_decimal(item.get('quantity') or '1', field_label=f'Line item #{index} quantity')
             unit = clean_text(item.get('unit_of_measurement'))
             estimated_cost = clean_decimal(item.get('estimated_cost'), field_label=f'Line item #{index} estimated cost')
 

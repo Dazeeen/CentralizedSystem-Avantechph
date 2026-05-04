@@ -2661,7 +2661,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 row.dataset.rowKind = rowType === 'gas_fuel' || rowType === 'transport' ? rowType : 'material';
                 const categoryValue = values.category || (row.dataset.rowKind === 'gas_fuel' ? 'Gas / Fuel' : row.dataset.rowKind === 'transport' ? 'Deliver / Transport' : 'Materials / Purchases');
                 const descriptionValue = values.description || '';
-                const quantityValue = values.quantity || '';
+                const quantityValue = values.quantity || '1';
                 const unitValue = values.unit_of_measurement || '';
                 const amountValue = values.estimated_cost || values.amount || '';
                 row.innerHTML = row.dataset.rowKind === 'material' ? `
