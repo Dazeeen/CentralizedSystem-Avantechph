@@ -356,6 +356,42 @@ class PaymentRequestPlaceholderTests(TestCase):
         line_item = form.get_line_items()[0]
         self.assertEqual(line_item['quantity'], 1)
         self.assertIn('Qty 1 pcs', line_item['summary'])
+        self.assertEqual(form.get_request_metadata()['line_items'][0]['quantity'], '1')
+
+    def test_payment_request_form_accepts_others_row_type(self):
+        image_bytes = BytesIO()
+        Image.new('RGB', (2, 2), 'white').save(image_bytes, format='JPEG')
+        form = FundRequestForm(
+            data={
+                'requester_name': 'Requester Five',
+                'request_date': '2026-05-04',
+                'department': 'Operations',
+                'branch': 'Alabang',
+                'purpose_of_request': 'Other expense',
+                'mode_of_release': 'cash',
+                'supplier_details_known': 'no',
+                'line_items_payload': json.dumps(
+                    [
+                        {
+                            'row_type': 'others',
+                            'category': 'Others',
+                            'description': 'Miscellaneous fee',
+                            'quantity': '1',
+                            'unit_of_measurement': 'lot',
+                            'estimated_cost': '750',
+                        }
+                    ]
+                ),
+            },
+            files={
+                'request_images': SimpleUploadedFile('proof.jpg', image_bytes.getvalue(), content_type='image/jpeg'),
+            },
+            user=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.get_line_items()[0]['row_type'], 'others')
+        self.assertEqual(form.get_request_metadata()['line_items'][0]['row_type'], 'others')
 
 
 class ImageUploadConversionTests(TestCase):

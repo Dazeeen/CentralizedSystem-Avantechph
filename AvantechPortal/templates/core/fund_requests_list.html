@@ -862,7 +862,7 @@
                     {% endif %}
 
                     <div class="row g-3 mb-4">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="border rounded-3 p-3 h-100 bg-white">
                                 <div class="fw-semibold">Gas / Fuel</div>
                                 <div class="small text-secondary mb-2">Add an extra row when the request includes fuel or gas.</div>
@@ -878,9 +878,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="border rounded-3 p-3 h-100 bg-white">
-                                <div class="fw-semibold">Deliver / Transport</div>
+                                <div class="fw-semibold">Delivery / Transportation</div>
                                 <div class="small text-secondary mb-2">Add an extra row when the request includes delivery or transport.</div>
                                 <div class="d-flex gap-3 flex-wrap">
                                     <label class="form-check form-check-inline m-0">
@@ -889,6 +889,22 @@
                                     </label>
                                     <label class="form-check form-check-inline m-0">
                                         <input class="form-check-input" type="radio" name="has_transport" id="hasTransportNo" value="no" checked>
+                                        <span class="form-check-label">No</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-3 h-100 bg-white">
+                                <div class="fw-semibold">Others</div>
+                                <div class="small text-secondary mb-2">Add an extra row for expenses outside the listed categories.</div>
+                                <div class="d-flex gap-3 flex-wrap">
+                                    <label class="form-check form-check-inline m-0">
+                                        <input class="form-check-input" type="radio" name="has_others" id="hasOthersYes" value="yes">
+                                        <span class="form-check-label">Yes</span>
+                                    </label>
+                                    <label class="form-check form-check-inline m-0">
+                                        <input class="form-check-input" type="radio" name="has_others" id="hasOthersNo" value="no" checked>
                                         <span class="form-check-label">No</span>
                                     </label>
                                 </div>
@@ -2176,6 +2192,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const gasFuelNo = document.getElementById('hasGasFuelNo');
     const transportYes = document.getElementById('hasTransportYes');
     const transportNo = document.getElementById('hasTransportNo');
+    const othersYes = document.getElementById('hasOthersYes');
+    const othersNo = document.getElementById('hasOthersNo');
     const fuelDetailsSection = document.getElementById('fundRequestFuelDetailsSection');
     const supplierDetailsSection = document.getElementById('fundRequestSupplierDetailsSection');
     const supplierKnownInputs = document.querySelectorAll('input[name="{{ fund_request_form.supplier_details_known.html_name }}"]');
@@ -2471,6 +2489,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 initialRows = [];
             }
         }
+        if (Array.isArray(initialRows) && initialRows.length) {
+            const initialRowKinds = new Set(initialRows.map((row) => String(row.rowType || row.row_type || '').toLowerCase()));
+            if (initialRowKinds.has('gas_fuel') && gasFuelYes) {
+                gasFuelYes.checked = true;
+            }
+            if (initialRowKinds.has('transport') && transportYes) {
+                transportYes.checked = true;
+            }
+            if (initialRowKinds.has('others') && othersYes) {
+                othersYes.checked = true;
+            }
+        }
 
         const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const normalizeAmountValue = (rawValue) => String(rawValue || '').replace(/,/g, '').trim();
@@ -2502,6 +2532,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const isGasFuelEnabled = () => !!(gasFuelYes && gasFuelYes.checked);
         const isTransportEnabled = () => !!(transportYes && transportYes.checked);
+        const isOthersEnabled = () => !!(othersYes && othersYes.checked);
         const isSupplierDetailsKnown = () => Array.from(supplierKnownInputs).some((input) => input.checked && input.value === 'yes');
 
         const setFuelDetailsVisibility = () => {
@@ -2539,12 +2570,22 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         };
 
+        const appendSpecialRowsToBottom = () => {
+            ['gas_fuel', 'transport', 'others'].forEach((rowKind) => {
+                const row = tbody.querySelector(`tr[data-row-kind="${rowKind}"]`);
+                if (row) {
+                    tbody.appendChild(row);
+                }
+            });
+        };
+
         const syncSpecialRows = () => {
             setFuelDetailsVisibility();
 
             const specialRows = [
                 { kind: 'gas_fuel', enabled: isGasFuelEnabled(), label: 'Gas / Fuel', description: 'Fuel or gas expense' },
-                { kind: 'transport', enabled: isTransportEnabled(), label: 'Deliver / Transport', description: 'Delivery or transport expense' },
+                { kind: 'transport', enabled: isTransportEnabled(), label: 'Delivery / Transportation', description: 'Delivery or transportation expense' },
+                { kind: 'others', enabled: isOthersEnabled(), label: 'Others', description: 'Other expense' },
             ];
 
             specialRows.forEach((rowConfig) => {
@@ -2559,16 +2600,14 @@ document.addEventListener('DOMContentLoaded', function () {
                         category: rowConfig.label,
                         description: rowConfig.description,
                         quantity: '1',
-                        unit_of_measurement: rowConfig.kind === 'gas_fuel' ? 'lot' : 'trip',
+                        unit_of_measurement: rowConfig.kind === 'gas_fuel' ? 'lot' : rowConfig.kind === 'transport' ? 'trip' : 'lot',
                         estimated_cost: '',
                     });
                     existingRow = tbody.querySelector(`tr[data-row-kind="${rowConfig.kind}"]`);
                 }
-                if (existingRow) {
-                    tbody.appendChild(existingRow);
-                }
             });
 
+            appendSpecialRowsToBottom();
             syncRows();
         };
 
@@ -2658,8 +2697,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const addRow = (values = {}) => {
                 const rowType = (values.rowType || values.row_type || 'material').toLowerCase();
             const row = document.createElement('tr');
-                row.dataset.rowKind = rowType === 'gas_fuel' || rowType === 'transport' ? rowType : 'material';
-                const categoryValue = values.category || (row.dataset.rowKind === 'gas_fuel' ? 'Gas / Fuel' : row.dataset.rowKind === 'transport' ? 'Deliver / Transport' : 'Materials / Purchases');
+                row.dataset.rowKind = ['gas_fuel', 'transport', 'others'].includes(rowType) ? rowType : 'material';
+                const categoryValue = values.category || (row.dataset.rowKind === 'gas_fuel' ? 'Gas / Fuel' : row.dataset.rowKind === 'transport' ? 'Delivery / Transportation' : row.dataset.rowKind === 'others' ? 'Others' : 'Materials / Purchases');
                 const descriptionValue = values.description || '';
                 const quantityValue = values.quantity || '1';
                 const unitValue = values.unit_of_measurement || '';
@@ -2682,8 +2721,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     <td><input type="text" class="form-control text-end" data-line-item="estimated_cost" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${escapeHtml(amountValue)}"></td>
                     <td class="text-center"><span class="small text-secondary">Auto-added</span></td>
                 `;
-            tbody.appendChild(row);
+            const firstSpecialRow = tbody.querySelector('tr[data-row-kind="gas_fuel"], tr[data-row-kind="transport"], tr[data-row-kind="others"]');
+            if (row.dataset.rowKind === 'material' && firstSpecialRow) {
+                tbody.insertBefore(row, firstSpecialRow);
+            } else {
+                tbody.appendChild(row);
+            }
             attachRowEvents(row);
+            appendSpecialRowsToBottom();
             syncRows();
         };
 
@@ -2708,6 +2753,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (transportNo) {
             transportNo.addEventListener('change', syncSpecialRows);
+        }
+        if (othersYes) {
+            othersYes.addEventListener('change', syncSpecialRows);
+        }
+        if (othersNo) {
+            othersNo.addEventListener('change', syncSpecialRows);
         }
         supplierKnownInputs.forEach((input) => {
             input.addEventListener('change', function () {

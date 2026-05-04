@@ -836,13 +836,14 @@ class FundRequestForm(forms.ModelForm):
             return ' | '.join(part for part in parts if part)
 
         cleaned_items = []
+        normalized_payload_items = []
         total_amount = Decimal('0.00')
         for index, item in enumerate(parsed, start=1):
             if not isinstance(item, dict):
                 raise ValidationError(f'Line item #{index} is invalid.')
 
             row_type = clean_text(item.get('row_type') or 'material').lower()
-            if row_type not in {'material', 'gas_fuel', 'transport'}:
+            if row_type not in {'material', 'gas_fuel', 'transport', 'others'}:
                 row_type = 'material'
 
             category = clean_text(item.get('category'))
@@ -869,10 +870,22 @@ class FundRequestForm(forms.ModelForm):
                     'summary': summarize_row(category, description, quantity, unit, estimated_cost),
                 }
             )
+            normalized_payload_item = dict(item)
+            normalized_payload_item.update(
+                {
+                    'row_type': row_type,
+                    'category': category,
+                    'description': description,
+                    'quantity': f'{quantity.normalize():f}' if hasattr(quantity, 'normalize') else str(quantity),
+                    'unit_of_measurement': unit,
+                    'estimated_cost': str(estimated_cost.quantize(Decimal('0.01'))),
+                }
+            )
+            normalized_payload_items.append(normalized_payload_item)
             total_amount += estimated_cost
 
         self._parsed_line_items = cleaned_items
-        self._raw_line_items_payload = parsed
+        self._raw_line_items_payload = normalized_payload_items
         self._computed_requested_total = total_amount.quantize(Decimal('0.01'))
         return raw_payload
 
