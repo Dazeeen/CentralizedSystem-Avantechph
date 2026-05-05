@@ -23,6 +23,9 @@ env/
 # Django/local runtime data
 *.db
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
 *.log
 logs/
 .logs/
@@ -37,6 +40,7 @@ media/
 AvantechPortal/media/
 
 # Local tooling
+.agents/
 .codex
 .codex/
 .pycache/

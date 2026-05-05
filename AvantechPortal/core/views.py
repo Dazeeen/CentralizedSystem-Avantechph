@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from urllib.parse import quote
 import zipfile
@@ -3705,6 +3706,8 @@ def _build_file_manager_scope_label(selected_node, fallback_parts):
 
 
 def _user_can_access_node(user, node):
+	if _is_file_manager_trash_context(node) and not user.is_superuser:
+		return False
 	if user.is_superuser or node.owner_id == user.id:
 		return True
 	return ManagedFilePermission.objects.filter(node=node, user=user).exists()
@@ -3724,6 +3727,7 @@ def _get_user_default_file_manager_node(user):
 		return None
 	return (
 		ManagedFileNode.objects.filter(owner=user, node_type__in=('folder', 'shared_folder'))
+		.exclude(parent__isnull=True, name__iexact='Trash')
 		.filter(Q(name=user.username) | Q(permissions__user=user, permissions__access_level='read_write'))
 		.order_by('-updated_at', '-id')
 		.first()
@@ -3736,6 +3740,8 @@ def _resolve_file_manager_parent_for_write(request, parent_id, allow_root=False)
 		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
 		if parent.node_type == 'file':
 			return None, _fm_response(request, ok=False, message='Select a folder before uploading or creating items.', status=400)
+		if _is_file_manager_trash_context(parent):
+			return None, _fm_response(request, ok=False, message='Trash is read-only.', status=400)
 		if not _user_can_access_node(request.user, parent):
 			return None, _permission_denied_response(request, 'You do not have access to this folder.')
 		if not _user_can_write_node(request.user, parent):
@@ -3757,6 +3763,146 @@ def _get_available_managed_file_name(parent, owner, desired_name):
 		candidate = f'{base_name} ({counter}){extension}'
 		counter += 1
 	return candidate
+
+
+def _format_file_size(size_bytes):
+	units = ['B', 'KB', 'MB', 'GB']
+	value = float(max(0, int(size_bytes or 0)))
+	index = 0
+	while value >= 1024 and index < len(units) - 1:
+		value /= 1024.0
+		index += 1
+	if index == 0:
+		return f'{int(value)} {units[index]}'
+	return f'{value:.2f} {units[index]}'
+
+
+def _get_trash_root_node(node):
+	current_node = node
+	while current_node:
+		if _is_file_manager_trash_node(current_node):
+			return current_node
+		current_node = getattr(current_node, 'parent', None)
+	return None
+
+
+def _get_trash_total_bytes(node):
+	trash_root = _get_trash_root_node(node)
+	if not trash_root:
+		return 0
+	queue = [trash_root.id]
+	read_total = 0
+	while queue:
+		batch = queue[:500]
+		queue = queue[500:]
+		children = list(
+			ManagedFileNode.objects
+			.filter(parent_id__in=batch)
+			.values('id', 'node_type', 'file_size_bytes')
+		)
+		for child in children:
+			queue.append(child['id'])
+			if child['node_type'] == 'file':
+				read_total += int(child['file_size_bytes'] or 0)
+	return read_total
+
+
+def _is_file_manager_trash_node(node):
+	return bool(node and node.parent_id is None and (node.name or '').strip().casefold() == 'trash')
+
+
+def _is_file_manager_trash_context(node):
+	current_node = node
+	while current_node:
+		if _is_file_manager_trash_node(current_node):
+			return True
+		current_node = getattr(current_node, 'parent', None)
+	return False
+
+
+def _get_file_manager_system_owner(fallback_user=None):
+	return User.objects.filter(is_superuser=True).order_by('id').first() or fallback_user or User.objects.order_by('id').first()
+
+
+def _cleanup_duplicate_file_manager_trash_roots(canonical_trash):
+	if not canonical_trash:
+		return canonical_trash
+
+	for duplicate_trash in list(
+		ManagedFileNode.objects
+		.filter(parent__isnull=True, name__iexact='Trash')
+		.exclude(pk=canonical_trash.pk)
+		.order_by('id')
+	):
+		_sync_managed_file_permission(duplicate_trash, canonical_trash)
+		for child_node in list(duplicate_trash.children.all().order_by('id')):
+			child_node.parent = canonical_trash
+			child_node.name = _get_available_managed_file_name(canonical_trash, child_node.owner, child_node.name)
+			child_node.updated_by = canonical_trash.owner
+			child_node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+		if not duplicate_trash.children.exists():
+			duplicate_trash.delete()
+	return canonical_trash
+
+
+def _get_or_create_file_manager_trash_folder(user):
+	system_owner = _get_file_manager_system_owner(user)
+	branch_name, department_name, role_name = _get_user_file_context(system_owner)
+	default_root_endpoint = _get_default_root_storage_endpoint()
+	trash_node, _ = ManagedFileNode.objects.get_or_create(
+		parent=None,
+		owner=system_owner,
+		name='Trash',
+		defaults={
+			'node_type': 'folder',
+			'access_scope': 'private',
+			'branch_name_snapshot': branch_name,
+			'department_name_snapshot': department_name,
+			'role_name_snapshot': role_name,
+			'storage_endpoint': default_root_endpoint,
+			'created_by': system_owner,
+			'updated_by': system_owner,
+		},
+	)
+	return _cleanup_duplicate_file_manager_trash_roots(trash_node)
+
+
+def _move_file_manager_nodes_to_trash(nodes, user):
+	trash_node = _get_or_create_file_manager_trash_folder(user)
+	moved_count = 0
+	for node in nodes:
+		if node.pk == trash_node.pk:
+			continue
+		if node.parent_id == trash_node.pk:
+			continue
+		original_parent = node.parent
+		node.parent = trash_node
+		node.trashed_from = original_parent
+		node.name = _get_available_managed_file_name(trash_node, node.owner, node.name)
+		node.updated_by = user
+		node.save(update_fields=['parent', 'trashed_from', 'name', 'updated_by', 'updated_at'])
+		moved_count += 1
+	return moved_count, trash_node
+
+
+def _get_restore_target_for_node(node):
+	if node.trashed_from_id:
+		candidate = ManagedFileNode.objects.filter(pk=node.trashed_from_id).first()
+		if candidate and candidate.node_type in {'folder', 'shared_folder'} and not _is_file_manager_trash_context(candidate):
+			return candidate
+	owner = node.owner
+	fallback = _get_user_default_file_manager_node(owner)
+	if fallback and not _is_file_manager_trash_context(fallback):
+		return fallback
+	root = (
+		ManagedFileNode.objects.filter(parent__isnull=True, owner=owner)
+		.exclude(name__iexact='Trash')
+		.order_by('name')
+		.first()
+	)
+	if root and not _is_file_manager_trash_context(root):
+		return root
+	return None
 
 
 def _can_view_all_file_manager_nodes(user):
@@ -3820,6 +3966,91 @@ def _collapse_duplicate_file_manager_folder_levels():
 				child_node.save(update_fields=['parent', 'updated_at'])
 			if not duplicate_node.children.exists():
 				duplicate_node.delete()
+
+
+def _merge_managed_file_folder(source_node, target_node, updated_by=None):
+	if not source_node or not target_node or source_node.pk == target_node.pk:
+		return
+
+	_sync_managed_file_permission(source_node, target_node)
+	for child_node in list(source_node.children.all().order_by('id')):
+		conflicting_child = (
+			ManagedFileNode.objects
+			.filter(parent=target_node, owner=child_node.owner, name=child_node.name)
+			.exclude(pk=child_node.pk)
+			.order_by('id')
+			.first()
+		)
+		if conflicting_child and child_node.node_type in {'folder', 'shared_folder'} and conflicting_child.node_type in {'folder', 'shared_folder'}:
+			_merge_managed_file_folder(child_node, conflicting_child, updated_by=updated_by)
+			continue
+		if conflicting_child:
+			continue
+
+		child_node.parent = target_node
+		if target_node.branch_name_snapshot:
+			child_node.branch_name_snapshot = target_node.branch_name_snapshot
+		if target_node.department_name_snapshot:
+			child_node.department_name_snapshot = target_node.department_name_snapshot
+		if target_node.role_name_snapshot:
+			child_node.role_name_snapshot = target_node.role_name_snapshot
+		child_node.updated_by = updated_by or child_node.updated_by
+		child_node.save(update_fields=[
+			'parent',
+			'branch_name_snapshot',
+			'department_name_snapshot',
+			'role_name_snapshot',
+			'updated_by',
+			'updated_at',
+		])
+
+	source_node.refresh_from_db()
+	if not source_node.children.exists():
+		source_node.delete()
+
+
+def _sync_file_manager_role_rename(old_role_name, new_role_name, updated_by=None):
+	old_role_name = (old_role_name or '').strip()
+	new_role_name = (new_role_name or '').strip()
+	if not old_role_name or not new_role_name or _is_same_file_manager_level(old_role_name, new_role_name):
+		return 0
+
+	updated_count = 0
+	role_nodes = list(
+		ManagedFileNode.objects
+		.filter(parent__isnull=False, access_scope='shared', node_type__in=('folder', 'shared_folder'))
+		.filter(Q(role_name_snapshot__iexact=old_role_name) | Q(name__iexact=old_role_name))
+		.select_related('parent')
+		.order_by('id')
+	)
+	with transaction.atomic():
+		for role_node in role_nodes:
+			if not role_node.parent_id:
+				continue
+			conflicting_node = (
+				ManagedFileNode.objects
+				.filter(parent=role_node.parent, owner=role_node.owner, name=new_role_name, access_scope='shared', node_type__in=('folder', 'shared_folder'))
+				.exclude(pk=role_node.pk)
+				.order_by('id')
+				.first()
+			)
+			if conflicting_node:
+				if not conflicting_node.role_name_snapshot:
+					conflicting_node.role_name_snapshot = new_role_name
+					conflicting_node.updated_by = updated_by or conflicting_node.updated_by
+					conflicting_node.save(update_fields=['role_name_snapshot', 'updated_by', 'updated_at'])
+				_merge_managed_file_folder(role_node, conflicting_node, updated_by=updated_by)
+			else:
+				role_node.name = new_role_name
+				role_node.role_name_snapshot = new_role_name
+				role_node.updated_by = updated_by or role_node.updated_by
+				role_node.save(update_fields=['name', 'role_name_snapshot', 'updated_by', 'updated_at'])
+			updated_count += 1
+
+		ManagedFileNode.objects.filter(role_name_snapshot__iexact=old_role_name).update(role_name_snapshot=new_role_name)
+
+	cache.delete(FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY)
+	return updated_count
 
 
 def _get_or_move_user_file_manager_folder(parent_node, target_user, defaults):
@@ -4013,6 +4244,8 @@ def file_manager_list(request):
 		return restricted_response
 
 	_ensure_file_manager_default_hierarchy_if_needed(request.user)
+	if request.user.is_superuser:
+		_get_or_create_file_manager_trash_folder(request.user)
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	root_nodes = ManagedFileNode.objects.filter(parent__isnull=True).select_related('owner', 'storage_endpoint')
@@ -4021,6 +4254,8 @@ def file_manager_list(request):
 		root_nodes = root_nodes.filter(
 			Q(owner=request.user) | Q(permissions__user=request.user)
 		).distinct()
+	if not request.user.is_superuser:
+		root_nodes = root_nodes.exclude(parent__isnull=True, name__iexact='Trash')
 
 	selected_node = None
 	node_id = (request.GET.get('node') or '').strip()
@@ -4041,10 +4276,31 @@ def file_manager_list(request):
 		if not can_view_all and selected_node.owner_id != request.user.id:
 			children = children.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
 
+	for child in children:
+		child.size_display = _format_file_size(child.file_size_bytes) if child.node_type == 'file' else '-'
+
+	trash_total_bytes = 0
+	if _is_file_manager_trash_context(selected_node):
+		trash_total_bytes = _get_trash_total_bytes(selected_node)
+
 	user_permissions = {}
 	if selected_node:
 		for item in ManagedFilePermission.objects.filter(node=selected_node).select_related('user'):
 			user_permissions[item.user_id] = item.access_level
+
+	move_targets = []
+	folder_candidates = ManagedFileNode.objects.filter(node_type__in=('folder', 'shared_folder')).select_related('parent')
+	if not can_view_all:
+		folder_candidates = folder_candidates.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
+	if not request.user.is_superuser:
+		folder_candidates = folder_candidates.exclude(parent__isnull=True, name__iexact='Trash')
+	for folder in folder_candidates:
+		if _is_file_manager_trash_context(folder) and not request.user.is_superuser:
+			continue
+		if not _user_can_write_node(request.user, folder):
+			continue
+		move_targets.append({'id': folder.id, 'label': _build_file_manager_scope_label(folder, [])})
+	move_targets.sort(key=lambda item: item['label'].lower())
 
 	context = {
 		'root_nodes': root_nodes.order_by('name'),
@@ -4054,6 +4310,10 @@ def file_manager_list(request):
 		'storage_endpoints': FileStorageEndpoint.objects.order_by('name'),
 		'users': User.objects.order_by('username'),
 		'user_permissions': user_permissions,
+		'move_targets': move_targets,
+		'is_trash_context': _is_file_manager_trash_context(selected_node),
+		'trash_total_bytes': trash_total_bytes,
+		'trash_total_label': _format_file_size(trash_total_bytes) if trash_total_bytes else '0 B',
 		'branch_name': branch_name,
 		'department_name': department_name,
 		'role_name': role_name,
@@ -4063,6 +4323,40 @@ def file_manager_list(request):
 		),
 	}
 	return render(request, 'core/file_manager_list.html', context)
+
+
+@login_required
+def file_manager_search(request):
+	restricted_response = _require_permission(request, 'core.view_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	query = (request.GET.get('q') or '').strip()
+	if len(query) < 2:
+		return JsonResponse({'ok': True, 'results': []})
+
+	can_view_all = _can_view_all_file_manager_nodes(request.user)
+	qs = ManagedFileNode.objects.select_related('parent', 'owner')
+	if not can_view_all:
+		qs = qs.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
+	qs = qs.filter(name__icontains=query).order_by('name')[:50]
+
+	results = []
+	for node in qs:
+		if not request.user.is_superuser and _is_file_manager_trash_context(node):
+			continue
+		results.append(
+			{
+				'id': node.id,
+				'name': node.name,
+				'node_type': node.node_type,
+				'owner': node.owner.username if node.owner else '',
+				'label': _build_file_manager_scope_label(node, []),
+				'parent_id': node.parent_id,
+			}
+		)
+
+	return JsonResponse({'ok': True, 'results': results})
 
 
 @login_required
@@ -4233,10 +4527,6 @@ def file_manager_upload(request):
 @login_required
 @require_POST
 def file_manager_rename(request):
-	restricted_response = _require_permission(request, 'core.change_managedfilenode')
-	if restricted_response:
-		return restricted_response
-
 	node_id = (request.POST.get('node_id') or '').strip()
 	new_name = (request.POST.get('new_name') or '').strip()
 	if not node_id.isdigit():
@@ -4251,6 +4541,11 @@ def file_manager_rename(request):
 	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
 	if not _user_can_write_node(request.user, node):
 		return _permission_denied_response(request)
+
+	if node.node_type == 'file':
+		current_extension = Path(node.name or '').suffix
+		if current_extension:
+			new_name = f'{Path(new_name).stem or new_name}{current_extension}'
 
 	if node.name == new_name:
 		return _fm_response(request, ok=True, message='Name unchanged.', redirect_node_id=node.parent_id)
@@ -4271,28 +4566,161 @@ def file_manager_rename(request):
 
 @login_required
 @require_POST
+def file_manager_move(request):
+	node_id = (request.POST.get('node_id') or '').strip()
+	target_parent_id = (request.POST.get('target_parent_id') or '').strip()
+	if not node_id.isdigit():
+		return _fm_response(request, ok=False, message='Invalid file selection.', status=400)
+	if not target_parent_id.isdigit():
+		return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+
+	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+	if node.parent_id is None:
+		return _fm_response(request, ok=False, message='Root folders cannot be moved.', status=400)
+	if not _user_can_write_node(request.user, node):
+		return _permission_denied_response(request)
+
+	target_parent = get_object_or_404(ManagedFileNode, pk=int(target_parent_id))
+	if target_parent.node_type == 'file':
+		return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+	if _is_file_manager_trash_context(target_parent) and not request.user.is_superuser:
+		return _fm_response(request, ok=False, message='Cannot move items into Trash.', status=400)
+	if not _user_can_write_node(request.user, target_parent):
+		return _permission_denied_response(request, 'You do not have write access to the destination folder.')
+
+	current = target_parent
+	while current:
+		if current.pk == node.pk:
+			return _fm_response(request, ok=False, message='Cannot move a folder into itself.', status=400)
+		current = current.parent
+
+	if node.parent_id == target_parent.pk:
+		return _fm_response(request, ok=True, message='Item is already in this folder.', redirect_node_id=target_parent.pk)
+
+	new_name = node.name
+	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+
+	node.parent = target_parent
+	node.name = new_name
+	node.updated_by = request.user
+	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	return _fm_response(request, ok=True, message='Item moved.', redirect_node_id=target_parent.pk)
+
+
+@login_required
+@require_POST
+def file_manager_restore(request):
+	node_id = (request.POST.get('node_id') or '').strip()
+	if not node_id.isdigit():
+		return _fm_response(request, ok=False, message='Invalid file selection.', status=400)
+
+	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+	if not _is_file_manager_trash_context(node):
+		return _fm_response(request, ok=False, message='Item is not in Trash.', status=400)
+	if not _user_can_write_node(request.user, node):
+		return _permission_denied_response(request)
+
+	target_parent = _get_restore_target_for_node(node)
+	if not target_parent:
+		return _fm_response(request, ok=False, message='Original folder is no longer available.', status=400)
+	if not _user_can_write_node(request.user, target_parent):
+		return _permission_denied_response(request, 'You do not have write access to the original folder.')
+
+	new_name = node.name
+	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+
+	node.parent = target_parent
+	node.name = new_name
+	node.trashed_from = None
+	node.updated_by = request.user
+	node.save(update_fields=['parent', 'name', 'trashed_from', 'updated_by', 'updated_at'])
+	return _fm_response(request, ok=True, message='Item restored.', redirect_node_id=target_parent.pk)
+
+
+@login_required
+@require_POST
 def file_manager_bulk_action(request):
 	action = (request.POST.get('bulk_action') or '').strip()
-	if action == 'delete':
-		restricted_response = _require_permission(request, 'core.delete_managedfilenode')
-	else:
+	if action not in {'delete', 'restore', 'delete_all'}:
 		restricted_response = _require_permission(request, 'core.change_managedfilenode')
-	if restricted_response:
-		return restricted_response
+		if restricted_response:
+			return restricted_response
+	if action == 'delete_all':
+		restricted_response = _require_permission(request, 'core.delete_managedfilenode')
+		if restricted_response:
+			return restricted_response
+		password = (request.POST.get('confirm_password') or '').strip()
+		if not password:
+			return _fm_response(request, ok=False, message='Password is required to delete all items.', status=400)
+		if not request.user.check_password(password):
+			return _fm_response(request, ok=False, message='Incorrect password.', status=400)
 
 	raw_ids = (request.POST.get('selected_ids') or '').strip()
 	selected_ids = [int(part.strip()) for part in raw_ids.split(',') if part.strip().isdigit()]
-	if not selected_ids:
+	if not selected_ids and action != 'delete_all':
 		return _fm_response(request, ok=False, message='No files/folders selected.', status=400)
+	if action == 'delete_all':
+		trash_node = _get_or_create_file_manager_trash_folder(request.user)
+		deleted_count = trash_node.children.count()
+		if deleted_count == 0:
+			return _fm_response(request, ok=True, message='Trash is already empty.', redirect_node_id=trash_node.id)
+		trash_node.children.all().delete()
+		return _fm_response(request, ok=True, message=f'{deleted_count} item(s) deleted permanently.', redirect_node_id=trash_node.id)
 
 	nodes = list(ManagedFileNode.objects.filter(pk__in=selected_ids))
 	nodes = [node for node in nodes if _user_can_write_node(request.user, node)]
+	if not nodes:
+		return _fm_response(request, ok=False, message='No writable files/folders selected.', status=400)
+
+	if action == 'restore':
+		restored = 0
+		skipped = 0
+		last_target_id = None
+		for node in nodes:
+			if not _is_file_manager_trash_context(node):
+				skipped += 1
+				continue
+			target_parent = _get_restore_target_for_node(node)
+			if not target_parent:
+				skipped += 1
+				continue
+			if not _user_can_write_node(request.user, target_parent):
+				skipped += 1
+				continue
+			new_name = node.name
+			if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+				new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+			node.parent = target_parent
+			node.name = new_name
+			node.trashed_from = None
+			node.updated_by = request.user
+			node.save(update_fields=['parent', 'name', 'trashed_from', 'updated_by', 'updated_at'])
+			restored += 1
+			last_target_id = target_parent.pk
+		if restored == 0:
+			return _fm_response(request, ok=False, message='No items restored. Original folders may be missing.', status=400)
+		message = f'{restored} item(s) restored.'
+		if skipped:
+			message = f'{message} {skipped} item(s) skipped.'
+		return _fm_response(request, ok=True, message=message, redirect_node_id=last_target_id)
 
 	if action == 'delete':
-		deleted_count = len(nodes)
-		for node in nodes:
-			node.delete()
-		return _fm_response(request, ok=True, message=f'{deleted_count} item(s) deleted.')
+		in_trash = all(_is_file_manager_trash_context(node) for node in nodes)
+		if in_trash:
+			deletable_nodes = [node for node in nodes if not _is_file_manager_trash_node(node)]
+			for node in deletable_nodes:
+				node.delete()
+			if not deletable_nodes:
+				return _fm_response(request, ok=True, message='No items deleted.', redirect_node_id=None)
+			return _fm_response(request, ok=True, message=f'{len(deletable_nodes)} item(s) deleted permanently.')
+		return_node_id = next((node.parent_id for node in nodes if node.parent_id), None)
+		moved_count, trash_node = _move_file_manager_nodes_to_trash(nodes, request.user)
+		redirect_node_id = trash_node.id if request.user.is_superuser else return_node_id
+		if moved_count == 0:
+			return _fm_response(request, ok=True, message='Selected item(s) are already in Trash.', redirect_node_id=redirect_node_id)
+		return _fm_response(request, ok=True, message=f'{moved_count} item(s) moved to Trash.', redirect_node_id=redirect_node_id)
 
 	if action == 'share':
 		target_user_id = (request.POST.get('bulk_target_user_id') or '').strip()
@@ -4559,6 +4987,40 @@ def fund_requests_list(request):
 	created_to_datetime = parse_local_datetime(created_to)
 	valid_status_values = {status_value for status_value, _status_label in FundRequest.REQUEST_STATUS_CHOICES}
 
+	def is_sqlite_locked_error(exc):
+		return 'database is locked' in str(exc).lower()
+
+	def handle_locked_database():
+		messages.error(request, 'The database is busy right now. Please try again in a moment.')
+		return redirect('fund_requests_list')
+
+	def run_fund_request_write(write_callback):
+		for attempt in range(3):
+			try:
+				return write_callback()
+			except OperationalError as exc:
+				if not is_sqlite_locked_error(exc):
+					raise
+				if attempt == 2:
+					return None
+				time.sleep(0.15 * (attempt + 1))
+		return None
+
+	def safely_record_fund_request_activity(*args, **kwargs):
+		try:
+			return record_activity(*args, **kwargs)
+		except OperationalError as exc:
+			if not is_sqlite_locked_error(exc):
+				raise
+		return None
+
+	def safely_notify_fund_request(notify_callback, fund_request):
+		try:
+			notify_callback(fund_request)
+		except OperationalError as exc:
+			if not is_sqlite_locked_error(exc):
+				raise
+
 	if request.method == 'POST':
 		action_type = (request.POST.get('action_type') or '').strip()
 		template_action = (request.POST.get('template_action') or '').strip()
@@ -4688,13 +5150,21 @@ def fund_requests_list(request):
 				messages.info(request, 'This payment request has already been reviewed.')
 				return redirect('fund_requests_list')
 
-			with transaction.atomic():
-				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
-				if fund_request.request_status != 'pending':
-					messages.info(request, 'This payment request has already been reviewed.')
-					return redirect('fund_requests_list')
-				fund_request.mark_approved(processed_by=request.user, reason=reason)
-			record_activity(
+			def approve_request():
+				with transaction.atomic():
+					locked_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+					if locked_request.request_status != 'pending':
+						return None, 'reviewed'
+					locked_request.mark_approved(processed_by=request.user, reason=reason)
+					return locked_request, 'approved'
+
+			fund_request, approval_state = run_fund_request_write(approve_request) or (None, 'locked')
+			if approval_state == 'locked':
+				return handle_locked_database()
+			if approval_state == 'reviewed':
+				messages.info(request, 'This payment request has already been reviewed.')
+				return redirect('fund_requests_list')
+			safely_record_fund_request_activity(
 				request,
 				'approve',
 				'finance',
@@ -4702,7 +5172,7 @@ def fund_requests_list(request):
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
-			_notify_fund_request_requester(fund_request)
+			safely_notify_fund_request(_notify_fund_request_requester, fund_request)
 			messages.success(request, f'Payment request approved with control number {fund_request.serial_number}.')
 			return redirect('fund_requests_list')
 		elif action_type == 'reject_request':
@@ -4717,13 +5187,21 @@ def fund_requests_list(request):
 				messages.info(request, 'This payment request has already been reviewed.')
 				return redirect('fund_requests_list')
 
-			with transaction.atomic():
-				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
-				if fund_request.request_status != 'pending':
-					messages.info(request, 'This payment request has already been reviewed.')
-					return redirect('fund_requests_list')
-				fund_request.mark_rejected(processed_by=request.user, reason=reason)
-			record_activity(
+			def reject_request():
+				with transaction.atomic():
+					locked_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+					if locked_request.request_status != 'pending':
+						return None, 'reviewed'
+					locked_request.mark_rejected(processed_by=request.user, reason=reason)
+					return locked_request, 'rejected'
+
+			fund_request, rejection_state = run_fund_request_write(reject_request) or (None, 'locked')
+			if rejection_state == 'locked':
+				return handle_locked_database()
+			if rejection_state == 'reviewed':
+				messages.info(request, 'This payment request has already been reviewed.')
+				return redirect('fund_requests_list')
+			safely_record_fund_request_activity(
 				request,
 				'reject',
 				'finance',
@@ -4731,7 +5209,7 @@ def fund_requests_list(request):
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
-			_notify_fund_request_requester(fund_request)
+			safely_notify_fund_request(_notify_fund_request_requester, fund_request)
 			messages.info(request, 'Payment request rejected.')
 			return redirect('fund_requests_list')
 		elif action_type == 'cancel_request':
@@ -4749,19 +5227,29 @@ def fund_requests_list(request):
 				messages.info(request, 'Only pending payment requests can be cancelled.')
 				return redirect('fund_requests_list')
 
-			with transaction.atomic():
-				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
-				can_cancel_request = (
-					fund_request.created_by_id == request.user.id
-					or can_cancel_other_fund_requests
-				)
-				if not can_cancel_request:
-					return _permission_denied_response(request, 'You do not have permission to cancel this payment request.')
-				if fund_request.request_status != 'pending':
-					messages.info(request, 'Only pending payment requests can be cancelled.')
-					return redirect('fund_requests_list')
-				fund_request.mark_cancelled(processed_by=request.user, reason=reason)
-			record_activity(
+			def cancel_request():
+				with transaction.atomic():
+					locked_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+					can_cancel_locked_request = (
+						locked_request.created_by_id == request.user.id
+						or can_cancel_other_fund_requests
+					)
+					if not can_cancel_locked_request:
+						return locked_request, 'denied'
+					if locked_request.request_status != 'pending':
+						return locked_request, 'reviewed'
+					locked_request.mark_cancelled(processed_by=request.user, reason=reason)
+					return locked_request, 'cancelled'
+
+			fund_request, cancellation_state = run_fund_request_write(cancel_request) or (None, 'locked')
+			if cancellation_state == 'locked':
+				return handle_locked_database()
+			if cancellation_state == 'denied':
+				return _permission_denied_response(request, 'You do not have permission to cancel this payment request.')
+			if cancellation_state == 'reviewed':
+				messages.info(request, 'Only pending payment requests can be cancelled.')
+				return redirect('fund_requests_list')
+			safely_record_fund_request_activity(
 				request,
 				'cancel',
 				'finance',
@@ -4771,7 +5259,7 @@ def fund_requests_list(request):
 			)
 
 			if fund_request.created_by_id and fund_request.created_by_id != request.user.id:
-				_notify_fund_request_requester(fund_request)
+				safely_notify_fund_request(_notify_fund_request_requester, fund_request)
 			if fund_request.created_by_id == request.user.id:
 				messages.success(request, 'Your payment request has been cancelled.')
 			else:
@@ -4817,25 +5305,31 @@ def fund_requests_list(request):
 			if not can_view_all_request_records:
 				pending_queryset = pending_queryset.filter(created_by=request.user)
 
-			processed_requests = []
-			with transaction.atomic():
-				for fund_request in pending_queryset.select_for_update():
-					if decision == 'approve':
-						fund_request.mark_approved(processed_by=request.user, reason=reason)
-					else:
-						fund_request.mark_rejected(processed_by=request.user, reason=reason)
-					processed_requests.append(fund_request)
+			def decide_pending_requests():
+				decided_requests = []
+				with transaction.atomic():
+					for fund_request in pending_queryset.select_for_update():
+						if decision == 'approve':
+							fund_request.mark_approved(processed_by=request.user, reason=reason)
+						else:
+							fund_request.mark_rejected(processed_by=request.user, reason=reason)
+						decided_requests.append(fund_request)
+				return decided_requests
+
+			processed_requests = run_fund_request_write(decide_pending_requests)
+			if processed_requests is None:
+				return handle_locked_database()
 
 			processed_count = len(processed_requests)
 			for processed_request in processed_requests:
-				_notify_fund_request_requester(processed_request)
+				safely_notify_fund_request(_notify_fund_request_requester, processed_request)
 
 			if processed_count:
 				if decision == 'approve':
 					messages.success(request, f'{processed_count} pending payment request(s) approved successfully.')
 				else:
 					messages.info(request, f'{processed_count} pending payment request(s) rejected.')
-				record_activity(
+				safely_record_fund_request_activity(
 					request,
 					'approve' if decision == 'approve' else 'reject',
 					'finance',
@@ -4918,19 +5412,29 @@ def fund_requests_list(request):
 				request_form.add_error(None, 'Select an uploaded template before saving the payment request.')
 
 			if is_request_form_valid and selected_template:
-				fund_request = request_form.save(commit=False)
-				fund_request.created_by = request.user
-				fund_request.template = selected_template
-				fund_request.request_status = 'pending'
-				fund_request.save()
-				request_form.save_line_items(fund_request)
-				request_form.save_attachments(fund_request, uploaded_by=request.user)
-				matching_auto_rule = _get_matching_auto_approve_rule_for_fund_request(fund_request)
+				def create_fund_request():
+					with transaction.atomic():
+						created_request = request_form.save(commit=False)
+						created_request.created_by = request.user
+						created_request.template = selected_template
+						created_request.request_status = 'pending'
+						created_request.save()
+						request_form.save_line_items(created_request)
+						request_form.save_attachments(created_request, uploaded_by=request.user)
+						auto_rule = _get_matching_auto_approve_rule_for_fund_request(created_request)
+						if auto_rule:
+							approval_reason = (auto_rule.reason or '').strip() or f'Auto-approved by rule: {auto_rule.name}'
+							auto_processor = auto_rule.created_by if auto_rule.created_by_id else None
+							created_request.mark_approved(processed_by=auto_processor, reason=approval_reason)
+						return created_request, auto_rule
+
+				write_result = run_fund_request_write(create_fund_request)
+				if write_result is None:
+					return handle_locked_database()
+
+				fund_request, matching_auto_rule = write_result
 				if matching_auto_rule:
-					approval_reason = (matching_auto_rule.reason or '').strip() or f'Auto-approved by rule: {matching_auto_rule.name}'
-					auto_processor = matching_auto_rule.created_by if matching_auto_rule.created_by_id else None
-					fund_request.mark_approved(processed_by=auto_processor, reason=approval_reason)
-					record_activity(
+					safely_record_fund_request_activity(
 						request,
 						'submit',
 						'finance',
@@ -4941,8 +5445,8 @@ def fund_requests_list(request):
 					)
 					messages.success(request, f'Payment request auto-approved by rule "{matching_auto_rule.name}".')
 				else:
-					_notify_fund_request_approvers(fund_request)
-					record_activity(
+					safely_notify_fund_request(_notify_fund_request_approvers, fund_request)
+					safely_record_fund_request_activity(
 						request,
 						'submit',
 						'finance',
@@ -7951,7 +8455,10 @@ def roles_update(request, role_id):
 	if request.method == 'POST':
 		form = RoleForm(request.POST, instance=role)
 		if form.is_valid():
+			old_role_name = role.name
 			updated_role = form.save()
+			renamed_folder_count = _sync_file_manager_role_rename(old_role_name, updated_role.name, updated_by=request.user)
+			_ensure_file_manager_default_hierarchy_if_needed(request.user)
 			record_activity(
 				request,
 				'update',
@@ -7960,7 +8467,8 @@ def roles_update(request, role_id):
 				target=updated_role,
 				target_label=updated_role.name,
 			)
-			messages.success(request, 'Role updated successfully.')
+			folder_suffix = f' {renamed_folder_count} file manager folder(s) updated.' if renamed_folder_count else ''
+			messages.success(request, f'Role updated successfully.{folder_suffix}')
 			return redirect('roles_list')
 	else:
 		form = RoleForm(instance=role)

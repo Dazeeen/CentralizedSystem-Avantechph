@@ -67,7 +67,7 @@ def _resolve_sqlite_database_name(base_dir):
 
 
 def _build_sqlite_database_options():
-    timeout_seconds = env_int('DJANGO_DB_TIMEOUT', 20)
+    timeout_seconds = env_int('DJANGO_DB_TIMEOUT', 60)
     busy_timeout_ms = env_int('DJANGO_DB_BUSY_TIMEOUT', timeout_seconds * 1000)
     transaction_mode = (os.getenv('DJANGO_SQLITE_TRANSACTION_MODE', 'DEFERRED') or '').strip().upper() or None
 

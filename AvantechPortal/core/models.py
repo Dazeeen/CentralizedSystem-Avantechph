@@ -1919,6 +1919,13 @@ class ManagedFileNode(models.Model):
 	]
 
 	parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+	trashed_from = models.ForeignKey(
+		'self',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='trashed_children',
+	)
 	name = models.CharField(max_length=180)
 	node_type = models.CharField(max_length=20, choices=NODE_TYPE_CHOICES, default='folder')
 	access_scope = models.CharField(max_length=20, choices=ACCESS_CHOICES, default='private')

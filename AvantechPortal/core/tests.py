@@ -500,6 +500,303 @@ class PaymentRequestTemplateSyncTests(TestCase):
         self.assertEqual(approved_request.template_id, old_template.pk)
 
 
+class FileManagerRoleRenameTests(TestCase):
+    def setUp(self):
+        self.system_owner = get_user_model().objects.create_user(username='system-owner', password='password')
+        self.member = get_user_model().objects.create_user(username='artist-user', password='password')
+        self.branch = ManagedFileNode.objects.create(
+            owner=self.system_owner,
+            name='Main Branch',
+            node_type='folder',
+            access_scope='shared',
+            branch_name_snapshot='Main Branch',
+        )
+        self.department = ManagedFileNode.objects.create(
+            parent=self.branch,
+            owner=self.system_owner,
+            name='Creative',
+            node_type='folder',
+            access_scope='shared',
+            branch_name_snapshot='Main Branch',
+            department_name_snapshot='Creative',
+        )
+
+    def _create_role_folder(self, name):
+        return ManagedFileNode.objects.create(
+            parent=self.department,
+            owner=self.system_owner,
+            name=name,
+            node_type='folder',
+            access_scope='shared',
+            branch_name_snapshot='Main Branch',
+            department_name_snapshot='Creative',
+            role_name_snapshot=name,
+        )
+
+    def test_role_rename_updates_existing_file_manager_role_folder(self):
+        old_role_folder = self._create_role_folder('Graphic Designer')
+        user_folder = ManagedFileNode.objects.create(
+            parent=old_role_folder,
+            owner=self.member,
+            name=self.member.username,
+            node_type='folder',
+            access_scope='private',
+            branch_name_snapshot='Main Branch',
+            department_name_snapshot='Creative',
+            role_name_snapshot='Graphic Designer',
+        )
+
+        updated_count = views._sync_file_manager_role_rename('Graphic Designer', 'Graphic Artist', updated_by=self.system_owner)
+
+        old_role_folder.refresh_from_db()
+        user_folder.refresh_from_db()
+        self.assertEqual(updated_count, 1)
+        self.assertEqual(old_role_folder.name, 'Graphic Artist')
+        self.assertEqual(old_role_folder.role_name_snapshot, 'Graphic Artist')
+        self.assertEqual(user_folder.parent_id, old_role_folder.pk)
+        self.assertEqual(user_folder.role_name_snapshot, 'Graphic Artist')
+
+    def test_role_rename_merges_old_folder_when_new_folder_already_exists(self):
+        old_role_folder = self._create_role_folder('Graphic Designer')
+        new_role_folder = self._create_role_folder('Graphic Artist')
+        user_folder = ManagedFileNode.objects.create(
+            parent=old_role_folder,
+            owner=self.member,
+            name=self.member.username,
+            node_type='folder',
+            access_scope='private',
+            branch_name_snapshot='Main Branch',
+            department_name_snapshot='Creative',
+            role_name_snapshot='Graphic Designer',
+        )
+        ManagedFilePermission.objects.create(node=old_role_folder, user=self.member, access_level='read')
+
+        updated_count = views._sync_file_manager_role_rename('Graphic Designer', 'Graphic Artist', updated_by=self.system_owner)
+
+        user_folder.refresh_from_db()
+        new_role_folder.refresh_from_db()
+        self.assertEqual(updated_count, 1)
+        self.assertFalse(ManagedFileNode.objects.filter(pk=old_role_folder.pk).exists())
+        self.assertEqual(user_folder.parent_id, new_role_folder.pk)
+        self.assertEqual(user_folder.role_name_snapshot, 'Graphic Artist')
+        self.assertTrue(ManagedFilePermission.objects.filter(node=new_role_folder, user=self.member, access_level='read').exists())
+
+
+class FileManagerRenameTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(username='jaime0288', password='password')
+        self.parent = ManagedFileNode.objects.create(
+            owner=self.owner,
+            name='Unassigned Branch',
+            node_type='folder',
+            access_scope='private',
+        )
+        self.client.force_login(self.owner)
+
+    def test_owner_can_rename_file_without_global_change_permission(self):
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_rename'),
+            {'node_id': str(file_node.pk), 'new_name': 'CD - Request for Funds Updated.docx'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.name, 'CD - Request for Funds Updated.docx')
+
+    def test_file_rename_preserves_extension_when_new_name_has_no_extension(self):
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_rename'),
+            {'node_id': str(file_node.pk), 'new_name': 'Payment Request'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.name, 'Payment Request.docx')
+
+    def test_file_rename_preserves_original_extension_when_new_name_has_different_extension(self):
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_rename'),
+            {'node_id': str(file_node.pk), 'new_name': 'Payment Request.pdf'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.name, 'Payment Request.docx')
+
+    def test_file_manager_page_does_not_javascript_escape_rename_prompt_name(self):
+        self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
+        ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.get(reverse('file_manager_list'), {'node': self.parent.pk})
+
+        self.assertContains(response, 'data-current-name="CD - Request for Funds.docx"')
+        self.assertContains(response, 'data-node-id=')
+        self.assertNotContains(response, 'class="fm-rename-form"')
+        self.assertNotContains(response, r'CD \u002D Request for Funds.docx')
+
+
+class FileManagerTrashTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(username='jaime0288', password='password')
+        self.parent = ManagedFileNode.objects.create(
+            owner=self.owner,
+            name='Unassigned Branch',
+            node_type='folder',
+            access_scope='private',
+        )
+        self.client.force_login(self.owner)
+
+    def test_delete_moves_owned_file_to_trash_without_global_delete_permission(self):
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_bulk_action'),
+            {'selected_ids': str(file_node.pk), 'bulk_action': 'delete'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json().get('node_id'), self.parent.pk)
+        file_node.refresh_from_db()
+        trash_node = ManagedFileNode.objects.get(parent__isnull=True, owner=self.owner, name='Trash')
+        self.assertEqual(file_node.parent_id, trash_node.pk)
+        self.assertEqual(file_node.name, 'CD - Request for Funds.docx')
+
+    def test_file_manager_page_hides_trash_root_from_regular_user(self):
+        self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
+        trash_node = views._get_or_create_file_manager_trash_folder(self.owner)
+
+        response = self.client.get(reverse('file_manager_list'), {'node': self.parent.pk})
+
+        self.assertNotContains(response, f'?node={trash_node.pk}')
+        self.assertNotContains(response, '>Trash</span>')
+
+    def test_regular_user_cannot_open_trash_root_directly(self):
+        self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
+        trash_node = views._get_or_create_file_manager_trash_folder(self.owner)
+
+        response = self.client.get(reverse('file_manager_list'), {'node': trash_node.pk})
+
+        self.assertNotContains(response, '>Trash</span>')
+        self.assertNotContains(response, 'Scope:</strong> Trash')
+
+    def test_superuser_can_see_trash_root(self):
+        admin = get_user_model().objects.create_superuser(username='admin', password='password')
+        trash_node = views._get_or_create_file_manager_trash_folder(self.owner)
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('file_manager_list'))
+
+        self.assertContains(response, f'?node={trash_node.pk}')
+        self.assertContains(response, 'Trash')
+
+    def test_duplicate_trash_roots_are_merged_into_one_system_trash(self):
+        admin = get_user_model().objects.create_superuser(username='admin', password='password')
+        other_user = get_user_model().objects.create_user(username='other-user', password='password')
+        first_trash = ManagedFileNode.objects.create(parent=None, owner=self.owner, name='Trash', node_type='folder', access_scope='private')
+        second_trash = ManagedFileNode.objects.create(parent=None, owner=other_user, name='Trash', node_type='folder', access_scope='private')
+        trashed_file = ManagedFileNode.objects.create(
+            parent=second_trash,
+            owner=other_user,
+            name='Old File.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        system_trash = views._get_or_create_file_manager_trash_folder(admin)
+
+        trashed_file.refresh_from_db()
+        self.assertEqual(system_trash.owner_id, admin.pk)
+        self.assertEqual(ManagedFileNode.objects.filter(parent__isnull=True, name__iexact='Trash').count(), 1)
+        self.assertFalse(ManagedFileNode.objects.filter(pk=first_trash.pk).exists())
+        self.assertFalse(ManagedFileNode.objects.filter(pk=second_trash.pk).exists())
+        self.assertEqual(trashed_file.parent_id, system_trash.pk)
+
+    def test_delete_uses_available_name_when_trash_already_has_same_file_name(self):
+        trash_node = views._get_or_create_file_manager_trash_folder(self.owner)
+        ManagedFileNode.objects.create(
+            parent=trash_node,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_bulk_action'),
+            {'selected_ids': str(file_node.pk), 'bulk_action': 'delete'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.parent_id, trash_node.pk)
+        self.assertEqual(file_node.name, 'CD - Request for Funds (2).docx')
+
+    def test_file_manager_page_has_delete_context_action_without_nested_delete_form(self):
+        self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.get(reverse('file_manager_list'), {'node': self.parent.pk})
+
+        self.assertContains(response, f'data-node-id="{file_node.pk}"')
+        self.assertContains(response, 'fm-delete-btn')
+        self.assertContains(response, '>Delete</button>')
+        self.assertNotContains(response, 'action="/file-manager/rename/"')
+
+
 class ImageUploadConversionTests(TestCase):
     def test_heic_upload_is_converted_to_jpeg(self):
         source = BytesIO()
