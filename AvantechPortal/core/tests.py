@@ -117,6 +117,66 @@ class RoleFormBasicAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Preview as Preview Role')
 
+    def test_role_preview_browses_with_selected_role_permissions(self):
+        role = Group.objects.create(name='Finance Preview')
+        role.permissions.add(
+            Permission.objects.get(
+                content_type__app_label='core',
+                content_type__model='fundrequest',
+                codename='view_fundrequest',
+            )
+        )
+        admin = get_user_model().objects.create_superuser(
+            username='preview-admin',
+            email='preview-admin@example.com',
+            password='password',
+        )
+
+        self.client.force_login(admin)
+        response = self.client.post(reverse('roles_preview_start', args=[role.id]))
+
+        self.assertRedirects(response, reverse('dashboard'))
+
+        finance_response = self.client.get(reverse('finance_dashboard'))
+        self.assertEqual(finance_response.status_code, 200)
+        self.assertContains(finance_response, 'Previewing as Finance Preview')
+        self.assertContains(finance_response, 'Finance')
+        self.assertNotContains(finance_response, 'Users</span>')
+
+        users_response = self.client.get(reverse('users_list'))
+        self.assertRedirects(users_response, reverse('dashboard'))
+
+        stop_response = self.client.post(reverse('roles_preview_stop'), follow=True)
+        self.assertRedirects(stop_response, reverse('dashboard'))
+        self.assertContains(stop_response, 'Stopped previewing as Finance Preview')
+        self.assertNotContains(stop_response, 'Previewing as Finance Preview')
+
+        roles_response = self.client.get(reverse('roles_list'))
+        self.assertEqual(roles_response.status_code, 200)
+
+    def test_role_preview_blocks_support_ticket_submission(self):
+        role = Group.objects.create(name='Sales Preview')
+        admin = get_user_model().objects.create_superuser(
+            username='ticket-preview-admin',
+            email='ticket-preview-admin@example.com',
+            password='password',
+        )
+
+        self.client.force_login(admin)
+        self.client.post(reverse('roles_preview_start', args=[role.id]))
+        response = self.client.post(
+            reverse('support_ticket_create'),
+            {
+                'title': 'Preview ticket',
+                'category': 'access',
+                'description': 'This should not be saved during preview.',
+                'requested_priority': 'medium',
+            },
+        )
+
+        self.assertRedirects(response, reverse('dashboard'))
+        self.assertFalse(SupportTicket.objects.filter(title='Preview ticket').exists())
+
 
 class AssetItemParentTypeTests(TestCase):
     def setUp(self):

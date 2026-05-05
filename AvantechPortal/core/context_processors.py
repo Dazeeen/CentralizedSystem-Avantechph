@@ -187,6 +187,18 @@ def page_access_indicator(request):
     return {'page_access_indicator': indicator}
 
 
+def role_preview(request):
+    role = getattr(request, 'role_preview_role', None)
+    if not role:
+        return {'role_preview': None}
+    return {
+        'role_preview': {
+            'role_id': role.id,
+            'role_name': role.name,
+        }
+    }
+
+
 def notification_summary(request):
     if not request.user.is_authenticated:
         return {
@@ -207,11 +219,14 @@ def notification_summary(request):
 
 def super_user_chat_access(request):
     user = getattr(request, 'user', None)
+    preview = getattr(user, '_role_preview', None)
+    preview_role_name = (preview or {}).get('role_name', '')
     has_access = bool(
         user
         and user.is_authenticated
         and (
             user.is_superuser
+            or preview_role_name == 'Super Users'
             or user.groups.filter(name='Super Users').exists()
         )
     )

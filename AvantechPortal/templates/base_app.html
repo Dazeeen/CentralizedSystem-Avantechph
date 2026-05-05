@@ -452,6 +452,18 @@
             </header>
 
             <div class="p-3 p-md-4 app-content-wrap">
+                {% if role_preview %}
+                    <div class="alert alert-warning d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3" role="status">
+                        <div>
+                            <div class="fw-semibold">Previewing as {{ role_preview.role_name }}</div>
+                            <div class="small mb-0">Navigation and permissions are being evaluated through this role.</div>
+                        </div>
+                        <form method="post" action="{% url 'roles_preview_stop' %}" class="m-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-dark">Exit Preview</button>
+                        </form>
+                    </div>
+                {% endif %}
                 {% if messages %}
                     <div class="mb-3">
                         {% for message in messages %}

@@ -67,6 +67,7 @@ except Exception:
 
 from .activity import record_activity
 from .auth_utils import invalidate_user_sessions
+from .middleware import ROLE_PREVIEW_SESSION_KEY, ROLE_PREVIEW_STOP_COOKIE
 from .forms import (
 	AssetAccountabilityForm,
 	AssetAccountabilityTemplateForm,
@@ -147,6 +148,9 @@ EMAIL_VERIFICATION_CODE_TTL = 10 * 60
 EMAIL_VERIFICATION_RESEND_COOLDOWN = 60
 INTERNET_ACCOUNT_UNLOCK_TTL_SECONDS = 5 * 60
 INTERNET_ACCOUNT_UNLOCK_SESSION_KEY = 'company_internet_account_unlocks'
+FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY = 'file-manager:default-hierarchy-synced'
+FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY = 'file-manager:default-hierarchy-sync-lock'
+FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS = 5 * 60
 
 ROLE_PREVIEW_DEFAULT_AUDIENCES = {
 	'All signed-in users',
@@ -3972,13 +3976,43 @@ def _ensure_file_manager_default_hierarchy():
 	_prune_empty_legacy_super_user_branch_folders()
 
 
+def _file_manager_default_hierarchy_needs_sync(user):
+	if not ManagedFileNode.objects.filter(parent__isnull=True).exists():
+		return True
+	if user and user.is_authenticated and not user.is_superuser:
+		return _get_user_default_file_manager_node(user) is None
+	return False
+
+
+def _ensure_file_manager_default_hierarchy_if_needed(user):
+	if cache.get(FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY) and not _file_manager_default_hierarchy_needs_sync(user):
+		return
+
+	if not cache.add(FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY, True, timeout=30):
+		return
+
+	try:
+		if _file_manager_default_hierarchy_needs_sync(user):
+			_ensure_file_manager_default_hierarchy()
+		cache.set(
+			FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY,
+			True,
+			timeout=FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS,
+		)
+	except OperationalError:
+		cache.delete(FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY)
+		return
+	finally:
+		cache.delete(FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY)
+
+
 @login_required
 def file_manager_list(request):
 	restricted_response = _require_permission(request, 'core.view_managedfilenode')
 	if restricted_response:
 		return restricted_response
 
-	_ensure_file_manager_default_hierarchy()
+	_ensure_file_manager_default_hierarchy_if_needed(request.user)
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	root_nodes = ManagedFileNode.objects.filter(parent__isnull=True).select_related('owner', 'storage_endpoint')
@@ -7838,6 +7872,38 @@ def roles_list(request):
 			'role_access_preview_map': role_access_preview_map,
 		},
 	)
+
+
+@login_required
+@require_POST
+def roles_preview_start(request, role_id):
+	if not (request.user.is_superuser or request.user.has_perm('auth.view_group')):
+		return _permission_denied_response(request)
+
+	role = get_object_or_404(Group, pk=role_id)
+	request.session[ROLE_PREVIEW_SESSION_KEY] = role.id
+	request.session.modified = True
+	messages.info(request, f'Previewing Avantech Portal as {role.name}.')
+	return redirect('dashboard')
+
+
+@login_required
+@require_POST
+def roles_preview_stop(request):
+	role_name = getattr(getattr(request, 'role_preview_role', None), 'name', '')
+	request.session.pop(ROLE_PREVIEW_SESSION_KEY, None)
+	request.session.modified = True
+	if hasattr(request, 'role_preview_role'):
+		delattr(request, 'role_preview_role')
+	if hasattr(request.user, '_role_preview'):
+		delattr(request.user, '_role_preview')
+	if role_name:
+		messages.success(request, f'Stopped previewing as {role_name}.')
+	else:
+		messages.success(request, 'Role preview ended.')
+	response = redirect('dashboard')
+	response.set_cookie(ROLE_PREVIEW_STOP_COOKIE, '1', max_age=60, path='/', httponly=True, samesite='Lax')
+	return response
 
 
 @login_required

@@ -142,6 +142,8 @@ from .views import (
     roles_create,
     roles_delete,
     roles_list,
+    roles_preview_start,
+    roles_preview_stop,
     roles_update,
     users_create,
     users_bulk_delete,
@@ -315,7 +317,9 @@ urlpatterns = [
     path('users/bulk-status/', users_bulk_update_status, name='users_bulk_update_status'),
     path('users/bulk-role/', users_bulk_update_role, name='users_bulk_update_role'),
     path('roles/', roles_list, name='roles_list'),
+    path('roles/preview/stop/', roles_preview_stop, name='roles_preview_stop'),
     path('roles/create/', roles_create, name='roles_create'),
+    path('roles/<int:role_id>/preview/', roles_preview_start, name='roles_preview_start'),
     path('roles/<int:role_id>/edit/', roles_update, name='roles_update'),
     path('roles/<int:role_id>/delete/', roles_delete, name='roles_delete'),
 ]

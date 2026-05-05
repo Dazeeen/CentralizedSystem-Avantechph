@@ -50,7 +50,12 @@
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li><button class="dropdown-item js-role-action" type="button" data-bs-toggle="modal" data-bs-target="#roleDetailModal{{ role.id }}">View</button></li>
-                                    <li><button class="dropdown-item js-role-action" type="button" data-bs-toggle="modal" data-bs-target="#roleAccessPreviewModal{{ role.id }}">Preview as {{ role.name }}</button></li>
+                                    <li>
+                                        <form method="post" action="{% url 'roles_preview_start' role.id %}" class="m-0">
+                                            {% csrf_token %}
+                                            <button class="dropdown-item js-role-action" type="submit">Preview as {{ role.name }}</button>
+                                        </form>
+                                    </li>
                                     <li><a class="dropdown-item js-role-action" href="{% url 'roles_update' role.id %}">Edit</a></li>
                                     <li><a class="dropdown-item text-danger js-role-action" href="{% url 'roles_delete' role.id %}">Delete</a></li>
                                 </ul>
@@ -73,10 +78,14 @@
             <div class="modal-content border-0 shadow">
                 {% include 'core/includes/modal_header.html' with modal_title=role.name modal_title_id='roleDetailModalLabel'|add:role.id %}
                 <div class="modal-body">
-                    <div class="d-flex justify-content-end mb-3">
-                        <button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#roleAccessPreviewModal{{ role.id }}">
-                            Preview as {{ role.name }}
+                    <div class="d-flex justify-content-end gap-2 mb-3">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#roleAccessPreviewModal{{ role.id }}">
+                            Access Summary
                         </button>
+                        <form method="post" action="{% url 'roles_preview_start' role.id %}" class="m-0">
+                            {% csrf_token %}
+                            <button class="btn btn-sm btn-outline-success" type="submit">Preview as {{ role.name }}</button>
+                        </form>
                     </div>
                     <div class="mb-3">
                         <h3 class="h6">Assigned Users</h3>
@@ -145,7 +154,7 @@
         <div class="modal fade" id="roleAccessPreviewModal{{ role.id }}" tabindex="-1" aria-labelledby="roleAccessPreviewModalLabel{{ role.id }}" aria-hidden="true">
             <div class="modal-dialog modal-xl modal-dialog-scrollable">
                 <div class="modal-content border-0 shadow">
-                    {% include 'core/includes/modal_header.html' with modal_title='Preview as '|add:role.name modal_title_id='roleAccessPreviewModalLabel'|add:role.id %}
+                    {% include 'core/includes/modal_header.html' with modal_title='Access Summary: '|add:role.name modal_title_id='roleAccessPreviewModalLabel'|add:role.id %}
                     <div class="modal-body">
                         <div class="row g-3 mb-3">
                             <div class="col-md-6">
@@ -202,7 +211,10 @@
                     </div>
                     <div class="modal-footer">
                         <a class="btn btn-outline-secondary" href="{% url 'roles_update' role.id %}">Edit Role</a>
-                        <button type="button" class="btn btn-success" data-bs-dismiss="modal">Done</button>
+                        <form method="post" action="{% url 'roles_preview_start' role.id %}" class="m-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-success">Start Preview</button>
+                        </form>
                     </div>
                 </div>
             </div>

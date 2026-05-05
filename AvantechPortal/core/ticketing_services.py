@@ -59,6 +59,10 @@ def can_manage_support_tickets(user):
         return False
     if user.is_superuser:
         return True
+    preview = getattr(user, '_role_preview', None)
+    preview_role_name = ((preview or {}).get('role_name') or '').strip().lower()
+    if preview_role_name in {role_name.lower() for role_name in _IT_SUPPORT_ROLE_NAMES}:
+        return True
     if user.groups.filter(name__iexact='IT Support').exists() or user.groups.filter(name__iexact='IT-Support').exists() or user.groups.filter(name__iexact='ITSupport').exists():
         return True
     return user.has_perm('core.can_manage_supportticket')

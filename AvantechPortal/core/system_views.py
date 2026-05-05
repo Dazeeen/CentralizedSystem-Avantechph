@@ -32,11 +32,14 @@ def _can_manage_system_backups(user):
 
 
 def _can_access_super_user_chat(user):
+    preview = getattr(user, '_role_preview', None)
+    preview_role_name = (preview or {}).get('role_name', '')
     return bool(
         user
         and user.is_authenticated
         and (
             user.is_superuser
+            or preview_role_name == 'Super Users'
             or user.groups.filter(name='Super Users').exists()
         )
     )
