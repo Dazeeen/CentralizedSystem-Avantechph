@@ -12,31 +12,36 @@
     <span class="badge text-bg-light border">{{ total_logs }} result{{ total_logs|pluralize }}</span>
 </div>
 
-<form method="get" class="row g-2 align-items-end mb-3">
-    <div class="col-12 col-lg-5">
+<form method="get" class="row g-2 align-items-end mb-3" id="activityFilterForm">
+    <div class="col-12 col-lg-7">
         <label class="form-label" for="activitySearch">Search</label>
         <input type="search" class="form-control" id="activitySearch" name="q" value="{{ query }}" placeholder="User, action, target, or record number">
     </div>
     <div class="col-6 col-lg-3">
-        <label class="form-label" for="activityCategory">Category</label>
-        <select class="form-select" id="activityCategory" name="category">
-            <option value="">All categories</option>
-            {% for value, label in category_choices %}
-                <option value="{{ value }}" {% if selected_category == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
+        <label class="form-label" for="activityCategorySearch">Category</label>
+        <div class="position-relative js-activity-combobox">
+            <input type="search" class="form-control" id="activityCategorySearch" value="{{ selected_category_label }}" placeholder="All categories" autocomplete="off" aria-haspopup="listbox" aria-expanded="false">
+            <div class="list-group position-absolute start-0 end-0 shadow-sm d-none js-activity-combobox-menu" id="activityCategoryOptions" role="listbox" style="z-index: 1020; max-height: 16rem; overflow-y: auto;">
+                <button type="button" class="list-group-item list-group-item-action" data-label="All categories" data-value="" role="option">All categories</button>
+                {% for value, label in category_choices %}
+                    <button type="button" class="list-group-item list-group-item-action" data-label="{{ label }}" data-value="{{ value }}" role="option">{{ label }}</button>
+                {% endfor %}
+            </div>
+        </div>
+        <input type="hidden" id="activityCategory" name="category" value="{{ selected_category }}">
     </div>
     <div class="col-6 col-lg-2">
-        <label class="form-label" for="activityAction">Action</label>
-        <select class="form-select" id="activityAction" name="action">
-            <option value="">All actions</option>
-            {% for value, label in action_choices %}
-                <option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="col-12 col-lg-2 d-grid">
-        <button type="submit" class="btn btn-success">Filter</button>
+        <label class="form-label" for="activityActionSearch">Action</label>
+        <div class="position-relative js-activity-combobox">
+            <input type="search" class="form-control" id="activityActionSearch" value="{{ selected_action_label }}" placeholder="All actions" autocomplete="off" aria-haspopup="listbox" aria-expanded="false">
+            <div class="list-group position-absolute start-0 end-0 shadow-sm d-none js-activity-combobox-menu" id="activityActionOptions" role="listbox" style="z-index: 1020; max-height: 16rem; overflow-y: auto;">
+                <button type="button" class="list-group-item list-group-item-action" data-label="All actions" data-value="" role="option">All actions</button>
+                {% for value, label in action_choices %}
+                    <button type="button" class="list-group-item list-group-item-action" data-label="{{ label }}" data-value="{{ value }}" role="option">{{ label }}</button>
+                {% endfor %}
+            </div>
+        </div>
+        <input type="hidden" id="activityAction" name="action" value="{{ selected_action }}">
     </div>
 </form>
 
@@ -121,4 +126,150 @@
         </div>
     {% endif %}
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const activityFilterForm = document.getElementById('activityFilterForm');
+    const activitySearch = document.getElementById('activitySearch');
+    const activityCategorySearch = document.getElementById('activityCategorySearch');
+    const activityCategoryValue = document.getElementById('activityCategory');
+    const activityActionSearch = document.getElementById('activityActionSearch');
+    const activityActionValue = document.getElementById('activityAction');
+    const activityCategoryOptions = document.getElementById('activityCategoryOptions');
+    const activityActionOptions = document.getElementById('activityActionOptions');
+    const activityFilterFocusKey = 'activityLogFilterFocus';
+    let activityFilterSubmitTimer = null;
+
+    function restoreActivityFilterFocus() {
+        const focusTargetId = window.sessionStorage.getItem(activityFilterFocusKey);
+        const focusTarget = focusTargetId ? document.getElementById(focusTargetId) : null;
+        if (!focusTarget) {
+            return;
+        }
+        window.sessionStorage.removeItem(activityFilterFocusKey);
+        focusTarget.focus();
+        if (typeof focusTarget.setSelectionRange === 'function') {
+            const valueLength = focusTarget.value.length;
+            focusTarget.setSelectionRange(valueLength, valueLength);
+        }
+    }
+
+    function submitActivityFilters() {
+        if (!activityFilterForm) {
+            return;
+        }
+        if (activityFilterSubmitTimer) {
+            window.clearTimeout(activityFilterSubmitTimer);
+            activityFilterSubmitTimer = null;
+        }
+        if (document.activeElement && document.activeElement.id) {
+            window.sessionStorage.setItem(activityFilterFocusKey, document.activeElement.id);
+        } else {
+            window.sessionStorage.removeItem(activityFilterFocusKey);
+        }
+        activityFilterForm.requestSubmit();
+    }
+
+    function scheduleActivityFilterSubmit() {
+        if (activityFilterSubmitTimer) {
+            window.clearTimeout(activityFilterSubmitTimer);
+        }
+        activityFilterSubmitTimer = window.setTimeout(submitActivityFilters, 450);
+    }
+
+    function closeCombobox(menu, searchInput) {
+        if (!menu) {
+            return;
+        }
+        menu.classList.add('d-none');
+        if (searchInput) {
+            searchInput.setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    function openCombobox(menu, searchInput) {
+        if (!menu) {
+            return;
+        }
+        menu.classList.remove('d-none');
+        if (searchInput) {
+            searchInput.setAttribute('aria-expanded', 'true');
+        }
+    }
+
+    function filterComboboxOptions(menu, filterText) {
+        const normalizedFilter = (filterText || '').trim().toLowerCase();
+        const options = Array.from(menu.querySelectorAll('[data-value]'));
+        let visibleCount = 0;
+        options.forEach(function (option) {
+            const matches = !normalizedFilter || (option.dataset.label || option.textContent || '').toLowerCase().includes(normalizedFilter);
+            option.classList.toggle('d-none', !matches);
+            if (matches) {
+                visibleCount += 1;
+            }
+        });
+        return visibleCount;
+    }
+
+    function currentComboboxLabel(menu, hiddenValue) {
+        if (!hiddenValue) {
+            return '';
+        }
+        const option = Array.from(menu.querySelectorAll('[data-value]')).find(function (item) {
+            return (item.dataset.value || '') === hiddenValue;
+        });
+        return option ? option.dataset.label || option.textContent.trim() : '';
+    }
+
+    function bindSearchableChoice(searchInput, hiddenInput, menu) {
+        if (!searchInput || !hiddenInput || !menu) {
+            return;
+        }
+        searchInput.addEventListener('input', function () {
+            openCombobox(menu, searchInput);
+            const visibleCount = filterComboboxOptions(menu, searchInput.value);
+            if (!searchInput.value && hiddenInput.value) {
+                hiddenInput.value = '';
+                submitActivityFilters();
+            }
+            menu.classList.toggle('d-none', visibleCount === 0);
+        });
+        searchInput.addEventListener('focus', function () {
+            filterComboboxOptions(menu, searchInput.value);
+            openCombobox(menu, searchInput);
+        });
+        searchInput.addEventListener('blur', function () {
+            window.setTimeout(function () {
+                closeCombobox(menu, searchInput);
+                searchInput.value = currentComboboxLabel(menu, hiddenInput.value);
+            }, 120);
+        });
+        menu.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+        });
+        menu.addEventListener('click', function (event) {
+            const option = event.target.closest('[data-value]');
+            if (!option) {
+                return;
+            }
+            const selectedValue = option.dataset.value || '';
+            searchInput.value = selectedValue ? option.dataset.label || option.textContent.trim() : '';
+            closeCombobox(menu, searchInput);
+            if (hiddenInput.value === selectedValue) {
+                return;
+            }
+            hiddenInput.value = selectedValue;
+            submitActivityFilters();
+        });
+    }
+
+    if (activitySearch) {
+        activitySearch.addEventListener('input', scheduleActivityFilterSubmit);
+    }
+    bindSearchableChoice(activityCategorySearch, activityCategoryValue, activityCategoryOptions);
+    bindSearchableChoice(activityActionSearch, activityActionValue, activityActionOptions);
+
+    restoreActivityFilterFocus();
+});
+</script>
 {% endblock %}

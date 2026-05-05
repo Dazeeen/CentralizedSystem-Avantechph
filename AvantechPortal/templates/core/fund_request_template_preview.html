@@ -1,13 +1,13 @@
 {% extends 'base_app.html' %}
 {% load core_extras %}
 
-{% block title %}Avantech Portal | {% if template_record %}{{ template_record.name }} Preview{% else %}Fund Request Template Guide{% endif %}{% endblock %}
-{% block page_heading %}Fund Request Template Preview{% endblock %}
+{% block title %}Avantech Portal | {% if template_record %}{{ template_record.name }} Preview{% else %}Payment Request Template Guide{% endif %}{% endblock %}
+{% block page_heading %}Payment Request Template Preview{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
     <div>
-        <h2 class="h4 mb-1">{% if template_record %}{{ template_record.name }}{% else %}Fund Request Template Guide{% endif %}</h2>
+        <h2 class="h4 mb-1">{% if template_record %}{{ template_record.name }}{% else %}Payment Request Template Guide{% endif %}</h2>
         <p class="text-secondary mb-0">
             {% if preview_mode == 'no_template' %}
                 No set/uploaded template available yet. You can still review the placeholder guide below.
@@ -26,7 +26,7 @@
         </p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Payment Requests</a>
         {% if template_record %}
             {% if show_template_page_link %}
                 <a class="btn btn-outline-success" href="{% url 'fund_request_template_preview' template_record.id %}">Open Template Page</a>
@@ -34,7 +34,7 @@
             <a class="btn btn-outline-secondary" href="{{ template_record.file.url }}" target="_blank">Open Original File</a>
         {% endif %}
         {% if preview_pdf_url %}
-            <a class="btn btn-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF</a>
+            <a class="btn btn-success js-pdf-preview-modal" href="{{ preview_pdf_url }}" target="_blank" data-preview-title="{% if template_record %}{{ template_record.name }}{% else %}Payment Request Template Guide{% endif %} PDF Preview">Open PDF</a>
         {% endif %}
     </div>
 </div>
@@ -52,7 +52,7 @@
                 </div>
                 <div class="fund-template-preview-frame">
                     {% if preview_pdf_url %}
-                        <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="{% if template_record %}{{ template_record.name }}{% else %}Fund request template guide{% endif %} PDF preview"></iframe>
+                        <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="{% if template_record %}{{ template_record.name }}{% else %}Payment request template guide{% endif %} PDF preview"></iframe>
                     {% else %}
                         <div class="fund-template-preview-empty">
                             <div class="fund-template-preview-empty-title">No set/uploaded template available.</div>
@@ -70,8 +70,8 @@
                 <h3 class="h5 mb-3">{% if template_record %}Preview Sample Values{% else %}Guide Sample Values{% endif %}</h3>
                 <div class="template-preview-meta-list">
                     <div class="template-preview-meta-item">
-                        <span class="text-secondary small">Serial Number</span>
-                        <strong>{{ sample_summary.serial_number }}</strong>
+                        <span class="text-secondary small">Control Number</span>
+                        <strong>{{ sample_summary.ctrl_no }}</strong>
                     </div>
                     <div class="template-preview-meta-item">
                         <span class="text-secondary small">Requester Name</span>
@@ -101,7 +101,7 @@
 
                 {% if preview_mode == 'filled_preview' %}
                     <div class="alert alert-success mt-4 mb-0">
-                        This preview uses sample values so you can confirm the placeholder positions before the template is used in a real approved fund request.
+                        This preview uses sample values so you can confirm the placeholder positions before the template is used in a real approved payment request.
                     </div>
                 {% elif preview_mode == 'converted_original' %}
                     <div class="alert alert-warning mt-4 mb-0">

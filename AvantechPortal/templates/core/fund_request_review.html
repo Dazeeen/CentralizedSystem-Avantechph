@@ -1,20 +1,20 @@
 {% extends 'base_app.html' %}
 {% load core_extras %}
 
-{% block title %}Avantech Portal | Fund Request Review{% endblock %}
-{% block page_heading %}Fund Request Review{% endblock %}
+{% block title %}Avantech Portal | Payment Request Review{% endblock %}
+{% block page_heading %}Payment Request Review{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
     <div>
-        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Pending Fund Request" }}</h2>
+        <h2 class="h4 mb-1">{{ fund_request.serial_number|default:"Pending Payment Request" }}</h2>
         <p class="text-secondary mb-0">
             {{ fund_request.requester_name }} | {{ fund_request.request_date|date:'Y-m-d' }} | {{ fund_request.department }} / {{ fund_request.branch }}
         </p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Fund Requests</a>
-        <a class="btn btn-outline-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF Review</a>
+        <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Payment Requests</a>
+        <a class="btn btn-outline-success js-pdf-preview-modal" href="{{ preview_pdf_url }}" target="_blank" data-preview-title="Payment Request PDF Review">Open PDF Review</a>
         {% if fund_request.request_status == 'approved' %}
             <a class="btn btn-success" href="{% url 'fund_request_document_download' fund_request.id %}" target="_blank">Download PDF</a>
         {% endif %}
@@ -35,7 +35,7 @@
                     </span>
                 </div>
                 <div class="fund-request-review-frame">
-                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="Fund request PDF review"></iframe>
+                    <iframe src="{{ preview_pdf_url }}#toolbar=1&navpanes=0" title="Payment request PDF review"></iframe>
                 </div>
             </div>
         </div>
@@ -107,7 +107,7 @@
                         {% for attachment in attachments %}
                             <div class="col-6">
                                 <a href="{{ attachment.image.url }}" target="_blank" class="review-image-card">
-                                    <img src="{{ attachment.image.url }}" alt="Fund request attachment {{ forloop.counter }}">
+                                    <img src="{{ attachment.image.url }}" alt="Payment request attachment {{ forloop.counter }}">
                                     <span>Image {{ forloop.counter }}</span>
                                 </a>
                             </div>

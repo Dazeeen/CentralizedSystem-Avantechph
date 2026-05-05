@@ -12,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .activity import record_activity
 from .models import SystemBackup, SystemBackupSchedule
 
 SCOPE_DIRECTORY_MAP = {
@@ -24,6 +25,36 @@ SCOPE_DIRECTORY_MAP = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def _backup_activity_metadata(backup):
+    archive_size = 0
+    if backup.archive:
+        try:
+            archive_size = backup.archive.size
+        except (OSError, ValueError):
+            archive_size = 0
+    return {
+        'backup_id': backup.id,
+        'backup_name': backup.backup_name,
+        'trigger': backup.trigger,
+        'included_scopes': backup.included_scopes_list,
+        'archive_size': archive_size,
+        'notes': backup.notes,
+    }
+
+
+def record_backup_created_activity(backup, request=None):
+    trigger_label = 'Scheduled' if backup.trigger == 'scheduled' else 'Manual'
+    return record_activity(
+        request,
+        'create',
+        'backup',
+        f'{trigger_label} system backup created: {backup.backup_name}.',
+        target=backup,
+        target_label=backup.backup_name,
+        metadata=_backup_activity_metadata(backup),
+    )
 
 
 def get_or_create_primary_schedule(updated_by=None):
@@ -250,6 +281,7 @@ def run_due_system_backups(now=None):
             if not _is_schedule_due(schedule, now=now):
                 continue
             backup = create_system_backup(schedule, created_by=None, trigger='scheduled')
+            record_backup_created_activity(backup)
             created.append(backup)
 
     return created

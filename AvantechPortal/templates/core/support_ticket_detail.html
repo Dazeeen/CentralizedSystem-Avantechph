@@ -85,6 +85,10 @@
     <div class="alert alert-secondary">
         This ticket is archived and read-only.
     </div>
+{% elif is_closed_ticket %}
+    <div class="alert alert-success">
+        This ticket has been resolved/closed and moved to Past Tickets. The conversation is now read-only unless IT Support reopens it.
+    </div>
 {% endif %}
 
 <div class="row g-3">
@@ -254,9 +258,15 @@
                         </div>
                     </form>
                 {% else %}
-                    <div class="alert alert-warning mb-0">
-                        You can view this ticket, but only the requester and assigned IT support can post messages.
-                    </div>
+                    {% if is_closed_ticket %}
+                        <div class="alert alert-secondary mb-0">
+                            This resolved/closed ticket is read-only.
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning mb-0">
+                            You can view this ticket, but only the requester and assigned IT support can post messages.
+                        </div>
+                    {% endif %}
                 {% endif %}
             </div>
         </div>

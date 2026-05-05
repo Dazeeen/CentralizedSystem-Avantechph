@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from urllib.parse import quote
 import zipfile
@@ -67,6 +68,7 @@ except Exception:
 
 from .activity import record_activity
 from .auth_utils import invalidate_user_sessions
+from .middleware import ROLE_PREVIEW_SESSION_KEY, ROLE_PREVIEW_STOP_COOKIE
 from .forms import (
 	AssetAccountabilityForm,
 	AssetAccountabilityTemplateForm,
@@ -140,19 +142,35 @@ from .models import (
 )
 from .notifications import create_notification
 from .permission_catalog import build_permission_preview_groups, format_permission_summary
+from .context_processors import PAGE_ACCESS_RULES
 
 
 EMAIL_VERIFICATION_CODE_TTL = 10 * 60
 EMAIL_VERIFICATION_RESEND_COOLDOWN = 60
 INTERNET_ACCOUNT_UNLOCK_TTL_SECONDS = 5 * 60
 INTERNET_ACCOUNT_UNLOCK_SESSION_KEY = 'company_internet_account_unlocks'
+FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY = 'file-manager:default-hierarchy-synced'
+FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY = 'file-manager:default-hierarchy-sync-lock'
+FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS = 5 * 60
 
+ROLE_PREVIEW_DEFAULT_AUDIENCES = {
+	'All signed-in users',
+	'The signed-in account',
+	'Ticket participants',
+}
 
 def _set_user_status(user, status):
 	profile, _ = UserProfile.objects.get_or_create(user=user)
 	if profile.status != status:
 		profile.status = status
 		profile.save(update_fields=['status'])
+
+
+def _get_fund_request_department_suggestions():
+	return list(
+		AssetDepartment.objects.order_by('name')
+		.values_list('name', flat=True)
+	)
 
 
 def _sync_presence_session(request, status, event_ms=None):
@@ -1003,12 +1021,16 @@ def activity_logs(request):
 	if action:
 		logs = logs.filter(action=action)
 
+	category_labels = dict(ActivityLog.CATEGORY_CHOICES)
+	action_labels = dict(ActivityLog.ACTION_CHOICES)
 	logs_page = Paginator(logs, 30).get_page(request.GET.get('page'))
 	context = {
 		'logs_page': logs_page,
 		'query': query,
 		'selected_category': category,
+		'selected_category_label': category_labels.get(category, ''),
 		'selected_action': action,
+		'selected_action_label': action_labels.get(action, ''),
 		'category_choices': ActivityLog.CATEGORY_CHOICES,
 		'action_choices': ActivityLog.ACTION_CHOICES,
 		'total_logs': logs.count(),
@@ -1029,6 +1051,14 @@ def _permission_denied_response(request, message='You do not have permission to 
 
 def _is_ajax_request(request):
 	return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
+def _inline_pdf_response(content, filename):
+	response = HttpResponse(content, content_type='application/pdf')
+	response['Content-Disposition'] = f'inline; filename="{filename}"'
+	response['X-Frame-Options'] = 'SAMEORIGIN'
+	response['X-Content-Type-Options'] = 'nosniff'
+	return response
 
 
 def _fm_response(request, ok=True, message='', redirect_name='file_manager_list', redirect_node_id=None, status=200):
@@ -1182,8 +1212,8 @@ def _notify_fund_request_approvers(fund_request):
 			continue
 		create_notification(
 			user=approver,
-			title='Fund request approval needed',
-			message=f'{requester_name} submitted a fund request for {total_label}.',
+			title='Payment request approval needed',
+			message=f'{requester_name} submitted a payment request for {total_label}.',
 			link_url=approval_link,
 		)
 
@@ -1193,18 +1223,18 @@ def _notify_fund_request_requester(fund_request):
 		return
 
 	if fund_request.request_status == 'approved':
-		title = 'Fund Request Approved'
-		message = f'Your fund request was approved with serial number {fund_request.serial_number}.'
+		title = 'Payment Request Approved'
+		message = f'Your payment request was approved with control number {fund_request.serial_number}.'
 		link_url = reverse('fund_requests_list')
 	elif fund_request.request_status == 'cancelled':
-		title = 'Fund Request Cancelled'
+		title = 'Payment Request Cancelled'
 		reason_suffix = f' Reason: {fund_request.decision_reason}' if fund_request.decision_reason else ''
-		message = f'Your fund request was cancelled.{reason_suffix}'
+		message = f'Your payment request was cancelled.{reason_suffix}'
 		link_url = reverse('fund_requests_list')
 	else:
-		title = 'Fund Request Rejected'
+		title = 'Payment Request Rejected'
 		reason_suffix = f' Reason: {fund_request.decision_reason}' if fund_request.decision_reason else ''
-		message = f'Your fund request was rejected.{reason_suffix}'
+		message = f'Your payment request was rejected.{reason_suffix}'
 		link_url = f"{reverse('fund_requests_list')}?{urlencode({'rejected_request': fund_request.pk})}"
 
 	create_notification(
@@ -1294,6 +1324,57 @@ def _format_fund_request_amount(amount_value):
 	return f'{amount:,.2f}'
 
 
+def _build_fund_request_gas_sections(request_metadata):
+	metadata = request_metadata or {}
+	line_items = metadata.get('line_items') or []
+	gas_item = next(
+		(item for item in line_items if str(item.get('row_type') or '').lower() == 'gas_fuel'),
+		None,
+	)
+
+	def clean_text(value):
+		return (value or '').strip()
+
+	def with_placeholder(value, fallback):
+		return value if value else fallback
+
+	placeholder_line = '__________________________'
+	purpose_placeholder = '____________________________________________________________________________'
+
+	fuel_lines = []
+	if gas_item:
+		vehicle = clean_text(gas_item.get('vehicle_to_be_used'))
+		plate_number = clean_text(gas_item.get('plate_number'))
+		current_odometer = clean_text(gas_item.get('current_odometer_reading'))
+		estimated_distance = clean_text(gas_item.get('estimated_distance_to_travel'))
+		purpose_of_travel = clean_text(gas_item.get('purpose_of_travel'))
+
+		fuel_lines = [
+			'Fuel / Gas Details (if applicable)',
+			f'Vehicle to be Used: {with_placeholder(vehicle, placeholder_line)}',
+			f'Plate Number: {with_placeholder(plate_number, placeholder_line)}',
+			f'Current Odometer Reading: {with_placeholder(current_odometer, placeholder_line)}',
+			f'Estimated Distance to Travel: {with_placeholder(estimated_distance, placeholder_line)}',
+			'Purpose of Travel:',
+		]
+		if purpose_of_travel:
+			fuel_lines.append(purpose_of_travel)
+		else:
+			fuel_lines.extend([purpose_placeholder, purpose_placeholder, purpose_placeholder])
+
+	supplier_lines = []
+	if metadata.get('supplier_details_known'):
+		supplier_name = clean_text(metadata.get('supplier_store_name'))
+		contact_details = clean_text(metadata.get('contact_person_details'))
+		supplier_lines = [
+			'Supplier / Service Details (if known)',
+			f'Supplier/Store Name: {with_placeholder(supplier_name, placeholder_line)}',
+			f'Contact Person/Details: {with_placeholder(contact_details, placeholder_line)}',
+		]
+
+	return '\n'.join(fuel_lines), '\n'.join(supplier_lines)
+
+
 def _build_fund_request_template_placeholders_from_values(
 	*,
 	serial_number='',
@@ -1302,23 +1383,39 @@ def _build_fund_request_template_placeholders_from_values(
 	department='',
 	branch='',
 	total_amount=0,
+	purpose_of_request='',
+	mode_of_release='',
+	requested_amount=0,
 	prepared_by='-',
 	created_at=None,
 	template_name='',
+	fuel_gas_details='',
+	supplier_service_details='',
 	line_items=None,
 ):
 	line_items = list(line_items or [])
 	placeholders = {
+		'{{ ctrl_no }}': serial_number or '',
+		'{{ control_number }}': serial_number or '',
 		'{{ serial_number }}': serial_number or '',
 		'{{ requester_name }}': requester_name or '',
 		'{{ request_date }}': _format_fund_request_date(request_date),
+		'{{ date_needed }}': _format_fund_request_date(request_date),
 		'{{ department }}': department or '',
-		'{{ branch }}': branch or '',
 		'{{ total_amount }}': _format_fund_request_amount(total_amount),
 		'{{ total_amount_php }}': f'PHP {_format_fund_request_amount(total_amount)}',
+		'{{ purpose_of_request }}': purpose_of_request or '',
+		'{{ mode_of_release }}': mode_of_release or '',
+		'{{ payment_mode }}': mode_of_release or '',
+		'{{ requested_amount }}': _format_fund_request_amount(requested_amount),
+		'{{ requested_amount_php }}': f'PHP {_format_fund_request_amount(requested_amount)}',
 		'{{ prepared_by }}': prepared_by or '-',
 		'{{ created_at }}': timezone.localtime(created_at).strftime('%Y-%m-%d %H:%M') if created_at else '',
 		'{{ template_name }}': template_name or '',
+		'{{ fuel-gas_details }}': fuel_gas_details or '',
+		'{{ fuel_gas_details }}': fuel_gas_details or '',
+		'{{ supplier-server-details }}': supplier_service_details or '',
+		'{{ supplier_service_details }}': supplier_service_details or '',
 	}
 
 	line_items_lines = []
@@ -1326,18 +1423,57 @@ def _build_fund_request_template_placeholders_from_values(
 		item_date = item.get('entry_date')
 		item_particulars = item.get('particulars') or ''
 		item_amount = item.get('amount') or 0
+		item_category = item.get('category') or ''
+		item_description = item.get('description') or item_particulars
+		item_quantity = item.get('quantity') or ''
+		item_uom = item.get('uom') or item.get('unit_of_measurement') or ''
+		item_estimated_cost = item.get('estimated_cost') or item_amount
 		item_date_label = _format_fund_request_item_date(item_date)
 		placeholders[f'{{{{ item_{index}_date }}}}'] = item_date_label
 		placeholders[f'{{{{ item_{index}_particulars }}}}'] = item_particulars
 		placeholders[f'{{{{ item_{index}_amount }}}}'] = f'{item_amount:.2f}'
 		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = f'PHP {_format_fund_request_amount(item_amount)}'
-		line_items_lines.append(f'{index}. {item_date_label} | {item_particulars} | PHP {_format_fund_request_amount(item_amount)}')
+		placeholders[f'{{{{ item_{index}_category }}}}'] = item_category
+		placeholders[f'{{{{ item_{index}_description }}}}'] = item_description
+		placeholders[f'{{{{ item_{index}_quantity }}}}'] = str(item_quantity)
+		placeholders[f'{{{{ item_{index}_uom }}}}'] = item_uom
+		placeholders[f'{{{{ item_{index}_estimated_cost }}}}'] = _format_fund_request_amount(item_estimated_cost)
+		placeholders[f'{{{{ item_{index}_estimated_cost_php }}}}'] = f'PHP {_format_fund_request_amount(item_estimated_cost)}'
+		placeholders[f'{{{{ line_{index}_date }}}}'] = item_date_label
+		placeholders[f'{{{{ line_{index}_particulars }}}}'] = item_particulars
+		placeholders[f'{{{{ line_{index}_amount }}}}'] = f'{item_amount:.2f}'
+		placeholders[f'{{{{ line_{index}_amount_php }}}}'] = f'PHP {_format_fund_request_amount(item_amount)}'
+		placeholders[f'{{{{ line_{index}_category }}}}'] = item_category
+		placeholders[f'{{{{ line_{index}_description }}}}'] = item_description
+		placeholders[f'{{{{ line_{index}_quantity }}}}'] = str(item_quantity)
+		placeholders[f'{{{{ line_{index}_uom }}}}'] = item_uom
+		placeholders[f'{{{{ line_{index}_estimated_cost }}}}'] = _format_fund_request_amount(item_estimated_cost)
+		placeholders[f'{{{{ line_{index}_estimated_cost_php }}}}'] = f'PHP {_format_fund_request_amount(item_estimated_cost)}'
+		line_items_lines.append(
+			f'{index}. {item_category} | {item_description} | Qty {item_quantity} {item_uom} | PHP {_format_fund_request_amount(item_estimated_cost)}'
+		)
 
 	for index in range(len(line_items) + 1, 21):
 		placeholders[f'{{{{ item_{index}_date }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_particulars }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_amount }}}}'] = ''
 		placeholders[f'{{{{ item_{index}_amount_php }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_category }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_description }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_quantity }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_uom }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_estimated_cost }}}}'] = ''
+		placeholders[f'{{{{ item_{index}_estimated_cost_php }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_date }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_particulars }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_amount }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_amount_php }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_category }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_description }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_quantity }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_uom }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_estimated_cost }}}}'] = ''
+		placeholders[f'{{{{ line_{index}_estimated_cost_php }}}}'] = ''
 
 	placeholders['{{ line_items }}'] = '\n'.join(line_items_lines)
 	placeholders['{{ line_items_table }}'] = '\n'.join(line_items_lines)
@@ -1345,17 +1481,36 @@ def _build_fund_request_template_placeholders_from_values(
 
 
 def _build_fund_request_template_placeholders(fund_request):
-	line_items = [
-		{
-			'entry_date': item.entry_date,
-			'particulars': item.particulars,
-			'amount': item.amount,
-		}
-		for item in fund_request.items.all()
-	]
+	request_metadata = fund_request.request_metadata or {}
+	metadata_items = request_metadata.get('line_items') or []
+	model_items = list(fund_request.items.all())
+	line_items = []
+	for index, item in enumerate(model_items):
+		metadata_item = metadata_items[index] if index < len(metadata_items) and isinstance(metadata_items[index], dict) else {}
+		line_items.append(
+			{
+				'entry_date': item.entry_date,
+				'particulars': item.particulars,
+				'amount': item.amount,
+				'category': metadata_item.get('category') or '',
+				'description': metadata_item.get('description') or item.particulars,
+				'quantity': metadata_item.get('quantity') or '',
+				'unit_of_measurement': metadata_item.get('unit_of_measurement') or '',
+				'estimated_cost': metadata_item.get('estimated_cost') or item.amount,
+			}
+		)
 	prepared_by = '-'
 	if fund_request.created_by:
 		prepared_by = fund_request.created_by.get_full_name() or fund_request.created_by.username
+	purpose_of_request = (request_metadata.get('purpose_of_request') or '').strip()
+	mode_of_release_key = (request_metadata.get('mode_of_release') or '').strip()
+	mode_of_release = dict(FundRequestForm.MODE_OF_RELEASE_CHOICES).get(mode_of_release_key, mode_of_release_key)
+	requested_amount_value = request_metadata.get('requested_amount')
+	try:
+		requested_amount = Decimal(str(requested_amount_value)) if requested_amount_value not in (None, '') else fund_request.total_amount or 0
+	except (InvalidOperation, TypeError, ValueError):
+		requested_amount = fund_request.total_amount or 0
+	fuel_gas_details, supplier_details = _build_fund_request_gas_sections(fund_request.request_metadata)
 	return _build_fund_request_template_placeholders_from_values(
 		serial_number=fund_request.serial_number or '',
 		requester_name=fund_request.requester_name or '',
@@ -1363,9 +1518,14 @@ def _build_fund_request_template_placeholders(fund_request):
 		department=fund_request.department or '',
 		branch=fund_request.branch or '',
 		total_amount=fund_request.total_amount or 0,
+		purpose_of_request=purpose_of_request,
+		mode_of_release=mode_of_release,
+		requested_amount=requested_amount,
 		prepared_by=prepared_by,
 		created_at=fund_request.created_at,
 		template_name=fund_request.template.name if fund_request.template else '',
+		fuel_gas_details=fuel_gas_details,
+		supplier_service_details=supplier_details,
 		line_items=line_items,
 	)
 
@@ -1375,6 +1535,7 @@ def _build_fund_request_line_items_context_from_values(line_items=None):
 	for index, item in enumerate(line_items or [], start=1):
 		item_date = item.get('entry_date')
 		item_amount = item.get('amount') or 0
+		estimated_cost = item.get('estimated_cost') or item_amount
 		context_items.append(
 			{
 				'index': index,
@@ -1382,22 +1543,36 @@ def _build_fund_request_line_items_context_from_values(line_items=None):
 				'particulars': item.get('particulars') or '',
 				'amount': f'{item_amount:.2f}',
 				'amount_php': f'PHP {_format_fund_request_amount(item_amount)}',
+				'category': item.get('category') or '',
+				'description': item.get('description') or item.get('particulars') or '',
+				'quantity': str(item.get('quantity') or ''),
+				'uom': item.get('uom') or item.get('unit_of_measurement') or '',
+				'unit_of_measurement': item.get('unit_of_measurement') or item.get('uom') or '',
+				'estimated_cost': _format_fund_request_amount(estimated_cost),
+				'estimated_cost_php': f'PHP {_format_fund_request_amount(estimated_cost)}',
 			}
 		)
 	return context_items
 
 
 def _build_fund_request_line_items_context(fund_request):
-	return _build_fund_request_line_items_context_from_values(
-		[
+	metadata_items = (fund_request.request_metadata or {}).get('line_items') or []
+	line_items = []
+	for index, item in enumerate(fund_request.items.all()):
+		metadata_item = metadata_items[index] if index < len(metadata_items) and isinstance(metadata_items[index], dict) else {}
+		line_items.append(
 			{
 				'entry_date': item.entry_date,
 				'particulars': item.particulars,
 				'amount': item.amount,
+				'category': metadata_item.get('category') or '',
+				'description': metadata_item.get('description') or item.particulars,
+				'quantity': metadata_item.get('quantity') or '',
+				'unit_of_measurement': metadata_item.get('unit_of_measurement') or '',
+				'estimated_cost': metadata_item.get('estimated_cost') or item.amount,
 			}
-			for item in fund_request.items.all()
-		]
-	)
+		)
+	return _build_fund_request_line_items_context_from_values(line_items)
 
 
 def _replace_line_item_block_placeholders(content, line_item):
@@ -1424,6 +1599,23 @@ def _shift_xlsx_row_numbers(block_content, row_offset):
 
 def _expand_dynamic_line_item_blocks(content, line_items, extension):
 	block_pattern = re.compile(r'{{#line_items}}(.*?){{/line_items}}', re.DOTALL)
+
+	if extension == '.xlsx':
+		row_block_pattern = re.compile(r'<row\b[^>]*\br="(\d+)"[^>]*>.*?{{#line_items}}.*?{{/line_items}}.*?</row>', re.DOTALL)
+
+		def render_row_block(match):
+			if not line_items:
+				return ''
+
+			row_content = match.group(0).replace('{{#line_items}}', '').replace('{{/line_items}}', '')
+			rendered_rows = []
+			for index, line_item in enumerate(line_items):
+				item_block = _replace_line_item_block_placeholders(row_content, line_item)
+				item_block = _shift_xlsx_row_numbers(item_block, index)
+				rendered_rows.append(item_block)
+			return ''.join(rendered_rows)
+
+		content = row_block_pattern.sub(render_row_block, content)
 
 	def render_block(match):
 		block_content = match.group(1)
@@ -1505,7 +1697,7 @@ def _render_fund_request_template_binary(fund_request):
 	extension = _fund_request_template_extension(template_record)
 	placeholders = _build_fund_request_template_placeholders(fund_request)
 	line_items = _build_fund_request_line_items_context(fund_request)
-	output_name = f'fund-request-{fund_request.serial_number}{extension}'
+	output_name = f'payment-request-{fund_request.serial_number}{extension}'
 	return _render_fund_request_template_binary_from_template(template_record, placeholders, line_items, output_name)
 
 
@@ -1513,14 +1705,47 @@ def _build_sample_fund_request_preview_context(template_record):
 	request_date = timezone.localdate()
 	created_at = timezone.now()
 	line_items = [
-		{'entry_date': request_date, 'particulars': 'Transportation allowance', 'amount': 1250.00},
-		{'entry_date': request_date, 'particulars': 'Client lunch meeting', 'amount': 1850.00},
-		{'entry_date': request_date, 'particulars': 'Project supplies', 'amount': 2499.50},
+		{
+			'entry_date': request_date,
+			'particulars': 'Materials/Purchases | Project supplies | Qty 3 pcs | PHP 2,499.50',
+			'amount': 2499.50,
+			'category': 'Materials/Purchases',
+			'description': 'Project supplies',
+			'quantity': '3',
+			'unit_of_measurement': 'pcs',
+			'estimated_cost': 2499.50,
+		},
+		{
+			'entry_date': request_date,
+			'particulars': 'Gas/Fuel | Fuel allocation | Qty 1 lot | PHP 1,250.00',
+			'amount': 1250.00,
+			'category': 'Gas/Fuel',
+			'description': 'Fuel allocation',
+			'quantity': '1',
+			'unit_of_measurement': 'lot',
+			'estimated_cost': 1250.00,
+		},
 	]
 	total_amount = sum(item['amount'] for item in line_items)
+	purpose_of_request = 'Site inspection, minor tools purchase, and fuel allocation.'
+	mode_of_release = 'Cash'
+	fuel_gas_details = (
+		'Fuel / Gas Details (if applicable)\n'
+		'Vehicle to be Used: Company Service Van\n'
+		'Plate Number: ABC-1234\n'
+		'Current Odometer Reading: 12345 km\n'
+		'Estimated Distance to Travel: 18 km\n'
+		'Purpose of Travel:\n'
+		'Site inspection and supply pickup.'
+	)
+	supplier_service_details = (
+		'Supplier / Service Details (if known)\n'
+		'Supplier/Store Name: Sample Hardware\n'
+		'Contact Person/Details: Juan Dela Cruz (0917-555-0101)'
+	)
 	return {
 		'sample_summary': {
-			'serial_number': '2026-0001',
+			'ctrl_no': '2026-0001',
 			'requester_name': 'Juan Dela Cruz',
 			'request_date': _format_fund_request_date(request_date),
 			'department': 'Operations',
@@ -1535,9 +1760,14 @@ def _build_sample_fund_request_preview_context(template_record):
 			department='Operations',
 			branch='Main Branch',
 			total_amount=total_amount,
+			purpose_of_request=purpose_of_request,
+			mode_of_release=mode_of_release,
+			requested_amount=total_amount,
 			prepared_by='Portal Demo User',
 			created_at=created_at,
 			template_name=template_record.name if template_record else '',
+			fuel_gas_details=fuel_gas_details,
+			supplier_service_details=supplier_service_details,
 			line_items=line_items,
 		),
 		'line_items': _build_fund_request_line_items_context_from_values(line_items),
@@ -1547,104 +1777,84 @@ def _build_sample_fund_request_preview_context(template_record):
 def _build_fund_request_template_placeholder_guide():
 	return [
 		{
-			'placeholder': '{{ serial_number }}',
-			'description': 'Shows the approved fund request serial number (blank while pending).',
-			'use_case': 'Use in the document header, title bar, or control number area.',
-		},
-		{
-			'placeholder': '{{ requester_name }}',
-			'description': 'Displays the employee or requester full name.',
-			'use_case': 'Use beside labels like Requester, Requested By, or Name.',
+			'placeholder': '{{ ctrl_no }}',
+			'description': 'Shows the payment request control number.',
+			'use_case': 'Use beside the Control No. label.',
 		},
 		{
 			'placeholder': '{{ request_date }}',
-			'description': 'Outputs the request date in `MMMM DD, YYYY` format (example: April 25, 2026).',
-			'use_case': 'Use for the request date field in forms and approval sheets.',
+			'description': 'Shows the payment request date.',
+			'use_case': 'Use beside the Date label.',
+		},
+		{
+			'placeholder': '{{ requester_name }}',
+			'description': 'Shows the requestor name.',
+			'use_case': 'Use beside Requestor Name.',
 		},
 		{
 			'placeholder': '{{ department }}',
-			'description': 'Shows the selected department.',
-			'use_case': 'Use in the requester details section or routing block.',
+			'description': 'Shows the department or project.',
+			'use_case': 'Use beside Department/Project.',
 		},
 		{
-			'placeholder': '{{ branch }}',
-			'description': 'Shows the selected branch or office.',
-			'use_case': 'Use under department, office, or branch labels.',
-		},
-		{
-			'placeholder': '{{ total_amount }}',
-			'description': 'Outputs the computed total amount as a numeric value with thousands separators.',
-			'use_case': 'Use inside formulas or cells that should not include the `PHP` prefix.',
+			'placeholder': '{{ purpose_of_request }}',
+			'description': 'Shows the purpose of request.',
+			'use_case': 'Use in the Purpose of Request section.',
 		},
 		{
 			'placeholder': '{{ total_amount_php }}',
-			'description': 'Outputs the computed total amount with the `PHP` currency prefix and thousands separators.',
-			'use_case': 'Use for grand total labels in printed fund request forms.',
+			'description': 'Shows the total requested amount with the PHP prefix.',
+			'use_case': 'Use beside Requested Amount.',
 		},
 		{
-			'placeholder': '{{ prepared_by }}',
-			'description': 'Shows the portal user who prepared or submitted the request.',
-			'use_case': 'Use for signatures, footer summaries, or prepared-by blocks.',
+			'placeholder': '{{ date_needed }}',
+			'description': 'Shows the date needed.',
+			'use_case': 'Use beside Date Needed.',
 		},
 		{
-			'placeholder': '{{ created_at }}',
-			'description': 'Shows when the request record was created in the portal.',
-			'use_case': 'Use in audit stamps, footer notes, or generated metadata.',
+			'placeholder': '{{ payment_mode }}',
+			'description': 'Shows the selected mode of release.',
+			'use_case': 'Use beside Mode of Release.',
 		},
 		{
-			'placeholder': '{{ template_name }}',
-			'description': 'Outputs the current fund request template name.',
-			'use_case': 'Use in document footers or internal reference labels.',
+			'placeholder': '{{ line_1_category }}',
+			'description': 'Shows the category for fixed table line 1. Use `line_2_category`, `line_3_category`, up to `line_20_category` for more rows.',
+			'use_case': 'Use in a specific row Category cell, such as B20.',
 		},
 		{
-			'placeholder': '{{ line_items }}',
-			'description': 'Creates a plain text multi-line summary of all line items.',
-			'use_case': 'Use when the template only needs one paragraph or text box summary.',
+			'placeholder': '{{ line_1_description }}',
+			'description': 'Shows the description for fixed table line 1. Use `line_2_description`, `line_3_description`, up to `line_20_description` for more rows.',
+			'use_case': 'Use in a specific row Description cell, such as C20.',
 		},
 		{
-			'placeholder': '{{ line_items_table }}',
-			'description': 'Alias of `{{ line_items }}` that outputs the same multi-line summary text.',
-			'use_case': 'Use in legacy templates that already use `line_items_table` naming.',
+			'placeholder': '{{ line_1_quantity }}',
+			'description': 'Shows the quantity for fixed table line 1. Use `line_2_quantity`, `line_3_quantity`, up to `line_20_quantity` for more rows.',
+			'use_case': 'Use in a specific row Qty cell, such as D20.',
 		},
 		{
-			'placeholder': '{{ item_1_date }}',
-			'description': 'Outputs the first line item date in `MM/DD/YYYY` format. The same format works for `item_2_...` up to `item_20_...`.',
-			'use_case': 'Use for fixed-row templates where each row is mapped manually.',
+			'placeholder': '{{ line_1_uom }}',
+			'description': 'Shows the unit of measurement for fixed table line 1. Use `line_2_uom`, `line_3_uom`, up to `line_20_uom` for more rows.',
+			'use_case': 'Use in a specific row UOM cell, such as E20.',
 		},
 		{
-			'placeholder': '{{ item_1_particulars }}',
-			'description': 'Outputs the first line item particulars. Repeat the number for additional fixed rows.',
-			'use_case': 'Use in static Office templates with a known number of rows.',
-		},
-		{
-			'placeholder': '{{ item_1_amount_php }}',
-			'description': 'Outputs the first line item amount with the `PHP` prefix and thousands separators. Use `{{ item_1_amount }}` for numeric-only values.',
-			'use_case': 'Use for fixed-row amount cells or static print layouts.',
+			'placeholder': '{{ line_1_estimated_cost }}',
+			'description': 'Shows the estimated cost for fixed table line 1. Use `line_2_estimated_cost`, `line_3_estimated_cost`, up to `line_20_estimated_cost` for more rows.',
+			'use_case': 'Use in a specific row Estimated Cost cell, such as F20.',
 		},
 		{
 			'placeholder': '{{#line_items}} ... {{/line_items}}',
-			'description': 'Dynamic repeating block for uploaded `.docx` and `.xlsx` templates. Everything inside the block repeats once per line item.',
-			'use_case': 'Use when the number of rows can change and the template should expand automatically.',
+			'description': 'Optional dynamic repeating block for planned-expense rows.',
+			'use_case': 'Use only if your template needs rows inserted automatically instead of fixed line placeholders.',
 		},
 		{
-			'placeholder': '{{ entry_date }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row date in `MM/DD/YYYY` format.',
-			'use_case': 'Use inside dynamic table rows for each expense date.',
+			'placeholder': '{{ fuel-gas_details }}',
+			'description': 'Shows the Fuel / Gas Details block only when the request uses gas/fuel.',
+			'use_case': 'Use where the fuel/gas details section appears.',
 		},
 		{
-			'placeholder': '{{ particulars }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row particulars.',
-			'use_case': 'Use inside dynamic rows for item descriptions or expense details.',
-		},
-		{
-			'placeholder': '{{ amount }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount as numeric-only.',
-			'use_case': 'Use in numeric cells or formulas that should not include the `PHP` prefix.',
-		},
-		{
-			'placeholder': '{{ amount_php }}',
-			'description': 'Available only inside the `{{#line_items}}` block. Outputs the current row amount with the `PHP` prefix and thousands separators.',
-			'use_case': 'Use inside dynamic rows when the amount should already be display-formatted.',
+			'placeholder': '{{ supplier-server-details }}',
+			'description': 'Shows the Supplier / Service Details block only when supplier/service details are marked Yes.',
+			'use_case': 'Use where the supplier/service details section appears.',
 		},
 	]
 
@@ -1656,14 +1866,19 @@ def _build_fund_request_template_quick_placeholder_guide():
 		for item in placeholder_guide
 	}
 	featured_placeholders = [
-		'{{ serial_number }}',
-		'{{ requester_name }}',
+		'{{ ctrl_no }}',
 		'{{ request_date }}',
+		'{{ requester_name }}',
 		'{{ department }}',
-		'{{ branch }}',
+		'{{ purpose_of_request }}',
 		'{{ total_amount_php }}',
-		'{{ prepared_by }}',
-		'{{#line_items}} ... {{/line_items}}',
+		'{{ date_needed }}',
+		'{{ payment_mode }}',
+		'{{ line_1_category }}',
+		'{{ line_1_description }}',
+		'{{ line_1_quantity }}',
+		'{{ line_1_uom }}',
+		'{{ line_1_estimated_cost }}',
 	]
 	return [
 		placeholder_map[placeholder]
@@ -1680,6 +1895,19 @@ def _ensure_active_fund_request_template():
 		return
 	fallback_template.is_active = True
 	fallback_template.save(update_fields=['is_active'])
+
+
+def _sync_pending_fund_requests_to_template(template_record=None):
+	if template_record is None:
+		template_record = FundRequestTemplate.objects.filter(is_active=True).order_by('-updated_at', '-created_at').first()
+	if not template_record:
+		return 0
+	return (
+		FundRequest.objects
+		.filter(request_status='pending')
+		.exclude(template_id=template_record.pk)
+		.update(template=template_record, updated_at=timezone.now())
+	)
 
 
 def _ensure_active_liquidation_template():
@@ -2142,7 +2370,7 @@ def _convert_office_bytes_to_pdf(file_bytes, filename, allow_structured_preview_
 	return None
 
 
-def _render_html_bytes_to_pdf(html_bytes, filename='fund-request.html'):
+def _render_html_bytes_to_pdf(html_bytes, filename='payment-request.html'):
 	return _convert_office_bytes_to_pdf(html_bytes, filename, allow_structured_preview_fallback=False)
 
 
@@ -2283,7 +2511,7 @@ def _merge_pdf_parts(pdf_parts):
 	if not pdfunite_path:
 		return None
 
-	with tempfile.TemporaryDirectory(prefix='fund-request-pdf-merge-') as temp_dir:
+	with tempfile.TemporaryDirectory(prefix='payment-request-pdf-merge-') as temp_dir:
 		temp_path = Path(temp_dir)
 		input_paths = []
 		for index, content in enumerate(valid_parts, start=1):
@@ -2308,7 +2536,7 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 			with template_record.file.open('rb') as template_file:
 				return {
 					'content': template_file.read(),
-					'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+					'filename': f'payment-request-{fund_request.serial_number or fund_request.pk}.pdf',
 					'source': 'template_pdf',
 				}
 
@@ -2349,13 +2577,13 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 			'template_extension': template_extension,
 		},
 	)
-	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), f'fund-request-{fund_request.serial_number or fund_request.pk}.html')
+	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), f'payment-request-{fund_request.serial_number or fund_request.pk}.html')
 	if not pdf_bytes:
 		prepared_by = '-'
 		if fund_request.created_by:
 			prepared_by = fund_request.created_by.get_full_name() or fund_request.created_by.username
 		summary_lines = [
-			f'Serial Number: {fund_request.serial_number or "For Approval"}',
+			f'Control Number: {fund_request.serial_number or "For Approval"}',
 			f'Requester Name: {fund_request.requester_name or "-"}',
 			f'Request Date: {_format_fund_request_date(fund_request.request_date) or "-"}',
 			f'Department: {fund_request.department or "-"}',
@@ -2372,18 +2600,18 @@ def _build_fund_request_base_pdf_payload(fund_request, allow_structured_preview_
 			)
 		if not fund_request.items.exists():
 			summary_lines.append('No line items recorded.')
-		pdf_bytes = _build_notice_pdf_bytes('Fund Request Document Summary', summary_lines)
+		pdf_bytes = _build_notice_pdf_bytes('Payment Request Document Summary', summary_lines)
 		if not pdf_bytes:
 			return None
 		return {
 			'content': pdf_bytes,
-			'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+			'filename': f'payment-request-{fund_request.serial_number or fund_request.pk}.pdf',
 			'source': 'generated_summary_pdf',
 		}
 
 	return {
 		'content': pdf_bytes,
-		'filename': f'fund-request-{fund_request.serial_number or fund_request.pk}.pdf',
+		'filename': f'payment-request-{fund_request.serial_number or fund_request.pk}.pdf',
 		'source': 'generated_pdf',
 	}
 
@@ -2421,7 +2649,7 @@ def _build_fund_request_client_side_conversion_payload(fund_request):
 			return None
 		with template_record.file.open('rb') as template_file:
 			source_bytes = template_file.read()
-		source_filename = Path(template_record.file.name).name or f'fund-request-client-source{template_extension}'
+		source_filename = Path(template_record.file.name).name or f'payment-request-client-source{template_extension}'
 
 	if not source_bytes:
 		return None
@@ -2466,7 +2694,7 @@ def _build_fund_request_template_file_payload(fund_request):
 	with template_record.file.open('rb') as template_file:
 		return {
 			'content': template_file.read(),
-			'filename': Path(template_record.file.name).name or f'fund-request-template{template_extension or ""}',
+			'filename': Path(template_record.file.name).name or f'payment-request-template{template_extension or ""}',
 			'content_type': content_type_map.get(template_extension, 'application/octet-stream'),
 			'source': 'template_original_file',
 		}
@@ -2483,7 +2711,7 @@ def _build_template_preview_pdf_payload(template_record):
 	if extension == '.pdf':
 		return {
 			'content': original_bytes,
-			'filename': f'{Path(template_record.file.name).stem or "fund-request-template"}-preview.pdf',
+			'filename': f'{Path(template_record.file.name).stem or "payment-request-template"}-preview.pdf',
 			'mode': 'original_pdf',
 		}
 
@@ -2493,7 +2721,7 @@ def _build_template_preview_pdf_payload(template_record):
 			template_record,
 			sample_context['placeholders'],
 			sample_context['line_items'],
-			f'{Path(template_record.file.name).stem or "fund-request-template"}-filled{extension}',
+			f'{Path(template_record.file.name).stem or "payment-request-template"}-filled{extension}',
 		)
 		if rendered_template:
 			pdf_bytes = _convert_office_bytes_to_pdf(
@@ -2517,7 +2745,7 @@ def _build_template_preview_pdf_payload(template_record):
 		if pdf_bytes:
 			return {
 				'content': pdf_bytes,
-				'filename': f'{Path(template_record.file.name).stem or "fund-request-template"}-preview.pdf',
+				'filename': f'{Path(template_record.file.name).stem or "payment-request-template"}-preview.pdf',
 				'mode': 'converted_original',
 			}
 
@@ -3437,11 +3665,25 @@ def users_bulk_update_role(request):
 	return redirect('users_list')
 
 
+def _user_in_super_users_group(user):
+	return bool(user and user.groups.filter(name__iexact='Super Users').exists())
+
+
+def _get_super_users_fallback_branch():
+	for user in User.objects.filter(groups__name__iexact='Super Users').select_related('profile').order_by('id'):
+		branch_name = (getattr(getattr(user, 'profile', None), 'branch', '') or '').strip()
+		if branch_name:
+			return branch_name
+	return 'Unassigned Branch'
+
+
 def _get_user_file_context(user):
 	profile = getattr(user, 'profile', None)
 	branch_name = (getattr(profile, 'branch', '') or '').strip() or 'Unassigned Branch'
 	role_names = [group.name for group in user.groups.all()]
 	role_name = (role_names[0] if role_names else '').strip() or 'Unassigned Role'
+	if branch_name == 'Unassigned Branch' and _user_in_super_users_group(user):
+		branch_name = _get_super_users_fallback_branch()
 	department_name = role_name
 	for delimiter in [' - ', ':', '/']:
 		if delimiter in role_name:
@@ -3455,7 +3697,29 @@ def _get_user_file_context(user):
 	return branch_name, department_name, role_name
 
 
+def _build_file_manager_scope_label(selected_node, fallback_parts):
+	if selected_node:
+		path_parts = []
+		current_node = selected_node
+		while current_node:
+			path_parts.append(current_node.name)
+			current_node = current_node.parent
+		return ' > '.join(reversed(path_parts))
+
+	deduped_parts = []
+	for part in fallback_parts:
+		part = (part or '').strip()
+		if not part:
+			continue
+		if deduped_parts and _is_same_file_manager_level(deduped_parts[-1], part):
+			continue
+		deduped_parts.append(part)
+	return ' > '.join(deduped_parts)
+
+
 def _user_can_access_node(user, node):
+	if _is_file_manager_trash_context(node) and not user.is_superuser:
+		return False
 	if user.is_superuser or node.owner_id == user.id:
 		return True
 	return ManagedFilePermission.objects.filter(node=node, user=user).exists()
@@ -3466,6 +3730,191 @@ def _user_can_write_node(user, node):
 		return True
 	permission = ManagedFilePermission.objects.filter(node=node, user=user).values_list('access_level', flat=True).first()
 	return permission in {'write', 'read_write'}
+
+
+def _get_user_default_file_manager_node(user):
+	if not user or not user.is_authenticated:
+		return None
+	if user.is_superuser:
+		return None
+	return (
+		ManagedFileNode.objects.filter(owner=user, node_type__in=('folder', 'shared_folder'))
+		.exclude(parent__isnull=True, name__iexact='Trash')
+		.filter(Q(name=user.username) | Q(permissions__user=user, permissions__access_level='read_write'))
+		.order_by('-updated_at', '-id')
+		.first()
+	)
+
+
+def _resolve_file_manager_parent_for_write(request, parent_id, allow_root=False):
+	parent = None
+	if parent_id.isdigit():
+		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
+		if parent.node_type == 'file':
+			return None, _fm_response(request, ok=False, message='Select a folder before uploading or creating items.', status=400)
+		if _is_file_manager_trash_context(parent):
+			return None, _fm_response(request, ok=False, message='Trash is read-only.', status=400)
+		if not _user_can_access_node(request.user, parent):
+			return None, _permission_denied_response(request, 'You do not have access to this folder.')
+		if not _user_can_write_node(request.user, parent):
+			return None, _permission_denied_response(request, 'You only have read access to this folder. Open your user folder or request write access.')
+		return parent, None
+
+	if allow_root and (request.user.is_superuser or request.user.has_perm('core.add_managedfilenode')):
+		return None, None
+	return None, _fm_response(request, ok=False, message='Select a writable folder first.', status=400)
+
+
+def _get_available_managed_file_name(parent, owner, desired_name):
+	name = (desired_name or '').strip() or 'Untitled'
+	base_name = Path(name).stem or name
+	extension = Path(name).suffix
+	candidate = name
+	counter = 2
+	while ManagedFileNode.objects.filter(parent=parent, owner=owner, name=candidate).exists():
+		candidate = f'{base_name} ({counter}){extension}'
+		counter += 1
+	return candidate
+
+
+def _format_file_size(size_bytes):
+	units = ['B', 'KB', 'MB', 'GB']
+	value = float(max(0, int(size_bytes or 0)))
+	index = 0
+	while value >= 1024 and index < len(units) - 1:
+		value /= 1024.0
+		index += 1
+	if index == 0:
+		return f'{int(value)} {units[index]}'
+	return f'{value:.2f} {units[index]}'
+
+
+def _get_trash_root_node(node):
+	current_node = node
+	while current_node:
+		if _is_file_manager_trash_node(current_node):
+			return current_node
+		current_node = getattr(current_node, 'parent', None)
+	return None
+
+
+def _get_trash_total_bytes(node):
+	trash_root = _get_trash_root_node(node)
+	if not trash_root:
+		return 0
+	queue = [trash_root.id]
+	read_total = 0
+	while queue:
+		batch = queue[:500]
+		queue = queue[500:]
+		children = list(
+			ManagedFileNode.objects
+			.filter(parent_id__in=batch)
+			.values('id', 'node_type', 'file_size_bytes')
+		)
+		for child in children:
+			queue.append(child['id'])
+			if child['node_type'] == 'file':
+				read_total += int(child['file_size_bytes'] or 0)
+	return read_total
+
+
+def _is_file_manager_trash_node(node):
+	return bool(node and node.parent_id is None and (node.name or '').strip().casefold() == 'trash')
+
+
+def _is_file_manager_trash_context(node):
+	current_node = node
+	while current_node:
+		if _is_file_manager_trash_node(current_node):
+			return True
+		current_node = getattr(current_node, 'parent', None)
+	return False
+
+
+def _get_file_manager_system_owner(fallback_user=None):
+	return User.objects.filter(is_superuser=True).order_by('id').first() or fallback_user or User.objects.order_by('id').first()
+
+
+def _cleanup_duplicate_file_manager_trash_roots(canonical_trash):
+	if not canonical_trash:
+		return canonical_trash
+
+	for duplicate_trash in list(
+		ManagedFileNode.objects
+		.filter(parent__isnull=True, name__iexact='Trash')
+		.exclude(pk=canonical_trash.pk)
+		.order_by('id')
+	):
+		_sync_managed_file_permission(duplicate_trash, canonical_trash)
+		for child_node in list(duplicate_trash.children.all().order_by('id')):
+			child_node.parent = canonical_trash
+			child_node.name = _get_available_managed_file_name(canonical_trash, child_node.owner, child_node.name)
+			child_node.updated_by = canonical_trash.owner
+			child_node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+		if not duplicate_trash.children.exists():
+			duplicate_trash.delete()
+	return canonical_trash
+
+
+def _get_or_create_file_manager_trash_folder(user):
+	system_owner = _get_file_manager_system_owner(user)
+	branch_name, department_name, role_name = _get_user_file_context(system_owner)
+	default_root_endpoint = _get_default_root_storage_endpoint()
+	trash_node, _ = ManagedFileNode.objects.get_or_create(
+		parent=None,
+		owner=system_owner,
+		name='Trash',
+		defaults={
+			'node_type': 'folder',
+			'access_scope': 'private',
+			'branch_name_snapshot': branch_name,
+			'department_name_snapshot': department_name,
+			'role_name_snapshot': role_name,
+			'storage_endpoint': default_root_endpoint,
+			'created_by': system_owner,
+			'updated_by': system_owner,
+		},
+	)
+	return _cleanup_duplicate_file_manager_trash_roots(trash_node)
+
+
+def _move_file_manager_nodes_to_trash(nodes, user):
+	trash_node = _get_or_create_file_manager_trash_folder(user)
+	moved_count = 0
+	for node in nodes:
+		if node.pk == trash_node.pk:
+			continue
+		if node.parent_id == trash_node.pk:
+			continue
+		original_parent = node.parent
+		node.parent = trash_node
+		node.trashed_from = original_parent
+		node.name = _get_available_managed_file_name(trash_node, node.owner, node.name)
+		node.updated_by = user
+		node.save(update_fields=['parent', 'trashed_from', 'name', 'updated_by', 'updated_at'])
+		moved_count += 1
+	return moved_count, trash_node
+
+
+def _get_restore_target_for_node(node):
+	if node.trashed_from_id:
+		candidate = ManagedFileNode.objects.filter(pk=node.trashed_from_id).first()
+		if candidate and candidate.node_type in {'folder', 'shared_folder'} and not _is_file_manager_trash_context(candidate):
+			return candidate
+	owner = node.owner
+	fallback = _get_user_default_file_manager_node(owner)
+	if fallback and not _is_file_manager_trash_context(fallback):
+		return fallback
+	root = (
+		ManagedFileNode.objects.filter(parent__isnull=True, owner=owner)
+		.exclude(name__iexact='Trash')
+		.order_by('name')
+		.first()
+	)
+	if root and not _is_file_manager_trash_context(root):
+		return root
+	return None
 
 
 def _can_view_all_file_manager_nodes(user):
@@ -3488,10 +3937,192 @@ def _get_user_storage_quota_mb(user):
 	return int(quota or 0)
 
 
+def _is_same_file_manager_level(left_name, right_name):
+	return (left_name or '').strip().casefold() == (right_name or '').strip().casefold()
+
+
+def _sync_managed_file_permission(source_node, target_node):
+	permission_rank = {'read': 1, 'write': 2, 'read_write': 3}
+	for source_permission in ManagedFilePermission.objects.filter(node=source_node).select_related('user', 'created_by'):
+		target_permission, created = ManagedFilePermission.objects.get_or_create(
+			node=target_node,
+			user=source_permission.user,
+			defaults={
+				'access_level': source_permission.access_level,
+				'created_by': source_permission.created_by,
+			},
+		)
+		if not created and permission_rank.get(source_permission.access_level, 0) > permission_rank.get(target_permission.access_level, 0):
+			target_permission.access_level = source_permission.access_level
+			target_permission.save(update_fields=['access_level'])
+
+
+def _collapse_duplicate_file_manager_folder_levels():
+	duplicate_nodes = (
+		ManagedFileNode.objects
+		.filter(parent__isnull=False, node_type__in=('folder', 'shared_folder'))
+		.select_related('parent')
+		.order_by('id')
+	)
+	for duplicate_node in duplicate_nodes:
+		parent_node = duplicate_node.parent
+		if not parent_node or not _is_same_file_manager_level(parent_node.name, duplicate_node.name):
+			continue
+
+		with transaction.atomic():
+			_sync_managed_file_permission(duplicate_node, parent_node)
+			for child_node in list(duplicate_node.children.all().order_by('id')):
+				if ManagedFileNode.objects.filter(parent=parent_node, owner=child_node.owner, name=child_node.name).exclude(pk=child_node.pk).exists():
+					continue
+				child_node.parent = parent_node
+				child_node.save(update_fields=['parent', 'updated_at'])
+			if not duplicate_node.children.exists():
+				duplicate_node.delete()
+
+
+def _merge_managed_file_folder(source_node, target_node, updated_by=None):
+	if not source_node or not target_node or source_node.pk == target_node.pk:
+		return
+
+	_sync_managed_file_permission(source_node, target_node)
+	for child_node in list(source_node.children.all().order_by('id')):
+		conflicting_child = (
+			ManagedFileNode.objects
+			.filter(parent=target_node, owner=child_node.owner, name=child_node.name)
+			.exclude(pk=child_node.pk)
+			.order_by('id')
+			.first()
+		)
+		if conflicting_child and child_node.node_type in {'folder', 'shared_folder'} and conflicting_child.node_type in {'folder', 'shared_folder'}:
+			_merge_managed_file_folder(child_node, conflicting_child, updated_by=updated_by)
+			continue
+		if conflicting_child:
+			continue
+
+		child_node.parent = target_node
+		if target_node.branch_name_snapshot:
+			child_node.branch_name_snapshot = target_node.branch_name_snapshot
+		if target_node.department_name_snapshot:
+			child_node.department_name_snapshot = target_node.department_name_snapshot
+		if target_node.role_name_snapshot:
+			child_node.role_name_snapshot = target_node.role_name_snapshot
+		child_node.updated_by = updated_by or child_node.updated_by
+		child_node.save(update_fields=[
+			'parent',
+			'branch_name_snapshot',
+			'department_name_snapshot',
+			'role_name_snapshot',
+			'updated_by',
+			'updated_at',
+		])
+
+	source_node.refresh_from_db()
+	if not source_node.children.exists():
+		source_node.delete()
+
+
+def _sync_file_manager_role_rename(old_role_name, new_role_name, updated_by=None):
+	old_role_name = (old_role_name or '').strip()
+	new_role_name = (new_role_name or '').strip()
+	if not old_role_name or not new_role_name or _is_same_file_manager_level(old_role_name, new_role_name):
+		return 0
+
+	updated_count = 0
+	role_nodes = list(
+		ManagedFileNode.objects
+		.filter(parent__isnull=False, access_scope='shared', node_type__in=('folder', 'shared_folder'))
+		.filter(Q(role_name_snapshot__iexact=old_role_name) | Q(name__iexact=old_role_name))
+		.select_related('parent')
+		.order_by('id')
+	)
+	with transaction.atomic():
+		for role_node in role_nodes:
+			if not role_node.parent_id:
+				continue
+			conflicting_node = (
+				ManagedFileNode.objects
+				.filter(parent=role_node.parent, owner=role_node.owner, name=new_role_name, access_scope='shared', node_type__in=('folder', 'shared_folder'))
+				.exclude(pk=role_node.pk)
+				.order_by('id')
+				.first()
+			)
+			if conflicting_node:
+				if not conflicting_node.role_name_snapshot:
+					conflicting_node.role_name_snapshot = new_role_name
+					conflicting_node.updated_by = updated_by or conflicting_node.updated_by
+					conflicting_node.save(update_fields=['role_name_snapshot', 'updated_by', 'updated_at'])
+				_merge_managed_file_folder(role_node, conflicting_node, updated_by=updated_by)
+			else:
+				role_node.name = new_role_name
+				role_node.role_name_snapshot = new_role_name
+				role_node.updated_by = updated_by or role_node.updated_by
+				role_node.save(update_fields=['name', 'role_name_snapshot', 'updated_by', 'updated_at'])
+			updated_count += 1
+
+		ManagedFileNode.objects.filter(role_name_snapshot__iexact=old_role_name).update(role_name_snapshot=new_role_name)
+
+	cache.delete(FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY)
+	return updated_count
+
+
+def _get_or_move_user_file_manager_folder(parent_node, target_user, defaults):
+	existing_node = (
+		ManagedFileNode.objects
+		.filter(owner=target_user, name=target_user.username, node_type__in=('folder', 'shared_folder'))
+		.order_by('id')
+		.first()
+	)
+	if existing_node:
+		if existing_node.parent_id != parent_node.id and not ManagedFileNode.objects.filter(
+			parent=parent_node,
+			owner=target_user,
+			name=target_user.username,
+		).exclude(pk=existing_node.pk).exists():
+			existing_node.parent = parent_node
+			existing_node.branch_name_snapshot = defaults.get('branch_name_snapshot', existing_node.branch_name_snapshot)
+			existing_node.department_name_snapshot = defaults.get('department_name_snapshot', existing_node.department_name_snapshot)
+			existing_node.role_name_snapshot = defaults.get('role_name_snapshot', existing_node.role_name_snapshot)
+			existing_node.storage_endpoint = defaults.get('storage_endpoint', existing_node.storage_endpoint)
+			existing_node.updated_by = defaults.get('updated_by', existing_node.updated_by)
+			existing_node.save(update_fields=[
+				'parent',
+				'branch_name_snapshot',
+				'department_name_snapshot',
+				'role_name_snapshot',
+				'storage_endpoint',
+				'updated_by',
+				'updated_at',
+			])
+		return existing_node
+
+	return ManagedFileNode.objects.create(
+		parent=parent_node,
+		owner=target_user,
+		name=target_user.username,
+		**defaults,
+	)
+
+
+def _prune_empty_legacy_super_user_branch_folders():
+	for node in list(
+		ManagedFileNode.objects
+		.filter(name__iexact='Super Users', parent__name__iexact='Unassigned Branch')
+		.order_by('id')
+	):
+		parent_node = node.parent
+		if node.children.exists():
+			continue
+		node.delete()
+		if parent_node and parent_node.name == 'Unassigned Branch' and not parent_node.children.exists():
+			parent_node.delete()
+
+
 def _ensure_file_manager_default_hierarchy():
 	system_owner = User.objects.filter(is_superuser=True).order_by('id').first() or User.objects.order_by('id').first()
 	if not system_owner:
 		return
+
+	_collapse_duplicate_file_manager_folder_levels()
 
 	default_root_endpoint = _get_default_root_storage_endpoint()
 	all_users = User.objects.prefetch_related('groups', 'profile').order_by('id')
@@ -3530,27 +4161,29 @@ def _ensure_file_manager_default_hierarchy():
 			},
 		)
 
-		role_node, _ = ManagedFileNode.objects.get_or_create(
-			parent=department_node,
-			owner=system_owner,
-			name=role_name,
-			defaults={
-				'node_type': 'folder',
-				'access_scope': 'shared',
-				'branch_name_snapshot': branch_name,
-				'department_name_snapshot': department_name,
-				'role_name_snapshot': role_name,
-				'storage_endpoint': default_root_endpoint,
-				'created_by': system_owner,
-				'updated_by': system_owner,
-			},
-		)
+		if _is_same_file_manager_level(department_name, role_name):
+			role_node = department_node
+		else:
+			role_node, _ = ManagedFileNode.objects.get_or_create(
+				parent=department_node,
+				owner=system_owner,
+				name=role_name,
+				defaults={
+					'node_type': 'folder',
+					'access_scope': 'shared',
+					'branch_name_snapshot': branch_name,
+					'department_name_snapshot': department_name,
+					'role_name_snapshot': role_name,
+					'storage_endpoint': default_root_endpoint,
+					'created_by': system_owner,
+					'updated_by': system_owner,
+				},
+			)
 
-		user_node, _ = ManagedFileNode.objects.get_or_create(
-			parent=role_node,
-			owner=target_user,
-			name=target_user.username,
-			defaults={
+		user_node = _get_or_move_user_file_manager_folder(
+			role_node,
+			target_user,
+			{
 				'node_type': 'folder',
 				'access_scope': 'private',
 				'branch_name_snapshot': branch_name,
@@ -3583,6 +4216,38 @@ def _ensure_file_manager_default_hierarchy():
 			defaults={'access_level': 'read_write', 'created_by': system_owner},
 		)
 
+	_prune_empty_legacy_super_user_branch_folders()
+
+
+def _file_manager_default_hierarchy_needs_sync(user):
+	if not ManagedFileNode.objects.filter(parent__isnull=True).exists():
+		return True
+	if user and user.is_authenticated and not user.is_superuser:
+		return _get_user_default_file_manager_node(user) is None
+	return False
+
+
+def _ensure_file_manager_default_hierarchy_if_needed(user):
+	if cache.get(FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY) and not _file_manager_default_hierarchy_needs_sync(user):
+		return
+
+	if not cache.add(FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY, True, timeout=30):
+		return
+
+	try:
+		if _file_manager_default_hierarchy_needs_sync(user):
+			_ensure_file_manager_default_hierarchy()
+		cache.set(
+			FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY,
+			True,
+			timeout=FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS,
+		)
+	except OperationalError:
+		cache.delete(FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY)
+		return
+	finally:
+		cache.delete(FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY)
+
 
 @login_required
 def file_manager_list(request):
@@ -3590,7 +4255,9 @@ def file_manager_list(request):
 	if restricted_response:
 		return restricted_response
 
-	_ensure_file_manager_default_hierarchy()
+	_ensure_file_manager_default_hierarchy_if_needed(request.user)
+	if request.user.is_superuser:
+		_get_or_create_file_manager_trash_folder(request.user)
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	root_nodes = ManagedFileNode.objects.filter(parent__isnull=True).select_related('owner', 'storage_endpoint')
@@ -3599,6 +4266,8 @@ def file_manager_list(request):
 		root_nodes = root_nodes.filter(
 			Q(owner=request.user) | Q(permissions__user=request.user)
 		).distinct()
+	if not request.user.is_superuser:
+		root_nodes = root_nodes.exclude(parent__isnull=True, name__iexact='Trash')
 
 	selected_node = None
 	node_id = (request.GET.get('node') or '').strip()
@@ -3606,6 +4275,9 @@ def file_manager_list(request):
 		candidate = ManagedFileNode.objects.select_related('owner', 'storage_endpoint', 'parent').filter(pk=int(node_id)).first()
 		if candidate and _user_can_access_node(request.user, candidate):
 			selected_node = candidate
+
+	if selected_node is None:
+		selected_node = _get_user_default_file_manager_node(request.user)
 
 	if selected_node is None:
 		selected_node = root_nodes.order_by('name').first()
@@ -3616,23 +4288,88 @@ def file_manager_list(request):
 		if not can_view_all and selected_node.owner_id != request.user.id:
 			children = children.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
 
+	for child in children:
+		child.size_display = _format_file_size(child.file_size_bytes) if child.node_type == 'file' else '-'
+		child.preview_kind = _get_file_manager_preview_kind(child) if child.node_type == 'file' else ''
+
+	trash_total_bytes = 0
+	if _is_file_manager_trash_context(selected_node):
+		trash_total_bytes = _get_trash_total_bytes(selected_node)
+
 	user_permissions = {}
 	if selected_node:
 		for item in ManagedFilePermission.objects.filter(node=selected_node).select_related('user'):
 			user_permissions[item.user_id] = item.access_level
 
+	move_targets = []
+	folder_candidates = ManagedFileNode.objects.filter(node_type__in=('folder', 'shared_folder')).select_related('parent')
+	if not can_view_all:
+		folder_candidates = folder_candidates.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
+	if not request.user.is_superuser:
+		folder_candidates = folder_candidates.exclude(parent__isnull=True, name__iexact='Trash')
+	for folder in folder_candidates:
+		if _is_file_manager_trash_context(folder) and not request.user.is_superuser:
+			continue
+		if not _user_can_write_node(request.user, folder):
+			continue
+		move_targets.append({'id': folder.id, 'label': _build_file_manager_scope_label(folder, [])})
+	move_targets.sort(key=lambda item: item['label'].lower())
+
 	context = {
 		'root_nodes': root_nodes.order_by('name'),
 		'selected_node': selected_node,
+		'parent_node': selected_node.parent if selected_node and selected_node.parent_id else None,
 		'children': children,
 		'storage_endpoints': FileStorageEndpoint.objects.order_by('name'),
 		'users': User.objects.order_by('username'),
 		'user_permissions': user_permissions,
+		'move_targets': move_targets,
+		'is_trash_context': _is_file_manager_trash_context(selected_node),
+		'trash_total_bytes': trash_total_bytes,
+		'trash_total_label': _format_file_size(trash_total_bytes) if trash_total_bytes else '0 B',
 		'branch_name': branch_name,
 		'department_name': department_name,
 		'role_name': role_name,
+		'scope_label': _build_file_manager_scope_label(
+			selected_node,
+			[branch_name, department_name, role_name, request.user.username],
+		),
 	}
 	return render(request, 'core/file_manager_list.html', context)
+
+
+@login_required
+def file_manager_search(request):
+	restricted_response = _require_permission(request, 'core.view_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	query = (request.GET.get('q') or '').strip()
+	if len(query) < 2:
+		return JsonResponse({'ok': True, 'results': []})
+
+	can_view_all = _can_view_all_file_manager_nodes(request.user)
+	qs = ManagedFileNode.objects.select_related('parent', 'owner')
+	if not can_view_all:
+		qs = qs.filter(Q(owner=request.user) | Q(permissions__user=request.user)).distinct()
+	qs = qs.filter(name__icontains=query).order_by('name')[:50]
+
+	results = []
+	for node in qs:
+		if not request.user.is_superuser and _is_file_manager_trash_context(node):
+			continue
+		results.append(
+			{
+				'id': node.id,
+				'name': node.name,
+				'node_type': node.node_type,
+				'owner': node.owner.username if node.owner else '',
+				'label': _build_file_manager_scope_label(node, []),
+				'parent_id': node.parent_id,
+			}
+		)
+
+	return JsonResponse({'ok': True, 'results': results})
 
 
 @login_required
@@ -3722,22 +4459,16 @@ def file_manager_browse_directories(request):
 @login_required
 @require_POST
 def file_manager_create_folder(request):
-	restricted_response = _require_permission(request, 'core.add_managedfilenode')
-	if restricted_response:
-		return restricted_response
-
-	parent = None
 	parent_id = (request.POST.get('parent_id') or '').strip()
-	if parent_id.isdigit():
-		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
-		if not _user_can_write_node(request.user, parent):
-			return _permission_denied_response(request)
+	parent, parent_error = _resolve_file_manager_parent_for_write(request, parent_id, allow_root=True)
+	if parent_error:
+		return parent_error
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	default_root_endpoint = _get_default_root_storage_endpoint()
-	ManagedFileNode.objects.create(
+	created_node = ManagedFileNode.objects.create(
 		parent=parent,
-		name=(request.POST.get('folder_name') or '').strip() or 'New Folder',
+		name=_get_available_managed_file_name(parent, request.user, (request.POST.get('folder_name') or '').strip() or 'New Folder'),
 		node_type=(request.POST.get('folder_type') or 'folder').strip() if (request.POST.get('folder_type') or 'folder').strip() in {'folder', 'shared_folder'} else 'folder',
 		access_scope=(request.POST.get('access_scope') or 'private').strip() if (request.POST.get('access_scope') or 'private').strip() in {'private', 'shared'} else 'private',
 		owner=request.user,
@@ -3748,22 +4479,25 @@ def file_manager_create_folder(request):
 		created_by=request.user,
 		updated_by=request.user,
 	)
+	record_activity(
+		request,
+		'create',
+		'file_manager',
+		f'Created folder "{created_node.name}" in File Manager.',
+		target=created_node,
+		target_label=created_node.name,
+		metadata={'node_id': created_node.id, 'parent_id': parent.id if parent else None},
+	)
 	return _fm_response(request, ok=True, message='Folder created.', redirect_node_id=parent.id if parent else None)
 
 
 @login_required
 @require_POST
 def file_manager_upload(request):
-	restricted_response = _require_permission(request, 'core.add_managedfilenode')
-	if restricted_response:
-		return restricted_response
-
-	parent = None
 	parent_id = (request.POST.get('parent_id') or '').strip()
-	if parent_id.isdigit():
-		parent = get_object_or_404(ManagedFileNode, pk=int(parent_id))
-		if not _user_can_write_node(request.user, parent):
-			return _permission_denied_response(request)
+	parent, parent_error = _resolve_file_manager_parent_for_write(request, parent_id, allow_root=True)
+	if parent_error:
+		return parent_error
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	default_root_endpoint = _get_default_root_storage_endpoint()
@@ -3791,11 +4525,13 @@ def file_manager_upload(request):
 				status=400,
 			)
 
+	created_files = []
 	for incoming_file in uploaded_files:
 		guessed_type, _ = mimetypes.guess_type(incoming_file.name or '')
-		ManagedFileNode.objects.create(
+		node_name = _get_available_managed_file_name(parent, request.user, incoming_file.name or 'Uploaded File')
+		created_node = ManagedFileNode.objects.create(
 			parent=parent,
-			name=(incoming_file.name or 'Uploaded File').strip(),
+			name=node_name,
 			node_type='file',
 			owner=request.user,
 			storage_endpoint_id=int((request.POST.get('storage_endpoint_id') or '0') or 0) or (default_root_endpoint.id if default_root_endpoint else None),
@@ -3808,33 +4544,279 @@ def file_manager_upload(request):
 			created_by=request.user,
 			updated_by=request.user,
 		)
+		created_files.append(created_node)
+	if created_files:
+		filenames = [node.name for node in created_files]
+		record_activity(
+			request,
+			'upload',
+			'file_manager',
+			f'Uploaded {len(created_files)} file(s) in File Manager.',
+			metadata={
+				'count': len(created_files),
+				'parent_id': parent.id if parent else None,
+				'files': filenames[:10],
+			},
+		)
 	return _fm_response(request, ok=True, message=f'{len(uploaded_files)} file(s) uploaded.', redirect_node_id=parent.id if parent else None)
+
+
+@login_required
+@require_POST
+def file_manager_rename(request):
+	node_id = (request.POST.get('node_id') or '').strip()
+	new_name = (request.POST.get('new_name') or '').strip()
+	if not node_id.isdigit():
+		return _fm_response(request, ok=False, message='Invalid file selection.', status=400)
+	if not new_name:
+		return _fm_response(request, ok=False, message='New name is required.', status=400)
+	if '/' in new_name or '\\' in new_name:
+		return _fm_response(request, ok=False, message='Name cannot include slashes.', status=400)
+	if len(new_name) > 180:
+		return _fm_response(request, ok=False, message='Name must be 180 characters or less.', status=400)
+
+	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+	if not _user_can_write_node(request.user, node):
+		return _permission_denied_response(request)
+
+	if node.node_type == 'file':
+		current_extension = Path(node.name or '').suffix
+		if current_extension:
+			new_name = f'{Path(new_name).stem or new_name}{current_extension}'
+
+	if node.name == new_name:
+		return _fm_response(request, ok=True, message='Name unchanged.', redirect_node_id=node.parent_id)
+
+	conflict_exists = ManagedFileNode.objects.filter(
+		parent=node.parent,
+		owner=node.owner,
+		name=new_name,
+	).exclude(pk=node.pk).exists()
+	if conflict_exists:
+		return _fm_response(request, ok=False, message='A file or folder with that name already exists.', status=400)
+
+	old_name = node.name
+	node.name = new_name
+	node.updated_by = request.user
+	node.save(update_fields=['name', 'updated_by', 'updated_at'])
+	record_activity(
+		request,
+		'update',
+		'file_manager',
+		f'Renamed File Manager item "{old_name}" to "{node.name}".',
+		target=node,
+		target_label=node.name,
+		metadata={'node_id': node.id, 'old_name': old_name, 'new_name': node.name},
+	)
+	return _fm_response(request, ok=True, message='Item renamed.', redirect_node_id=node.parent_id)
+
+
+@login_required
+@require_POST
+def file_manager_move(request):
+	node_id = (request.POST.get('node_id') or '').strip()
+	target_parent_id = (request.POST.get('target_parent_id') or '').strip()
+	if not node_id.isdigit():
+		return _fm_response(request, ok=False, message='Invalid file selection.', status=400)
+	if not target_parent_id.isdigit():
+		return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+
+	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+	if node.parent_id is None:
+		return _fm_response(request, ok=False, message='Root folders cannot be moved.', status=400)
+	if not _user_can_write_node(request.user, node):
+		return _permission_denied_response(request)
+
+	target_parent = get_object_or_404(ManagedFileNode, pk=int(target_parent_id))
+	if target_parent.node_type == 'file':
+		return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+	if _is_file_manager_trash_context(target_parent) and not request.user.is_superuser:
+		return _fm_response(request, ok=False, message='Cannot move items into Trash.', status=400)
+	if not _user_can_write_node(request.user, target_parent):
+		return _permission_denied_response(request, 'You do not have write access to the destination folder.')
+
+	current = target_parent
+	while current:
+		if current.pk == node.pk:
+			return _fm_response(request, ok=False, message='Cannot move a folder into itself.', status=400)
+		current = current.parent
+
+	if node.parent_id == target_parent.pk:
+		return _fm_response(request, ok=True, message='Item is already in this folder.', redirect_node_id=target_parent.pk)
+
+	new_name = node.name
+	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+
+	node.parent = target_parent
+	node.name = new_name
+	node.updated_by = request.user
+	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	record_activity(
+		request,
+		'update',
+		'file_manager',
+		f'Moved File Manager item "{node.name}".',
+		target=node,
+		target_label=node.name,
+		metadata={'node_id': node.id, 'target_parent_id': target_parent.pk},
+	)
+	return _fm_response(request, ok=True, message='Item moved.', redirect_node_id=target_parent.pk)
+
+
+@login_required
+@require_POST
+def file_manager_restore(request):
+	node_id = (request.POST.get('node_id') or '').strip()
+	if not node_id.isdigit():
+		return _fm_response(request, ok=False, message='Invalid file selection.', status=400)
+
+	node = get_object_or_404(ManagedFileNode, pk=int(node_id))
+	if not _is_file_manager_trash_context(node):
+		return _fm_response(request, ok=False, message='Item is not in Trash.', status=400)
+	if not _user_can_write_node(request.user, node):
+		return _permission_denied_response(request)
+
+	target_parent = _get_restore_target_for_node(node)
+	if not target_parent:
+		return _fm_response(request, ok=False, message='Original folder is no longer available.', status=400)
+	if not _user_can_write_node(request.user, target_parent):
+		return _permission_denied_response(request, 'You do not have write access to the original folder.')
+
+	new_name = node.name
+	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+
+	node.parent = target_parent
+	node.name = new_name
+	node.trashed_from = None
+	node.updated_by = request.user
+	node.save(update_fields=['parent', 'name', 'trashed_from', 'updated_by', 'updated_at'])
+	record_activity(
+		request,
+		'restore',
+		'file_manager',
+		f'Restored File Manager item "{node.name}".',
+		target=node,
+		target_label=node.name,
+		metadata={'node_id': node.id, 'target_parent_id': target_parent.pk},
+	)
+	return _fm_response(request, ok=True, message='Item restored.', redirect_node_id=target_parent.pk)
 
 
 @login_required
 @require_POST
 def file_manager_bulk_action(request):
 	action = (request.POST.get('bulk_action') or '').strip()
-	if action == 'delete':
-		restricted_response = _require_permission(request, 'core.delete_managedfilenode')
-	else:
+	is_sudo_command = (request.POST.get('sudo') or '').strip().lower() in {'1', 'true', 'yes'}
+	if is_sudo_command and not request.user.is_superuser:
+		return _permission_denied_response(request, 'Only superusers can run sudo commands.')
+	if action not in {'delete', 'restore', 'delete_all'}:
 		restricted_response = _require_permission(request, 'core.change_managedfilenode')
-	if restricted_response:
-		return restricted_response
+		if restricted_response:
+			return restricted_response
+	if action == 'delete_all':
+		restricted_response = _require_permission(request, 'core.delete_managedfilenode')
+		if restricted_response:
+			return restricted_response
+		password = (request.POST.get('confirm_password') or '').strip()
+		if not password:
+			return _fm_response(request, ok=False, message='Password is required to delete all items.', status=400)
+		if not request.user.check_password(password):
+			return _fm_response(request, ok=False, message='Incorrect password.', status=400)
 
 	raw_ids = (request.POST.get('selected_ids') or '').strip()
 	selected_ids = [int(part.strip()) for part in raw_ids.split(',') if part.strip().isdigit()]
-	if not selected_ids:
+	if not selected_ids and action != 'delete_all':
 		return _fm_response(request, ok=False, message='No files/folders selected.', status=400)
+	if action == 'delete_all':
+		trash_node = _get_or_create_file_manager_trash_folder(request.user)
+		deleted_count = trash_node.children.count()
+		if deleted_count == 0:
+			return _fm_response(request, ok=True, message='Trash is already empty.', redirect_node_id=trash_node.id)
+		trash_node.children.all().delete()
+		record_activity(
+			request,
+			'delete',
+			'file_manager',
+			f'Deleted all items in File Manager Trash ({deleted_count}).',
+			metadata={'count': deleted_count},
+		)
+		return _fm_response(request, ok=True, message=f'{deleted_count} item(s) deleted permanently.', redirect_node_id=trash_node.id)
 
 	nodes = list(ManagedFileNode.objects.filter(pk__in=selected_ids))
 	nodes = [node for node in nodes if _user_can_write_node(request.user, node)]
+	if not nodes:
+		return _fm_response(request, ok=False, message='No writable files/folders selected.', status=400)
+
+	if action == 'restore':
+		restored = 0
+		skipped = 0
+		last_target_id = None
+		for node in nodes:
+			if not _is_file_manager_trash_context(node):
+				skipped += 1
+				continue
+			target_parent = _get_restore_target_for_node(node)
+			if not target_parent:
+				skipped += 1
+				continue
+			if not _user_can_write_node(request.user, target_parent):
+				skipped += 1
+				continue
+			new_name = node.name
+			if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+				new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+			node.parent = target_parent
+			node.name = new_name
+			node.trashed_from = None
+			node.updated_by = request.user
+			node.save(update_fields=['parent', 'name', 'trashed_from', 'updated_by', 'updated_at'])
+			restored += 1
+			last_target_id = target_parent.pk
+		if restored == 0:
+			return _fm_response(request, ok=False, message='No items restored. Original folders may be missing.', status=400)
+		message = f'{restored} item(s) restored.'
+		if skipped:
+			message = f'{message} {skipped} item(s) skipped.'
+		record_activity(
+			request,
+			'restore',
+			'file_manager',
+			f'Restored {restored} File Manager item(s).',
+			metadata={'count': restored, 'skipped': skipped},
+		)
+		return _fm_response(request, ok=True, message=message, redirect_node_id=last_target_id)
 
 	if action == 'delete':
-		deleted_count = len(nodes)
-		for node in nodes:
-			node.delete()
-		return _fm_response(request, ok=True, message=f'{deleted_count} item(s) deleted.')
+		in_trash = all(_is_file_manager_trash_context(node) for node in nodes)
+		if in_trash:
+			deletable_nodes = [node for node in nodes if not _is_file_manager_trash_node(node)]
+			for node in deletable_nodes:
+				node.delete()
+			if not deletable_nodes:
+				return _fm_response(request, ok=True, message='No items deleted.', redirect_node_id=None)
+			record_activity(
+				request,
+				'delete',
+				'file_manager',
+				f'Deleted {len(deletable_nodes)} File Manager item(s) permanently.',
+				metadata={'count': len(deletable_nodes)},
+			)
+			return _fm_response(request, ok=True, message=f'{len(deletable_nodes)} item(s) deleted permanently.')
+		return_node_id = next((node.parent_id for node in nodes if node.parent_id), None)
+		moved_count, trash_node = _move_file_manager_nodes_to_trash(nodes, request.user)
+		redirect_node_id = trash_node.id if request.user.is_superuser else return_node_id
+		if moved_count == 0:
+			return _fm_response(request, ok=True, message='Selected item(s) are already in Trash.', redirect_node_id=redirect_node_id)
+		record_activity(
+			request,
+			'delete',
+			'file_manager',
+			f'Moved {moved_count} File Manager item(s) to Trash.',
+			metadata={'count': moved_count},
+		)
+		return _fm_response(request, ok=True, message=f'{moved_count} item(s) moved to Trash.', redirect_node_id=redirect_node_id)
 
 	if action == 'share':
 		target_user_id = (request.POST.get('bulk_target_user_id') or '').strip()
@@ -3867,6 +4849,68 @@ def file_manager_download(request, node_id):
 		messages.error(request, 'File is no longer available.')
 		return redirect('file_manager_list')
 	return FileResponse(node.file.open('rb'), as_attachment=True, filename=node.name)
+
+
+FILE_MANAGER_PREVIEW_MIME_TYPES = {
+	'application/pdf',
+	'text/plain',
+	'text/csv',
+	'text/markdown',
+	'application/json',
+	'application/xml',
+	'text/xml',
+}
+
+
+def _get_file_manager_preview_content_type(node):
+	filename = node.name or ''
+	mime_type = (node.mime_type or mimetypes.guess_type(filename)[0] or '').lower()
+	extension = Path(filename).suffix.lower()
+	if extension == '.pdf' or mime_type == 'application/pdf':
+		return 'application/pdf'
+	if mime_type.startswith('image/') and mime_type != 'image/svg+xml':
+		return mime_type
+	if extension in {'.txt', '.csv', '.log', '.md', '.json', '.xml'}:
+		return 'text/plain; charset=utf-8'
+	if mime_type in FILE_MANAGER_PREVIEW_MIME_TYPES:
+		return mime_type
+	return ''
+
+
+def _get_file_manager_preview_kind(node):
+	filename = node.name or ''
+	mime_type = (node.mime_type or mimetypes.guess_type(filename)[0] or '').lower()
+	extension = Path(filename).suffix.lower()
+	if extension == '.pdf' or mime_type == 'application/pdf':
+		return 'pdf'
+	if mime_type.startswith('image/') and mime_type != 'image/svg+xml':
+		return 'image'
+	return 'other' if _get_file_manager_preview_content_type(node) else 'unsupported'
+
+
+@login_required
+def file_manager_preview(request, node_id):
+	restricted_response = _require_permission(request, 'core.view_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	node = get_object_or_404(ManagedFileNode, pk=node_id, node_type='file')
+	if not _user_can_access_node(request.user, node):
+		return _permission_denied_response(request)
+	if not node.file:
+		return HttpResponse('File is no longer available.', content_type='text/plain; charset=utf-8', status=404)
+	content_type = _get_file_manager_preview_content_type(node)
+	if not content_type:
+		return HttpResponse(
+			'Preview is not available for this file type yet. Please use Download for Office files like DOCX and XLSX.',
+			content_type='text/plain; charset=utf-8',
+			status=415,
+		)
+
+	response = FileResponse(node.file.open('rb'), as_attachment=False, filename=node.name, content_type=content_type)
+	response['X-Content-Type-Options'] = 'nosniff'
+	response['X-Frame-Options'] = 'SAMEORIGIN'
+	return response
 
 @login_required
 def clients_list(request):
@@ -4020,9 +5064,9 @@ def _get_fund_request_records_context_data(request):
 	if created_to_datetime:
 		filter_parts.append(f'Created To: {timezone.localtime(created_to_datetime).strftime("%Y-%m-%d %H:%M")}')
 	if series_from:
-		filter_parts.append(f'Series From: {series_from}')
+		filter_parts.append(f'Control No. From: {series_from}')
 	if series_to:
-		filter_parts.append(f'Series To: {series_to}')
+		filter_parts.append(f'Control No. To: {series_to}')
 	if amount_min:
 		filter_parts.append(f'Min Amount: {amount_min}')
 	if amount_max:
@@ -4101,6 +5145,40 @@ def fund_requests_list(request):
 	created_to_datetime = parse_local_datetime(created_to)
 	valid_status_values = {status_value for status_value, _status_label in FundRequest.REQUEST_STATUS_CHOICES}
 
+	def is_sqlite_locked_error(exc):
+		return 'database is locked' in str(exc).lower()
+
+	def handle_locked_database():
+		messages.error(request, 'The database is busy right now. Please try again in a moment.')
+		return redirect('fund_requests_list')
+
+	def run_fund_request_write(write_callback):
+		for attempt in range(3):
+			try:
+				return write_callback()
+			except OperationalError as exc:
+				if not is_sqlite_locked_error(exc):
+					raise
+				if attempt == 2:
+					return None
+				time.sleep(0.15 * (attempt + 1))
+		return None
+
+	def safely_record_fund_request_activity(*args, **kwargs):
+		try:
+			return record_activity(*args, **kwargs)
+		except OperationalError as exc:
+			if not is_sqlite_locked_error(exc):
+				raise
+		return None
+
+	def safely_notify_fund_request(notify_callback, fund_request):
+		try:
+			notify_callback(fund_request)
+		except OperationalError as exc:
+			if not is_sqlite_locked_error(exc):
+				raise
+
 	if request.method == 'POST':
 		action_type = (request.POST.get('action_type') or '').strip()
 		template_action = (request.POST.get('template_action') or '').strip()
@@ -4116,7 +5194,7 @@ def fund_requests_list(request):
 			action_type = 'create_request'
 		if action_type == 'upload_template':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to upload fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to upload payment request templates.')
 
 			template_form = FundRequestTemplateForm(request.POST, request.FILES)
 			request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
@@ -4124,21 +5202,23 @@ def fund_requests_list(request):
 				template_record = template_form.save(commit=False)
 				template_record.uploaded_by = request.user
 				template_record.save()
-				messages.success(request, f'Fund request template "{template_record.name}" uploaded successfully.')
+				synced_count = _sync_pending_fund_requests_to_template(template_record) if template_record.is_active else 0
+				sync_suffix = f' {synced_count} pending request(s) updated to use it.' if synced_count else ''
+				messages.success(request, f'Payment request template "{template_record.name}" uploaded successfully.{sync_suffix}')
 				return redirect('fund_requests_list')
 		elif action_type == 'delete_request':
 			if not can_delete_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to remove fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment requests.')
 
 			request_id = request.POST.get('request_id')
 			fund_request = get_object_or_404(visible_fund_requests_queryset, pk=request_id)
 			record_label = fund_request.serial_number or fund_request.requester_name or f'#{fund_request.pk}'
 			fund_request.delete()
-			messages.success(request, f'Fund request {record_label} removed successfully.')
+			messages.success(request, f'Payment request {record_label} removed successfully.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_delete_requests':
 			if not can_delete_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to remove fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment requests.')
 
 			selected_ids = [
 				int(value)
@@ -4146,20 +5226,20 @@ def fund_requests_list(request):
 				if str(value).isdigit()
 			]
 			if not selected_ids:
-				messages.warning(request, 'Select at least one fund request to remove.')
+				messages.warning(request, 'Select at least one payment request to remove.')
 				return redirect('fund_requests_list')
 
 			fund_requests_to_delete = list(visible_fund_requests_queryset.filter(pk__in=selected_ids, request_status='approved'))
 			deleted_count = len(fund_requests_to_delete)
 			visible_fund_requests_queryset.filter(pk__in=selected_ids, request_status='approved').delete()
 			if deleted_count == 0:
-				messages.warning(request, 'No approved fund requests matched the selected records.')
+				messages.warning(request, 'No approved payment requests matched the selected records.')
 				return redirect('fund_requests_list')
-			messages.success(request, f'{deleted_count} fund request(s) removed successfully.')
+			messages.success(request, f'{deleted_count} payment request(s) removed successfully.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_delete_templates':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to remove fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment request templates.')
 
 			selected_template_ids = [
 				int(value)
@@ -4173,11 +5253,13 @@ def fund_requests_list(request):
 			template_count = FundRequestTemplate.objects.filter(pk__in=selected_template_ids).count()
 			FundRequestTemplate.objects.filter(pk__in=selected_template_ids).delete()
 			_ensure_active_fund_request_template()
-			messages.success(request, f'{template_count} uploaded template(s) removed successfully.')
+			synced_count = _sync_pending_fund_requests_to_template()
+			sync_suffix = f' {synced_count} pending request(s) updated to the current default template.' if synced_count else ''
+			messages.success(request, f'{template_count} uploaded template(s) removed successfully.{sync_suffix}')
 			return redirect('fund_requests_list')
 		elif action_type == 'set_default_template':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to update fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to update payment request templates.')
 
 			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
 			if not template_id.isdigit():
@@ -4186,16 +5268,20 @@ def fund_requests_list(request):
 
 			template_record = get_object_or_404(FundRequestTemplate, pk=int(template_id))
 			if template_record.is_active:
-				messages.info(request, f'"{template_record.name}" is already the default template.')
+				synced_count = _sync_pending_fund_requests_to_template(template_record)
+				sync_suffix = f' {synced_count} pending request(s) updated to use it.' if synced_count else ''
+				messages.info(request, f'"{template_record.name}" is already the default template.{sync_suffix}')
 				return redirect('fund_requests_list')
 
 			template_record.is_active = True
 			template_record.save(update_fields=['is_active'])
-			messages.success(request, f'"{template_record.name}" is now the default template.')
+			synced_count = _sync_pending_fund_requests_to_template(template_record)
+			sync_suffix = f' {synced_count} pending request(s) updated to use it.' if synced_count else ''
+			messages.success(request, f'"{template_record.name}" is now the default template.{sync_suffix}')
 			return redirect('fund_requests_list')
 		elif action_type == 'delete_template':
 			if not can_manage_templates:
-				return _permission_denied_response(request, 'You do not have permission to remove fund request templates.')
+				return _permission_denied_response(request, 'You do not have permission to remove payment request templates.')
 
 			template_id = template_action_id or (request.POST.get('template_id') or '').strip()
 			if not template_id.isdigit():
@@ -4206,65 +5292,83 @@ def fund_requests_list(request):
 			template_name = template_record.name
 			template_record.delete()
 			_ensure_active_fund_request_template()
-			messages.success(request, f'Template "{template_name}" removed successfully.')
+			synced_count = _sync_pending_fund_requests_to_template()
+			sync_suffix = f' {synced_count} pending request(s) updated to the current default template.' if synced_count else ''
+			messages.success(request, f'Template "{template_name}" removed successfully.{sync_suffix}')
 			return redirect('fund_requests_list')
 		elif action_type == 'approve_request':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to approve fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to approve payment requests.')
 
 			request_id = request.POST.get('request_id')
 			reason = (request.POST.get('reason') or '').strip()
 
 			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
 			if fund_request.request_status != 'pending':
-				messages.info(request, 'This fund request has already been reviewed.')
+				messages.info(request, 'This payment request has already been reviewed.')
 				return redirect('fund_requests_list')
 
-			with transaction.atomic():
-				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
-				if fund_request.request_status != 'pending':
-					messages.info(request, 'This fund request has already been reviewed.')
-					return redirect('fund_requests_list')
-				fund_request.mark_approved(processed_by=request.user, reason=reason)
-			record_activity(
+			def approve_request():
+				with transaction.atomic():
+					locked_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+					if locked_request.request_status != 'pending':
+						return None, 'reviewed'
+					locked_request.mark_approved(processed_by=request.user, reason=reason)
+					return locked_request, 'approved'
+
+			fund_request, approval_state = run_fund_request_write(approve_request) or (None, 'locked')
+			if approval_state == 'locked':
+				return handle_locked_database()
+			if approval_state == 'reviewed':
+				messages.info(request, 'This payment request has already been reviewed.')
+				return redirect('fund_requests_list')
+			safely_record_fund_request_activity(
 				request,
 				'approve',
 				'finance',
-				f'Approved fund request {fund_request.serial_number or fund_request.pk}.',
+				f'Approved payment request {fund_request.serial_number or fund_request.pk}.',
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
-			_notify_fund_request_requester(fund_request)
-			messages.success(request, f'Fund request approved with serial number {fund_request.serial_number}.')
+			safely_notify_fund_request(_notify_fund_request_requester, fund_request)
+			messages.success(request, f'Payment request approved with control number {fund_request.serial_number}.')
 			return redirect('fund_requests_list')
 		elif action_type == 'reject_request':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to reject fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to reject payment requests.')
 
 			request_id = request.POST.get('request_id')
 			reason = (request.POST.get('reason') or '').strip()
 
 			fund_request = get_object_or_404(FundRequest.objects.select_related('created_by'), pk=request_id)
 			if fund_request.request_status != 'pending':
-				messages.info(request, 'This fund request has already been reviewed.')
+				messages.info(request, 'This payment request has already been reviewed.')
 				return redirect('fund_requests_list')
 
-			with transaction.atomic():
-				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
-				if fund_request.request_status != 'pending':
-					messages.info(request, 'This fund request has already been reviewed.')
-					return redirect('fund_requests_list')
-				fund_request.mark_rejected(processed_by=request.user, reason=reason)
-			record_activity(
+			def reject_request():
+				with transaction.atomic():
+					locked_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+					if locked_request.request_status != 'pending':
+						return None, 'reviewed'
+					locked_request.mark_rejected(processed_by=request.user, reason=reason)
+					return locked_request, 'rejected'
+
+			fund_request, rejection_state = run_fund_request_write(reject_request) or (None, 'locked')
+			if rejection_state == 'locked':
+				return handle_locked_database()
+			if rejection_state == 'reviewed':
+				messages.info(request, 'This payment request has already been reviewed.')
+				return redirect('fund_requests_list')
+			safely_record_fund_request_activity(
 				request,
 				'reject',
 				'finance',
-				f'Rejected fund request {fund_request.requester_name or fund_request.pk}.',
+				f'Rejected payment request {fund_request.requester_name or fund_request.pk}.',
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
-			_notify_fund_request_requester(fund_request)
-			messages.info(request, 'Fund request rejected.')
+			safely_notify_fund_request(_notify_fund_request_requester, fund_request)
+			messages.info(request, 'Payment request rejected.')
 			return redirect('fund_requests_list')
 		elif action_type == 'cancel_request':
 			request_id = request.POST.get('request_id')
@@ -4276,43 +5380,53 @@ def fund_requests_list(request):
 				or can_cancel_other_fund_requests
 			)
 			if not can_cancel_request:
-				return _permission_denied_response(request, 'You do not have permission to cancel this fund request.')
+				return _permission_denied_response(request, 'You do not have permission to cancel this payment request.')
 			if fund_request.request_status != 'pending':
-				messages.info(request, 'Only pending fund requests can be cancelled.')
+				messages.info(request, 'Only pending payment requests can be cancelled.')
 				return redirect('fund_requests_list')
 
-			with transaction.atomic():
-				fund_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
-				can_cancel_request = (
-					fund_request.created_by_id == request.user.id
-					or can_cancel_other_fund_requests
-				)
-				if not can_cancel_request:
-					return _permission_denied_response(request, 'You do not have permission to cancel this fund request.')
-				if fund_request.request_status != 'pending':
-					messages.info(request, 'Only pending fund requests can be cancelled.')
-					return redirect('fund_requests_list')
-				fund_request.mark_cancelled(processed_by=request.user, reason=reason)
-			record_activity(
+			def cancel_request():
+				with transaction.atomic():
+					locked_request = FundRequest.objects.select_for_update().select_related('created_by').get(pk=request_id)
+					can_cancel_locked_request = (
+						locked_request.created_by_id == request.user.id
+						or can_cancel_other_fund_requests
+					)
+					if not can_cancel_locked_request:
+						return locked_request, 'denied'
+					if locked_request.request_status != 'pending':
+						return locked_request, 'reviewed'
+					locked_request.mark_cancelled(processed_by=request.user, reason=reason)
+					return locked_request, 'cancelled'
+
+			fund_request, cancellation_state = run_fund_request_write(cancel_request) or (None, 'locked')
+			if cancellation_state == 'locked':
+				return handle_locked_database()
+			if cancellation_state == 'denied':
+				return _permission_denied_response(request, 'You do not have permission to cancel this payment request.')
+			if cancellation_state == 'reviewed':
+				messages.info(request, 'Only pending payment requests can be cancelled.')
+				return redirect('fund_requests_list')
+			safely_record_fund_request_activity(
 				request,
 				'cancel',
 				'finance',
-				f'Cancelled fund request {fund_request.requester_name or fund_request.pk}.',
+				f'Cancelled payment request {fund_request.requester_name or fund_request.pk}.',
 				target=fund_request,
 				target_label=fund_request.serial_number or fund_request.requester_name,
 			)
 
 			if fund_request.created_by_id and fund_request.created_by_id != request.user.id:
-				_notify_fund_request_requester(fund_request)
+				safely_notify_fund_request(_notify_fund_request_requester, fund_request)
 			if fund_request.created_by_id == request.user.id:
-				messages.success(request, 'Your fund request has been cancelled.')
+				messages.success(request, 'Your payment request has been cancelled.')
 			else:
 				request_label = fund_request.requester_name or f'#{fund_request.pk}'
-				messages.success(request, f'Fund request for {request_label} has been cancelled.')
+				messages.success(request, f'Payment request for {request_label} has been cancelled.')
 			return redirect('fund_requests_list')
 		elif action_type == 'bulk_decide_pending_requests':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to review pending fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to review pending payment requests.')
 
 			decision = (request.POST.get('decision') or '').strip().lower()
 			if decision not in {'approve', 'reject'}:
@@ -4339,7 +5453,7 @@ def fund_requests_list(request):
 			parsed_ids = sorted(set(parsed_ids))
 
 			if not parsed_ids:
-				messages.warning(request, 'No pending fund requests selected.')
+				messages.warning(request, 'No pending payment requests selected.')
 				return redirect('fund_requests_list')
 
 			pending_queryset = FundRequest.objects.select_related('created_by').filter(
@@ -4349,33 +5463,39 @@ def fund_requests_list(request):
 			if not can_view_all_request_records:
 				pending_queryset = pending_queryset.filter(created_by=request.user)
 
-			processed_requests = []
-			with transaction.atomic():
-				for fund_request in pending_queryset.select_for_update():
-					if decision == 'approve':
-						fund_request.mark_approved(processed_by=request.user, reason=reason)
-					else:
-						fund_request.mark_rejected(processed_by=request.user, reason=reason)
-					processed_requests.append(fund_request)
+			def decide_pending_requests():
+				decided_requests = []
+				with transaction.atomic():
+					for fund_request in pending_queryset.select_for_update():
+						if decision == 'approve':
+							fund_request.mark_approved(processed_by=request.user, reason=reason)
+						else:
+							fund_request.mark_rejected(processed_by=request.user, reason=reason)
+						decided_requests.append(fund_request)
+				return decided_requests
+
+			processed_requests = run_fund_request_write(decide_pending_requests)
+			if processed_requests is None:
+				return handle_locked_database()
 
 			processed_count = len(processed_requests)
 			for processed_request in processed_requests:
-				_notify_fund_request_requester(processed_request)
+				safely_notify_fund_request(_notify_fund_request_requester, processed_request)
 
 			if processed_count:
 				if decision == 'approve':
-					messages.success(request, f'{processed_count} pending fund request(s) approved successfully.')
+					messages.success(request, f'{processed_count} pending payment request(s) approved successfully.')
 				else:
-					messages.info(request, f'{processed_count} pending fund request(s) rejected.')
-				record_activity(
+					messages.info(request, f'{processed_count} pending payment request(s) rejected.')
+				safely_record_fund_request_activity(
 					request,
 					'approve' if decision == 'approve' else 'reject',
 					'finance',
-					f'{decision.title()}d {processed_count} pending fund request(s).',
+					f'{decision.title()}d {processed_count} pending payment request(s).',
 					metadata={'processed_count': processed_count, 'selected_count': len(parsed_ids)},
 				)
 			else:
-				messages.warning(request, 'No pending fund requests matched the selected records.')
+				messages.warning(request, 'No pending payment requests matched the selected records.')
 
 			skipped_count = max(0, len(parsed_ids) - processed_count)
 			if skipped_count:
@@ -4383,7 +5503,7 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		elif action_type == 'save_auto_approve_rule':
 			if not can_approve_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to auto approve pending fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to auto approve pending payment requests.')
 
 			rule_name = (request.POST.get('auto_rule_name') or '').strip()
 			if not rule_name:
@@ -4436,7 +5556,7 @@ def fund_requests_list(request):
 			return redirect('fund_requests_list')
 		else:
 			if not can_add_fund_requests:
-				return _permission_denied_response(request, 'You do not have permission to create fund requests.')
+				return _permission_denied_response(request, 'You do not have permission to create payment requests.')
 
 			request_form = FundRequestForm(request.POST, request.FILES, user=request.user)
 			template_form = FundRequestTemplateForm()
@@ -4447,46 +5567,58 @@ def fund_requests_list(request):
 				selected_template = FundRequestTemplate.objects.filter(pk=int(selected_template_id)).first()
 
 			if not selected_template:
-				request_form.add_error(None, 'Select an uploaded template before saving the fund request.')
+				request_form.add_error(None, 'Select an uploaded template before saving the payment request.')
 
 			if is_request_form_valid and selected_template:
-				fund_request = request_form.save(commit=False)
-				fund_request.created_by = request.user
-				fund_request.template = selected_template
-				fund_request.request_status = 'pending'
-				fund_request.save()
-				request_form.save_line_items(fund_request)
-				request_form.save_attachments(fund_request, uploaded_by=request.user)
-				matching_auto_rule = _get_matching_auto_approve_rule_for_fund_request(fund_request)
+				def create_fund_request():
+					with transaction.atomic():
+						created_request = request_form.save(commit=False)
+						created_request.created_by = request.user
+						created_request.template = selected_template
+						created_request.request_status = 'pending'
+						created_request.save()
+						request_form.save_line_items(created_request)
+						request_form.save_attachments(created_request, uploaded_by=request.user)
+						auto_rule = _get_matching_auto_approve_rule_for_fund_request(created_request)
+						if auto_rule:
+							approval_reason = (auto_rule.reason or '').strip() or f'Auto-approved by rule: {auto_rule.name}'
+							auto_processor = auto_rule.created_by if auto_rule.created_by_id else None
+							created_request.mark_approved(processed_by=auto_processor, reason=approval_reason)
+						return created_request, auto_rule
+
+				write_result = run_fund_request_write(create_fund_request)
+				if write_result is None:
+					return handle_locked_database()
+
+				fund_request, matching_auto_rule = write_result
 				if matching_auto_rule:
-					approval_reason = (matching_auto_rule.reason or '').strip() or f'Auto-approved by rule: {matching_auto_rule.name}'
-					auto_processor = matching_auto_rule.created_by if matching_auto_rule.created_by_id else None
-					fund_request.mark_approved(processed_by=auto_processor, reason=approval_reason)
-					record_activity(
+					safely_record_fund_request_activity(
 						request,
 						'submit',
 						'finance',
-						f'Submitted and auto-approved fund request {fund_request.serial_number or fund_request.pk}.',
+						f'Submitted and auto-approved payment request {fund_request.serial_number or fund_request.pk}.',
 						target=fund_request,
 						target_label=fund_request.serial_number or fund_request.requester_name,
 						metadata={'auto_rule': matching_auto_rule.name},
 					)
-					messages.success(request, f'Fund request auto-approved by rule "{matching_auto_rule.name}".')
+					messages.success(request, f'Payment request auto-approved by rule "{matching_auto_rule.name}".')
 				else:
-					_notify_fund_request_approvers(fund_request)
-					record_activity(
+					safely_notify_fund_request(_notify_fund_request_approvers, fund_request)
+					safely_record_fund_request_activity(
 						request,
 						'submit',
 						'finance',
-						f'Submitted fund request {fund_request.requester_name or fund_request.pk}.',
+						f'Submitted payment request {fund_request.requester_name or fund_request.pk}.',
 						target=fund_request,
 						target_label=fund_request.requester_name,
 					)
-					messages.success(request, 'Fund request submitted for admin approval.')
+					messages.success(request, 'Payment request submitted for admin approval.')
 				return redirect('fund_requests_list')
 	else:
 		request_form = FundRequestForm(initial={'request_date': timezone.localdate()}, user=request.user)
 		template_form = FundRequestTemplateForm()
+
+	department_suggestions = _get_fund_request_department_suggestions()
 
 	pending_requests_queryset = visible_fund_requests_queryset.filter(request_status='pending')
 
@@ -4560,9 +5692,9 @@ def fund_requests_list(request):
 	if created_to_datetime:
 		records_filter_parts.append(f'Created To: {timezone.localtime(created_to_datetime).strftime("%Y-%m-%d %H:%M")}')
 	if series_from:
-		records_filter_parts.append(f'Series From: {series_from}')
+		records_filter_parts.append(f'Control No. From: {series_from}')
 	if series_to:
-		records_filter_parts.append(f'Series To: {series_to}')
+		records_filter_parts.append(f'Control No. To: {series_to}')
 	if amount_min:
 		records_filter_parts.append(f'Min Amount: {amount_min}')
 	if amount_max:
@@ -4577,6 +5709,7 @@ def fund_requests_list(request):
 		'creator_profiles_map': creator_profiles_map,
 		'fund_request_form': request_form,
 		'template_form': template_form,
+		'fund_request_department_suggestions': department_suggestions,
 		'quick_placeholder_guide': _build_fund_request_template_quick_placeholder_guide(),
 		'all_templates': all_templates,
 		'guide_template': guide_template,
@@ -4684,7 +5817,7 @@ def fund_request_records_pdf(request):
 			'filter_summary': records_context['filter_summary'],
 		},
 	)
-	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), 'fund-request-records.html')
+	pdf_bytes = _render_html_bytes_to_pdf(content.encode('utf-8'), 'payment-request-records.html')
 	if not pdf_bytes:
 		return HttpResponse('PDF download is not available for this report right now.', content_type='text/plain; charset=utf-8', status=415)
 
@@ -5157,9 +6290,7 @@ def liquidation_pdf(request, liquidation_id):
 	if not payload:
 		return HttpResponse('PDF preview is not available for this liquidation form.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required
@@ -5259,9 +6390,7 @@ def liquidation_bulk_print(request):
 		return HttpResponse('Unable to generate a printable PDF for the selected liquidation forms.', content_type='text/plain; charset=utf-8', status=415)
 
 	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
-	response = HttpResponse(merged_pdf, content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="liquidations_selected_{filename_stamp}.pdf"'
-	return response
+	return _inline_pdf_response(merged_pdf, f'liquidations_selected_{filename_stamp}.pdf')
 
 
 @login_required
@@ -5286,11 +6415,9 @@ def fund_request_review_pdf(request, request_id):
 	)
 	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=True)
 	if not payload:
-		return HttpResponse('PDF preview is not available for this fund request.', content_type='text/plain; charset=utf-8', status=415)
+		return HttpResponse('PDF preview is not available for this payment request.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required
@@ -5304,15 +6431,18 @@ def fund_request_document(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be opened or printed.')
+		messages.warning(request, 'Only approved payment requests can be opened or printed.')
 		return redirect('fund_requests_list')
 	template_payload = _build_fund_request_template_file_payload(fund_request)
 	if template_payload:
 		response = HttpResponse(template_payload['content'], content_type=template_payload['content_type'])
 		response['Content-Disposition'] = f'inline; filename="{template_payload["filename"]}"'
+		if template_payload.get('content_type') == 'application/pdf':
+			response['X-Frame-Options'] = 'SAMEORIGIN'
+			response['X-Content-Type-Options'] = 'nosniff'
 		return response
 
-	messages.error(request, 'No template file is attached to this approved fund request.')
+	messages.error(request, 'No template file is attached to this approved payment request.')
 	return redirect('fund_requests_list')
 
 
@@ -5327,18 +6457,16 @@ def fund_request_print(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be printed.')
+		messages.warning(request, 'Only approved payment requests can be printed.')
 		return redirect('fund_requests_list')
 	template_record = fund_request.template
 	if not template_record or not getattr(template_record, 'file', None):
-		messages.error(request, 'No preferred template file is attached to this approved fund request.')
+		messages.error(request, 'No preferred template file is attached to this approved payment request.')
 		return redirect('fund_requests_list')
 
 	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
 	if payload:
-		response = HttpResponse(payload['content'], content_type='application/pdf')
-		response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-		return response
+		return _inline_pdf_response(payload['content'], payload['filename'])
 
 	client_side_payload = _build_fund_request_client_side_conversion_payload(fund_request)
 	if client_side_payload:
@@ -5375,7 +6503,7 @@ def fund_request_client_side_preview(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be opened or printed.')
+		messages.warning(request, 'Only approved payment requests can be opened or printed.')
 		return redirect('fund_requests_list')
 
 	client_payload = _build_fund_request_client_side_conversion_payload(fund_request)
@@ -5426,7 +6554,7 @@ def fund_request_template_preview_pdf(request, template_id):
 	template_record = get_object_or_404(FundRequestTemplate, pk=template_id)
 	payload = _build_template_preview_pdf_payload(template_record)
 	if not payload:
-		template_name = template_record.name or Path(getattr(template_record.file, 'name', '')).stem or 'Fund Request Template'
+		template_name = template_record.name or Path(getattr(template_record.file, 'name', '')).stem or 'Payment Request Template'
 		original_name = Path(getattr(template_record.file, 'name', '')).name or 'uploaded template'
 		notice_pdf = _build_notice_pdf_bytes(
 			f'{template_name} Preview Unavailable',
@@ -5440,14 +6568,12 @@ def fund_request_template_preview_pdf(request, template_id):
 		if notice_pdf:
 			payload = {
 				'content': notice_pdf,
-				'filename': f'{Path(original_name).stem or "fund-request-template"}-preview-unavailable.pdf',
+				'filename': f'{Path(original_name).stem or "payment-request-template"}-preview-unavailable.pdf',
 			}
 		else:
 			return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required
@@ -5461,7 +6587,7 @@ def fund_request_document_download(request, request_id):
 		pk=request_id,
 	)
 	if fund_request.request_status != 'approved':
-		messages.warning(request, 'Only approved fund requests can be downloaded.')
+		messages.warning(request, 'Only approved payment requests can be downloaded.')
 		return redirect('fund_requests_list')
 
 	is_forced_download = (request.GET.get('download') or '').strip() == '1'
@@ -5493,6 +6619,9 @@ def fund_request_document_download(request, request_id):
 	disposition = 'attachment' if is_forced_download else 'inline'
 	response = HttpResponse(payload['content'], content_type='application/pdf')
 	response['Content-Disposition'] = f'{disposition}; filename="{payload["filename"]}"'
+	if disposition == 'inline':
+		response['X-Frame-Options'] = 'SAMEORIGIN'
+		response['X-Content-Type-Options'] = 'nosniff'
 	return response
 
 
@@ -5524,11 +6653,11 @@ def fund_request_bulk_print(request):
 
 	selected_ids = _parse_fund_request_selected_ids((request.GET.get('selected_ids') or '').strip())
 	if not selected_ids:
-		return HttpResponse('No approved fund requests selected for print.', content_type='text/plain; charset=utf-8', status=400)
+		return HttpResponse('No approved payment requests selected for print.', content_type='text/plain; charset=utf-8', status=400)
 
 	visible_requests = _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids)
 	if not visible_requests:
-		return HttpResponse('No accessible approved fund requests were selected for print.', content_type='text/plain; charset=utf-8', status=404)
+		return HttpResponse('No accessible approved payment requests were selected for print.', content_type='text/plain; charset=utf-8', status=404)
 
 	pdf_parts = []
 	for fund_request in visible_requests:
@@ -5541,9 +6670,7 @@ def fund_request_bulk_print(request):
 		return HttpResponse('Unable to generate a printable PDF for the selected requests.', content_type='text/plain; charset=utf-8', status=415)
 
 	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
-	response = HttpResponse(merged_pdf, content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="fund_requests_selected_{filename_stamp}.pdf"'
-	return response
+	return _inline_pdf_response(merged_pdf, f'fund_requests_selected_{filename_stamp}.pdf')
 
 
 @login_required
@@ -5554,11 +6681,11 @@ def fund_request_bulk_download(request):
 
 	selected_ids = _parse_fund_request_selected_ids((request.GET.get('selected_ids') or '').strip())
 	if not selected_ids:
-		return HttpResponse('No approved fund requests selected for download.', content_type='text/plain; charset=utf-8', status=400)
+		return HttpResponse('No approved payment requests selected for download.', content_type='text/plain; charset=utf-8', status=400)
 
 	visible_requests = _get_visible_approved_fund_requests_for_bulk_action(request, selected_ids)
 	if not visible_requests:
-		return HttpResponse('No accessible approved fund requests were selected for download.', content_type='text/plain; charset=utf-8', status=404)
+		return HttpResponse('No accessible approved payment requests were selected for download.', content_type='text/plain; charset=utf-8', status=404)
 
 	pdf_parts = []
 	for fund_request in visible_requests:
@@ -7314,6 +8441,60 @@ def assets_tag_batches_bulk_delete(request):
 	return redirect('assets_list')
 
 
+def _build_role_access_preview(role):
+	role_permission_names = {
+		f'{permission.content_type.app_label}.{permission.codename}'
+		for permission in role.permissions.select_related('content_type').all()
+	}
+	accessible_pages = []
+	unavailable_pages = []
+
+	for url_name, rule in PAGE_ACCESS_RULES.items():
+		label = rule.get('label') or url_name.replace('_', ' ').title()
+		audience = rule.get('audience') or ''
+		permission_names = set(rule.get('perms') or [])
+		extra_roles = set(rule.get('extra_roles') or [])
+		matched_permissions = sorted(role_permission_names & permission_names)
+		role_matches = role.name in extra_roles
+
+		if audience in ROLE_PREVIEW_DEFAULT_AUDIENCES:
+			accessible_pages.append(
+				{
+					'label': label,
+					'url_name': url_name,
+					'access_type': 'Default access',
+					'reason': audience,
+					'note': rule.get('note', ''),
+				}
+			)
+		elif matched_permissions or role_matches:
+			reason = f'Member of {role.name}' if role_matches else ', '.join(matched_permissions)
+			accessible_pages.append(
+				{
+					'label': label,
+					'url_name': url_name,
+					'access_type': 'Role permission',
+					'reason': reason,
+					'note': rule.get('note', ''),
+				}
+			)
+		else:
+			unavailable_pages.append(
+				{
+					'label': label,
+					'url_name': url_name,
+					'required': ', '.join(sorted(permission_names | extra_roles)) or 'Special access',
+				}
+			)
+
+	return {
+		'accessible_pages': accessible_pages,
+		'unavailable_pages': unavailable_pages,
+		'accessible_count': len(accessible_pages),
+		'unavailable_count': len(unavailable_pages),
+	}
+
+
 @login_required
 def roles_list(request):
 	restricted_response = _require_permission(request, 'auth.view_group')
@@ -7328,11 +8509,13 @@ def roles_list(request):
 	roles = list(roles)
 	role_member_profiles_map = {}
 	role_permissions_grouped_map = {}
+	role_access_preview_map = {}
 	for role in roles:
 		for member in role.user_set.all():
 			if member.id not in role_member_profiles_map:
 				role_member_profiles_map[member.id] = getattr(member, 'profile', None)
 		role_permissions_grouped_map[role.id] = build_permission_preview_groups(role.permissions.all())
+		role_access_preview_map[role.id] = _build_role_access_preview(role)
 
 	return render(
 		request,
@@ -7342,8 +8525,41 @@ def roles_list(request):
 			'query': query,
 			'role_member_profiles_map': role_member_profiles_map,
 			'role_permissions_grouped_map': role_permissions_grouped_map,
+			'role_access_preview_map': role_access_preview_map,
 		},
 	)
+
+
+@login_required
+@require_POST
+def roles_preview_start(request, role_id):
+	if not (request.user.is_superuser or request.user.has_perm('auth.view_group')):
+		return _permission_denied_response(request)
+
+	role = get_object_or_404(Group, pk=role_id)
+	request.session[ROLE_PREVIEW_SESSION_KEY] = role.id
+	request.session.modified = True
+	messages.info(request, f'Previewing Avantech Portal as {role.name}.')
+	return redirect('dashboard')
+
+
+@login_required
+@require_POST
+def roles_preview_stop(request):
+	role_name = getattr(getattr(request, 'role_preview_role', None), 'name', '')
+	request.session.pop(ROLE_PREVIEW_SESSION_KEY, None)
+	request.session.modified = True
+	if hasattr(request, 'role_preview_role'):
+		delattr(request, 'role_preview_role')
+	if hasattr(request.user, '_role_preview'):
+		delattr(request.user, '_role_preview')
+	if role_name:
+		messages.success(request, f'Stopped previewing as {role_name}.')
+	else:
+		messages.success(request, 'Role preview ended.')
+	response = redirect('dashboard')
+	response.set_cookie(ROLE_PREVIEW_STOP_COOKIE, '1', max_age=60, path='/', httponly=True, samesite='Lax')
+	return response
 
 
 @login_required
@@ -7391,7 +8607,10 @@ def roles_update(request, role_id):
 	if request.method == 'POST':
 		form = RoleForm(request.POST, instance=role)
 		if form.is_valid():
+			old_role_name = role.name
 			updated_role = form.save()
+			renamed_folder_count = _sync_file_manager_role_rename(old_role_name, updated_role.name, updated_by=request.user)
+			_ensure_file_manager_default_hierarchy_if_needed(request.user)
 			record_activity(
 				request,
 				'update',
@@ -7400,7 +8619,8 @@ def roles_update(request, role_id):
 				target=updated_role,
 				target_label=updated_role.name,
 			)
-			messages.success(request, 'Role updated successfully.')
+			folder_suffix = f' {renamed_folder_count} file manager folder(s) updated.' if renamed_folder_count else ''
+			messages.success(request, f'Role updated successfully.{folder_suffix}')
 			return redirect('roles_list')
 	else:
 		form = RoleForm(instance=role)
@@ -8418,9 +9638,7 @@ def accountability_template_preview_pdf(request, template_id):
 	if not payload:
 		return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required

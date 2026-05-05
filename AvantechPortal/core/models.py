@@ -64,19 +64,19 @@ def accountability_template_upload_to(instance, filename):
 
 
 def fund_request_template_upload_to(instance, filename):
-	original_name = filename or 'fund-request-template.file'
+	original_name = filename or 'payment-request-template.file'
 	extension = Path(original_name).suffix.lower() or '.file'
-	template_slug = slugify(getattr(instance, 'name', '') or 'fund-request-template')
+	template_slug = slugify(getattr(instance, 'name', '') or 'payment-request-template')
 	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
 	return f'fund_requests/templates/{template_slug}_{date_stamp}{extension}'
 
 
 def fund_request_attachment_upload_to(instance, filename):
-	original_name = filename or 'fund-request-image.jpg'
+	original_name = filename or 'payment-request-image.jpg'
 	extension = Path(original_name).suffix.lower() or '.jpg'
 	request_obj = getattr(instance, 'fund_request', None)
 	serial_label = getattr(request_obj, 'serial_number', '') or f'request-{getattr(instance, "fund_request_id", "pending")}'
-	request_slug = slugify(serial_label) or 'fund-request'
+	request_slug = slugify(serial_label) or 'payment-request'
 	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
 	return f'fund_requests/attachments/{request_slug}_{date_stamp}{extension}'
 
@@ -186,6 +186,8 @@ class ActivityLog(models.Model):
 		('accountability', 'Accountability'),
 		('support', 'Support Tickets'),
 		('development', 'Development'),
+		('file_manager', 'File Manager'),
+		('backup', 'Backups'),
 		('system', 'System'),
 		('users', 'Users & Roles'),
 		('security', 'Security'),
@@ -616,7 +618,7 @@ class ClientQuotationDocument(models.Model):
 
 
 class FundRequestTemplate(models.Model):
-	name = models.CharField(max_length=150, default='Fund Request Template')
+	name = models.CharField(max_length=150, default='Payment Request Template')
 	file = models.FileField(upload_to=fund_request_template_upload_to)
 	notes = models.TextField(blank=True)
 	is_active = models.BooleanField(default=True)
@@ -632,6 +634,8 @@ class FundRequestTemplate(models.Model):
 
 	class Meta:
 		ordering = ['-is_active', '-updated_at', '-created_at']
+		verbose_name = 'Payment Request Template'
+		verbose_name_plural = 'Payment Request Templates'
 
 	def __str__(self):
 		return self.name
@@ -658,6 +662,7 @@ class FundRequest(models.Model):
 	department = models.CharField(max_length=120)
 	branch = models.CharField(max_length=120)
 	total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	request_metadata = models.JSONField(default=dict, blank=True)
 	request_status = models.CharField(max_length=20, choices=REQUEST_STATUS_CHOICES, default='pending', db_index=True)
 	decision_reason = models.TextField(blank=True)
 	template = models.ForeignKey(
@@ -687,6 +692,8 @@ class FundRequest(models.Model):
 
 	class Meta:
 		ordering = ['-created_at']
+		verbose_name = 'Payment Request'
+		verbose_name_plural = 'Payment Requests'
 		constraints = [
 			models.UniqueConstraint(fields=['request_year', 'serial_sequence'], name='unique_fund_request_year_sequence'),
 		]
@@ -783,6 +790,8 @@ class FundRequestLineItem(models.Model):
 
 	class Meta:
 		ordering = ['id']
+		verbose_name = 'Payment Request Line Item'
+		verbose_name_plural = 'Payment Request Line Items'
 
 	def __str__(self):
 		return f'FundRequestLineItem<{self.fund_request_id}:{self.particulars}>'
@@ -802,6 +811,8 @@ class FundRequestAttachment(models.Model):
 
 	class Meta:
 		ordering = ['id']
+		verbose_name = 'Payment Request Attachment'
+		verbose_name_plural = 'Payment Request Attachments'
 
 	def __str__(self):
 		return f'FundRequestAttachment<{self.fund_request_id}:{self.image.name}>'
@@ -831,6 +842,8 @@ class FundRequestAutoApproveRule(models.Model):
 
 	class Meta:
 		ordering = ['-is_active', '-updated_at', '-created_at']
+		verbose_name = 'Payment Request Auto-Approve Rule'
+		verbose_name_plural = 'Payment Request Auto-Approve Rules'
 
 	def __str__(self):
 		return self.name
@@ -1908,6 +1921,13 @@ class ManagedFileNode(models.Model):
 	]
 
 	parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+	trashed_from = models.ForeignKey(
+		'self',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='trashed_children',
+	)
 	name = models.CharField(max_length=180)
 	node_type = models.CharField(max_length=20, choices=NODE_TYPE_CHOICES, default='folder')
 	access_scope = models.CharField(max_length=20, choices=ACCESS_CHOICES, default='private')

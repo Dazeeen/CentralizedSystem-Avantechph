@@ -43,7 +43,7 @@
                     {% endif %}
                 </div>
                 <div class="small text-secondary mt-2">
-                    {% if can_view_all_request_records %}Viewing all approved fund request items.{% else %}Viewing your approved fund request items only.{% endif %}
+                    {% if can_view_all_request_records %}Viewing all approved payment request items.{% else %}Viewing your approved payment request items only.{% endif %}
                 </div>
             </div>
         </div>
@@ -137,7 +137,7 @@
                                                 ...
                                             </button>
                                             <ul class="dropdown-menu dropdown-menu-end">
-                                                <li><a class="dropdown-item" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">Preview</a></li>
+                                                <li><a class="dropdown-item js-pdf-preview-modal" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank" data-preview-title="Liquidation PDF Preview">Preview</a></li>
                                                 {% if liquidation.created_by_id == request.user.id %}
                                                     <li>
                                                         <button
@@ -310,7 +310,7 @@
                                                 ...
                                             </button>
                                             <ul class="dropdown-menu dropdown-menu-end">
-                                                <li><a class="dropdown-item" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">View PDF</a></li>
+                                                <li><a class="dropdown-item js-pdf-preview-modal" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank" data-preview-title="Liquidation PDF Preview">View PDF</a></li>
                                                 <li>
                                                     <button
                                                         type="button"
@@ -563,7 +563,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <a class="btn btn-outline-secondary" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">Preview PDF</a>
+                <a class="btn btn-outline-secondary js-pdf-preview-modal" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank" data-preview-title="Liquidation PDF Preview">Preview PDF</a>
                 <a class="btn btn-outline-primary" href="{% url 'liquidation_download' liquidation.id %}">Download</a>
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
@@ -693,7 +693,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <a class="btn btn-outline-secondary" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank">Preview PDF</a>
+                <a class="btn btn-outline-secondary js-pdf-preview-modal" href="{% url 'liquidation_pdf' liquidation.id %}" target="_blank" data-preview-title="Liquidation PDF Preview">Preview PDF</a>
                 <a class="btn btn-outline-primary" href="{% url 'liquidation_download' liquidation.id %}">Download</a>
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>

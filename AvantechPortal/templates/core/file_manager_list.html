@@ -11,12 +11,15 @@
         <p class="text-secondary mb-0">FTP/SFTP-style file space with scoped access by branch, department, role, and user.</p>
     </div>
     <div class="d-flex gap-2">
+        {% if not is_trash_context %}
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#fileManagerCreateFolderModal">Create Folder</button>
+        {% endif %}
         <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#fileManagerSetupModal">Setup</button>
     </div>
 </div>
 
 <div class="alert alert-success-subtle border border-success-subtle mb-3">
-    <strong>Scope:</strong> {{ branch_name }} &gt; {{ department_name }} &gt; {{ role_name }} &gt; {{ request.user.username }}
+    <strong>Scope:</strong> <span id="fileManagerScopeLabel">{{ scope_label }}</span>
 </div>
 
 <div class="row g-3">
@@ -41,25 +44,7 @@
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm mb-3">
             <div class="card-body">
-                <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
-                    <form method="post" action="{% url 'file_manager_create_folder' %}" class="d-flex gap-2 flex-wrap align-items-end">
-                        {% csrf_token %}
-                        <input type="hidden" name="parent_id" value="{% if selected_node %}{{ selected_node.id }}{% endif %}">
-                        <div>
-                            <label class="form-label mb-1">Folder</label>
-                            <input type="text" class="form-control" name="folder_name" placeholder="Folder name" required>
-                        </div>
-                        <div>
-                            <label class="form-label mb-1">Type</label>
-                            <select class="form-select" name="folder_type">
-                                <option value="folder">Folder</option>
-                                <option value="shared_folder">Shared Folder</option>
-                            </select>
-                        </div>
-                        <button class="btn btn-success" type="submit">Create Folder</button>
-                    </form>
-                </div>
-
+                {% if not is_trash_context %}
                 <form id="fileUploadForm" method="post" action="{% url 'file_manager_upload' %}" enctype="multipart/form-data" class="mb-3">
                     {% csrf_token %}
                     <input type="hidden" name="parent_id" value="{% if selected_node %}{{ selected_node.id }}{% endif %}">
@@ -68,12 +53,47 @@
                         <div class="small text-secondary">or click to choose files</div>
                         <input type="file" id="fileInput" name="files" class="d-none" multiple>
                     </div>
-                    <button type="submit" class="btn btn-outline-success">Upload</button>
+                    <div class="small text-secondary mb-2" id="fileUploadSelectionStatus">No files selected.</div>
+                    <div class="small text-secondary" id="fileUploadSelectionList"></div>
+                    <button type="submit" class="btn btn-outline-success" id="fileUploadSubmitBtn">Upload</button>
                 </form>
+                {% else %}
+                <div class="alert alert-warning mb-3">Trash is read-only. Restore items before creating folders or uploading files.</div>
+                {% endif %}
 
                 <form id="bulkForm" method="post" action="{% url 'file_manager_bulk_action' %}">
                     {% csrf_token %}
                     <input type="hidden" name="selected_ids" id="selectedIdsInput" value="">
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">Search files/folders</label>
+                            <input type="text" class="form-control" id="fileManagerSearch" placeholder="Search by name, type, or owner">
+                            <div id="fileManagerSearchResults" class="list-group mt-2 d-none"></div>
+                        </div>
+                        {% if request.user.is_superuser %}
+                        <div class="col-md-6 text-md-end">
+                            <button type="button" class="btn btn-outline-secondary" id="fileManagerCliToggle" aria-expanded="false" aria-controls="fileManagerCliPanel">Open Terminal</button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if request.user.is_superuser %}
+                    <div class="border rounded bg-dark text-light mb-3 overflow-hidden d-none" id="fileManagerCliPanel">
+                        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom border-secondary-subtle">
+                            <div class="small fw-semibold">File Manager CLI</div>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="small text-white-50">help, pwd, ls, cd, open, mkdir, sudo rm, search, clear</div>
+                                <button type="button" class="btn btn-sm btn-outline-light py-0" id="fileManagerCliClose">Close</button>
+                            </div>
+                        </div>
+                        <div class="p-3 font-monospace small" id="fileManagerCliOutput" style="min-height: 92px; max-height: 220px; overflow-y: auto;">
+                            <div><span class="text-success">fm</span> <span class="text-white-50">Type</span> help <span class="text-white-50">to list commands.</span></div>
+                        </div>
+                        <div class="input-group input-group-sm border-top border-secondary-subtle">
+                            <span class="input-group-text bg-dark text-success border-0 font-monospace">$</span>
+                            <input type="text" class="form-control bg-dark text-light border-0 font-monospace" id="fileManagerCliInput" placeholder="ls" autocomplete="off" spellcheck="false">
+                        </div>
+                    </div>
+                    {% endif %}
                     <div class="table-responsive">
                         <table class="table align-middle mb-0">
                             <thead class="table-success">
@@ -83,12 +103,35 @@
                                     <th>Type</th>
                                     <th>Owner</th>
                                     <th>Storage</th>
+                                    <th>Size</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
+                                {% if parent_node %}
+                                <tr class="fm-row-open" role="button" tabindex="0" data-open-url="{% url 'file_manager_list' %}?node={{ parent_node.id }}" data-fm-node-name=".." data-fm-node-type="folder" aria-label="Go to parent folder">
+                                    <td></td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span aria-hidden="true">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M3.5 7.5H10L12 9.5H20.5V18.5H3.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                    <path d="M3.5 11.5H20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                    <path d="M8 14.5L11 11.5L14 14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </span>
+                                            <a href="{% url 'file_manager_list' %}?node={{ parent_node.id }}" class="text-decoration-none fw-semibold">../</a>
+                                        </div>
+                                    </td>
+                                    <td>Parent Folder</td>
+                                    <td>{{ parent_node.owner.username }}</td>
+                                    <td>{{ parent_node.storage_endpoint.name|default:'-' }}</td>
+                                    <td>-</td>
+                                    <td class="text-end"></td>
+                                </tr>
+                                {% endif %}
                                 {% for node in children %}
-                                <tr {% if node.node_type == 'folder' or node.node_type == 'shared_folder' %}class="fm-row-open" role="button" tabindex="0" data-open-url="{% url 'file_manager_list' %}?node={{ node.id }}"{% endif %}>
+                                <tr data-fm-node-id="{{ node.id }}" data-fm-node-name="{{ node.name }}" data-fm-node-type="{{ node.node_type }}" {% if node.node_type == 'folder' or node.node_type == 'shared_folder' %}class="fm-row-open" role="button" tabindex="0" data-open-url="{% url 'file_manager_list' %}?node={{ node.id }}"{% endif %}>
                                     <td><input type="checkbox" class="form-check-input node-checkbox" value="{{ node.id }}"></td>
                                     <td>
                                         <div class="d-flex align-items-center gap-2">
@@ -111,17 +154,79 @@
                                             {% if node.node_type == 'folder' or node.node_type == 'shared_folder' %}
                                             <a href="{% url 'file_manager_list' %}?node={{ node.id }}" class="text-decoration-none fw-semibold">{{ node.name }}</a>
                                             {% else %}
-                                            <span>{{ node.name }}</span>
+                                            <a
+                                                data-no-ajax="1"
+                                                class="text-decoration-none fw-semibold fm-preview-btn"
+                                                href="{% url 'file_manager_preview' node.id %}"
+                                                target="_blank"
+                                                rel="noopener"
+                                                data-preview-kind="{{ node.preview_kind }}"
+                                                data-preview-name="{{ node.name }}"
+                                                data-download-url="{% url 'file_manager_download' node.id %}"
+                                            >{{ node.name }}</a>
                                             {% endif %}
                                         </div>
                                     </td>
                                     <td>{{ node.get_node_type_display }}</td>
                                     <td>{{ node.owner.username }}</td>
                                     <td>{{ node.storage_endpoint.name|default:'-' }}</td>
+                                    <td>{{ node.size_display|default:'-' }}</td>
                                     <td class="text-end">
-                                        {% if node.node_type == 'file' %}
-                                        <a data-no-ajax="1" class="btn btn-sm btn-outline-primary" href="{% url 'file_manager_download' node.id %}">Download</a>
-                                        {% endif %}
+                                        <div class="dropdown d-inline-block">
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="nodeActions{{ node.id }}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions"></button>
+                                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="nodeActions{{ node.id }}">
+                                                {% if node.node_type == 'file' %}
+                                                <li>
+                                                    <a
+                                                        data-no-ajax="1"
+                                                        class="dropdown-item fm-preview-btn"
+                                                        href="{% url 'file_manager_preview' node.id %}"
+                                                        target="_blank"
+                                                        rel="noopener"
+                                                        data-preview-kind="{{ node.preview_kind }}"
+                                                        data-preview-name="{{ node.name }}"
+                                                        data-download-url="{% url 'file_manager_download' node.id %}"
+                                                    >Preview</a>
+                                                </li>
+                                                <li><a data-no-ajax="1" class="dropdown-item" href="{% url 'file_manager_download' node.id %}">Download</a></li>
+                                                {% endif %}
+                                                {% if is_trash_context %}
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item fm-restore-btn"
+                                                        data-node-id="{{ node.id }}"
+                                                        data-current-name="{{ node.name }}"
+                                                    >Restore</button>
+                                                </li>
+                                                {% else %}
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item fm-move-btn"
+                                                        data-node-id="{{ node.id }}"
+                                                        data-current-name="{{ node.name }}"
+                                                    >Move</button>
+                                                </li>
+                                                {% endif %}
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item fm-rename-btn"
+                                                        data-node-id="{{ node.id }}"
+                                                        data-current-name="{{ node.name }}"
+                                                    >Rename</button>
+                                                </li>
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item text-danger fm-delete-btn"
+                                                        data-node-id="{{ node.id }}"
+                                                        data-current-name="{{ node.name }}"
+                                                    >Delete</button>
+                                                </li>
+                                            </ul>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% empty %}
@@ -131,7 +236,11 @@
                         </table>
                     </div>
 
+                    {% if is_trash_context %}
+                    <div class="alert alert-info mt-3 mb-0">Deleting all will free {{ trash_total_label }}.</div>
+                    {% endif %}
                     <div class="d-flex flex-wrap gap-2 mt-3 align-items-end">
+                        {% if not is_trash_context %}
                         <div>
                             <label class="form-label mb-1">Share To User</label>
                             <select class="form-select" name="bulk_target_user_id">
@@ -151,15 +260,167 @@
                         </div>
                         <button class="btn btn-outline-success" type="submit" name="bulk_action" value="share">Bulk Share</button>
                         <button class="btn btn-outline-danger" type="submit" name="bulk_action" value="delete">Bulk Delete</button>
+                        {% else %}
+                        <button class="btn btn-outline-primary" type="submit" name="bulk_action" value="restore">Restore Selected</button>
+                        <button class="btn btn-outline-danger" type="submit" name="bulk_action" value="delete">Delete Selected</button>
+                        <button class="btn btn-danger fm-delete-all-btn" type="button">Delete All</button>
+                        {% endif %}
                     </div>
                 </form>
             </div>
         </div>
     </div>
+
+            <div class="modal fade" id="fileManagerMoveModal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content border-0 shadow">
+                        <form id="fileManagerMoveForm" method="post" action="{% url 'file_manager_move' %}">
+                            {% csrf_token %}
+                            <div class="modal-header">
+                                <h5 class="modal-title">Move Item</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <input type="hidden" name="node_id" id="moveNodeId" value="">
+                                <div class="mb-3">
+                                    <label class="form-label">Destination folder</label>
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        id="moveTargetSearch"
+                                        placeholder="Search folders"
+                                        {% if not move_targets %}disabled{% endif %}
+                                    >
+                                </div>
+                                <div class="mb-3">
+                                    <select class="form-select" name="target_parent_id" id="moveTargetSelect" size="8" required>
+                                        {% for target in move_targets %}
+                                        <option value="{{ target.id }}">{{ target.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if not move_targets %}
+                                    <div class="small text-secondary mt-2">No writable folders available.</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-success" {% if not move_targets %}disabled{% endif %}>Move</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+</div>
+
+<div class="modal fade" id="fileManagerCreateFolderModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form id="fileManagerCreateFolderForm" method="post" action="{% url 'file_manager_create_folder' %}">
+                {% csrf_token %}
+                <input type="hidden" name="parent_id" value="{% if selected_node %}{{ selected_node.id }}{% endif %}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Folder</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Folder name</label>
+                        <input type="text" class="form-control" name="folder_name" placeholder="Folder name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" name="folder_type">
+                            <option value="folder">Folder</option>
+                            <option value="shared_folder">Shared Folder</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Create Folder</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fileManagerRenameModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form id="fileManagerRenameForm" method="post" action="{% url 'file_manager_rename' %}">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title">Rename Item</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="node_id" id="renameNodeId" value="">
+                    <div class="mb-3">
+                        <label class="form-label">New name</label>
+                        <input type="text" class="form-control" name="new_name" id="renameNodeName" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Rename</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fileManagerDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form id="fileManagerDeleteForm" method="post" action="{% url 'file_manager_bulk_action' %}">
+                {% csrf_token %}
+                <input type="hidden" name="selected_ids" id="deleteNodeId" value="">
+                <input type="hidden" name="bulk_action" value="delete">
+                <div class="modal-header">
+                    <h5 class="modal-title">Move to Trash</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">Move <strong id="deleteNodeName">this item</strong> to Trash?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Move to Trash</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fileManagerDeleteAllModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form id="fileManagerDeleteAllForm" method="post" action="{% url 'file_manager_bulk_action' %}">
+                {% csrf_token %}
+                <input type="hidden" name="bulk_action" value="delete_all">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete All in Trash</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-3">This will permanently delete everything in Trash.</p>
+                    <div>
+                        <label class="form-label">Confirm password</label>
+                        <input type="password" class="form-control" name="confirm_password" id="deleteAllPassword" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete All</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="fileManagerSetupModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content border-0 shadow">
             <div class="modal-header">
                 <h5 class="modal-title">File Manager Setup</h5>
@@ -248,6 +509,29 @@
 </div>
 </div>
 
+<div class="modal fade" id="fileManagerPreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-lg-down">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title text-truncate" id="fileManagerPreviewTitle">Preview</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <a class="btn btn-sm btn-outline-success" id="fileManagerPreviewOpenLink" href="#" target="_blank" rel="noopener">Open</a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body bg-light p-2">
+                <img id="fileManagerPreviewImage" class="img-fluid d-none mx-auto" alt="" style="max-height: 75vh; object-fit: contain;">
+                <iframe id="fileManagerPreviewFrame" class="w-100 border-0 d-none bg-white" title="File preview" style="height: 75vh;"></iframe>
+                <div id="fileManagerPreviewUnsupported" class="d-none bg-white rounded border p-4 text-center">
+                    <div class="h6 mb-2">Preview is not available for this file type yet.</div>
+                    <p class="text-secondary mb-3">Office files like DOCX and XLSX need server-side conversion before they can be shown here.</p>
+                    <a class="btn btn-success" id="fileManagerPreviewDownloadLink" href="#">Download File</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="position-fixed top-0 end-0 p-3" style="z-index: 1080">
     <div id="fmToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="d-flex">
@@ -263,6 +547,8 @@
     const toastElement = document.getElementById('fmToast');
     const toastBody = document.getElementById('fmToastBody');
     const toastInstance = (typeof bootstrap !== 'undefined' && toastElement) ? bootstrap.Toast.getOrCreateInstance(toastElement) : null;
+    const cliStorageKey = 'fileManagerCliOpen';
+    const canUseFileManagerSudo = {{ request.user.is_superuser|yesno:"true,false" }};
 
     const showToast = (message, isError) => {
         if (!toastElement || !toastBody || !toastInstance) {
@@ -289,6 +575,7 @@
         const currentApp = document.getElementById('fileManagerApp');
         if (nextApp && currentApp) {
             currentApp.innerHTML = nextApp.innerHTML;
+            restoreCliState();
         }
     };
 
@@ -305,7 +592,473 @@
         document.body.style.removeProperty('overflow');
     };
 
+    const forceCloseModal = (modalId) => {
+        const modalEl = document.getElementById(modalId);
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            const instance = bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl);
+            instance.hide();
+        }
+    };
+
+    const openPreviewModal = (link) => {
+        const modalEl = document.getElementById('fileManagerPreviewModal');
+        const title = document.getElementById('fileManagerPreviewTitle');
+        const openLink = document.getElementById('fileManagerPreviewOpenLink');
+        const image = document.getElementById('fileManagerPreviewImage');
+        const frame = document.getElementById('fileManagerPreviewFrame');
+        const unsupported = document.getElementById('fileManagerPreviewUnsupported');
+        const downloadLink = document.getElementById('fileManagerPreviewDownloadLink');
+        const previewUrl = link.getAttribute('href') || '';
+        const previewName = link.getAttribute('data-preview-name') || link.textContent || 'Preview';
+        const previewKind = link.getAttribute('data-preview-kind') || '';
+        const downloadUrl = link.getAttribute('data-download-url') || '';
+        if (!modalEl || !image || !frame || !unsupported || !previewUrl || typeof bootstrap === 'undefined') {
+            return false;
+        }
+        if (previewKind !== 'image' && previewKind !== 'pdf' && previewKind !== 'unsupported') {
+            return false;
+        }
+        if (title) {
+            title.textContent = previewName;
+        }
+        if (openLink) {
+            openLink.href = previewUrl;
+            openLink.classList.toggle('d-none', previewKind === 'unsupported');
+        }
+        image.classList.toggle('d-none', previewKind !== 'image');
+        frame.classList.toggle('d-none', previewKind !== 'pdf');
+        unsupported.classList.toggle('d-none', previewKind !== 'unsupported');
+        if (previewKind === 'image') {
+            image.src = previewUrl;
+            image.alt = previewName;
+            frame.removeAttribute('src');
+        } else if (previewKind === 'pdf') {
+            frame.src = previewUrl;
+            image.removeAttribute('src');
+            image.alt = '';
+        } else {
+            image.removeAttribute('src');
+            image.alt = '';
+            frame.removeAttribute('src');
+            if (downloadLink) {
+                downloadLink.href = downloadUrl || previewUrl;
+            }
+        }
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        return true;
+    };
+
+    const getCsrfToken = () => {
+        const tokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        return tokenInput ? tokenInput.value : '';
+    };
+
+    const debounce = (fn, delay) => {
+        let timerId = null;
+        return (...args) => {
+            if (timerId) {
+                window.clearTimeout(timerId);
+            }
+            timerId = window.setTimeout(() => fn(...args), delay);
+        };
+    };
+
+    const renderSearchResults = (results, query) => {
+        const list = document.getElementById('fileManagerSearchResults');
+        if (!list) {
+            return;
+        }
+        list.innerHTML = '';
+        if (!query || !results.length) {
+            list.classList.add('d-none');
+            return;
+        }
+        results.forEach((item) => {
+            const link = document.createElement('a');
+            const targetId = item.node_type === 'file' && item.parent_id ? item.parent_id : item.id;
+            link.href = `{% url 'file_manager_list' %}?node=${encodeURIComponent(targetId)}`;
+            link.className = 'list-group-item list-group-item-action';
+            link.textContent = `${item.name} • ${item.label}`;
+            list.appendChild(link);
+        });
+        list.classList.remove('d-none');
+    };
+
+    const fetchSearchResults = debounce(async (query) => {
+        if (!query || query.length < 2) {
+            renderSearchResults([], '');
+            return;
+        }
+        try {
+            const response = await fetch(`{% url 'file_manager_search' %}?q=${encodeURIComponent(query)}`, {
+                method: 'GET',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) {
+                renderSearchResults([], '');
+                return;
+            }
+            renderSearchResults(payload.results || [], query);
+        } catch (error) {
+            renderSearchResults([], '');
+        }
+    }, 350);
+
+    const setCliOpen = (isOpen, shouldFocus) => {
+        const panel = document.getElementById('fileManagerCliPanel');
+        const toggle = document.getElementById('fileManagerCliToggle');
+        const input = document.getElementById('fileManagerCliInput');
+        if (!panel || !toggle) {
+            return;
+        }
+        panel.classList.toggle('d-none', !isOpen);
+        toggle.textContent = isOpen ? 'Hide Terminal' : 'Open Terminal';
+        toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        window.localStorage.setItem(cliStorageKey, isOpen ? '1' : '0');
+        if (isOpen && shouldFocus && input) {
+            input.focus();
+        }
+    };
+
+    const restoreCliState = () => {
+        setCliOpen(window.localStorage.getItem(cliStorageKey) === '1', false);
+    };
+
+    const appendCliLine = (html, muted) => {
+        const output = document.getElementById('fileManagerCliOutput');
+        if (!output) {
+            return;
+        }
+        const line = document.createElement('div');
+        line.className = muted ? 'text-white-50' : '';
+        line.innerHTML = html;
+        output.appendChild(line);
+        output.scrollTop = output.scrollHeight;
+    };
+
+    const escapeCliText = (value) => {
+        const span = document.createElement('span');
+        span.textContent = value || '';
+        return span.innerHTML;
+    };
+
+    const parseCliArgs = (commandText) => {
+        const args = [];
+        const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+        let match = pattern.exec(commandText || '');
+        while (match) {
+            args.push(match[1] || match[2] || match[3] || '');
+            match = pattern.exec(commandText || '');
+        }
+        return args;
+    };
+
+    const getCliEntries = () => Array.from(document.querySelectorAll('[data-fm-node-name]')).map((row) => ({
+        row,
+        id: row.getAttribute('data-fm-node-id') || '',
+        name: row.getAttribute('data-fm-node-name') || '',
+        type: row.getAttribute('data-fm-node-type') || '',
+        openUrl: row.getAttribute('data-open-url') || '',
+        previewLink: row.querySelector('.fm-preview-btn'),
+    }));
+
+    const findCliEntry = (name, allowedTypes) => {
+        const normalizedName = (name || '').trim().toLowerCase();
+        if (!normalizedName) {
+            return null;
+        }
+        return getCliEntries().find((entry) => {
+            const typeMatches = !allowedTypes || allowedTypes.includes(entry.type);
+            return typeMatches && entry.name.toLowerCase() === normalizedName;
+        }) || null;
+    };
+
+    const navigateFileManager = async (url) => {
+        if (!url) {
+            return;
+        }
+        window.history.pushState({}, '', url);
+        await refreshFileManager(url);
+    };
+
+    const executeCliCommand = async (commandText) => {
+        const raw = (commandText || '').trim();
+        if (!raw) {
+            return;
+        }
+        appendCliLine(`<span class="text-success">$</span> ${escapeCliText(raw)}`);
+        const args = parseCliArgs(raw);
+        const command = (args.shift() || '').toLowerCase();
+        const rest = args.join(' ').trim();
+
+        if (command === 'help') {
+            appendCliLine('pwd - show current scope');
+            appendCliLine('ls [text] - list files and folders');
+            appendCliLine('cd &lt;folder&gt; | cd .. - open a folder');
+            appendCliLine('open &lt;file&gt; - preview a file');
+            appendCliLine('mkdir &lt;name&gt; - create a folder here');
+            appendCliLine('sudo rm &lt;name&gt; - delete a file or folder');
+            appendCliLine('search &lt;text&gt; - filter the table');
+            appendCliLine('clear - clear this terminal');
+            return;
+        }
+
+        if (command === 'clear') {
+            const output = document.getElementById('fileManagerCliOutput');
+            if (output) {
+                output.innerHTML = '';
+            }
+            return;
+        }
+
+        if (command === 'pwd') {
+            const scope = document.getElementById('fileManagerScopeLabel');
+            appendCliLine(escapeCliText(scope ? scope.textContent.trim() : '/'));
+            return;
+        }
+
+        if (command === 'ls') {
+            const filterText = rest.toLowerCase();
+            const entries = getCliEntries().filter((entry) => entry.name !== '..' && (!filterText || entry.name.toLowerCase().includes(filterText)));
+            if (!entries.length) {
+                appendCliLine('No matching files or folders.', true);
+                return;
+            }
+            entries.forEach((entry) => {
+                const suffix = entry.type === 'folder' || entry.type === 'shared_folder' ? '/' : '';
+                appendCliLine(`${escapeCliText(entry.name)}${suffix} <span class="text-white-50">${escapeCliText(entry.type)}</span>`);
+            });
+            return;
+        }
+
+        if (command === 'cd') {
+            const target = rest || '..';
+            const entry = target === '..'
+                ? findCliEntry('..', ['folder'])
+                : findCliEntry(target, ['folder', 'shared_folder']);
+            if (!entry || !entry.openUrl) {
+                appendCliLine(`cd: no such folder: ${escapeCliText(target)}`, true);
+                return;
+            }
+            await navigateFileManager(entry.openUrl);
+            return;
+        }
+
+        if (command === 'open' || command === 'view' || command === 'cat') {
+            const entry = findCliEntry(rest, ['file']);
+            if (!entry || !entry.previewLink) {
+                appendCliLine(`open: no such file: ${escapeCliText(rest)}`, true);
+                return;
+            }
+            entry.previewLink.click();
+            return;
+        }
+
+        if (command === 'search' || command === 'grep') {
+            const searchInput = document.getElementById('fileManagerSearch');
+            if (!searchInput) {
+                return;
+            }
+            searchInput.value = rest;
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            appendCliLine(`searching: ${escapeCliText(rest)}`, true);
+            return;
+        }
+
+        if (command === 'mkdir') {
+            if (!rest) {
+                appendCliLine('mkdir: missing folder name', true);
+                return;
+            }
+            if (document.getElementById('fileUploadForm') === null) {
+                appendCliLine('mkdir: this folder is read-only', true);
+                return;
+            }
+            const parentInput = document.querySelector('#fileUploadForm input[name="parent_id"]');
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', getCsrfToken());
+            formData.append('parent_id', parentInput ? parentInput.value : '');
+            formData.append('folder_name', rest);
+            formData.append('folder_type', 'folder');
+            try {
+                const payload = await submitFileManagerRequest('{% url "file_manager_create_folder" %}', formData);
+                if (payload) {
+                    appendCliLine(`created folder: ${escapeCliText(rest)}`, true);
+                }
+            } catch (error) {
+                appendCliLine('mkdir: request failed', true);
+            }
+            return;
+        }
+
+        if (command === 'rm' || command === 'delete') {
+            appendCliLine(`${escapeCliText(command)}: permission denied. Try sudo ${escapeCliText(command)} &lt;name&gt;`, true);
+            return;
+        }
+
+        if (command === 'sudo') {
+            if (!canUseFileManagerSudo) {
+                appendCliLine('sudo: permission denied', true);
+                return;
+            }
+            const sudoCommand = (args.shift() || '').toLowerCase();
+            const sudoTarget = args.filter((item) => item !== '-r' && item !== '-rf' && item !== '-fr').join(' ').trim();
+            if (sudoCommand !== 'rm' && sudoCommand !== 'delete') {
+                appendCliLine(`sudo: ${escapeCliText(sudoCommand || '(empty)')}: command not allowed`, true);
+                return;
+            }
+            if (!sudoTarget) {
+                appendCliLine('sudo rm: missing file or folder name', true);
+                return;
+            }
+            const entry = findCliEntry(sudoTarget);
+            if (!entry || !entry.id || entry.name === '..') {
+                appendCliLine(`sudo rm: no such file or folder: ${escapeCliText(sudoTarget)}`, true);
+                return;
+            }
+            if (!window.confirm(`Delete "${entry.name}"? This uses the portal delete flow.`)) {
+                appendCliLine('sudo rm: cancelled', true);
+                return;
+            }
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', getCsrfToken());
+            formData.append('selected_ids', entry.id);
+            formData.append('bulk_action', 'delete');
+            formData.append('sudo', '1');
+            try {
+                const payload = await submitFileManagerRequest('{% url "file_manager_bulk_action" %}', formData);
+                if (payload) {
+                    appendCliLine(`deleted: ${escapeCliText(entry.name)}`, true);
+                }
+            } catch (error) {
+                appendCliLine('sudo rm: request failed', true);
+            }
+            return;
+        }
+
+        appendCliLine(`${escapeCliText(command)}: command not found. Type help.`, true);
+    };
+
+    const submitFileManagerRequest = async (action, formData, sourceForm) => {
+        const response = await fetch(action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: formData,
+            credentials: 'same-origin',
+        });
+        const responseText = await response.text();
+        let payload = null;
+        try {
+            payload = JSON.parse(responseText);
+        } catch (error) {
+            payload = {
+                ok: false,
+                message: responseText ? responseText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : 'Request failed.',
+            };
+        }
+        if (!response.ok || !payload.ok) {
+            showToast(payload.message || 'Action failed.', true);
+            return null;
+        }
+        showToast(payload.message || 'Saved.', false);
+        if (sourceForm && sourceForm.closest('#fileManagerSetupModal')) {
+            forceCloseSetupModal();
+        }
+        if (sourceForm && sourceForm.closest('#fileManagerMoveModal')) {
+            forceCloseModal('fileManagerMoveModal');
+        }
+        if (sourceForm && sourceForm.closest('#fileManagerRenameModal')) {
+            forceCloseModal('fileManagerRenameModal');
+        }
+        if (sourceForm && sourceForm.closest('#fileManagerDeleteModal')) {
+            forceCloseModal('fileManagerDeleteModal');
+        }
+        if (sourceForm && sourceForm.closest('#fileManagerDeleteAllModal')) {
+            forceCloseModal('fileManagerDeleteAllModal');
+        }
+        if (sourceForm && sourceForm.closest('#fileManagerCreateFolderModal')) {
+            forceCloseModal('fileManagerCreateFolderModal');
+        }
+        let nextUrl = payload.node_id ? (`{% url 'file_manager_list' %}?node=${payload.node_id}`) : window.location.href;
+        if (action.includes('/file-manager/upload/') && sourceForm) {
+            const parentId = (formData.get('parent_id') || '').toString().trim();
+            if (parentId) {
+                nextUrl = `{% url 'file_manager_list' %}?node=${encodeURIComponent(parentId)}`;
+            }
+        }
+        await refreshFileManager(nextUrl);
+        if (payload.node_id || action.includes('/file-manager/upload/')) {
+            window.history.replaceState({}, '', nextUrl);
+        }
+        return payload;
+    };
+
+    const cliHistory = [];
+    let cliHistoryIndex = 0;
+
+    document.addEventListener('click', (event) => {
+        const toggle = event.target.closest('#fileManagerCliToggle');
+        if (toggle) {
+            const panel = document.getElementById('fileManagerCliPanel');
+            setCliOpen(panel ? panel.classList.contains('d-none') : true, true);
+            return;
+        }
+        const closeButton = event.target.closest('#fileManagerCliClose');
+        if (closeButton) {
+            setCliOpen(false, false);
+        }
+    });
+
+    document.addEventListener('keydown', async (event) => {
+        const cliInput = event.target.closest('#fileManagerCliInput');
+        if (!cliInput) {
+            return;
+        }
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!cliHistory.length) {
+                return;
+            }
+            cliHistoryIndex = Math.max(0, cliHistoryIndex - 1);
+            cliInput.value = cliHistory[cliHistoryIndex] || '';
+            cliInput.setSelectionRange(cliInput.value.length, cliInput.value.length);
+            return;
+        }
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (!cliHistory.length) {
+                cliInput.value = '';
+                return;
+            }
+            cliHistoryIndex = Math.min(cliHistory.length, cliHistoryIndex + 1);
+            cliInput.value = cliHistory[cliHistoryIndex] || '';
+            cliInput.setSelectionRange(cliInput.value.length, cliInput.value.length);
+            return;
+        }
+        if (event.key !== 'Enter') {
+            return;
+        }
+        event.preventDefault();
+        const commandText = cliInput.value;
+        cliInput.value = '';
+        if (commandText.trim()) {
+            cliHistory.push(commandText.trim());
+            cliHistoryIndex = cliHistory.length;
+        }
+        await executeCliCommand(commandText);
+    });
+
     document.addEventListener('click', async (event) => {
+        const previewLink = event.target.closest('.fm-preview-btn');
+        if (previewLink) {
+            if (openPreviewModal(previewLink)) {
+                event.preventDefault();
+            }
+            return;
+        }
+
         const row = event.target.closest('.fm-row-open');
         if (row && !event.target.closest('a, button, input, select, textarea, label, form')) {
             const url = row.getAttribute('data-open-url');
@@ -315,6 +1068,121 @@
             event.preventDefault();
             window.history.pushState({}, '', url);
             await refreshFileManager(url);
+            return;
+        }
+
+        const renameButton = event.target.closest('.fm-rename-btn');
+        if (renameButton) {
+            event.preventDefault();
+            const nodeId = renameButton.getAttribute('data-node-id') || '';
+            if (!nodeId) {
+                return;
+            }
+            const currentName = (renameButton.getAttribute('data-current-name') || '').replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => String.fromCharCode(parseInt(code, 16)));
+            const renameNodeInput = document.getElementById('renameNodeId');
+            const renameNameInput = document.getElementById('renameNodeName');
+            if (!renameNodeInput || !renameNameInput) {
+                return;
+            }
+            renameNodeInput.value = nodeId;
+            renameNameInput.value = currentName || '';
+            if (typeof bootstrap !== 'undefined') {
+                const modalEl = document.getElementById('fileManagerRenameModal');
+                if (modalEl) {
+                    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                    setTimeout(() => renameNameInput.focus(), 0);
+                }
+            }
+            return;
+        }
+
+        const moveButton = event.target.closest('.fm-move-btn');
+        if (moveButton) {
+            event.preventDefault();
+            const nodeId = moveButton.getAttribute('data-node-id') || '';
+            const moveNodeInput = document.getElementById('moveNodeId');
+            const targetSelect = document.getElementById('moveTargetSelect');
+            const targetSearch = document.getElementById('moveTargetSearch');
+            if (!nodeId || !moveNodeInput || !targetSelect) {
+                return;
+            }
+            moveNodeInput.value = nodeId;
+            targetSelect.value = '';
+            if (targetSearch) {
+                targetSearch.value = '';
+                Array.from(targetSelect.options).forEach((option) => {
+                    option.hidden = false;
+                });
+            }
+            if (typeof bootstrap !== 'undefined') {
+                const modalEl = document.getElementById('fileManagerMoveModal');
+                if (modalEl) {
+                    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                }
+            }
+            return;
+        }
+
+        const restoreButton = event.target.closest('.fm-restore-btn');
+        if (restoreButton) {
+            event.preventDefault();
+            const nodeId = restoreButton.getAttribute('data-node-id') || '';
+            if (!nodeId) {
+                return;
+            }
+            const currentName = (restoreButton.getAttribute('data-current-name') || '').replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => String.fromCharCode(parseInt(code, 16)));
+            if (!window.confirm(`Restore "${currentName || 'this item'}" from Trash?`)) {
+                return;
+            }
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', getCsrfToken());
+            formData.append('node_id', nodeId);
+            try {
+                await submitFileManagerRequest('{% url "file_manager_restore" %}', formData);
+            } catch (error) {
+                showToast('Request failed. Please try again.', true);
+            }
+            return;
+        }
+
+        const deleteButton = event.target.closest('.fm-delete-btn');
+        if (deleteButton) {
+            event.preventDefault();
+            const nodeId = deleteButton.getAttribute('data-node-id') || '';
+            if (!nodeId) {
+                return;
+            }
+            const currentName = (deleteButton.getAttribute('data-current-name') || '').replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => String.fromCharCode(parseInt(code, 16)));
+            const deleteNodeInput = document.getElementById('deleteNodeId');
+            const deleteNodeName = document.getElementById('deleteNodeName');
+            if (!deleteNodeInput || !deleteNodeName) {
+                return;
+            }
+            deleteNodeInput.value = nodeId;
+            deleteNodeName.textContent = currentName || 'this item';
+            if (typeof bootstrap !== 'undefined') {
+                const modalEl = document.getElementById('fileManagerDeleteModal');
+                if (modalEl) {
+                    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                }
+            }
+            return;
+        }
+
+        const deleteAllButton = event.target.closest('.fm-delete-all-btn');
+        if (deleteAllButton) {
+            event.preventDefault();
+            const passwordInput = document.getElementById('deleteAllPassword');
+            if (passwordInput) {
+                passwordInput.value = '';
+            }
+            if (typeof bootstrap !== 'undefined') {
+                const modalEl = document.getElementById('fileManagerDeleteAllModal');
+                if (modalEl) {
+                    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                    setTimeout(() => passwordInput && passwordInput.focus(), 0);
+                }
+            }
             return;
         }
 
@@ -354,38 +1222,34 @@
             formData.append(submitter.name, submitter.value || '');
         }
         try {
-            const response = await fetch(action, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                body: formData,
-                credentials: 'same-origin',
-            });
-            const payload = await response.json();
-            if (!response.ok || !payload.ok) {
-                showToast(payload.message || 'Action failed.', true);
-                return;
-            }
-            showToast(payload.message || 'Saved.', false);
-            if (form.closest('#fileManagerSetupModal')) {
-                forceCloseSetupModal();
-            }
-            let nextUrl = payload.node_id ? (`{% url 'file_manager_list' %}?node=${payload.node_id}`) : window.location.href;
-            if (action.includes('/file-manager/upload/')) {
-                const parentId = (formData.get('parent_id') || '').toString().trim();
-                if (parentId) {
-                    nextUrl = `{% url 'file_manager_list' %}?node=${encodeURIComponent(parentId)}`;
-                }
-            }
-            await refreshFileManager(nextUrl);
-            if (payload.node_id || action.includes('/file-manager/upload/')) {
-                window.history.replaceState({}, '', nextUrl);
-            }
+            await submitFileManagerRequest(action, formData, form);
         } catch (error) {
             showToast('Request failed. Please try again.', true);
         }
     });
 
     document.addEventListener('change', (event) => {
+        const fileInput = event.target.closest('#fileInput');
+        if (fileInput) {
+            const status = document.getElementById('fileUploadSelectionStatus');
+            const list = document.getElementById('fileUploadSelectionList');
+            const fileCount = fileInput.files ? fileInput.files.length : 0;
+            if (status) {
+                status.textContent = fileCount ? `${fileCount} file(s) ready to upload.` : 'No files selected.';
+                status.classList.toggle('text-success', !!fileCount);
+                status.classList.toggle('text-secondary', !fileCount);
+            }
+            if (list) {
+                if (fileCount) {
+                    const names = Array.from(fileInput.files).map((file) => file.name).join(', ');
+                    list.textContent = names;
+                } else {
+                    list.textContent = '';
+                }
+            }
+            return;
+        }
+
         const selectAll = event.target.closest('#selectAllNodes');
         if (selectAll) {
             const checkboxes = Array.from(document.querySelectorAll('.node-checkbox'));
@@ -395,6 +1259,46 @@
         const selectedIdsInput = document.getElementById('selectedIdsInput');
         if (selectedIdsInput) {
             selectedIdsInput.value = checkboxes.filter((item) => item.checked).map((item) => item.value).join(',');
+        }
+    });
+
+    document.addEventListener('input', (event) => {
+        const searchInput = event.target.closest('#fileManagerSearch');
+        if (!searchInput) {
+            return;
+        }
+        const query = (searchInput.value || '').trim().toLowerCase();
+        const rows = Array.from(document.querySelectorAll('tbody tr'));
+        rows.forEach((row) => {
+            if (row.matches('.fm-row-open') && row.getAttribute('data-open-url') && row.querySelector('a')?.textContent?.includes('../')) {
+                row.hidden = !!query;
+                return;
+            }
+            const text = (row.textContent || '').replace(/\s+/g, ' ').toLowerCase();
+            row.hidden = query ? !text.includes(query) : false;
+        });
+        fetchSearchResults(query);
+    });
+
+    document.addEventListener('input', (event) => {
+        const searchInput = event.target.closest('#moveTargetSearch');
+        if (!searchInput) {
+            return;
+        }
+        const query = (searchInput.value || '').trim().toLowerCase();
+        const targetSelect = document.getElementById('moveTargetSelect');
+        if (!targetSelect) {
+            return;
+        }
+        Array.from(targetSelect.options).forEach((option) => {
+            const label = (option.textContent || '').toLowerCase();
+            option.hidden = query && !label.includes(query);
+        });
+        const firstVisible = Array.from(targetSelect.options).find((option) => !option.hidden);
+        if (firstVisible) {
+            targetSelect.value = firstVisible.value;
+        } else {
+            targetSelect.value = '';
         }
     });
 
@@ -435,6 +1339,7 @@
         dropZone.classList.remove('border-success');
         if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) {
             fileInput.files = event.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
     });
 
@@ -458,6 +1363,27 @@
         window.history.pushState({}, '', url);
         await refreshFileManager(url);
     });
+
+    document.addEventListener('hidden.bs.modal', (event) => {
+        if (!event.target.matches('#fileManagerPreviewModal')) {
+            return;
+        }
+        const image = document.getElementById('fileManagerPreviewImage');
+        const frame = document.getElementById('fileManagerPreviewFrame');
+        if (image) {
+            image.removeAttribute('src');
+            image.alt = '';
+        }
+        if (frame) {
+            frame.removeAttribute('src');
+        }
+        const openLink = document.getElementById('fileManagerPreviewOpenLink');
+        if (openLink) {
+            openLink.classList.remove('d-none');
+        }
+    });
+
+    restoreCliState();
 
     const renderDirectoryList = (payload) => {
         const panel = document.getElementById('rootPathBrowserPanel');

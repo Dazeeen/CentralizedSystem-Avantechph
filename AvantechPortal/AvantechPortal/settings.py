@@ -67,9 +67,9 @@ def _resolve_sqlite_database_name(base_dir):
 
 
 def _build_sqlite_database_options():
-    timeout_seconds = env_int('DJANGO_DB_TIMEOUT', 20)
+    timeout_seconds = env_int('DJANGO_DB_TIMEOUT', 60)
     busy_timeout_ms = env_int('DJANGO_DB_BUSY_TIMEOUT', timeout_seconds * 1000)
-    transaction_mode = (os.getenv('DJANGO_SQLITE_TRANSACTION_MODE', 'IMMEDIATE') or '').strip().upper() or None
+    transaction_mode = (os.getenv('DJANGO_SQLITE_TRANSACTION_MODE', 'DEFERRED') or '').strip().upper() or None
 
     init_commands = [
         'PRAGMA journal_mode=WAL',
@@ -176,13 +176,14 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'core.middleware.SessionInterruptedMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'core.middleware.SafeSessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django_otp.middleware.OTPMiddleware',
     'core.middleware.InactivityTimeoutMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'core.middleware.RolePreviewMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'axes.middleware.AxesMiddleware',
 ]
@@ -208,6 +209,7 @@ TEMPLATES = [
                 'core.context_processors.finance_navigation_state',
                 'core.context_processors.super_user_chat_access',
                 'core.context_processors.page_access_indicator',
+                'core.context_processors.role_preview',
             ],
         },
     },

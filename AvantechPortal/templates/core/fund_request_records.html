@@ -1,14 +1,14 @@
 {% extends 'base_app.html' %}
 {% load core_extras %}
 
-{% block title %}Avantech Portal | Fund Request Records{% endblock %}
-{% block page_heading %}Fund Request Records{% endblock %}
+{% block title %}Avantech Portal | Payment Request Records{% endblock %}
+{% block page_heading %}Payment Request Records{% endblock %}
 
 {% block content %}
 <div class="fund-records-doc">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 print-hide">
         <div>
-            <h2 class="h4 mb-1">Fund Request Records</h2>
+            <h2 class="h4 mb-1">Payment Request Records</h2>
             <p class="text-secondary mb-0">
                 {% if can_view_all_request_records %}
                     Scope: All requests
@@ -30,7 +30,7 @@
             <form method="get" class="d-flex gap-2 flex-wrap align-items-end">
                 <div>
                     <label for="records-q" class="form-label small text-secondary mb-1">Search</label>
-                    <input id="records-q" type="text" name="q" value="{{ filter_state.query }}" class="form-control" placeholder="Series, requester, department, branch">
+                    <input id="records-q" type="text" name="q" value="{{ filter_state.query }}" class="form-control" placeholder="Control no., requester, department, branch">
                 </div>
                 <div>
                     <label for="records-status" class="form-label small text-secondary mb-1">Status</label>
@@ -54,11 +54,11 @@
                     <input id="records-created-to" type="datetime-local" name="created_to" value="{{ filter_state.created_to }}" class="form-control">
                 </div>
                 <div>
-                    <label for="records-series-from" class="form-label small text-secondary mb-1">Series From</label>
+                    <label for="records-series-from" class="form-label small text-secondary mb-1">Control No. From</label>
                     <input id="records-series-from" type="text" name="series_from" value="{{ filter_state.series_from }}" class="form-control" placeholder="2026-0001">
                 </div>
                 <div>
-                    <label for="records-series-to" class="form-label small text-secondary mb-1">Series To</label>
+                    <label for="records-series-to" class="form-label small text-secondary mb-1">Control No. To</label>
                     <input id="records-series-to" type="text" name="series_to" value="{{ filter_state.series_to }}" class="form-control" placeholder="2026-9999">
                 </div>
                 <div>
@@ -86,7 +86,7 @@
                 <thead>
                     <tr>
                         <th>Record ID</th>
-                        <th>Serial Number</th>
+                        <th>Control Number</th>
                         <th>Status</th>
                         <th>Requester Name</th>
                         <th>Request Date</th>
@@ -133,7 +133,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="14" class="text-center py-4 text-secondary">No fund request records found for the selected filters.</td>
+                            <td colspan="14" class="text-center py-4 text-secondary">No payment request records found for the selected filters.</td>
                         </tr>
                     {% endfor %}
                 </tbody>

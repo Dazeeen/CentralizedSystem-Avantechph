@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Fund Request {{ fund_request.serial_number|default:fund_request.id }}</title>
+    <title>Payment Request {{ fund_request.serial_number|default:fund_request.id }}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -104,11 +104,11 @@
     <div class="header">
         <div class="header-col">
             <div class="eyebrow">Avantech Portal</div>
-            <h1>Fund Request Form</h1>
+            <h1>Payment Request Form</h1>
             <div class="muted">Generated on {{ fund_request.created_at|date:'Y-m-d H:i' }}</div>
         </div>
         <div class="header-col is-right">
-            <div><strong>Serial No.:</strong> {{ fund_request.serial_number|default:'For Approval' }}</div>
+            <div><strong>Control No.:</strong> {{ fund_request.serial_number|default:'For Approval' }}</div>
             <div><strong>Request Date:</strong> {{ fund_request.request_date|date:'Y-m-d' }}</div>
             <div><strong>Template:</strong> {{ template_record.name|default:'Auto-generated' }}</div>
         </div>

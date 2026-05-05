@@ -7,6 +7,7 @@ from .models import SupportTicket
 User = get_user_model()
 
 OPEN_TICKET_STATUS_VALUES = ('open', 'in_progress', 'waiting_user')
+CLOSED_TICKET_STATUS_VALUES = ('resolved', 'closed')
 IMPORTANT_PRIORITY_VALUES = ('high', 'critical')
 
 _IT_SUPPORT_ROLE_NAMES = (
@@ -57,6 +58,10 @@ def can_manage_support_tickets(user):
     if not user or not getattr(user, 'is_authenticated', False):
         return False
     if user.is_superuser:
+        return True
+    preview = getattr(user, '_role_preview', None)
+    preview_role_name = ((preview or {}).get('role_name') or '').strip().lower()
+    if preview_role_name in {role_name.lower() for role_name in _IT_SUPPORT_ROLE_NAMES}:
         return True
     if user.groups.filter(name__iexact='IT Support').exists() or user.groups.filter(name__iexact='IT-Support').exists() or user.groups.filter(name__iexact='ITSupport').exists():
         return True

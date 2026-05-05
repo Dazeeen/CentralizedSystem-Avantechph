@@ -771,7 +771,7 @@
                                 <div class="small text-uppercase text-secondary fw-semibold mb-1">Uploaded by</div>
                                 <div class="small mb-3 text-truncate">{{ template_record.uploaded_by.get_full_name|default:template_record.uploaded_by.username|default:'-' }}</div>
                                 <div class="d-grid gap-2 mt-auto">
-                                    <a href="{% url 'accountability_template_preview_pdf' template_record.id %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Template (PDF)</a>
+                                    <a href="{% url 'accountability_template_preview_pdf' template_record.id %}" target="_blank" class="btn btn-sm btn-outline-secondary js-pdf-preview-modal" data-preview-title="{{ template_record.name }} PDF Preview">Preview Template (PDF)</a>
                                 </div>
                                 <form method="post" class="d-grid gap-2 mt-2 js-accountability-template-action-form">
                                     {% csrf_token %}
@@ -1087,7 +1087,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div class="small text-uppercase text-secondary fw-semibold mb-1">Uploaded by</div>
                     <div class="small mb-3 text-truncate">${item.uploaded_by || '-'}</div>
                     <div class="d-grid gap-2 mt-auto">
-                        <a href="${item.preview_url}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Template (PDF)</a>
+                        <a href="${item.preview_url}" target="_blank" class="btn btn-sm btn-outline-secondary js-pdf-preview-modal" data-preview-title="${item.name || 'Template'} PDF Preview">Preview Template (PDF)</a>
                     </div>
                     <form method="post" class="d-grid gap-2 mt-2 js-accountability-template-action-form">
                         <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">

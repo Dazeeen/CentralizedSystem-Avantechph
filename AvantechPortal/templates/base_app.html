@@ -88,7 +88,7 @@
                                             <path d="M8.5 15.5H12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                         </svg>
                                     </span>
-                                    <span class="nav-label">Fund Request</span>
+                                    <span class="nav-label">Payment Request</span>
                                 </a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'liquidation_page' %}active{% endif %}" href="{% url 'liquidation_page' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
@@ -452,6 +452,18 @@
             </header>
 
             <div class="p-3 p-md-4 app-content-wrap">
+                {% if role_preview %}
+                    <div class="alert alert-warning d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3" role="status">
+                        <div>
+                            <div class="fw-semibold">Previewing as {{ role_preview.role_name }}</div>
+                            <div class="small mb-0">Navigation and permissions are being evaluated through this role.</div>
+                        </div>
+                        <form method="post" action="{% url 'roles_preview_stop' %}" class="m-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-dark">Exit Preview</button>
+                        </form>
+                    </div>
+                {% endif %}
                 {% if messages %}
                     <div class="mb-3">
                         {% for message in messages %}
@@ -543,7 +555,7 @@
                                         <path d="M8.5 15.5H12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                     </svg>
                                 </span>
-                                <span class="nav-label">Fund Request</span>
+                                <span class="nav-label">Payment Request</span>
                             </a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'liquidation_page' %}active{% endif %}" href="{% url 'liquidation_page' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
@@ -774,6 +786,23 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-success" data-bs-dismiss="modal">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="appPdfPreviewModal" tabindex="-1" aria-labelledby="appPdfPreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-lg-down">
+            <div class="modal-content border-0 shadow-sm">
+                <div class="modal-header bg-white">
+                    <h5 class="modal-title text-truncate" id="appPdfPreviewModalLabel">PDF Preview</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <a class="btn btn-sm btn-outline-success" id="appPdfPreviewOpenLink" href="#" target="_blank" rel="noopener">Open</a>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body bg-light p-2">
+                    <iframe id="appPdfPreviewFrame" class="w-100 border-0 bg-white" title="PDF preview" style="height: 75vh;"></iframe>
                 </div>
             </div>
         </div>
@@ -1613,6 +1642,45 @@
 
             settingsModal.addEventListener('hidden.bs.modal', () => {
                 showMenu();
+            });
+        })();
+
+        (function () {
+            const pdfModalElement = document.getElementById('appPdfPreviewModal');
+            const pdfFrame = document.getElementById('appPdfPreviewFrame');
+            const pdfTitle = document.getElementById('appPdfPreviewModalLabel');
+            const pdfOpenLink = document.getElementById('appPdfPreviewOpenLink');
+            if (!pdfModalElement || !pdfFrame || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const pdfModal = bootstrap.Modal.getOrCreateInstance(pdfModalElement);
+
+            document.addEventListener('click', (event) => {
+                const trigger = event.target.closest('.js-pdf-preview-modal');
+                if (!trigger) {
+                    return;
+                }
+
+                const previewUrl = trigger.getAttribute('href') || trigger.dataset.previewUrl || '';
+                if (!previewUrl) {
+                    return;
+                }
+
+                event.preventDefault();
+                const previewTitle = trigger.dataset.previewTitle || trigger.getAttribute('aria-label') || trigger.textContent || 'PDF Preview';
+                pdfFrame.src = `${previewUrl}${previewUrl.includes('#') ? '&' : '#'}toolbar=1&navpanes=0`;
+                if (pdfTitle) {
+                    pdfTitle.textContent = previewTitle.trim() || 'PDF Preview';
+                }
+                if (pdfOpenLink) {
+                    pdfOpenLink.href = previewUrl;
+                }
+                pdfModal.show();
+            });
+
+            pdfModalElement.addEventListener('hidden.bs.modal', () => {
+                pdfFrame.removeAttribute('src');
             });
         })();
 
