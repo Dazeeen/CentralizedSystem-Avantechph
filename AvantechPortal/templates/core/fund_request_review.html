@@ -14,7 +14,7 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <a class="btn btn-outline-secondary" href="{% url 'fund_requests_list' %}">Back to Payment Requests</a>
-        <a class="btn btn-outline-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF Review</a>
+        <a class="btn btn-outline-success js-pdf-preview-modal" href="{{ preview_pdf_url }}" target="_blank" data-preview-title="Payment Request PDF Review">Open PDF Review</a>
         {% if fund_request.request_status == 'approved' %}
             <a class="btn btn-success" href="{% url 'fund_request_document_download' fund_request.id %}" target="_blank">Download PDF</a>
         {% endif %}

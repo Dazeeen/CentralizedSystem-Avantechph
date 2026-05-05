@@ -34,7 +34,7 @@
             <a class="btn btn-outline-secondary" href="{{ template_record.file.url }}" target="_blank">Open Original File</a>
         {% endif %}
         {% if preview_pdf_url %}
-            <a class="btn btn-success" href="{{ preview_pdf_url }}" target="_blank">Open PDF</a>
+            <a class="btn btn-success js-pdf-preview-modal" href="{{ preview_pdf_url }}" target="_blank" data-preview-title="{% if template_record %}{{ template_record.name }}{% else %}Payment Request Template Guide{% endif %} PDF Preview">Open PDF</a>
         {% endif %}
     </div>
 </div>

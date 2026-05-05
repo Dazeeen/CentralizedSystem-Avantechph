@@ -52,6 +52,18 @@ PAGE_ACCESS_RULES = {
     'roles_create': {'label': 'Create Role', 'perms': ['auth.add_group']},
     'roles_update': {'label': 'Edit Role', 'perms': ['auth.change_group']},
     'roles_delete': {'label': 'Delete Role', 'perms': ['auth.delete_group']},
+    'file_manager_list': {'label': 'File Manager', 'perms': ['core.view_managedfilenode']},
+    'file_manager_search': {'label': 'File Manager Search', 'perms': ['core.view_managedfilenode']},
+    'file_manager_download': {'label': 'File Manager Download', 'perms': ['core.view_managedfilenode']},
+    'file_manager_preview': {'label': 'File Manager Preview', 'perms': ['core.view_managedfilenode']},
+    'file_manager_setup': {'label': 'File Manager Setup', 'perms': ['core.change_managedfilenode']},
+    'file_manager_browse_directories': {'label': 'File Manager Directory Browser', 'perms': ['core.change_managedfilenode']},
+    'file_manager_create_folder': {'label': 'Create File Manager Folder', 'perms': ['core.add_managedfilenode']},
+    'file_manager_upload': {'label': 'Upload File Manager File', 'perms': ['core.add_managedfilenode']},
+    'file_manager_rename': {'label': 'Rename File Manager Item', 'perms': ['core.change_managedfilenode']},
+    'file_manager_move': {'label': 'Move File Manager Item', 'perms': ['core.change_managedfilenode']},
+    'file_manager_restore': {'label': 'Restore File Manager Item', 'perms': ['core.change_managedfilenode']},
+    'file_manager_bulk_action': {'label': 'File Manager Bulk Action', 'perms': ['core.change_managedfilenode']},
     'clients_list': {'label': 'Clients', 'perms': ['core.view_client']},
     'clients_create': {'label': 'Create Client', 'perms': ['core.add_client']},
     'clients_update': {'label': 'Edit Client', 'perms': ['core.change_client']},
@@ -220,16 +232,18 @@ def notification_summary(request):
 def super_user_chat_access(request):
     user = getattr(request, 'user', None)
     preview = getattr(user, '_role_preview', None)
-    preview_role_name = (preview or {}).get('role_name', '')
-    has_access = bool(
-        user
-        and user.is_authenticated
-        and (
-            user.is_superuser
-            or preview_role_name == 'Super Users'
-            or user.groups.filter(name='Super Users').exists()
+    preview_role_name = ((preview or {}).get('role_name') or '').strip().casefold()
+    if preview is not None:
+        has_access = bool(user and user.is_authenticated and preview_role_name == 'super users')
+    else:
+        has_access = bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_superuser
+                or user.groups.filter(name='Super Users').exists()
+            )
         )
-    )
     unread_count = 0
     if has_access:
         unread_query = SuperUserChatMessage.objects.filter(is_deleted=False).exclude(author=user)

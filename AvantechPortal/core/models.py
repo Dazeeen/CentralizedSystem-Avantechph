@@ -186,6 +186,8 @@ class ActivityLog(models.Model):
 		('accountability', 'Accountability'),
 		('support', 'Support Tickets'),
 		('development', 'Development'),
+		('file_manager', 'File Manager'),
+		('backup', 'Backups'),
 		('system', 'System'),
 		('users', 'Users & Roles'),
 		('security', 'Security'),

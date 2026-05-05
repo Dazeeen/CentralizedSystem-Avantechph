@@ -229,7 +229,7 @@
                                             ...
                                         </button>
                                         <ul class="dropdown-menu dropdown-menu-end">
-                                            <li><a class="dropdown-item" href="{% url 'fund_request_review_pdf' fund_request.id %}" target="_blank">Review File</a></li>
+                                            <li><a class="dropdown-item js-pdf-preview-modal" href="{% url 'fund_request_review_pdf' fund_request.id %}" target="_blank" data-preview-title="Payment Request PDF Review">Review File</a></li>
                                             {% if fund_request.created_by_id == request.user.id or can_cancel_other_fund_requests %}
                                                 <li>
                                                     <button

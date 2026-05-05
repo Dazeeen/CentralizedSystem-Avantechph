@@ -8,11 +8,13 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.utils import OperationalError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
-from . import views
+from . import system_backup_services, system_views, views
 from .forms import AssetItemForm, FundRequestForm, RoleForm, prepare_image_upload
 from .permission_catalog import BASIC_ROLE_PERMISSION_KEYS, get_basic_role_permission_ids
 from .models import (
@@ -22,11 +24,15 @@ from .models import (
     AssetDepartment,
     AssetItem,
     AssetItemType,
+    ActivityLog,
     FundRequest,
     FundRequestLineItem,
     FundRequestTemplate,
     ManagedFileNode,
     ManagedFilePermission,
+    SuperUserChatMessage,
+    SuperUserChatReadState,
+    SystemBackupSchedule,
     SupportTicket,
 )
 
@@ -176,6 +182,114 @@ class RoleFormBasicAccessTests(TestCase):
 
         self.assertRedirects(response, reverse('dashboard'))
         self.assertFalse(SupportTicket.objects.filter(title='Preview ticket').exists())
+
+    def test_role_preview_uses_preview_role_for_super_user_chat_access(self):
+        super_group = Group.objects.create(name='Super Users')
+        role = Group.objects.create(name='Activity Viewer')
+        role.permissions.add(
+            Permission.objects.get(
+                content_type__app_label='core',
+                content_type__model='activitylog',
+                codename='view_activitylog',
+            )
+        )
+        admin = get_user_model().objects.create_superuser(
+            username='system-preview-admin',
+            email='system-preview-admin@example.com',
+            password='password',
+        )
+        admin.groups.add(super_group)
+
+        self.client.force_login(admin)
+        self.client.post(reverse('roles_preview_start', args=[role.id]))
+        chat_response = self.client.get(reverse('super_user_chat'))
+        system_response = self.client.get(reverse('system_hub'))
+
+        self.assertRedirects(chat_response, reverse('dashboard'))
+        self.assertRedirects(system_response, reverse('activity_logs'))
+
+
+class SuperUserChatReadStateTests(TestCase):
+    def test_role_preview_does_not_mark_super_user_chat_seen(self):
+        user = get_user_model().objects.create_superuser(username='chat-admin', password='password')
+        SuperUserChatMessage.objects.create(author=user, message='Hello')
+        user._role_preview = {
+            'role_id': 1,
+            'role_name': 'Super Users',
+            'permission_names': set(),
+        }
+
+        system_views._mark_super_user_chat_seen(user)
+
+        self.assertFalse(SuperUserChatReadState.objects.filter(user=user).exists())
+
+    def test_database_lock_does_not_crash_super_user_chat_seen_marker(self):
+        user = get_user_model().objects.create_superuser(username='chat-admin', password='password')
+        SuperUserChatMessage.objects.create(author=user, message='Hello')
+
+        with patch.object(
+            SuperUserChatReadState.objects,
+            'update_or_create',
+            side_effect=OperationalError('database is locked'),
+        ):
+            system_views._mark_super_user_chat_seen(user)
+
+        self.assertFalse(SuperUserChatReadState.objects.filter(user=user).exists())
+
+
+class SystemBackupActivityLogTests(TestCase):
+    def setUp(self):
+        self._media_root = tempfile.mkdtemp(prefix='backup-activity-test-media-')
+
+    def tearDown(self):
+        shutil.rmtree(self._media_root, ignore_errors=True)
+
+    def test_manual_backup_run_records_backup_activity_category(self):
+        admin = get_user_model().objects.create_superuser(username='backup-admin', password='password')
+        self.client.force_login(admin)
+        SystemBackupSchedule.objects.create(
+            name='Manual Backup Schedule',
+            include_logs=False,
+            include_docs=False,
+            include_media=False,
+            include_database=False,
+            include_static=False,
+            include_templates=True,
+        )
+
+        with self.settings(MEDIA_ROOT=self._media_root):
+            response = self.client.post(reverse('system_backup_run_now'))
+
+        self.assertRedirects(response, reverse('system_hub'))
+        log = ActivityLog.objects.get(category='backup', action='create')
+        self.assertEqual(log.actor, admin)
+        self.assertIn('Manual system backup created', log.summary)
+        self.assertEqual(log.metadata['trigger'], 'manual')
+        self.assertIn('templates', log.metadata['included_scopes'])
+
+    def test_scheduled_backup_run_records_backup_activity_category(self):
+        now = timezone.localtime(timezone.now())
+        SystemBackupSchedule.objects.create(
+            name='Scheduled Backup Schedule',
+            is_enabled=True,
+            cron_minute=now.minute,
+            include_logs=False,
+            include_docs=False,
+            include_media=False,
+            include_database=False,
+            include_static=False,
+            include_templates=True,
+        )
+
+        with self.settings(MEDIA_ROOT=self._media_root):
+            created = system_backup_services.run_due_system_backups(now=now)
+
+        self.assertEqual(len(created), 1)
+        log = ActivityLog.objects.get(category='backup', action='create')
+        self.assertIsNone(log.actor)
+        self.assertIn('Scheduled system backup created', log.summary)
+        self.assertEqual(log.metadata['trigger'], 'scheduled')
+        self.assertEqual(log.target_label, created[0].backup_name)
 
 
 class AssetItemParentTypeTests(TestCase):
@@ -710,6 +824,35 @@ class FileManagerTrashTests(TestCase):
         self.assertNotContains(response, f'?node={trash_node.pk}')
         self.assertNotContains(response, '>Trash</span>')
 
+    def test_file_manager_terminal_is_hidden_from_regular_user(self):
+        self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
+
+        response = self.client.get(reverse('file_manager_list'), {'node': self.parent.pk})
+
+        self.assertNotContains(response, 'id="fileManagerCliToggle"')
+        self.assertNotContains(response, 'id="fileManagerCliPanel"')
+        self.assertContains(response, 'const canUseFileManagerSudo = false;')
+
+    def test_regular_user_cannot_run_sudo_file_manager_delete(self):
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='CD - Request for Funds.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_bulk_action'),
+            {'selected_ids': str(file_node.pk), 'bulk_action': 'delete', 'sudo': '1'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json().get('message'), 'Only superusers can run sudo commands.')
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.parent_id, self.parent.pk)
+
     def test_regular_user_cannot_open_trash_root_directly(self):
         self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
         trash_node = views._get_or_create_file_manager_trash_folder(self.owner)
@@ -728,6 +871,27 @@ class FileManagerTrashTests(TestCase):
 
         self.assertContains(response, f'?node={trash_node.pk}')
         self.assertContains(response, 'Trash')
+
+    def test_superuser_can_see_file_manager_terminal(self):
+        admin = get_user_model().objects.create_superuser(username='admin', password='password')
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('file_manager_list'))
+
+        self.assertContains(response, 'id="fileManagerCliToggle"')
+        self.assertContains(response, 'id="fileManagerCliPanel"')
+        self.assertContains(response, 'const canUseFileManagerSudo = true;')
+
+    def test_superuser_can_see_file_manager_page_access_indicator(self):
+        admin = get_user_model().objects.create_superuser(username='admin', password='password')
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('file_manager_list'))
+
+        self.assertContains(response, 'View page access')
+        self.assertContains(response, 'Who can access this page')
+        self.assertContains(response, 'File Manager')
+        self.assertContains(response, 'View managed file node')
 
     def test_duplicate_trash_roots_are_merged_into_one_system_trash(self):
         admin = get_user_model().objects.create_superuser(username='admin', password='password')

@@ -1021,12 +1021,16 @@ def activity_logs(request):
 	if action:
 		logs = logs.filter(action=action)
 
+	category_labels = dict(ActivityLog.CATEGORY_CHOICES)
+	action_labels = dict(ActivityLog.ACTION_CHOICES)
 	logs_page = Paginator(logs, 30).get_page(request.GET.get('page'))
 	context = {
 		'logs_page': logs_page,
 		'query': query,
 		'selected_category': category,
+		'selected_category_label': category_labels.get(category, ''),
 		'selected_action': action,
+		'selected_action_label': action_labels.get(action, ''),
 		'category_choices': ActivityLog.CATEGORY_CHOICES,
 		'action_choices': ActivityLog.ACTION_CHOICES,
 		'total_logs': logs.count(),
@@ -1047,6 +1051,14 @@ def _permission_denied_response(request, message='You do not have permission to 
 
 def _is_ajax_request(request):
 	return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
+def _inline_pdf_response(content, filename):
+	response = HttpResponse(content, content_type='application/pdf')
+	response['Content-Disposition'] = f'inline; filename="{filename}"'
+	response['X-Frame-Options'] = 'SAMEORIGIN'
+	response['X-Content-Type-Options'] = 'nosniff'
+	return response
 
 
 def _fm_response(request, ok=True, message='', redirect_name='file_manager_list', redirect_node_id=None, status=200):
@@ -4278,6 +4290,7 @@ def file_manager_list(request):
 
 	for child in children:
 		child.size_display = _format_file_size(child.file_size_bytes) if child.node_type == 'file' else '-'
+		child.preview_kind = _get_file_manager_preview_kind(child) if child.node_type == 'file' else ''
 
 	trash_total_bytes = 0
 	if _is_file_manager_trash_context(selected_node):
@@ -4453,7 +4466,7 @@ def file_manager_create_folder(request):
 
 	branch_name, department_name, role_name = _get_user_file_context(request.user)
 	default_root_endpoint = _get_default_root_storage_endpoint()
-	ManagedFileNode.objects.create(
+	created_node = ManagedFileNode.objects.create(
 		parent=parent,
 		name=_get_available_managed_file_name(parent, request.user, (request.POST.get('folder_name') or '').strip() or 'New Folder'),
 		node_type=(request.POST.get('folder_type') or 'folder').strip() if (request.POST.get('folder_type') or 'folder').strip() in {'folder', 'shared_folder'} else 'folder',
@@ -4465,6 +4478,15 @@ def file_manager_create_folder(request):
 		role_name_snapshot=role_name,
 		created_by=request.user,
 		updated_by=request.user,
+	)
+	record_activity(
+		request,
+		'create',
+		'file_manager',
+		f'Created folder "{created_node.name}" in File Manager.',
+		target=created_node,
+		target_label=created_node.name,
+		metadata={'node_id': created_node.id, 'parent_id': parent.id if parent else None},
 	)
 	return _fm_response(request, ok=True, message='Folder created.', redirect_node_id=parent.id if parent else None)
 
@@ -4503,10 +4525,11 @@ def file_manager_upload(request):
 				status=400,
 			)
 
+	created_files = []
 	for incoming_file in uploaded_files:
 		guessed_type, _ = mimetypes.guess_type(incoming_file.name or '')
 		node_name = _get_available_managed_file_name(parent, request.user, incoming_file.name or 'Uploaded File')
-		ManagedFileNode.objects.create(
+		created_node = ManagedFileNode.objects.create(
 			parent=parent,
 			name=node_name,
 			node_type='file',
@@ -4520,6 +4543,20 @@ def file_manager_upload(request):
 			mime_type=guessed_type or '',
 			created_by=request.user,
 			updated_by=request.user,
+		)
+		created_files.append(created_node)
+	if created_files:
+		filenames = [node.name for node in created_files]
+		record_activity(
+			request,
+			'upload',
+			'file_manager',
+			f'Uploaded {len(created_files)} file(s) in File Manager.',
+			metadata={
+				'count': len(created_files),
+				'parent_id': parent.id if parent else None,
+				'files': filenames[:10],
+			},
 		)
 	return _fm_response(request, ok=True, message=f'{len(uploaded_files)} file(s) uploaded.', redirect_node_id=parent.id if parent else None)
 
@@ -4558,9 +4595,19 @@ def file_manager_rename(request):
 	if conflict_exists:
 		return _fm_response(request, ok=False, message='A file or folder with that name already exists.', status=400)
 
+	old_name = node.name
 	node.name = new_name
 	node.updated_by = request.user
 	node.save(update_fields=['name', 'updated_by', 'updated_at'])
+	record_activity(
+		request,
+		'update',
+		'file_manager',
+		f'Renamed File Manager item "{old_name}" to "{node.name}".',
+		target=node,
+		target_label=node.name,
+		metadata={'node_id': node.id, 'old_name': old_name, 'new_name': node.name},
+	)
 	return _fm_response(request, ok=True, message='Item renamed.', redirect_node_id=node.parent_id)
 
 
@@ -4605,6 +4652,15 @@ def file_manager_move(request):
 	node.name = new_name
 	node.updated_by = request.user
 	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	record_activity(
+		request,
+		'update',
+		'file_manager',
+		f'Moved File Manager item "{node.name}".',
+		target=node,
+		target_label=node.name,
+		metadata={'node_id': node.id, 'target_parent_id': target_parent.pk},
+	)
 	return _fm_response(request, ok=True, message='Item moved.', redirect_node_id=target_parent.pk)
 
 
@@ -4636,6 +4692,15 @@ def file_manager_restore(request):
 	node.trashed_from = None
 	node.updated_by = request.user
 	node.save(update_fields=['parent', 'name', 'trashed_from', 'updated_by', 'updated_at'])
+	record_activity(
+		request,
+		'restore',
+		'file_manager',
+		f'Restored File Manager item "{node.name}".',
+		target=node,
+		target_label=node.name,
+		metadata={'node_id': node.id, 'target_parent_id': target_parent.pk},
+	)
 	return _fm_response(request, ok=True, message='Item restored.', redirect_node_id=target_parent.pk)
 
 
@@ -4643,6 +4708,9 @@ def file_manager_restore(request):
 @require_POST
 def file_manager_bulk_action(request):
 	action = (request.POST.get('bulk_action') or '').strip()
+	is_sudo_command = (request.POST.get('sudo') or '').strip().lower() in {'1', 'true', 'yes'}
+	if is_sudo_command and not request.user.is_superuser:
+		return _permission_denied_response(request, 'Only superusers can run sudo commands.')
 	if action not in {'delete', 'restore', 'delete_all'}:
 		restricted_response = _require_permission(request, 'core.change_managedfilenode')
 		if restricted_response:
@@ -4667,6 +4735,13 @@ def file_manager_bulk_action(request):
 		if deleted_count == 0:
 			return _fm_response(request, ok=True, message='Trash is already empty.', redirect_node_id=trash_node.id)
 		trash_node.children.all().delete()
+		record_activity(
+			request,
+			'delete',
+			'file_manager',
+			f'Deleted all items in File Manager Trash ({deleted_count}).',
+			metadata={'count': deleted_count},
+		)
 		return _fm_response(request, ok=True, message=f'{deleted_count} item(s) deleted permanently.', redirect_node_id=trash_node.id)
 
 	nodes = list(ManagedFileNode.objects.filter(pk__in=selected_ids))
@@ -4704,6 +4779,13 @@ def file_manager_bulk_action(request):
 		message = f'{restored} item(s) restored.'
 		if skipped:
 			message = f'{message} {skipped} item(s) skipped.'
+		record_activity(
+			request,
+			'restore',
+			'file_manager',
+			f'Restored {restored} File Manager item(s).',
+			metadata={'count': restored, 'skipped': skipped},
+		)
 		return _fm_response(request, ok=True, message=message, redirect_node_id=last_target_id)
 
 	if action == 'delete':
@@ -4714,12 +4796,26 @@ def file_manager_bulk_action(request):
 				node.delete()
 			if not deletable_nodes:
 				return _fm_response(request, ok=True, message='No items deleted.', redirect_node_id=None)
+			record_activity(
+				request,
+				'delete',
+				'file_manager',
+				f'Deleted {len(deletable_nodes)} File Manager item(s) permanently.',
+				metadata={'count': len(deletable_nodes)},
+			)
 			return _fm_response(request, ok=True, message=f'{len(deletable_nodes)} item(s) deleted permanently.')
 		return_node_id = next((node.parent_id for node in nodes if node.parent_id), None)
 		moved_count, trash_node = _move_file_manager_nodes_to_trash(nodes, request.user)
 		redirect_node_id = trash_node.id if request.user.is_superuser else return_node_id
 		if moved_count == 0:
 			return _fm_response(request, ok=True, message='Selected item(s) are already in Trash.', redirect_node_id=redirect_node_id)
+		record_activity(
+			request,
+			'delete',
+			'file_manager',
+			f'Moved {moved_count} File Manager item(s) to Trash.',
+			metadata={'count': moved_count},
+		)
 		return _fm_response(request, ok=True, message=f'{moved_count} item(s) moved to Trash.', redirect_node_id=redirect_node_id)
 
 	if action == 'share':
@@ -4753,6 +4849,68 @@ def file_manager_download(request, node_id):
 		messages.error(request, 'File is no longer available.')
 		return redirect('file_manager_list')
 	return FileResponse(node.file.open('rb'), as_attachment=True, filename=node.name)
+
+
+FILE_MANAGER_PREVIEW_MIME_TYPES = {
+	'application/pdf',
+	'text/plain',
+	'text/csv',
+	'text/markdown',
+	'application/json',
+	'application/xml',
+	'text/xml',
+}
+
+
+def _get_file_manager_preview_content_type(node):
+	filename = node.name or ''
+	mime_type = (node.mime_type or mimetypes.guess_type(filename)[0] or '').lower()
+	extension = Path(filename).suffix.lower()
+	if extension == '.pdf' or mime_type == 'application/pdf':
+		return 'application/pdf'
+	if mime_type.startswith('image/') and mime_type != 'image/svg+xml':
+		return mime_type
+	if extension in {'.txt', '.csv', '.log', '.md', '.json', '.xml'}:
+		return 'text/plain; charset=utf-8'
+	if mime_type in FILE_MANAGER_PREVIEW_MIME_TYPES:
+		return mime_type
+	return ''
+
+
+def _get_file_manager_preview_kind(node):
+	filename = node.name or ''
+	mime_type = (node.mime_type or mimetypes.guess_type(filename)[0] or '').lower()
+	extension = Path(filename).suffix.lower()
+	if extension == '.pdf' or mime_type == 'application/pdf':
+		return 'pdf'
+	if mime_type.startswith('image/') and mime_type != 'image/svg+xml':
+		return 'image'
+	return 'other' if _get_file_manager_preview_content_type(node) else 'unsupported'
+
+
+@login_required
+def file_manager_preview(request, node_id):
+	restricted_response = _require_permission(request, 'core.view_managedfilenode')
+	if restricted_response:
+		return restricted_response
+
+	node = get_object_or_404(ManagedFileNode, pk=node_id, node_type='file')
+	if not _user_can_access_node(request.user, node):
+		return _permission_denied_response(request)
+	if not node.file:
+		return HttpResponse('File is no longer available.', content_type='text/plain; charset=utf-8', status=404)
+	content_type = _get_file_manager_preview_content_type(node)
+	if not content_type:
+		return HttpResponse(
+			'Preview is not available for this file type yet. Please use Download for Office files like DOCX and XLSX.',
+			content_type='text/plain; charset=utf-8',
+			status=415,
+		)
+
+	response = FileResponse(node.file.open('rb'), as_attachment=False, filename=node.name, content_type=content_type)
+	response['X-Content-Type-Options'] = 'nosniff'
+	response['X-Frame-Options'] = 'SAMEORIGIN'
+	return response
 
 @login_required
 def clients_list(request):
@@ -6132,9 +6290,7 @@ def liquidation_pdf(request, liquidation_id):
 	if not payload:
 		return HttpResponse('PDF preview is not available for this liquidation form.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required
@@ -6234,9 +6390,7 @@ def liquidation_bulk_print(request):
 		return HttpResponse('Unable to generate a printable PDF for the selected liquidation forms.', content_type='text/plain; charset=utf-8', status=415)
 
 	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
-	response = HttpResponse(merged_pdf, content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="liquidations_selected_{filename_stamp}.pdf"'
-	return response
+	return _inline_pdf_response(merged_pdf, f'liquidations_selected_{filename_stamp}.pdf')
 
 
 @login_required
@@ -6263,9 +6417,7 @@ def fund_request_review_pdf(request, request_id):
 	if not payload:
 		return HttpResponse('PDF preview is not available for this payment request.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required
@@ -6285,6 +6437,9 @@ def fund_request_document(request, request_id):
 	if template_payload:
 		response = HttpResponse(template_payload['content'], content_type=template_payload['content_type'])
 		response['Content-Disposition'] = f'inline; filename="{template_payload["filename"]}"'
+		if template_payload.get('content_type') == 'application/pdf':
+			response['X-Frame-Options'] = 'SAMEORIGIN'
+			response['X-Content-Type-Options'] = 'nosniff'
 		return response
 
 	messages.error(request, 'No template file is attached to this approved payment request.')
@@ -6311,9 +6466,7 @@ def fund_request_print(request, request_id):
 
 	payload = _build_fund_request_pdf_payload(fund_request, allow_structured_preview_fallback=False)
 	if payload:
-		response = HttpResponse(payload['content'], content_type='application/pdf')
-		response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-		return response
+		return _inline_pdf_response(payload['content'], payload['filename'])
 
 	client_side_payload = _build_fund_request_client_side_conversion_payload(fund_request)
 	if client_side_payload:
@@ -6420,9 +6573,7 @@ def fund_request_template_preview_pdf(request, template_id):
 		else:
 			return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required
@@ -6468,6 +6619,9 @@ def fund_request_document_download(request, request_id):
 	disposition = 'attachment' if is_forced_download else 'inline'
 	response = HttpResponse(payload['content'], content_type='application/pdf')
 	response['Content-Disposition'] = f'{disposition}; filename="{payload["filename"]}"'
+	if disposition == 'inline':
+		response['X-Frame-Options'] = 'SAMEORIGIN'
+		response['X-Content-Type-Options'] = 'nosniff'
 	return response
 
 
@@ -6516,9 +6670,7 @@ def fund_request_bulk_print(request):
 		return HttpResponse('Unable to generate a printable PDF for the selected requests.', content_type='text/plain; charset=utf-8', status=415)
 
 	filename_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
-	response = HttpResponse(merged_pdf, content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="fund_requests_selected_{filename_stamp}.pdf"'
-	return response
+	return _inline_pdf_response(merged_pdf, f'fund_requests_selected_{filename_stamp}.pdf')
 
 
 @login_required
@@ -9486,9 +9638,7 @@ def accountability_template_preview_pdf(request, template_id):
 	if not payload:
 		return HttpResponse('PDF preview is not available for this template.', content_type='text/plain; charset=utf-8', status=415)
 
-	response = HttpResponse(payload['content'], content_type='application/pdf')
-	response['Content-Disposition'] = f'inline; filename="{payload["filename"]}"'
-	return response
+	return _inline_pdf_response(payload['content'], payload['filename'])
 
 
 @login_required

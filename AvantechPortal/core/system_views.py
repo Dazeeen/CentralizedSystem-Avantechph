@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
+from django.db.utils import OperationalError
 from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -16,6 +17,7 @@ from .models import SuperUserChatMessage, SuperUserChatReadState, SystemBackup, 
 from .system_backup_services import (
     create_system_backup,
     get_or_create_primary_schedule,
+    record_backup_created_activity,
     restore_system_backup,
     run_due_system_backups,
 )
@@ -33,13 +35,14 @@ def _can_manage_system_backups(user):
 
 def _can_access_super_user_chat(user):
     preview = getattr(user, '_role_preview', None)
-    preview_role_name = (preview or {}).get('role_name', '')
+    preview_role_name = ((preview or {}).get('role_name') or '').strip().casefold()
+    if preview is not None:
+        return bool(user and user.is_authenticated and preview_role_name == 'super users')
     return bool(
         user
         and user.is_authenticated
         and (
             user.is_superuser
-            or preview_role_name == 'Super Users'
             or user.groups.filter(name='Super Users').exists()
         )
     )
@@ -67,6 +70,10 @@ def _super_user_chat_signature():
     return f'{total_messages}:{latest_changed_value}', total_messages
 
 
+def _is_role_preview_active(user):
+    return bool(getattr(user, '_role_preview', None))
+
+
 def _get_super_user_chat_page(page_number):
     chat_messages = (
         SuperUserChatMessage.objects
@@ -78,15 +85,21 @@ def _get_super_user_chat_page(page_number):
 
 
 def _mark_super_user_chat_seen(user):
+    if _is_role_preview_active(user):
+        return
     latest_message = SuperUserChatMessage.objects.filter(is_deleted=False).order_by('-id').first()
     if latest_message:
-        SuperUserChatReadState.objects.update_or_create(
-            user=user,
-            defaults={
-                'last_seen_message': latest_message,
-                'last_seen_at': timezone.now(),
-            },
-        )
+        try:
+            SuperUserChatReadState.objects.update_or_create(
+                user=user,
+                defaults={
+                    'last_seen_message': latest_message,
+                    'last_seen_at': timezone.now(),
+                },
+            )
+        except OperationalError as exc:
+            if 'database is locked' not in str(exc).lower():
+                raise
 
 
 def _permission_denied_response(request, message='You do not have permission to perform this action.'):
@@ -241,12 +254,17 @@ def super_user_chat_unread_count(request):
 @login_required
 def system_hub(request):
     if not _can_manage_system_backups(request.user):
+        if _can_access_super_user_chat(request.user):
+            return redirect('super_user_chat')
+        if request.user.has_perm('core.view_activitylog'):
+            return redirect('activity_logs')
         return _permission_denied_response(request, 'You do not have permission to manage system backups.')
 
-    try:
-        run_due_system_backups()
-    except Exception as exc:
-        messages.warning(request, f'Automatic backup run skipped due to an error: {exc}')
+    if request.GET.get('run_due') == '1':
+        try:
+            run_due_system_backups()
+        except Exception as exc:
+            messages.warning(request, f'Automatic backup run skipped due to an error: {exc}')
     schedule = get_or_create_primary_schedule(updated_by=request.user)
 
     if request.method == 'POST':
@@ -281,7 +299,7 @@ def system_hub(request):
             record_activity(
                 request,
                 'update',
-                'system',
+                'backup',
                 'Updated system backup schedule.',
                 target=schedule,
                 target_label=schedule.name,
@@ -331,15 +349,7 @@ def system_backup_run_now(request):
     except Exception as exc:
         messages.error(request, f'Backup creation failed: {exc}')
     else:
-        record_activity(
-            request,
-            'create',
-            'system',
-            f'Created system backup {backup.backup_name}.',
-            target=backup,
-            target_label=backup.backup_name,
-            metadata={'trigger': backup.trigger, 'included_scopes': backup.included_scopes},
-        )
+        record_backup_created_activity(backup, request=request)
         messages.success(request, f'Backup created: {backup.backup_name}')
 
     return redirect('system_hub')
@@ -387,7 +397,7 @@ def system_backup_restore(request, backup_id):
         record_activity(
             request,
             'restore',
-            'system',
+            'backup',
             f'Restored system backup {backup.backup_name}.',
             target=backup,
             target_label=backup.backup_name,
@@ -413,7 +423,7 @@ def system_backup_delete(request, backup_id):
     record_activity(
         request,
         'delete',
-        'system',
+        'backup',
         f'Deleted system backup {backup_name}.',
         target_label=backup_name,
         metadata={'backup_id': backup_id},
