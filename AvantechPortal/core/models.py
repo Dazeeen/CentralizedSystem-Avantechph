@@ -1946,6 +1946,7 @@ class ManagedFileNode(models.Model):
 	branch_name_snapshot = models.CharField(max_length=120, blank=True, default='')
 	department_name_snapshot = models.CharField(max_length=120, blank=True, default='')
 	role_name_snapshot = models.CharField(max_length=120, blank=True, default='')
+	is_role_folder = models.BooleanField(default=False, db_index=True)
 	file = models.FileField(upload_to=file_manager_upload_to, blank=True, null=True)
 	file_size_bytes = models.BigIntegerField(default=0)
 	mime_type = models.CharField(max_length=120, blank=True)

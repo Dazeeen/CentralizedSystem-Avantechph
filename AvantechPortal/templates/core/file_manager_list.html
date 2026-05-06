@@ -153,6 +153,9 @@
                                             {% endif %}
                                             {% if node.node_type == 'folder' or node.node_type == 'shared_folder' %}
                                             <a href="{% url 'file_manager_list' %}?node={{ node.id }}" class="text-decoration-none fw-semibold">{{ node.name }}</a>
+                                            {% if node.is_role_folder %}
+                                            <span class="badge text-bg-info-subtle text-info-emphasis border border-info-subtle">Role</span>
+                                            {% endif %}
                                             {% else %}
                                             <a
                                                 data-no-ajax="1"
@@ -259,6 +262,7 @@
                             </select>
                         </div>
                         <button class="btn btn-outline-success" type="submit" name="bulk_action" value="share">Bulk Share</button>
+                        <button class="btn btn-outline-primary" type="button" id="bulkMoveBtn">Bulk Move</button>
                         <button class="btn btn-outline-danger" type="submit" name="bulk_action" value="delete">Bulk Delete</button>
                         {% else %}
                         <button class="btn btn-outline-primary" type="submit" name="bulk_action" value="restore">Restore Selected</button>
@@ -277,11 +281,13 @@
                         <form id="fileManagerMoveForm" method="post" action="{% url 'file_manager_move' %}">
                             {% csrf_token %}
                             <div class="modal-header">
-                                <h5 class="modal-title">Move Item</h5>
+                                <h5 class="modal-title" id="fileManagerMoveModalTitle">Move Item</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
                                 <input type="hidden" name="node_id" id="moveNodeId" value="">
+                                <input type="hidden" name="selected_ids" id="moveSelectedIds" value="">
+                                <input type="hidden" name="bulk_action" id="moveBulkAction" value="">
                                 <div class="mb-3">
                                     <label class="form-label">Destination folder</label>
                                     <input
@@ -663,6 +669,51 @@
         };
     };
 
+    const getSelectedFileManagerIds = () => Array.from(document.querySelectorAll('.node-checkbox'))
+        .filter((item) => item.checked)
+        .map((item) => item.value);
+
+    const resetMoveTargets = () => {
+        const targetSelect = document.getElementById('moveTargetSelect');
+        const targetSearch = document.getElementById('moveTargetSearch');
+        if (targetSelect) {
+            targetSelect.value = '';
+        }
+        if (targetSearch && targetSelect) {
+            targetSearch.value = '';
+            Array.from(targetSelect.options).forEach((option) => {
+                option.hidden = false;
+            });
+        }
+    };
+
+    const openMoveModal = ({ nodeId = '', selectedIds = [] } = {}) => {
+        const moveForm = document.getElementById('fileManagerMoveForm');
+        const moveNodeInput = document.getElementById('moveNodeId');
+        const moveSelectedInput = document.getElementById('moveSelectedIds');
+        const moveBulkAction = document.getElementById('moveBulkAction');
+        const title = document.getElementById('fileManagerMoveModalTitle');
+        const targetSelect = document.getElementById('moveTargetSelect');
+        if (!moveForm || !moveNodeInput || !moveSelectedInput || !moveBulkAction || !targetSelect) {
+            return;
+        }
+        const isBulk = selectedIds.length > 0;
+        moveForm.action = isBulk ? '{% url "file_manager_bulk_action" %}' : '{% url "file_manager_move" %}';
+        moveNodeInput.value = isBulk ? '' : nodeId;
+        moveSelectedInput.value = isBulk ? selectedIds.join(',') : '';
+        moveBulkAction.value = isBulk ? 'move' : '';
+        if (title) {
+            title.textContent = isBulk ? `Move ${selectedIds.length} Item(s)` : 'Move Item';
+        }
+        resetMoveTargets();
+        if (typeof bootstrap !== 'undefined') {
+            const modalEl = document.getElementById('fileManagerMoveModal');
+            if (modalEl) {
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            }
+        }
+    };
+
     const renderSearchResults = (results, query) => {
         const list = document.getElementById('fileManagerSearchResults');
         if (!list) {
@@ -678,7 +729,8 @@
             const targetId = item.node_type === 'file' && item.parent_id ? item.parent_id : item.id;
             link.href = `{% url 'file_manager_list' %}?node=${encodeURIComponent(targetId)}`;
             link.className = 'list-group-item list-group-item-action';
-            link.textContent = `${item.name} • ${item.label}`;
+            const roleMarker = item.is_role_folder ? ' [Role]' : '';
+            link.textContent = `${item.name}${roleMarker} • ${item.label}`;
             list.appendChild(link);
         });
         list.classList.remove('d-none');
@@ -958,6 +1010,15 @@
                 message: responseText ? responseText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : 'Request failed.',
             };
         }
+        if (payload.conflict && payload.confirm_action === 'keep_both' && formData.get('conflict_resolution') !== 'keep_both') {
+            const confirmed = window.confirm(payload.message || 'An item with that name already exists. Keep both using an available copy name?');
+            if (!confirmed) {
+                showToast('Action cancelled.', true);
+                return null;
+            }
+            formData.append('conflict_resolution', 'keep_both');
+            return submitFileManagerRequest(action, formData, sourceForm);
+        }
         if (!response.ok || !payload.ok) {
             showToast(payload.message || 'Action failed.', true);
             return null;
@@ -1100,26 +1161,21 @@
         if (moveButton) {
             event.preventDefault();
             const nodeId = moveButton.getAttribute('data-node-id') || '';
-            const moveNodeInput = document.getElementById('moveNodeId');
-            const targetSelect = document.getElementById('moveTargetSelect');
-            const targetSearch = document.getElementById('moveTargetSearch');
-            if (!nodeId || !moveNodeInput || !targetSelect) {
+            if (nodeId) {
+                openMoveModal({ nodeId });
+            }
+            return;
+        }
+
+        const bulkMoveButton = event.target.closest('#bulkMoveBtn');
+        if (bulkMoveButton) {
+            event.preventDefault();
+            const selectedIds = getSelectedFileManagerIds();
+            if (!selectedIds.length) {
+                showToast('Select at least one file or folder to move.', true);
                 return;
             }
-            moveNodeInput.value = nodeId;
-            targetSelect.value = '';
-            if (targetSearch) {
-                targetSearch.value = '';
-                Array.from(targetSelect.options).forEach((option) => {
-                    option.hidden = false;
-                });
-            }
-            if (typeof bootstrap !== 'undefined') {
-                const modalEl = document.getElementById('fileManagerMoveModal');
-                if (modalEl) {
-                    bootstrap.Modal.getOrCreateInstance(modalEl).show();
-                }
-            }
+            openMoveModal({ selectedIds });
             return;
         }
 
@@ -1209,10 +1265,9 @@
             return;
         }
         if (form.id === 'bulkForm') {
-            const checkboxes = Array.from(document.querySelectorAll('.node-checkbox'));
             const selectedIdsInput = document.getElementById('selectedIdsInput');
             if (selectedIdsInput) {
-                selectedIdsInput.value = checkboxes.filter((item) => item.checked).map((item) => item.value).join(',');
+                selectedIdsInput.value = getSelectedFileManagerIds().join(',');
             }
         }
         event.preventDefault();
@@ -1255,10 +1310,9 @@
             const checkboxes = Array.from(document.querySelectorAll('.node-checkbox'));
             checkboxes.forEach((item) => { item.checked = selectAll.checked; });
         }
-        const checkboxes = Array.from(document.querySelectorAll('.node-checkbox'));
         const selectedIdsInput = document.getElementById('selectedIdsInput');
         if (selectedIdsInput) {
-            selectedIdsInput.value = checkboxes.filter((item) => item.checked).map((item) => item.value).join(',');
+            selectedIdsInput.value = getSelectedFileManagerIds().join(',');
         }
     });
 

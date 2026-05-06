@@ -1077,6 +1077,22 @@ def _fm_response(request, ok=True, message='', redirect_name='file_manager_list'
 	return redirect(redirect_name)
 
 
+def _fm_conflict_response(request, message, available_name='', conflicts=None, status=409):
+	if _is_ajax_request(request):
+		payload = {
+			'ok': False,
+			'message': message,
+			'conflict': True,
+			'confirm_action': 'keep_both',
+		}
+		if available_name:
+			payload['available_name'] = available_name
+		if conflicts:
+			payload['conflicts'] = conflicts
+		return JsonResponse(payload, status=status)
+	return _fm_response(request, ok=False, message=message, status=400)
+
+
 def _list_browsable_directories(current_path):
 	try:
 		path_obj = Path(current_path).resolve()
@@ -3777,6 +3793,21 @@ def _get_available_managed_file_name(parent, owner, desired_name):
 	return candidate
 
 
+def _managed_file_exact_name_conflict(parent, owner, desired_name, *, node_type='file', exclude_pk=None):
+	name = (desired_name or '').strip()
+	if not name:
+		return False
+	queryset = ManagedFileNode.objects.filter(parent=parent, owner=owner, name=name)
+	if exclude_pk:
+		queryset = queryset.exclude(pk=exclude_pk)
+	if node_type == 'file':
+		desired_extension = Path(name).suffix
+		if not desired_extension:
+			return False
+		return any(Path(existing_name or '').suffix == desired_extension for existing_name in queryset.values_list('name', flat=True))
+	return queryset.exists()
+
+
 def _format_file_size(size_bytes):
 	units = ['B', 'KB', 'MB', 'GB']
 	value = float(max(0, int(size_bytes or 0)))
@@ -3917,6 +3948,36 @@ def _get_restore_target_for_node(node):
 	return None
 
 
+def _is_file_manager_descendant(node, possible_ancestor):
+	current = node
+	while current:
+		if current.pk == possible_ancestor.pk:
+			return True
+		current = current.parent
+	return False
+
+
+def _move_file_manager_node(node, target_parent, user):
+	if node.parent_id is None:
+		return False, 'root'
+	if not _user_can_write_node(user, node):
+		return False, 'source_permission'
+	if node.pk == target_parent.pk or _is_file_manager_descendant(target_parent, node):
+		return False, 'cycle'
+	if node.parent_id == target_parent.pk:
+		return False, 'same_parent'
+
+	new_name = node.name
+	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+
+	node.parent = target_parent
+	node.name = new_name
+	node.updated_by = user
+	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	return True, ''
+
+
 def _can_view_all_file_manager_nodes(user):
 	return user.is_superuser or user.has_perm('core.change_managedfilenode') or user.has_perm('core.delete_managedfilenode')
 
@@ -3984,6 +4045,11 @@ def _merge_managed_file_folder(source_node, target_node, updated_by=None):
 	if not source_node or not target_node or source_node.pk == target_node.pk:
 		return
 
+	if source_node.is_role_folder and not target_node.is_role_folder:
+		target_node.is_role_folder = True
+		target_node.updated_by = updated_by or target_node.updated_by
+		target_node.save(update_fields=['is_role_folder', 'updated_by', 'updated_at'])
+
 	_sync_managed_file_permission(source_node, target_node)
 	for child_node in list(source_node.children.all().order_by('id')):
 		conflicting_child = (
@@ -4031,6 +4097,7 @@ def _sync_file_manager_role_rename(old_role_name, new_role_name, updated_by=None
 	role_nodes = list(
 		ManagedFileNode.objects
 		.filter(parent__isnull=False, access_scope='shared', node_type__in=('folder', 'shared_folder'))
+		.filter(Q(is_role_folder=True) | Q(role_name_snapshot__iexact=old_role_name))
 		.filter(Q(role_name_snapshot__iexact=old_role_name) | Q(name__iexact=old_role_name))
 		.select_related('parent')
 		.order_by('id')
@@ -4050,13 +4117,17 @@ def _sync_file_manager_role_rename(old_role_name, new_role_name, updated_by=None
 				if not conflicting_node.role_name_snapshot:
 					conflicting_node.role_name_snapshot = new_role_name
 					conflicting_node.updated_by = updated_by or conflicting_node.updated_by
-					conflicting_node.save(update_fields=['role_name_snapshot', 'updated_by', 'updated_at'])
+				if not conflicting_node.is_role_folder:
+					conflicting_node.is_role_folder = True
+					conflicting_node.updated_by = updated_by or conflicting_node.updated_by
+				conflicting_node.save(update_fields=['role_name_snapshot', 'is_role_folder', 'updated_by', 'updated_at'])
 				_merge_managed_file_folder(role_node, conflicting_node, updated_by=updated_by)
 			else:
 				role_node.name = new_role_name
 				role_node.role_name_snapshot = new_role_name
+				role_node.is_role_folder = True
 				role_node.updated_by = updated_by or role_node.updated_by
-				role_node.save(update_fields=['name', 'role_name_snapshot', 'updated_by', 'updated_at'])
+				role_node.save(update_fields=['name', 'role_name_snapshot', 'is_role_folder', 'updated_by', 'updated_at'])
 			updated_count += 1
 
 		ManagedFileNode.objects.filter(role_name_snapshot__iexact=old_role_name).update(role_name_snapshot=new_role_name)
@@ -4163,6 +4234,10 @@ def _ensure_file_manager_default_hierarchy():
 
 		if _is_same_file_manager_level(department_name, role_name):
 			role_node = department_node
+			if not role_node.is_role_folder or not _is_same_file_manager_level(role_node.role_name_snapshot, role_name):
+				role_node.is_role_folder = True
+				role_node.role_name_snapshot = role_name
+				role_node.save(update_fields=['is_role_folder', 'role_name_snapshot', 'updated_at'])
 		else:
 			role_node, _ = ManagedFileNode.objects.get_or_create(
 				parent=department_node,
@@ -4174,11 +4249,15 @@ def _ensure_file_manager_default_hierarchy():
 					'branch_name_snapshot': branch_name,
 					'department_name_snapshot': department_name,
 					'role_name_snapshot': role_name,
+					'is_role_folder': True,
 					'storage_endpoint': default_root_endpoint,
 					'created_by': system_owner,
 					'updated_by': system_owner,
 				},
 			)
+			if not role_node.is_role_folder:
+				role_node.is_role_folder = True
+				role_node.save(update_fields=['is_role_folder', 'updated_at'])
 
 		user_node = _get_or_move_user_file_manager_folder(
 			role_node,
@@ -4363,6 +4442,7 @@ def file_manager_search(request):
 				'id': node.id,
 				'name': node.name,
 				'node_type': node.node_type,
+				'is_role_folder': node.is_role_folder,
 				'owner': node.owner.username if node.owner else '',
 				'label': _build_file_manager_scope_label(node, []),
 				'parent_id': node.parent_id,
@@ -4504,6 +4584,24 @@ def file_manager_upload(request):
 	uploaded_files = [item for item in request.FILES.getlist('files') if item]
 	if not uploaded_files:
 		return _fm_response(request, ok=False, message='No files selected for upload.', status=400)
+	conflict_resolution = (request.POST.get('conflict_resolution') or '').strip()
+	if conflict_resolution != 'keep_both':
+		conflicts = []
+		for incoming_file in uploaded_files:
+			desired_name = (incoming_file.name or 'Uploaded File').strip() or 'Uploaded File'
+			if _managed_file_exact_name_conflict(parent, request.user, desired_name, node_type='file'):
+				conflicts.append({
+					'name': desired_name,
+					'available_name': _get_available_managed_file_name(parent, request.user, desired_name),
+				})
+		if conflicts:
+			conflict_count = len(conflicts)
+			first_conflict = conflicts[0]
+			if conflict_count == 1:
+				message = f'"{first_conflict["name"]}" already exists. Keep both as "{first_conflict["available_name"]}"?'
+			else:
+				message = f'{conflict_count} uploaded file(s) already exist. Keep both using available copy names?'
+			return _fm_conflict_response(request, message, available_name=first_conflict['available_name'], conflicts=conflicts)
 
 	quota_mb = _get_user_storage_quota_mb(request.user)
 	if quota_mb > 0:
@@ -4587,13 +4685,23 @@ def file_manager_rename(request):
 	if node.name == new_name:
 		return _fm_response(request, ok=True, message='Name unchanged.', redirect_node_id=node.parent_id)
 
-	conflict_exists = ManagedFileNode.objects.filter(
-		parent=node.parent,
-		owner=node.owner,
-		name=new_name,
-	).exclude(pk=node.pk).exists()
+	conflict_resolution = (request.POST.get('conflict_resolution') or '').strip()
+	conflict_exists = _managed_file_exact_name_conflict(
+		node.parent,
+		node.owner,
+		new_name,
+		node_type=node.node_type,
+		exclude_pk=node.pk,
+	)
 	if conflict_exists:
-		return _fm_response(request, ok=False, message='A file or folder with that name already exists.', status=400)
+		available_name = _get_available_managed_file_name(node.parent, node.owner, new_name)
+		if conflict_resolution != 'keep_both':
+			return _fm_conflict_response(
+				request,
+				f'"{new_name}" already exists. Keep both as "{available_name}"?',
+				available_name=available_name,
+			)
+		new_name = available_name
 
 	old_name = node.name
 	node.name = new_name
@@ -4635,23 +4743,13 @@ def file_manager_move(request):
 	if not _user_can_write_node(request.user, target_parent):
 		return _permission_denied_response(request, 'You do not have write access to the destination folder.')
 
-	current = target_parent
-	while current:
-		if current.pk == node.pk:
-			return _fm_response(request, ok=False, message='Cannot move a folder into itself.', status=400)
-		current = current.parent
-
-	if node.parent_id == target_parent.pk:
+	moved, reason = _move_file_manager_node(node, target_parent, request.user)
+	if reason == 'cycle':
+		return _fm_response(request, ok=False, message='Cannot move a folder into itself.', status=400)
+	if reason == 'same_parent':
 		return _fm_response(request, ok=True, message='Item is already in this folder.', redirect_node_id=target_parent.pk)
-
-	new_name = node.name
-	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
-		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
-
-	node.parent = target_parent
-	node.name = new_name
-	node.updated_by = request.user
-	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	if not moved:
+		return _fm_response(request, ok=False, message='Item could not be moved.', status=400)
 	record_activity(
 		request,
 		'update',
@@ -4711,7 +4809,7 @@ def file_manager_bulk_action(request):
 	is_sudo_command = (request.POST.get('sudo') or '').strip().lower() in {'1', 'true', 'yes'}
 	if is_sudo_command and not request.user.is_superuser:
 		return _permission_denied_response(request, 'Only superusers can run sudo commands.')
-	if action not in {'delete', 'restore', 'delete_all'}:
+	if action not in {'delete', 'restore', 'delete_all', 'move'}:
 		restricted_response = _require_permission(request, 'core.change_managedfilenode')
 		if restricted_response:
 			return restricted_response
@@ -4748,6 +4846,52 @@ def file_manager_bulk_action(request):
 	nodes = [node for node in nodes if _user_can_write_node(request.user, node)]
 	if not nodes:
 		return _fm_response(request, ok=False, message='No writable files/folders selected.', status=400)
+
+	if action == 'move':
+		target_parent_id = (request.POST.get('target_parent_id') or '').strip()
+		if not target_parent_id.isdigit():
+			return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+		target_parent = get_object_or_404(ManagedFileNode, pk=int(target_parent_id))
+		if target_parent.node_type == 'file':
+			return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+		if _is_file_manager_trash_context(target_parent) and not request.user.is_superuser:
+			return _fm_response(request, ok=False, message='Cannot move items into Trash.', status=400)
+		if not _user_can_write_node(request.user, target_parent):
+			return _permission_denied_response(request, 'You do not have write access to the destination folder.')
+
+		selected_node_ids = {node.pk for node in nodes}
+		moved = 0
+		skipped = 0
+		for node in sorted(nodes, key=lambda item: item.pk):
+			current = node.parent
+			has_selected_ancestor = False
+			while current:
+				if current.pk in selected_node_ids:
+					has_selected_ancestor = True
+					break
+				current = current.parent
+			if has_selected_ancestor:
+				skipped += 1
+				continue
+
+			node_moved, reason = _move_file_manager_node(node, target_parent, request.user)
+			if node_moved:
+				moved += 1
+			elif reason != 'same_parent':
+				skipped += 1
+		if moved == 0:
+			return _fm_response(request, ok=False, message='No items moved.', status=400)
+		message = f'{moved} item(s) moved.'
+		if skipped:
+			message = f'{message} {skipped} item(s) skipped.'
+		record_activity(
+			request,
+			'update',
+			'file_manager',
+			f'Moved {moved} File Manager item(s).',
+			metadata={'count': moved, 'skipped': skipped, 'target_parent_id': target_parent.pk},
+		)
+		return _fm_response(request, ok=True, message=message, redirect_node_id=target_parent.pk)
 
 	if action == 'restore':
 		restored = 0
@@ -8605,9 +8749,9 @@ def roles_update(request, role_id):
 	role = get_object_or_404(Group, pk=role_id)
 
 	if request.method == 'POST':
+		old_role_name = role.name
 		form = RoleForm(request.POST, instance=role)
 		if form.is_valid():
-			old_role_name = role.name
 			updated_role = form.save()
 			renamed_folder_count = _sync_file_manager_role_rename(old_role_name, updated_role.name, updated_by=request.user)
 			_ensure_file_manager_default_hierarchy_if_needed(request.user)
