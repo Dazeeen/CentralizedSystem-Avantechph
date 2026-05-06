@@ -1310,6 +1310,14 @@ class AssetItemForm(forms.ModelForm):
 
 
 class AssetAccountabilityForm(forms.ModelForm):
+    holder_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Holder name',
+        }),
+        label='Holder Name',
+    )
     item = forms.ModelChoiceField(
         queryset=AssetItem.objects.filter(is_active=True),
         required=False,
@@ -1362,6 +1370,7 @@ class AssetAccountabilityForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.request_user = kwargs.pop('request_user', None)
         super().__init__(*args, **kwargs)
         self.fields['accountable_name'].label = 'Name'
         self.fields['position_role'].label = 'Position/Role'
@@ -1369,6 +1378,24 @@ class AssetAccountabilityForm(forms.ModelForm):
         self.fields['quantity_borrowed'].required = False
         self.fields['quantity_borrowed'].initial = 1
         self.fields['notes'].required = False
+        default_holder_name = ''
+        if self.request_user and getattr(self.request_user, 'is_authenticated', False):
+            default_holder_name = (self.request_user.get_full_name() or self.request_user.username or '').strip()
+        self.fields['holder_name'].initial = default_holder_name
+        self.fields['holder_name'].widget.attrs.setdefault('value', default_holder_name)
+        self.fields['holder_name'].widget.attrs.setdefault('list', 'holderNameOptions')
+        can_override_holder_name = bool(
+            self.request_user and (
+                self.request_user.is_superuser
+                or self.request_user.has_perm('core.can_manage_accountability')
+                or self.request_user.has_perm('core.change_assetaccountability')
+            )
+        )
+        if not can_override_holder_name:
+            self.fields['holder_name'].widget.attrs['readonly'] = 'readonly'
+            self.fields['holder_name'].help_text = 'Defaulted to your account name.'
+        else:
+            self.fields['holder_name'].help_text = 'Select a user from the list or enter a custom holder name.'
 
         borrowable_item_ids = []
         for item in AssetItem.objects.filter(is_active=True).select_related('parent_item'):
@@ -1396,6 +1423,14 @@ class AssetAccountabilityForm(forms.ModelForm):
         if quantity < 1:
             raise ValidationError('Quantity must be at least 1.')
         return quantity
+
+    def clean_holder_name(self):
+        holder_name = (self.cleaned_data.get('holder_name') or '').strip()
+        if holder_name:
+            return holder_name
+        if self.request_user and getattr(self.request_user, 'is_authenticated', False):
+            return (self.request_user.get_full_name() or self.request_user.username or '').strip()
+        return ''
 
     def clean_item(self):
         item = self.cleaned_data.get('item')

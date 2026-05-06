@@ -1459,6 +1459,104 @@ class SupportTicketListLifecycleTests(TestCase):
         self.assertTrue(response.context['should_open_archived_modal'])
 
 
+class AccountabilityFormBatchHolderNameTests(TestCase):
+    def setUp(self):
+        self.department, _ = AssetDepartment.objects.get_or_create(name='IT')
+        self.regular_user = get_user_model().objects.create_user(
+            username='regular-user',
+            first_name='Regular',
+            last_name='User',
+            password='password',
+        )
+        self.manager_user = get_user_model().objects.create_user(
+            username='manager-user',
+            first_name='Manager',
+            last_name='User',
+            password='password',
+        )
+        self.item = AssetItem.objects.create(
+            department=self.department,
+            item_name='Laptop',
+            item_type='laptop',
+            stock_quantity=5,
+            created_by=self.regular_user,
+        )
+
+        add_permission = Permission.objects.get(codename='add_assetaccountability')
+        manage_permission = Permission.objects.get(codename='can_manage_accountability')
+        self.regular_user.user_permissions.add(add_permission)
+        self.manager_user.user_permissions.add(add_permission, manage_permission)
+        self.regular_record = AssetAccountability.objects.create(
+            item=self.item,
+            borrowed_by=self.regular_user,
+            quantity_borrowed=1,
+            request_status='approved',
+            status='borrowed',
+        )
+        self.manager_record = AssetAccountability.objects.create(
+            item=self.item,
+            borrowed_by=self.manager_user,
+            quantity_borrowed=1,
+            request_status='approved',
+            status='borrowed',
+        )
+
+    def _batch_payload(self, holder_name, record_id):
+        return {
+            'accountable_name': holder_name,
+            'record_ids': [str(record_id)],
+            'department': '',
+            'position_role': '',
+            'contact_number': '',
+        }
+
+    def test_regular_user_batch_form_renders_holder_name_as_readonly(self):
+        self.client.force_login(self.regular_user)
+        response = self.client.get(reverse('accountability_form_batch_create'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="accountable_name"')
+        self.assertContains(response, 'datalist id="holderNameOptions"')
+        self.assertContains(response, 'readonly')
+        self.assertContains(response, 'value="Regular User"')
+
+    def test_regular_user_cannot_submit_custom_holder_name_in_batch_form(self):
+        self.client.force_login(self.regular_user)
+        response = self.client.post(
+            reverse('accountability_form_batch_create'),
+            self._batch_payload('Fake Holder', self.regular_record.pk),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'You are not allowed to set a custom holder name.')
+        self.regular_record.refresh_from_db()
+        self.assertIsNone(self.regular_record.accountability_form_batch_id)
+
+    def test_regular_user_submits_default_holder_name_in_batch_form(self):
+        self.client.force_login(self.regular_user)
+        response = self.client.post(
+            reverse('accountability_form_batch_create'),
+            self._batch_payload('Regular User', self.regular_record.pk),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.regular_record.refresh_from_db()
+        self.assertEqual(self.regular_record.accountable_name, 'Regular User')
+        self.assertIsNotNone(self.regular_record.accountability_form_batch_id)
+
+    def test_manager_user_can_submit_custom_holder_name_in_batch_form(self):
+        self.client.force_login(self.manager_user)
+        response = self.client.post(
+            reverse('accountability_form_batch_create'),
+            self._batch_payload('Custom Holder Name', self.manager_record.pk),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.manager_record.refresh_from_db()
+        self.assertEqual(self.manager_record.accountable_name, 'Custom Holder Name')
+
+
 class FileManagerUploadTests(TestCase):
     def setUp(self):
         self._media_root = tempfile.mkdtemp(prefix='file-manager-test-media-')

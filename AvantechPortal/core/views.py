@@ -10006,6 +10006,28 @@ def accountability_form_batch_create(request):
 	restricted_response = _require_permission(request, 'core.add_assetaccountability')
 	if restricted_response:
 		return restricted_response
+	can_override_holder_name = bool(
+		request.user.is_superuser
+		or request.user.has_perm('core.can_manage_accountability')
+		or request.user.has_perm('core.change_assetaccountability')
+	)
+	default_holder_name = (request.user.get_full_name() or request.user.username or '').strip()
+	default_department = (getattr(getattr(request.user, 'profile', None), 'department', '') or '').strip()
+	default_position_role = (
+		getattr(getattr(request.user, 'profile', None), 'position', '')
+		or getattr(getattr(request.user, 'profile', None), 'role', '')
+		or ''
+	).strip()
+	holder_name_options = []
+	for user in User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username'):
+		display_name = (user.get_full_name() or user.username or '').strip()
+		if display_name and display_name not in holder_name_options:
+			holder_name_options.append(display_name)
+	department_options = list(
+		AssetDepartment.objects.order_by('name').values_list('name', flat=True)
+	)
+	if default_department and default_department not in department_options:
+		department_options.append(default_department)
 
 	eligible_qs = (
 		AssetAccountability.objects
@@ -10019,9 +10041,18 @@ def accountability_form_batch_create(request):
 	)
 
 	if request.method == 'POST':
-		accountable_name = (request.POST.get('accountable_name') or '').strip()
-		department = (request.POST.get('department') or '').strip()
-		position_role = (request.POST.get('position_role') or '').strip()
+		requested_accountable_name = (request.POST.get('accountable_name') or '').strip()
+		if can_override_holder_name and requested_accountable_name:
+			accountable_name = requested_accountable_name
+		else:
+			accountable_name = default_holder_name
+		if (not can_override_holder_name) and requested_accountable_name and requested_accountable_name != default_holder_name:
+			messages.error(request, 'You are not allowed to set a custom holder name.')
+			return redirect('accountability_form_batch_create')
+		requested_department = (request.POST.get('department') or '').strip()
+		department = requested_department or default_department
+		requested_position_role = (request.POST.get('position_role') or '').strip()
+		position_role = requested_position_role or default_position_role
 		contact_number = (request.POST.get('contact_number') or '').strip()
 		selected_ids = request.POST.getlist('record_ids')
 		parsed_ids = []
@@ -10042,16 +10073,27 @@ def accountability_form_batch_create(request):
 			messages.warning(request, 'Accountable name is required.')
 			return redirect('accountability_form_batch_create')
 
-		with transaction.atomic():
-			form_batch = AssetAccountabilityFormBatch.objects.create(created_by=request.user)
-			eligible_qs.filter(pk__in=[row.pk for row in selected_rows]).update(
-				accountability_form_batch=form_batch,
-				accountable_name=accountable_name,
-				department=department,
-				position_role=position_role,
-				contact_number=contact_number,
-				updated_at=timezone.now(),
-			)
+		form_batch = None
+		for attempt in range(3):
+			try:
+				with transaction.atomic():
+					form_batch = AssetAccountabilityFormBatch.objects.create(created_by=request.user)
+					eligible_qs.filter(pk__in=[row.pk for row in selected_rows]).update(
+						accountability_form_batch=form_batch,
+						accountable_name=accountable_name,
+						department=department,
+						position_role=position_role,
+						contact_number=contact_number,
+						updated_at=timezone.now(),
+					)
+				break
+			except OperationalError as exc:
+				if 'database is locked' not in str(exc).lower():
+					raise
+				if attempt == 2:
+					messages.error(request, 'The database is busy right now. Please try again in a moment.')
+					return redirect('accountability_form_batch_create')
+				time.sleep(0.15 * (attempt + 1))
 
 		record_activity(
 			request,
@@ -10067,9 +10109,12 @@ def accountability_form_batch_create(request):
 
 	context = {
 		'eligible_rows': eligible_qs,
-		'initial_accountable_name': request.user.get_full_name() or request.user.username,
-		'initial_department': getattr(getattr(request.user, 'profile', None), 'department', '') or '',
-		'initial_position_role': getattr(getattr(request.user, 'profile', None), 'position', '') or getattr(getattr(request.user, 'profile', None), 'role', '') or '',
+		'initial_accountable_name': default_holder_name,
+		'holder_name_options': holder_name_options,
+		'can_override_holder_name': can_override_holder_name,
+		'department_options': department_options,
+		'initial_department': default_department,
+		'initial_position_role': default_position_role,
 		'initial_contact_number': getattr(getattr(request.user, 'profile', None), 'contact_number', '') or getattr(getattr(request.user, 'profile', None), 'phone_number', '') or '',
 	}
 	return render(request, 'core/accountability_form_batch_create.html', context)
@@ -10083,19 +10128,18 @@ def accountability_create(request):
 		return restricted_response
 
 	if request.method == 'POST':
-		form = AssetAccountabilityForm(request.POST)
+		form = AssetAccountabilityForm(request.POST, request_user=request.user)
 		if form.is_valid():
 			selected_items = list(form.cleaned_data.get('items') or [])
 			item_quantities_map = form.cleaned_data.get('item_quantities_map') or {}
 			notes = form.cleaned_data.get('notes') or ''
 			profile = getattr(request.user, 'profile', None)
 			accountability_details = {
-				'accountable_name': request.user.get_full_name() or request.user.username,
+				'accountable_name': (request.user.get_full_name() or request.user.username or '').strip(),
 				'department': getattr(profile, 'department', '') or '',
 				'position_role': getattr(profile, 'position', '') or getattr(profile, 'role', '') or '',
 				'contact_number': getattr(profile, 'contact_number', '') or getattr(profile, 'phone_number', '') or '',
 			}
-
 			created_requests = []
 			skipped_existing = []
 			batch_id = uuid.uuid4()
@@ -10148,7 +10192,7 @@ def accountability_create(request):
 				messages.warning(request, 'No new borrow request created because selected item(s) already have pending requests.')
 			return redirect('accountability_list')
 	else:
-		form = AssetAccountabilityForm()
+		form = AssetAccountabilityForm(request_user=request.user)
 
 	context = {
 		'form': form,
@@ -10335,6 +10379,7 @@ def accountability_decide(request, accountability_id):
 			if attempt == 2:
 				messages.error(request, 'The database is busy right now. Please try again in a moment.')
 				return redirect('accountability_list')
+			time.sleep(0.15 * (attempt + 1))
 
 	if decision == 'approve' and status_now in ['low stock', 'out of stock']:
 		_send_stock_alert_notification(accountability.item, status_now)
@@ -10539,6 +10584,7 @@ def accountability_pending_bulk_decide(request):
 				if attempt == 2:
 					messages.error(request, 'The database is busy right now. Please try again in a moment.')
 					return redirect('accountability_list')
+				time.sleep(0.15 * (attempt + 1))
 		if locked_out and decision == 'approve':
 			continue
 

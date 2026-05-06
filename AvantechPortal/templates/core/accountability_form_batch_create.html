@@ -18,16 +18,58 @@
             <div class="card-body border-bottom">
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label for="accountableNameInput" class="form-label">Name</label>
-                        <input type="text" id="accountableNameInput" name="accountable_name" class="form-control" required value="{{ initial_accountable_name }}" placeholder="Enter accountable full name">
+                        <label for="accountableNameInput" class="form-label">Holder Name</label>
+                        <input
+                            type="text"
+                            id="accountableNameInput"
+                            name="accountable_name"
+                            class="form-control"
+                            required
+                            value="{{ initial_accountable_name }}"
+                            placeholder="Select user or enter holder name"
+                            list="holderNameOptions"
+                            {% if not can_override_holder_name %}readonly{% endif %}
+                        >
+                        <datalist id="holderNameOptions">
+                            {% for holder_name_option in holder_name_options %}
+                            <option value="{{ holder_name_option }}"></option>
+                            {% endfor %}
+                        </datalist>
+                        <small class="form-text text-muted">
+                            {% if can_override_holder_name %}
+                            Select a user from the list or enter a custom holder name.
+                            {% else %}
+                            Defaulted to your account name.
+                            {% endif %}
+                        </small>
                     </div>
                     <div class="col-md-6">
                         <label for="departmentInput" class="form-label">Department</label>
-                        <input type="text" id="departmentInput" name="department" class="form-control" value="{{ initial_department }}" placeholder="Enter department">
+                        <input
+                            type="text"
+                            id="departmentInput"
+                            name="department"
+                            class="form-control"
+                            value="{{ initial_department }}"
+                            placeholder="Select or enter department"
+                            list="departmentOptions"
+                        >
+                        <datalist id="departmentOptions">
+                            {% for department_option in department_options %}
+                            <option value="{{ department_option }}"></option>
+                            {% endfor %}
+                        </datalist>
                     </div>
                     <div class="col-md-6">
                         <label for="positionRoleInput" class="form-label">Position / Role</label>
-                        <input type="text" id="positionRoleInput" name="position_role" class="form-control" value="{{ initial_position_role }}" placeholder="Enter position or role">
+                        <input
+                            type="text"
+                            id="positionRoleInput"
+                            name="position_role"
+                            class="form-control"
+                            value="{{ initial_position_role }}"
+                            placeholder="Enter position or role"
+                        >
                     </div>
                     <div class="col-md-6">
                         <label for="contactNumberInput" class="form-label">Contact Number</label>
