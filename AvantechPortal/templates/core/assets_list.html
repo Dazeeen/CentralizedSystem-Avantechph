@@ -49,6 +49,9 @@
         {% if can_view_asset_tracker_category %}
         <a class="btn btn-outline-secondary" href="{% url 'assets_item_types_list' %}">Item Types</a>
         {% endif %}
+        {% if request.user.is_superuser or perms.core.view_consumablescategory or perms.core.view_consumableitem or perms.core.view_consumableitemtype %}
+        <a class="btn btn-outline-secondary" href="{% url 'consumables_list' %}">Consumables Category</a>
+        {% endif %}
         <a class="btn btn-outline-success" href="{% url 'assets_departments_list' %}">Manage Departments</a>
         <a class="btn btn-outline-success" href="{% url 'assets_company_accounts' %}">Company Internet Accounts</a>
         <a class="btn btn-success" href="{% url 'assets_item_create' %}">Add Asset Item</a>

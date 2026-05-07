@@ -667,6 +667,7 @@ class FileManagerRoleRenameTests(TestCase):
         self.assertEqual(updated_count, 1)
         self.assertEqual(old_role_folder.name, 'Graphic Artist')
         self.assertEqual(old_role_folder.role_name_snapshot, 'Graphic Artist')
+        self.assertTrue(old_role_folder.is_role_folder)
         self.assertEqual(user_folder.parent_id, old_role_folder.pk)
         self.assertEqual(user_folder.role_name_snapshot, 'Graphic Artist')
 
@@ -693,7 +694,43 @@ class FileManagerRoleRenameTests(TestCase):
         self.assertFalse(ManagedFileNode.objects.filter(pk=old_role_folder.pk).exists())
         self.assertEqual(user_folder.parent_id, new_role_folder.pk)
         self.assertEqual(user_folder.role_name_snapshot, 'Graphic Artist')
+        self.assertTrue(new_role_folder.is_role_folder)
         self.assertTrue(ManagedFilePermission.objects.filter(node=new_role_folder, user=self.member, access_level='read').exists())
+
+    def test_role_update_view_uses_role_name_before_form_mutation(self):
+        role = Group.objects.create(name='Graphic Artist')
+        role_folder = self._create_role_folder('Graphic Artist')
+        self.system_owner.user_permissions.add(Permission.objects.get(codename='change_group'))
+        self.client.force_login(self.system_owner)
+
+        response = self.client.post(
+            reverse('roles_update', args=[role.pk]),
+            {
+                'name': 'Creatives',
+                'permissions': [],
+            },
+        )
+
+        role.refresh_from_db()
+        role_folder.refresh_from_db()
+        self.assertRedirects(response, reverse('roles_list'), fetch_redirect_response=False)
+        self.assertEqual(role.name, 'Creatives')
+        self.assertEqual(role_folder.name, 'Creatives')
+        self.assertEqual(role_folder.role_name_snapshot, 'Creatives')
+        self.assertTrue(role_folder.is_role_folder)
+
+    def test_default_hierarchy_marks_collapsed_department_role_folder(self):
+        role = Group.objects.create(name='CSR')
+        self.member.groups.add(role)
+        self.member.profile.branch = 'Avantech'
+        self.member.profile.save(update_fields=['branch'])
+
+        views._ensure_file_manager_default_hierarchy()
+
+        role_folder = ManagedFileNode.objects.get(name='CSR', parent__name='Avantech', access_scope='shared')
+        self.assertTrue(role_folder.is_role_folder)
+        self.assertEqual(role_folder.department_name_snapshot, 'CSR')
+        self.assertEqual(role_folder.role_name_snapshot, 'CSR')
 
 
 class FileManagerRenameTests(TestCase):
@@ -764,6 +801,92 @@ class FileManagerRenameTests(TestCase):
         file_node.refresh_from_db()
         self.assertEqual(file_node.name, 'Payment Request.docx')
 
+    def test_rename_existing_name_prompts_for_keep_both(self):
+        ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='Existing.docx',
+            node_type='file',
+            access_scope='private',
+        )
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='Draft.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_rename'),
+            {'node_id': str(file_node.pk), 'new_name': 'Existing.docx'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertFalse(payload['ok'])
+        self.assertTrue(payload['conflict'])
+        self.assertEqual(payload['available_name'], 'Existing (2).docx')
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.name, 'Draft.docx')
+
+    def test_rename_same_basename_different_extension_does_not_prompt(self):
+        ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='Existing.pdf',
+            node_type='file',
+            access_scope='private',
+        )
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='Draft.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_rename'),
+            {'node_id': str(file_node.pk), 'new_name': 'Existing.docx'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.name, 'Existing.docx')
+
+    def test_rename_existing_name_can_keep_both_with_copy_suffix(self):
+        ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='Existing.docx',
+            node_type='file',
+            access_scope='private',
+        )
+        file_node = ManagedFileNode.objects.create(
+            parent=self.parent,
+            owner=self.owner,
+            name='Draft.docx',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_rename'),
+            {
+                'node_id': str(file_node.pk),
+                'new_name': 'Existing.docx',
+                'conflict_resolution': 'keep_both',
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.name, 'Existing (2).docx')
+
     def test_file_manager_page_does_not_javascript_escape_rename_prompt_name(self):
         self.owner.user_permissions.add(Permission.objects.get(codename='view_managedfilenode'))
         ManagedFileNode.objects.create(
@@ -780,6 +903,121 @@ class FileManagerRenameTests(TestCase):
         self.assertContains(response, 'data-node-id=')
         self.assertNotContains(response, 'class="fm-rename-form"')
         self.assertNotContains(response, r'CD \u002D Request for Funds.docx')
+
+
+class FileManagerMoveTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(username='jaime0288', password='password')
+        self.source = ManagedFileNode.objects.create(
+            owner=self.owner,
+            name='Source',
+            node_type='folder',
+            access_scope='private',
+        )
+        self.target = ManagedFileNode.objects.create(
+            owner=self.owner,
+            name='Target',
+            node_type='folder',
+            access_scope='private',
+        )
+        self.client.force_login(self.owner)
+
+    def test_bulk_move_moves_multiple_files_and_folders(self):
+        file_node = ManagedFileNode.objects.create(
+            parent=self.source,
+            owner=self.owner,
+            name='notes.txt',
+            node_type='file',
+            access_scope='private',
+        )
+        folder_node = ManagedFileNode.objects.create(
+            parent=self.source,
+            owner=self.owner,
+            name='Projects',
+            node_type='folder',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_bulk_action'),
+            {
+                'selected_ids': f'{file_node.pk},{folder_node.pk}',
+                'bulk_action': 'move',
+                'target_parent_id': str(self.target.pk),
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json().get('node_id'), self.target.pk)
+        file_node.refresh_from_db()
+        folder_node.refresh_from_db()
+        self.assertEqual(file_node.parent_id, self.target.pk)
+        self.assertEqual(folder_node.parent_id, self.target.pk)
+
+    def test_bulk_move_skips_child_when_parent_is_also_selected(self):
+        folder_node = ManagedFileNode.objects.create(
+            parent=self.source,
+            owner=self.owner,
+            name='Projects',
+            node_type='folder',
+            access_scope='private',
+        )
+        child_file = ManagedFileNode.objects.create(
+            parent=folder_node,
+            owner=self.owner,
+            name='plan.txt',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_bulk_action'),
+            {
+                'selected_ids': f'{folder_node.pk},{child_file.pk}',
+                'bulk_action': 'move',
+                'target_parent_id': str(self.target.pk),
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        folder_node.refresh_from_db()
+        child_file.refresh_from_db()
+        self.assertEqual(folder_node.parent_id, self.target.pk)
+        self.assertEqual(child_file.parent_id, folder_node.pk)
+        self.assertIn('1 item(s) skipped', response.json().get('message', ''))
+
+    def test_bulk_move_uses_available_name_on_conflict(self):
+        ManagedFileNode.objects.create(
+            parent=self.target,
+            owner=self.owner,
+            name='notes.txt',
+            node_type='file',
+            access_scope='private',
+        )
+        file_node = ManagedFileNode.objects.create(
+            parent=self.source,
+            owner=self.owner,
+            name='notes.txt',
+            node_type='file',
+            access_scope='private',
+        )
+
+        response = self.client.post(
+            reverse('file_manager_bulk_action'),
+            {
+                'selected_ids': str(file_node.pk),
+                'bulk_action': 'move',
+                'target_parent_id': str(self.target.pk),
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        file_node.refresh_from_db()
+        self.assertEqual(file_node.parent_id, self.target.pk)
+        self.assertEqual(file_node.name, 'notes (2).txt')
 
 
 class FileManagerTrashTests(TestCase):
@@ -958,7 +1196,7 @@ class FileManagerTrashTests(TestCase):
         self.assertContains(response, f'data-node-id="{file_node.pk}"')
         self.assertContains(response, 'fm-delete-btn')
         self.assertContains(response, '>Delete</button>')
-        self.assertNotContains(response, 'action="/file-manager/rename/"')
+        self.assertNotContains(response, 'class="fm-rename-form"')
 
 
 class ImageUploadConversionTests(TestCase):
@@ -1221,6 +1459,104 @@ class SupportTicketListLifecycleTests(TestCase):
         self.assertTrue(response.context['should_open_archived_modal'])
 
 
+class AccountabilityFormBatchHolderNameTests(TestCase):
+    def setUp(self):
+        self.department, _ = AssetDepartment.objects.get_or_create(name='IT')
+        self.regular_user = get_user_model().objects.create_user(
+            username='regular-user',
+            first_name='Regular',
+            last_name='User',
+            password='password',
+        )
+        self.manager_user = get_user_model().objects.create_user(
+            username='manager-user',
+            first_name='Manager',
+            last_name='User',
+            password='password',
+        )
+        self.item = AssetItem.objects.create(
+            department=self.department,
+            item_name='Laptop',
+            item_type='laptop',
+            stock_quantity=5,
+            created_by=self.regular_user,
+        )
+
+        add_permission = Permission.objects.get(codename='add_assetaccountability')
+        manage_permission = Permission.objects.get(codename='can_manage_accountability')
+        self.regular_user.user_permissions.add(add_permission)
+        self.manager_user.user_permissions.add(add_permission, manage_permission)
+        self.regular_record = AssetAccountability.objects.create(
+            item=self.item,
+            borrowed_by=self.regular_user,
+            quantity_borrowed=1,
+            request_status='approved',
+            status='borrowed',
+        )
+        self.manager_record = AssetAccountability.objects.create(
+            item=self.item,
+            borrowed_by=self.manager_user,
+            quantity_borrowed=1,
+            request_status='approved',
+            status='borrowed',
+        )
+
+    def _batch_payload(self, holder_name, record_id):
+        return {
+            'accountable_name': holder_name,
+            'record_ids': [str(record_id)],
+            'department': '',
+            'position_role': '',
+            'contact_number': '',
+        }
+
+    def test_regular_user_batch_form_renders_holder_name_as_readonly(self):
+        self.client.force_login(self.regular_user)
+        response = self.client.get(reverse('accountability_form_batch_create'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="accountable_name"')
+        self.assertContains(response, 'datalist id="holderNameOptions"')
+        self.assertContains(response, 'readonly')
+        self.assertContains(response, 'value="Regular User"')
+
+    def test_regular_user_cannot_submit_custom_holder_name_in_batch_form(self):
+        self.client.force_login(self.regular_user)
+        response = self.client.post(
+            reverse('accountability_form_batch_create'),
+            self._batch_payload('Fake Holder', self.regular_record.pk),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'You are not allowed to set a custom holder name.')
+        self.regular_record.refresh_from_db()
+        self.assertIsNone(self.regular_record.accountability_form_batch_id)
+
+    def test_regular_user_submits_default_holder_name_in_batch_form(self):
+        self.client.force_login(self.regular_user)
+        response = self.client.post(
+            reverse('accountability_form_batch_create'),
+            self._batch_payload('Regular User', self.regular_record.pk),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.regular_record.refresh_from_db()
+        self.assertEqual(self.regular_record.accountable_name, 'Regular User')
+        self.assertIsNotNone(self.regular_record.accountability_form_batch_id)
+
+    def test_manager_user_can_submit_custom_holder_name_in_batch_form(self):
+        self.client.force_login(self.manager_user)
+        response = self.client.post(
+            reverse('accountability_form_batch_create'),
+            self._batch_payload('Custom Holder Name', self.manager_record.pk),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.manager_record.refresh_from_db()
+        self.assertEqual(self.manager_record.accountable_name, 'Custom Holder Name')
+
+
 class FileManagerUploadTests(TestCase):
     def setUp(self):
         self._media_root = tempfile.mkdtemp(prefix='file-manager-test-media-')
@@ -1281,7 +1617,7 @@ class FileManagerUploadTests(TestCase):
         self.assertFalse(response.json()['ok'])
         self.assertFalse(ManagedFileNode.objects.filter(parent=self.folder, name='blocked.txt').exists())
 
-    def test_duplicate_upload_name_gets_copy_suffix(self):
+    def test_duplicate_upload_name_prompts_for_keep_both(self):
         ManagedFileNode.objects.create(
             parent=self.folder,
             name='notes.txt',
@@ -1298,6 +1634,60 @@ class FileManagerUploadTests(TestCase):
                 {
                     'parent_id': str(self.folder.id),
                     'files': SimpleUploadedFile('notes.txt', b'new copy', content_type='text/plain'),
+                },
+                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertFalse(payload['ok'])
+        self.assertTrue(payload['conflict'])
+        self.assertEqual(payload['available_name'], 'notes (2).txt')
+        self.assertFalse(ManagedFileNode.objects.filter(parent=self.folder, name='notes (2).txt').exists())
+
+    def test_upload_same_basename_different_extension_does_not_prompt(self):
+        ManagedFileNode.objects.create(
+            parent=self.folder,
+            name='notes.pdf',
+            node_type='file',
+            owner=self.user,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        with self.settings(MEDIA_ROOT=self._media_root):
+            response = self.client.post(
+                reverse('file_manager_upload'),
+                {
+                    'parent_id': str(self.folder.id),
+                    'files': SimpleUploadedFile('notes.txt', b'hello', content_type='text/plain'),
+                },
+                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertTrue(ManagedFileNode.objects.filter(parent=self.folder, name='notes.txt').exists())
+
+    def test_duplicate_upload_name_can_keep_both_with_copy_suffix(self):
+        ManagedFileNode.objects.create(
+            parent=self.folder,
+            name='notes.txt',
+            node_type='file',
+            owner=self.user,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        with self.settings(MEDIA_ROOT=self._media_root):
+            response = self.client.post(
+                reverse('file_manager_upload'),
+                {
+                    'parent_id': str(self.folder.id),
+                    'files': SimpleUploadedFile('notes.txt', b'new copy', content_type='text/plain'),
+                    'conflict_resolution': 'keep_both',
                 },
                 HTTP_X_REQUESTED_WITH='XMLHttpRequest',
             )

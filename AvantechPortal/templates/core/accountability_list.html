@@ -386,22 +386,12 @@
                         <td>{{ record.item.item_name }}</td>
                         <td>{{ record.item.get_item_type_display }}</td>
                         <td>
+                            {% with holder_name=record.accountable_name|default:record.borrowed_by.get_full_name|default:record.borrowed_by.username %}
                             <div class="list-user-inline">
-                                {% with borrower_profile=borrower_profiles_map|get_item:record.borrowed_by_id %}
-                                    {% if borrower_profile and borrower_profile.avatar %}
-                                        <img src="{{ borrower_profile.avatar.url }}" alt="{{ record.borrowed_by.username }}" class="list-user-avatar">
-                                    {% else %}
-                                        <span class="list-user-avatar-fallback">{{ record.borrowed_by.get_full_name|default:record.borrowed_by.username|first|upper }}</span>
-                                    {% endif %}
-                                {% endwith %}
-                                <button
-                                    type="button"
-                                    class="user-name-link js-user-profile-trigger"
-                                    data-user-id="{{ record.borrowed_by_id }}"
-                                >
-                                    {{ record.borrowed_by.get_full_name|default:record.borrowed_by.username }}
-                                </button>
+                                <span class="list-user-avatar-fallback">{{ holder_name|first|upper }}</span>
+                                <span class="fw-medium">{{ holder_name }}</span>
                             </div>
+                            {% endwith %}
                         </td>
                         <td>
                             <span class="badge bg-secondary">{{ record.quantity_borrowed }}x</span>
@@ -435,7 +425,7 @@
                                     data-return-url="{% url 'accountability_return' record.id %}"
                                     data-item-code="{{ record.item.item_code }}"
                                     data-item-name="{{ record.item.item_name }}"
-                                    data-borrowed-by="{{ record.borrowed_by.get_full_name|default:record.borrowed_by.username|escape }}"
+                                    data-borrowed-by="{{ record.accountable_name|default:record.borrowed_by.get_full_name|default:record.borrowed_by.username|escape }}"
                                     data-quantity="{{ record.quantity_borrowed }}"
                                 >
                                     <i class="bi bi-check-lg" aria-hidden="true"></i>
@@ -461,7 +451,7 @@
                                     data-item-code="{{ record.item.item_code }}"
                                     data-item-name="{{ record.item.item_name }}"
                                     data-item-type="{{ record.item.get_item_type_display }}"
-                                    data-borrowed-by="{{ record.borrowed_by.get_full_name|default:record.borrowed_by.username }}"
+                                    data-borrowed-by="{{ record.accountable_name|default:record.borrowed_by.get_full_name|default:record.borrowed_by.username }}"
                                     data-quantity="{{ record.quantity_borrowed }}x"
                                     data-borrowed-date="{{ record.date_borrowed|date:'M d, Y H:i' }}"
                                     data-status="{{ record.status|title }}"

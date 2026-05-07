@@ -31,6 +31,9 @@ from .models import (
     AssetItem,
     AssetItemImage,
     AssetItemType,
+    ConsumableItem,
+    ConsumableItemType,
+    ensure_consumable_asset_proxy,
     Client,
     ClientQuotation,
     CompanyInternetAccount,
@@ -1309,7 +1312,89 @@ class AssetItemForm(forms.ModelForm):
         return
 
 
+class ConsumableItemTypeForm(forms.ModelForm):
+    class Meta:
+        model = ConsumableItemType
+        fields = ['name', 'code', 'prefix', 'is_active']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['code'].help_text = 'Unique key used in consumables (example: ink, paper, cleaner).'
+        self.fields['prefix'].help_text = '2-5 alphanumeric prefix for generated item IDs.'
+
+    def clean_code(self):
+        return (self.cleaned_data.get('code') or '').strip().lower()
+
+    def clean_prefix(self):
+        prefix = (self.cleaned_data.get('prefix') or '').strip().upper()
+        if len(prefix) < 2 or len(prefix) > 5 or not prefix.isalnum():
+            raise ValidationError('Prefix must be 2-5 alphanumeric characters.')
+        return prefix
+
+
+class ConsumableItemForm(forms.ModelForm):
+    item_type = forms.ChoiceField(widget=forms.Select())
+
+    class Meta:
+        model = ConsumableItem
+        fields = [
+            'department',
+            'item_name',
+            'item_type',
+            'code_prefix',
+            'specification',
+            'note',
+            'stock_quantity',
+            'low_stock_threshold',
+            'is_active',
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.Select):
+                field.widget.attrs.setdefault('class', 'form-select')
+            elif isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault('class', 'form-check-input')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+
+        self.fields['code_prefix'].required = False
+        self.fields['code_prefix'].help_text = 'Optional override (e.g. INK, PPR). Leave blank for automatic prefix.'
+        self.fields['note'].required = False
+        self.fields['note'].widget = forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Optional additional note'})
+
+        active_types = list(ConsumableItemType.objects.filter(is_active=True).order_by('name').values_list('code', 'name'))
+        current_type = (getattr(self.instance, 'item_type', '') or '').strip().lower()
+        if current_type and current_type not in {code for code, _ in active_types}:
+            existing_name = ConsumableItemType.objects.filter(code=current_type).values_list('name', flat=True).first()
+            active_types.append((current_type, existing_name or current_type.replace('-', ' ').title()))
+        if not active_types:
+            active_types = [('other', 'Other')]
+        self.fields['item_type'].choices = active_types
+        if current_type:
+            self.initial['item_type'] = current_type
+
+    def clean_code_prefix(self):
+        value = (self.cleaned_data.get('code_prefix') or '').strip().upper()
+        if value and (len(value) < 2 or len(value) > 5 or not value.isalnum()):
+            raise ValidationError('Code prefix must be 2-5 alphanumeric characters.')
+        return value
+
 class AssetAccountabilityForm(forms.ModelForm):
+    holder_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Holder name',
+        }),
+        label='Holder Name',
+    )
     item = forms.ModelChoiceField(
         queryset=AssetItem.objects.filter(is_active=True),
         required=False,
@@ -1362,6 +1447,7 @@ class AssetAccountabilityForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.request_user = kwargs.pop('request_user', None)
         super().__init__(*args, **kwargs)
         self.fields['accountable_name'].label = 'Name'
         self.fields['position_role'].label = 'Position/Role'
@@ -1369,6 +1455,27 @@ class AssetAccountabilityForm(forms.ModelForm):
         self.fields['quantity_borrowed'].required = False
         self.fields['quantity_borrowed'].initial = 1
         self.fields['notes'].required = False
+        default_holder_name = ''
+        if self.request_user and getattr(self.request_user, 'is_authenticated', False):
+            default_holder_name = (self.request_user.get_full_name() or self.request_user.username or '').strip()
+        self.fields['holder_name'].initial = default_holder_name
+        self.fields['holder_name'].widget.attrs.setdefault('value', default_holder_name)
+        self.fields['holder_name'].widget.attrs.setdefault('list', 'holderNameOptions')
+        can_override_holder_name = bool(
+            self.request_user and (
+                self.request_user.is_superuser
+                or self.request_user.has_perm('core.can_manage_accountability')
+                or self.request_user.has_perm('core.change_assetaccountability')
+            )
+        )
+        if not can_override_holder_name:
+            self.fields['holder_name'].widget.attrs['readonly'] = 'readonly'
+            self.fields['holder_name'].help_text = 'Defaulted to your account name.'
+        else:
+            self.fields['holder_name'].help_text = 'Select a user from the list or enter a custom holder name.'
+
+        for consumable in ConsumableItem.objects.select_related('department').filter(is_active=True):
+            ensure_consumable_asset_proxy(consumable, created_by=self.request_user)
 
         borrowable_item_ids = []
         for item in AssetItem.objects.filter(is_active=True).select_related('parent_item'):
@@ -1396,6 +1503,14 @@ class AssetAccountabilityForm(forms.ModelForm):
         if quantity < 1:
             raise ValidationError('Quantity must be at least 1.')
         return quantity
+
+    def clean_holder_name(self):
+        holder_name = (self.cleaned_data.get('holder_name') or '').strip()
+        if holder_name:
+            return holder_name
+        if self.request_user and getattr(self.request_user, 'is_authenticated', False):
+            return (self.request_user.get_full_name() or self.request_user.username or '').strip()
+        return ''
 
     def clean_item(self):
         item = self.cleaned_data.get('item')

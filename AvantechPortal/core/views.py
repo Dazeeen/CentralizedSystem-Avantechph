@@ -75,6 +75,8 @@ from .forms import (
 	AssetDepartmentForm,
 	AssetItemForm,
 	AssetItemTypeForm,
+	ConsumableItemForm,
+	ConsumableItemTypeForm,
 	ClientForm,
 	ClientQuotationForm,
 	CompanyInternetAccountForm,
@@ -106,6 +108,9 @@ from .models import (
 	AssetItem,
 	AssetItemImage,
 	AssetItemType,
+	ConsumableItem,
+	ConsumableItemType,
+	ensure_consumable_asset_proxy,
 	ActivityLog,
 	AssetReturnProof,
 	AssetTagBatch,
@@ -1075,6 +1080,22 @@ def _fm_response(request, ok=True, message='', redirect_name='file_manager_list'
 	if redirect_node_id:
 		return redirect(f"{reverse(redirect_name)}?node={redirect_node_id}")
 	return redirect(redirect_name)
+
+
+def _fm_conflict_response(request, message, available_name='', conflicts=None, status=409):
+	if _is_ajax_request(request):
+		payload = {
+			'ok': False,
+			'message': message,
+			'conflict': True,
+			'confirm_action': 'keep_both',
+		}
+		if available_name:
+			payload['available_name'] = available_name
+		if conflicts:
+			payload['conflicts'] = conflicts
+		return JsonResponse(payload, status=status)
+	return _fm_response(request, ok=False, message=message, status=400)
 
 
 def _list_browsable_directories(current_path):
@@ -3777,6 +3798,21 @@ def _get_available_managed_file_name(parent, owner, desired_name):
 	return candidate
 
 
+def _managed_file_exact_name_conflict(parent, owner, desired_name, *, node_type='file', exclude_pk=None):
+	name = (desired_name or '').strip()
+	if not name:
+		return False
+	queryset = ManagedFileNode.objects.filter(parent=parent, owner=owner, name=name)
+	if exclude_pk:
+		queryset = queryset.exclude(pk=exclude_pk)
+	if node_type == 'file':
+		desired_extension = Path(name).suffix
+		if not desired_extension:
+			return False
+		return any(Path(existing_name or '').suffix == desired_extension for existing_name in queryset.values_list('name', flat=True))
+	return queryset.exists()
+
+
 def _format_file_size(size_bytes):
 	units = ['B', 'KB', 'MB', 'GB']
 	value = float(max(0, int(size_bytes or 0)))
@@ -3917,6 +3953,36 @@ def _get_restore_target_for_node(node):
 	return None
 
 
+def _is_file_manager_descendant(node, possible_ancestor):
+	current = node
+	while current:
+		if current.pk == possible_ancestor.pk:
+			return True
+		current = current.parent
+	return False
+
+
+def _move_file_manager_node(node, target_parent, user):
+	if node.parent_id is None:
+		return False, 'root'
+	if not _user_can_write_node(user, node):
+		return False, 'source_permission'
+	if node.pk == target_parent.pk or _is_file_manager_descendant(target_parent, node):
+		return False, 'cycle'
+	if node.parent_id == target_parent.pk:
+		return False, 'same_parent'
+
+	new_name = node.name
+	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
+		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
+
+	node.parent = target_parent
+	node.name = new_name
+	node.updated_by = user
+	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	return True, ''
+
+
 def _can_view_all_file_manager_nodes(user):
 	return user.is_superuser or user.has_perm('core.change_managedfilenode') or user.has_perm('core.delete_managedfilenode')
 
@@ -3984,6 +4050,11 @@ def _merge_managed_file_folder(source_node, target_node, updated_by=None):
 	if not source_node or not target_node or source_node.pk == target_node.pk:
 		return
 
+	if source_node.is_role_folder and not target_node.is_role_folder:
+		target_node.is_role_folder = True
+		target_node.updated_by = updated_by or target_node.updated_by
+		target_node.save(update_fields=['is_role_folder', 'updated_by', 'updated_at'])
+
 	_sync_managed_file_permission(source_node, target_node)
 	for child_node in list(source_node.children.all().order_by('id')):
 		conflicting_child = (
@@ -4031,6 +4102,7 @@ def _sync_file_manager_role_rename(old_role_name, new_role_name, updated_by=None
 	role_nodes = list(
 		ManagedFileNode.objects
 		.filter(parent__isnull=False, access_scope='shared', node_type__in=('folder', 'shared_folder'))
+		.filter(Q(is_role_folder=True) | Q(role_name_snapshot__iexact=old_role_name))
 		.filter(Q(role_name_snapshot__iexact=old_role_name) | Q(name__iexact=old_role_name))
 		.select_related('parent')
 		.order_by('id')
@@ -4050,13 +4122,17 @@ def _sync_file_manager_role_rename(old_role_name, new_role_name, updated_by=None
 				if not conflicting_node.role_name_snapshot:
 					conflicting_node.role_name_snapshot = new_role_name
 					conflicting_node.updated_by = updated_by or conflicting_node.updated_by
-					conflicting_node.save(update_fields=['role_name_snapshot', 'updated_by', 'updated_at'])
+				if not conflicting_node.is_role_folder:
+					conflicting_node.is_role_folder = True
+					conflicting_node.updated_by = updated_by or conflicting_node.updated_by
+				conflicting_node.save(update_fields=['role_name_snapshot', 'is_role_folder', 'updated_by', 'updated_at'])
 				_merge_managed_file_folder(role_node, conflicting_node, updated_by=updated_by)
 			else:
 				role_node.name = new_role_name
 				role_node.role_name_snapshot = new_role_name
+				role_node.is_role_folder = True
 				role_node.updated_by = updated_by or role_node.updated_by
-				role_node.save(update_fields=['name', 'role_name_snapshot', 'updated_by', 'updated_at'])
+				role_node.save(update_fields=['name', 'role_name_snapshot', 'is_role_folder', 'updated_by', 'updated_at'])
 			updated_count += 1
 
 		ManagedFileNode.objects.filter(role_name_snapshot__iexact=old_role_name).update(role_name_snapshot=new_role_name)
@@ -4163,6 +4239,10 @@ def _ensure_file_manager_default_hierarchy():
 
 		if _is_same_file_manager_level(department_name, role_name):
 			role_node = department_node
+			if not role_node.is_role_folder or not _is_same_file_manager_level(role_node.role_name_snapshot, role_name):
+				role_node.is_role_folder = True
+				role_node.role_name_snapshot = role_name
+				role_node.save(update_fields=['is_role_folder', 'role_name_snapshot', 'updated_at'])
 		else:
 			role_node, _ = ManagedFileNode.objects.get_or_create(
 				parent=department_node,
@@ -4174,11 +4254,15 @@ def _ensure_file_manager_default_hierarchy():
 					'branch_name_snapshot': branch_name,
 					'department_name_snapshot': department_name,
 					'role_name_snapshot': role_name,
+					'is_role_folder': True,
 					'storage_endpoint': default_root_endpoint,
 					'created_by': system_owner,
 					'updated_by': system_owner,
 				},
 			)
+			if not role_node.is_role_folder:
+				role_node.is_role_folder = True
+				role_node.save(update_fields=['is_role_folder', 'updated_at'])
 
 		user_node = _get_or_move_user_file_manager_folder(
 			role_node,
@@ -4363,6 +4447,7 @@ def file_manager_search(request):
 				'id': node.id,
 				'name': node.name,
 				'node_type': node.node_type,
+				'is_role_folder': node.is_role_folder,
 				'owner': node.owner.username if node.owner else '',
 				'label': _build_file_manager_scope_label(node, []),
 				'parent_id': node.parent_id,
@@ -4504,6 +4589,24 @@ def file_manager_upload(request):
 	uploaded_files = [item for item in request.FILES.getlist('files') if item]
 	if not uploaded_files:
 		return _fm_response(request, ok=False, message='No files selected for upload.', status=400)
+	conflict_resolution = (request.POST.get('conflict_resolution') or '').strip()
+	if conflict_resolution != 'keep_both':
+		conflicts = []
+		for incoming_file in uploaded_files:
+			desired_name = (incoming_file.name or 'Uploaded File').strip() or 'Uploaded File'
+			if _managed_file_exact_name_conflict(parent, request.user, desired_name, node_type='file'):
+				conflicts.append({
+					'name': desired_name,
+					'available_name': _get_available_managed_file_name(parent, request.user, desired_name),
+				})
+		if conflicts:
+			conflict_count = len(conflicts)
+			first_conflict = conflicts[0]
+			if conflict_count == 1:
+				message = f'"{first_conflict["name"]}" already exists. Keep both as "{first_conflict["available_name"]}"?'
+			else:
+				message = f'{conflict_count} uploaded file(s) already exist. Keep both using available copy names?'
+			return _fm_conflict_response(request, message, available_name=first_conflict['available_name'], conflicts=conflicts)
 
 	quota_mb = _get_user_storage_quota_mb(request.user)
 	if quota_mb > 0:
@@ -4587,13 +4690,23 @@ def file_manager_rename(request):
 	if node.name == new_name:
 		return _fm_response(request, ok=True, message='Name unchanged.', redirect_node_id=node.parent_id)
 
-	conflict_exists = ManagedFileNode.objects.filter(
-		parent=node.parent,
-		owner=node.owner,
-		name=new_name,
-	).exclude(pk=node.pk).exists()
+	conflict_resolution = (request.POST.get('conflict_resolution') or '').strip()
+	conflict_exists = _managed_file_exact_name_conflict(
+		node.parent,
+		node.owner,
+		new_name,
+		node_type=node.node_type,
+		exclude_pk=node.pk,
+	)
 	if conflict_exists:
-		return _fm_response(request, ok=False, message='A file or folder with that name already exists.', status=400)
+		available_name = _get_available_managed_file_name(node.parent, node.owner, new_name)
+		if conflict_resolution != 'keep_both':
+			return _fm_conflict_response(
+				request,
+				f'"{new_name}" already exists. Keep both as "{available_name}"?',
+				available_name=available_name,
+			)
+		new_name = available_name
 
 	old_name = node.name
 	node.name = new_name
@@ -4635,23 +4748,13 @@ def file_manager_move(request):
 	if not _user_can_write_node(request.user, target_parent):
 		return _permission_denied_response(request, 'You do not have write access to the destination folder.')
 
-	current = target_parent
-	while current:
-		if current.pk == node.pk:
-			return _fm_response(request, ok=False, message='Cannot move a folder into itself.', status=400)
-		current = current.parent
-
-	if node.parent_id == target_parent.pk:
+	moved, reason = _move_file_manager_node(node, target_parent, request.user)
+	if reason == 'cycle':
+		return _fm_response(request, ok=False, message='Cannot move a folder into itself.', status=400)
+	if reason == 'same_parent':
 		return _fm_response(request, ok=True, message='Item is already in this folder.', redirect_node_id=target_parent.pk)
-
-	new_name = node.name
-	if ManagedFileNode.objects.filter(parent=target_parent, owner=node.owner, name=node.name).exclude(pk=node.pk).exists():
-		new_name = _get_available_managed_file_name(target_parent, node.owner, node.name)
-
-	node.parent = target_parent
-	node.name = new_name
-	node.updated_by = request.user
-	node.save(update_fields=['parent', 'name', 'updated_by', 'updated_at'])
+	if not moved:
+		return _fm_response(request, ok=False, message='Item could not be moved.', status=400)
 	record_activity(
 		request,
 		'update',
@@ -4711,7 +4814,7 @@ def file_manager_bulk_action(request):
 	is_sudo_command = (request.POST.get('sudo') or '').strip().lower() in {'1', 'true', 'yes'}
 	if is_sudo_command and not request.user.is_superuser:
 		return _permission_denied_response(request, 'Only superusers can run sudo commands.')
-	if action not in {'delete', 'restore', 'delete_all'}:
+	if action not in {'delete', 'restore', 'delete_all', 'move'}:
 		restricted_response = _require_permission(request, 'core.change_managedfilenode')
 		if restricted_response:
 			return restricted_response
@@ -4748,6 +4851,52 @@ def file_manager_bulk_action(request):
 	nodes = [node for node in nodes if _user_can_write_node(request.user, node)]
 	if not nodes:
 		return _fm_response(request, ok=False, message='No writable files/folders selected.', status=400)
+
+	if action == 'move':
+		target_parent_id = (request.POST.get('target_parent_id') or '').strip()
+		if not target_parent_id.isdigit():
+			return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+		target_parent = get_object_or_404(ManagedFileNode, pk=int(target_parent_id))
+		if target_parent.node_type == 'file':
+			return _fm_response(request, ok=False, message='Select a destination folder.', status=400)
+		if _is_file_manager_trash_context(target_parent) and not request.user.is_superuser:
+			return _fm_response(request, ok=False, message='Cannot move items into Trash.', status=400)
+		if not _user_can_write_node(request.user, target_parent):
+			return _permission_denied_response(request, 'You do not have write access to the destination folder.')
+
+		selected_node_ids = {node.pk for node in nodes}
+		moved = 0
+		skipped = 0
+		for node in sorted(nodes, key=lambda item: item.pk):
+			current = node.parent
+			has_selected_ancestor = False
+			while current:
+				if current.pk in selected_node_ids:
+					has_selected_ancestor = True
+					break
+				current = current.parent
+			if has_selected_ancestor:
+				skipped += 1
+				continue
+
+			node_moved, reason = _move_file_manager_node(node, target_parent, request.user)
+			if node_moved:
+				moved += 1
+			elif reason != 'same_parent':
+				skipped += 1
+		if moved == 0:
+			return _fm_response(request, ok=False, message='No items moved.', status=400)
+		message = f'{moved} item(s) moved.'
+		if skipped:
+			message = f'{message} {skipped} item(s) skipped.'
+		record_activity(
+			request,
+			'update',
+			'file_manager',
+			f'Moved {moved} File Manager item(s).',
+			metadata={'count': moved, 'skipped': skipped, 'target_parent_id': target_parent.pk},
+		)
+		return _fm_response(request, ok=True, message=message, redirect_node_id=target_parent.pk)
 
 	if action == 'restore':
 		restored = 0
@@ -8269,6 +8418,235 @@ def assets_item_types_bulk_delete(request):
 
 
 @login_required
+def consumables_list(request):
+	can_view_categories = (
+		request.user.is_superuser
+		or request.user.has_perm('core.view_consumablescategory')
+		or request.user.has_perm('core.view_consumableitem')
+		or request.user.has_perm('core.view_consumableitemtype')
+	)
+	if not can_view_categories:
+		return _permission_denied_response(request, 'You do not have permission to perform this action.')
+
+	query = (request.GET.get('q') or '').strip()
+	selected_department = (request.GET.get('department') or '').strip()
+	selected_type = (request.GET.get('type') or '').strip().lower()
+
+	departments = AssetDepartment.objects.order_by('name')
+	item_types = ConsumableItemType.objects.order_by('name')
+	for consumable in ConsumableItem.objects.select_related('department').filter(is_active=True):
+		ensure_consumable_asset_proxy(consumable, created_by=request.user)
+	items = ConsumableItem.objects.select_related('department').order_by('item_code', 'id')
+
+	if selected_department:
+		items = items.filter(department_id=selected_department)
+	if selected_type:
+		items = items.filter(item_type=selected_type)
+	if query:
+		items = items.filter(
+			Q(item_code__icontains=query)
+			| Q(item_name__icontains=query)
+			| Q(specification__icontains=query)
+			| Q(department__name__icontains=query)
+		)
+
+	items_page = Paginator(items, 20).get_page(request.GET.get('page'))
+	stock_status_map = {}
+	for item in items_page.object_list:
+		current_stock = int(item.stock_quantity or 0)
+		if current_stock <= 0:
+			stock_status_map[item.id] = 'out_of_stock'
+		elif current_stock <= int(item.low_stock_threshold or 0):
+			stock_status_map[item.id] = 'low_stock'
+		else:
+			stock_status_map[item.id] = 'in_stock'
+
+	context = {
+		'query': query,
+		'selected_department': selected_department,
+		'selected_type': selected_type,
+		'departments': departments,
+		'item_types': item_types,
+		'items_page': items_page,
+		'stock_status_map': stock_status_map,
+		'item_form': ConsumableItemForm(),
+		'item_type_form': ConsumableItemTypeForm(),
+		'total_items': ConsumableItem.objects.count(),
+		'total_stock_units': ConsumableItem.objects.aggregate(total=Sum('stock_quantity')).get('total') or 0,
+		'low_stock_items_count': sum(1 for status in stock_status_map.values() if status == 'low_stock'),
+	}
+	return render(request, 'core/consumables_list.html', context)
+
+
+@login_required
+@require_POST
+def consumables_item_create(request):
+	restricted_response = _require_permission(request, 'core.add_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	form = ConsumableItemForm(request.POST)
+	if form.is_valid():
+		item = form.save(commit=False)
+		item.created_by = request.user
+		item.save()
+		ensure_consumable_asset_proxy(item, created_by=request.user)
+		record_activity(
+			request,
+			'create',
+			'assets',
+			f'Created consumable item {item.item_code} - {item.item_name}.',
+			target=item,
+			target_label=f'{item.item_code} - {item.item_name}',
+		)
+		messages.success(request, f'Consumable item saved with Item ID {item.item_code}.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_update(request, item_id):
+	restricted_response = _require_permission(request, 'core.change_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	item = get_object_or_404(ConsumableItem, pk=item_id)
+	form = ConsumableItemForm(request.POST, instance=item)
+	if form.is_valid():
+		updated_item = form.save()
+		ensure_consumable_asset_proxy(updated_item, created_by=request.user)
+		record_activity(
+			request,
+			'update',
+			'assets',
+			f'Updated consumable item {updated_item.item_code} - {updated_item.item_name}.',
+			target=updated_item,
+			target_label=f'{updated_item.item_code} - {updated_item.item_name}',
+		)
+		messages.success(request, f'Consumable item {updated_item.item_code} updated successfully.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_delete(request, item_id):
+	restricted_response = _require_permission(request, 'core.delete_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	item = get_object_or_404(ConsumableItem, pk=item_id)
+	item_code = item.item_code
+	item_name = item.item_name
+	proxy_marker = item.proxy_marker()
+	AssetItem.objects.filter(note__icontains=proxy_marker).update(is_active=False, stock_quantity=0)
+	item.delete()
+	record_activity(
+		request,
+		'delete',
+		'assets',
+		f'Deleted consumable item {item_code} - {item_name}.',
+		target_label=f'{item_code} - {item_name}',
+	)
+	messages.success(request, f'Consumable item {item_code} deleted successfully.')
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_items_bulk_delete(request):
+	restricted_response = _require_permission(request, 'core.delete_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	item_ids = request.POST.getlist('item_ids')
+	if not item_ids:
+		raw_selected_ids = (request.POST.get('selected_ids') or request.POST.get('item_ids') or '').strip()
+		if raw_selected_ids:
+			item_ids = [segment.strip() for segment in raw_selected_ids.split(',') if segment.strip()]
+	parsed_ids = []
+	for raw_id in item_ids:
+		for segment in str(raw_id).split(','):
+			value = segment.strip()
+			if value.isdigit():
+				parsed_ids.append(int(value))
+	if not parsed_ids:
+		messages.warning(request, 'No consumable items selected for deletion.')
+		return redirect('consumables_list')
+
+	deleted_count = ConsumableItem.objects.filter(pk__in=parsed_ids).delete()[0]
+	if deleted_count:
+		messages.success(request, f'{deleted_count} consumable item(s) deleted successfully.')
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_type_create(request):
+	restricted_response = _require_permission(request, 'core.add_consumableitemtype')
+	if restricted_response:
+		return restricted_response
+
+	form = ConsumableItemTypeForm(request.POST)
+	if form.is_valid():
+		form.save()
+		messages.success(request, 'Consumable type created successfully.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_type_update(request, item_type_id):
+	restricted_response = _require_permission(request, 'core.change_consumableitemtype')
+	if restricted_response:
+		return restricted_response
+
+	item_type = get_object_or_404(ConsumableItemType, pk=item_type_id)
+	form = ConsumableItemTypeForm(request.POST, instance=item_type)
+	if form.is_valid():
+		form.save()
+		messages.success(request, 'Consumable type updated successfully.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_type_delete(request, item_type_id):
+	restricted_response = _require_permission(request, 'core.delete_consumableitemtype')
+	if restricted_response:
+		return restricted_response
+
+	item_type = get_object_or_404(ConsumableItemType, pk=item_type_id)
+	if ConsumableItem.objects.filter(item_type=item_type.code).exists():
+		messages.error(request, 'This consumable type is currently used by existing consumable items and cannot be deleted.')
+		return redirect('consumables_list')
+	item_type.delete()
+	messages.success(request, 'Consumable type deleted successfully.')
+	return redirect('consumables_list')
+
+
+@login_required
 @require_POST
 def assets_generate_tags(request):
 	restricted_response = _require_permission(request, 'core.add_assettagbatch')
@@ -8605,9 +8983,9 @@ def roles_update(request, role_id):
 	role = get_object_or_404(Group, pk=role_id)
 
 	if request.method == 'POST':
+		old_role_name = role.name
 		form = RoleForm(request.POST, instance=role)
 		if form.is_valid():
-			old_role_name = role.name
 			updated_role = form.save()
 			renamed_folder_count = _sync_file_manager_role_rename(old_role_name, updated_role.name, updated_by=request.user)
 			_ensure_file_manager_default_hierarchy_if_needed(request.user)
@@ -9862,6 +10240,28 @@ def accountability_form_batch_create(request):
 	restricted_response = _require_permission(request, 'core.add_assetaccountability')
 	if restricted_response:
 		return restricted_response
+	can_override_holder_name = bool(
+		request.user.is_superuser
+		or request.user.has_perm('core.can_manage_accountability')
+		or request.user.has_perm('core.change_assetaccountability')
+	)
+	default_holder_name = (request.user.get_full_name() or request.user.username or '').strip()
+	default_department = (getattr(getattr(request.user, 'profile', None), 'department', '') or '').strip()
+	default_position_role = (
+		getattr(getattr(request.user, 'profile', None), 'position', '')
+		or getattr(getattr(request.user, 'profile', None), 'role', '')
+		or ''
+	).strip()
+	holder_name_options = []
+	for user in User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username'):
+		display_name = (user.get_full_name() or user.username or '').strip()
+		if display_name and display_name not in holder_name_options:
+			holder_name_options.append(display_name)
+	department_options = list(
+		AssetDepartment.objects.order_by('name').values_list('name', flat=True)
+	)
+	if default_department and default_department not in department_options:
+		department_options.append(default_department)
 
 	eligible_qs = (
 		AssetAccountability.objects
@@ -9875,9 +10275,18 @@ def accountability_form_batch_create(request):
 	)
 
 	if request.method == 'POST':
-		accountable_name = (request.POST.get('accountable_name') or '').strip()
-		department = (request.POST.get('department') or '').strip()
-		position_role = (request.POST.get('position_role') or '').strip()
+		requested_accountable_name = (request.POST.get('accountable_name') or '').strip()
+		if can_override_holder_name and requested_accountable_name:
+			accountable_name = requested_accountable_name
+		else:
+			accountable_name = default_holder_name
+		if (not can_override_holder_name) and requested_accountable_name and requested_accountable_name != default_holder_name:
+			messages.error(request, 'You are not allowed to set a custom holder name.')
+			return redirect('accountability_form_batch_create')
+		requested_department = (request.POST.get('department') or '').strip()
+		department = requested_department or default_department
+		requested_position_role = (request.POST.get('position_role') or '').strip()
+		position_role = requested_position_role or default_position_role
 		contact_number = (request.POST.get('contact_number') or '').strip()
 		selected_ids = request.POST.getlist('record_ids')
 		parsed_ids = []
@@ -9898,16 +10307,27 @@ def accountability_form_batch_create(request):
 			messages.warning(request, 'Accountable name is required.')
 			return redirect('accountability_form_batch_create')
 
-		with transaction.atomic():
-			form_batch = AssetAccountabilityFormBatch.objects.create(created_by=request.user)
-			eligible_qs.filter(pk__in=[row.pk for row in selected_rows]).update(
-				accountability_form_batch=form_batch,
-				accountable_name=accountable_name,
-				department=department,
-				position_role=position_role,
-				contact_number=contact_number,
-				updated_at=timezone.now(),
-			)
+		form_batch = None
+		for attempt in range(3):
+			try:
+				with transaction.atomic():
+					form_batch = AssetAccountabilityFormBatch.objects.create(created_by=request.user)
+					eligible_qs.filter(pk__in=[row.pk for row in selected_rows]).update(
+						accountability_form_batch=form_batch,
+						accountable_name=accountable_name,
+						department=department,
+						position_role=position_role,
+						contact_number=contact_number,
+						updated_at=timezone.now(),
+					)
+				break
+			except OperationalError as exc:
+				if 'database is locked' not in str(exc).lower():
+					raise
+				if attempt == 2:
+					messages.error(request, 'The database is busy right now. Please try again in a moment.')
+					return redirect('accountability_form_batch_create')
+				time.sleep(0.15 * (attempt + 1))
 
 		record_activity(
 			request,
@@ -9923,9 +10343,12 @@ def accountability_form_batch_create(request):
 
 	context = {
 		'eligible_rows': eligible_qs,
-		'initial_accountable_name': request.user.get_full_name() or request.user.username,
-		'initial_department': getattr(getattr(request.user, 'profile', None), 'department', '') or '',
-		'initial_position_role': getattr(getattr(request.user, 'profile', None), 'position', '') or getattr(getattr(request.user, 'profile', None), 'role', '') or '',
+		'initial_accountable_name': default_holder_name,
+		'holder_name_options': holder_name_options,
+		'can_override_holder_name': can_override_holder_name,
+		'department_options': department_options,
+		'initial_department': default_department,
+		'initial_position_role': default_position_role,
 		'initial_contact_number': getattr(getattr(request.user, 'profile', None), 'contact_number', '') or getattr(getattr(request.user, 'profile', None), 'phone_number', '') or '',
 	}
 	return render(request, 'core/accountability_form_batch_create.html', context)
@@ -9939,19 +10362,18 @@ def accountability_create(request):
 		return restricted_response
 
 	if request.method == 'POST':
-		form = AssetAccountabilityForm(request.POST)
+		form = AssetAccountabilityForm(request.POST, request_user=request.user)
 		if form.is_valid():
 			selected_items = list(form.cleaned_data.get('items') or [])
 			item_quantities_map = form.cleaned_data.get('item_quantities_map') or {}
 			notes = form.cleaned_data.get('notes') or ''
 			profile = getattr(request.user, 'profile', None)
 			accountability_details = {
-				'accountable_name': request.user.get_full_name() or request.user.username,
+				'accountable_name': (request.user.get_full_name() or request.user.username or '').strip(),
 				'department': getattr(profile, 'department', '') or '',
 				'position_role': getattr(profile, 'position', '') or getattr(profile, 'role', '') or '',
 				'contact_number': getattr(profile, 'contact_number', '') or getattr(profile, 'phone_number', '') or '',
 			}
-
 			created_requests = []
 			skipped_existing = []
 			batch_id = uuid.uuid4()
@@ -10004,7 +10426,7 @@ def accountability_create(request):
 				messages.warning(request, 'No new borrow request created because selected item(s) already have pending requests.')
 			return redirect('accountability_list')
 	else:
-		form = AssetAccountabilityForm()
+		form = AssetAccountabilityForm(request_user=request.user)
 
 	context = {
 		'form': form,
@@ -10191,6 +10613,7 @@ def accountability_decide(request, accountability_id):
 			if attempt == 2:
 				messages.error(request, 'The database is busy right now. Please try again in a moment.')
 				return redirect('accountability_list')
+			time.sleep(0.15 * (attempt + 1))
 
 	if decision == 'approve' and status_now in ['low stock', 'out of stock']:
 		_send_stock_alert_notification(accountability.item, status_now)
@@ -10395,6 +10818,7 @@ def accountability_pending_bulk_decide(request):
 				if attempt == 2:
 					messages.error(request, 'The database is busy right now. Please try again in a moment.')
 					return redirect('accountability_list')
+				time.sleep(0.15 * (attempt + 1))
 		if locked_out and decision == 'approve':
 			continue
 

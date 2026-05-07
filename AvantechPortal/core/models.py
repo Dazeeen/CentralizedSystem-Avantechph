@@ -7,7 +7,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.db import models, transaction
-from django.db.models import Max, Q, Sum
+from django.db.models import F, Max, Q, Sum
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.text import slugify
@@ -1106,6 +1106,188 @@ class AssetItemType(models.Model):
 			raise ValidationError({'prefix': 'Prefix must be 2-5 alphanumeric characters.'})
 
 
+class ConsumableItemType(models.Model):
+	name = models.CharField(max_length=80, unique=True)
+	code = models.SlugField(max_length=30, unique=True)
+	prefix = models.CharField(max_length=5, default='CON')
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['name']
+		permissions = [
+			('view_consumablescategory', 'Can view consumables category'),
+		]
+
+	def __str__(self):
+		return self.name
+
+	def clean(self):
+		self.code = (self.code or '').strip().lower()
+		self.prefix = (self.prefix or 'CON').strip().upper()
+		if len(self.prefix) < 2 or len(self.prefix) > 5 or not self.prefix.isalnum():
+			raise ValidationError({'prefix': 'Prefix must be 2-5 alphanumeric characters.'})
+
+
+class ConsumableItem(models.Model):
+	TYPE_PREFIX_FALLBACK_MAP = {
+		'ink': 'INK',
+		'paper': 'PPR',
+		'other': 'CON',
+	}
+
+	department = models.ForeignKey(AssetDepartment, on_delete=models.PROTECT, related_name='consumable_items')
+	item_name = models.CharField(max_length=150)
+	item_type = models.CharField(max_length=30, default='other', db_index=True)
+	item_code = models.CharField(max_length=20, unique=True, blank=True)
+	code_prefix = models.CharField(max_length=5, blank=True)
+	specification = models.CharField(max_length=255, blank=True)
+	note = models.TextField(blank=True)
+	stock_quantity = models.PositiveIntegerField(default=0)
+	low_stock_threshold = models.PositiveIntegerField(default=5, help_text='Alert when stock falls below this level')
+	is_active = models.BooleanField(default=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='consumable_items_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['item_code', 'item_name']
+
+	def __str__(self):
+		return f'{self.item_code} - {self.item_name}'
+
+	def _determine_prefix(self):
+		if self.code_prefix:
+			return self.code_prefix.upper()
+
+		item_type_code = (self.item_type or '').strip().lower()
+		type_prefix = (
+			ConsumableItemType.objects
+			.filter(code=item_type_code)
+			.values_list('prefix', flat=True)
+			.first()
+		)
+		if type_prefix:
+			return str(type_prefix).upper()
+		return self.TYPE_PREFIX_FALLBACK_MAP.get(item_type_code, 'CON')
+
+	def _next_item_code(self, prefix):
+		pattern = re.compile(rf'^{re.escape(prefix)}(\d+)$')
+		max_value = 2599
+		for code in ConsumableItem.objects.filter(item_code__startswith=prefix).values_list('item_code', flat=True):
+			match = pattern.match(code or '')
+			if not match:
+				continue
+			max_value = max(max_value, int(match.group(1)))
+		return f'{prefix}{max_value + 1}'
+
+	def save(self, *args, **kwargs):
+		self.item_type = (self.item_type or 'other').strip().lower()
+		self.code_prefix = self._determine_prefix()
+		if not self.item_code:
+			self.item_code = self._next_item_code(self.code_prefix)
+		super().save(*args, **kwargs)
+
+	def get_item_type_display(self):
+		label = (
+			ConsumableItemType.objects
+			.filter(code=(self.item_type or '').strip().lower())
+			.values_list('name', flat=True)
+			.first()
+		)
+		if label:
+			return label
+		raw = (self.item_type or '').strip()
+		if not raw:
+			return 'Other'
+		return raw.replace('-', ' ').replace('_', ' ').title()
+
+	def proxy_marker(self):
+		return f'[CONSUMABLE_ID:{self.pk}]'
+
+
+def _extract_consumable_id_from_note(note_text):
+	note_value = str(note_text or '')
+	match = re.search(r'\[CONSUMABLE_ID:(\d+)\]', note_value)
+	if not match:
+		return None
+	try:
+		return int(match.group(1))
+	except (TypeError, ValueError):
+		return None
+
+
+def get_linked_consumable_for_asset_item(asset_item):
+	if not asset_item:
+		return None
+	consumable_id = _extract_consumable_id_from_note(getattr(asset_item, 'note', ''))
+	if not consumable_id:
+		return None
+	return ConsumableItem.objects.filter(pk=consumable_id).first()
+
+
+def ensure_consumable_asset_proxy(consumable, created_by=None):
+	if not consumable:
+		return None
+
+	marker = consumable.proxy_marker()
+	proxy = AssetItem.objects.filter(note__icontains=marker).order_by('id').first()
+	if proxy is None:
+		proxy = AssetItem.objects.create(
+			department=consumable.department,
+			item_name=consumable.item_name,
+			item_type='consumable',
+			code_prefix=(consumable.code_prefix or 'CON'),
+			specification=consumable.specification,
+			note=marker,
+			stock_quantity=int(consumable.stock_quantity or 0),
+			low_stock_threshold=int(consumable.low_stock_threshold or 0),
+			is_active=bool(consumable.is_active),
+			created_by=created_by,
+		)
+		return proxy
+
+	updated_fields = []
+	if proxy.department_id != consumable.department_id:
+		proxy.department = consumable.department
+		updated_fields.append('department')
+	if proxy.item_name != consumable.item_name:
+		proxy.item_name = consumable.item_name
+		updated_fields.append('item_name')
+	if (proxy.specification or '') != (consumable.specification or ''):
+		proxy.specification = consumable.specification
+		updated_fields.append('specification')
+	if int(proxy.stock_quantity or 0) != int(consumable.stock_quantity or 0):
+		proxy.stock_quantity = int(consumable.stock_quantity or 0)
+		updated_fields.append('stock_quantity')
+	if int(proxy.low_stock_threshold or 0) != int(consumable.low_stock_threshold or 0):
+		proxy.low_stock_threshold = int(consumable.low_stock_threshold or 0)
+		updated_fields.append('low_stock_threshold')
+	if bool(proxy.is_active) != bool(consumable.is_active):
+		proxy.is_active = bool(consumable.is_active)
+		updated_fields.append('is_active')
+	if proxy.item_type != 'consumable':
+		proxy.item_type = 'consumable'
+		updated_fields.append('item_type')
+	if (proxy.code_prefix or '').upper() != (consumable.code_prefix or 'CON').upper():
+		proxy.code_prefix = (consumable.code_prefix or 'CON').upper()
+		updated_fields.append('code_prefix')
+	if marker not in (proxy.note or ''):
+		proxy.note = marker
+		updated_fields.append('note')
+
+	if updated_fields:
+		proxy.save(update_fields=[*updated_fields, 'updated_at'])
+	return proxy
+
+
 class AssetItem(models.Model):
 	TYPE_PREFIX_FALLBACK_MAP = {
 		'cable': 'CBL',
@@ -1446,6 +1628,13 @@ class AssetAccountability(models.Model):
 			raise ValidationError('Insufficient stock for this specific item/variant.')
 		self.item.stock_quantity = int(self.item.stock_quantity or 0) - int(self.quantity_borrowed or 0)
 		self.item.save(update_fields=['stock_quantity', 'updated_at'])
+		linked_consumable = get_linked_consumable_for_asset_item(self.item)
+		if linked_consumable:
+			consumable_stock = int(linked_consumable.stock_quantity or 0)
+			if consumable_stock < int(self.quantity_borrowed or 0):
+				raise ValidationError('Insufficient consumable stock for this request.')
+			linked_consumable.stock_quantity = consumable_stock - int(self.quantity_borrowed or 0)
+			linked_consumable.save(update_fields=['stock_quantity', 'updated_at'])
 		self.request_status = 'approved'
 		self.status = 'borrowed'
 		self.processed_by = processed_by
@@ -1489,6 +1678,10 @@ class AssetAccountability(models.Model):
 			self.item.refresh_from_db(fields=['stock_quantity', 'updated_at'])
 			self.item.stock_quantity = int(self.item.stock_quantity or 0) + int(self.quantity_borrowed or 0)
 			self.item.save(update_fields=['stock_quantity', 'updated_at'])
+			linked_consumable = get_linked_consumable_for_asset_item(self.item)
+			if linked_consumable:
+				linked_consumable.stock_quantity = int(linked_consumable.stock_quantity or 0) + int(self.quantity_borrowed or 0)
+				linked_consumable.save(update_fields=['stock_quantity', 'updated_at'])
 			self.save(
 				update_fields=[
 					'status',
@@ -1946,6 +2139,7 @@ class ManagedFileNode(models.Model):
 	branch_name_snapshot = models.CharField(max_length=120, blank=True, default='')
 	department_name_snapshot = models.CharField(max_length=120, blank=True, default='')
 	role_name_snapshot = models.CharField(max_length=120, blank=True, default='')
+	is_role_folder = models.BooleanField(default=False, db_index=True)
 	file = models.FileField(upload_to=file_manager_upload_to, blank=True, null=True)
 	file_size_bytes = models.BigIntegerField(default=0)
 	mime_type = models.CharField(max_length=120, blank=True)
