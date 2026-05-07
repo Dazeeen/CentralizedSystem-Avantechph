@@ -1,0 +1,348 @@
+{% extends 'base_app.html' %}
+{% load core_extras %}
+
+{% block title %}Avantech Portal | Consumables Inventory{% endblock %}
+{% block page_heading %}Consumables Inventory{% endblock %}
+
+{% block content %}
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Consumable Item IDs</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_items }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Total Stock Units</p>
+                <p class="display-6 fw-bold mb-0 text-success-emphasis">{{ total_stock_units }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 dashboard-stat shadow-sm">
+            <div class="card-body">
+                <p class="text-secondary mb-2">Low Stock (Page)</p>
+                <p class="display-6 fw-bold mb-0 text-warning-emphasis">{{ low_stock_items_count }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h2 class="h4 mb-1">Company Consumables Inventory</h2>
+        <p class="text-secondary mb-0">Track consumables by department with automatic Item IDs.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" href="{% url 'assets_list' %}">Back to Asset Tracker</a>
+        <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#itemTypeModal" data-item-type-action="create">Add Consumable Type</button>
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#itemModal" data-item-action="create">Add Item</button>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body border-bottom">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-3">
+                <label class="form-label mb-1" for="consumable-department">Department</label>
+                <select id="consumable-department" name="department" class="form-select">
+                    <option value="">All Departments</option>
+                    {% for department in departments %}
+                        <option value="{{ department.id }}" {% if selected_department == department.id|stringformat:'s' %}selected{% endif %}>{{ department.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label mb-1" for="consumable-type">Type</label>
+                <select id="consumable-type" name="type" class="form-select">
+                    <option value="">All Types</option>
+                    {% for item_type in item_types %}
+                        <option value="{{ item_type.code }}" {% if selected_type == item_type.code %}selected{% endif %}>{{ item_type.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label mb-1" for="consumable-q">Search</label>
+                <input id="consumable-q" type="text" name="q" value="{{ query }}" class="form-control" placeholder="Item ID, name, department, specification">
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-success">Search</button>
+                <a href="{% url 'consumables_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="table-responsive border-bottom">
+        <table class="table align-middle mb-0">
+            <thead class="table-success">
+                <tr>
+                    <th style="width: 42px;"><input type="checkbox" class="form-check-input" id="selectAllConsumables" aria-label="Select all"></th>
+                    <th>Item ID</th>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Type</th>
+                    <th>Specification</th>
+                    <th>Stock</th>
+                    <th>Status</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items_page %}
+                <tr>
+                    <td><input type="checkbox" class="form-check-input js-consumable-checkbox" value="{{ item.id }}"></td>
+                    <td class="fw-semibold">{{ item.item_code }}</td>
+                    <td>{{ item.item_name }}</td>
+                    <td>{{ item.department.name }}</td>
+                    <td>{{ item.get_item_type_display }}</td>
+                    <td>{{ item.specification|default:'-' }}</td>
+                    <td>{{ item.stock_quantity }}</td>
+                    <td>
+                        {% if stock_status_map|get_item:item.id == 'out_of_stock' %}
+                            <span class="badge bg-danger">Out of Stock</span>
+                        {% elif stock_status_map|get_item:item.id == 'low_stock' %}
+                            <span class="badge bg-warning text-dark">Low Stock</span>
+                        {% else %}
+                            <span class="badge bg-success">In Stock</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <div class="dropdown d-inline-block">
+                            <button class="btn btn-sm btn-outline-secondary ellipsis-dropdown-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <button
+                                        type="button"
+                                        class="dropdown-item js-edit-item"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#itemModal"
+                                        data-id="{{ item.id }}"
+                                        data-department-id="{{ item.department_id }}"
+                                        data-item-name="{{ item.item_name|escape }}"
+                                        data-item-type="{{ item.item_type }}"
+                                        data-code-prefix="{{ item.code_prefix }}"
+                                        data-specification="{{ item.specification|escape }}"
+                                        data-note="{{ item.note|escape }}"
+                                        data-stock="{{ item.stock_quantity }}"
+                                        data-low-stock="{{ item.low_stock_threshold }}"
+                                        data-is-active="{{ item.is_active|yesno:'1,0' }}"
+                                    >Edit</button>
+                                </li>
+                                <li>
+                                    <button type="button" class="dropdown-item text-danger js-delete-item" data-bs-toggle="modal" data-bs-target="#itemDeleteModal" data-id="{{ item.id }}" data-label="{{ item.item_code }} - {{ item.item_name|escape }}">Delete</button>
+                                </li>
+                            </ul>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="9" class="text-center py-4 text-secondary">No consumable items found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card-body bg-light-subtle">
+        <h3 class="h6 mb-3">Consumable Types</h3>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th><th>Code</th><th>Prefix</th><th>Status</th><th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item_type in item_types %}
+                    <tr>
+                        <td>{{ item_type.name }}</td>
+                        <td>{{ item_type.code }}</td>
+                        <td>{{ item_type.prefix }}</td>
+                        <td>{% if item_type.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-secondary js-edit-type" data-bs-toggle="modal" data-bs-target="#itemTypeModal" data-id="{{ item_type.id }}" data-name="{{ item_type.name|escape }}" data-code="{{ item_type.code }}" data-prefix="{{ item_type.prefix }}" data-is-active="{{ item_type.is_active|yesno:'1,0' }}">Edit</button>
+                            <button type="button" class="btn btn-sm btn-outline-danger js-delete-type" data-bs-toggle="modal" data-bs-target="#itemTypeDeleteModal" data-id="{{ item_type.id }}" data-label="{{ item_type.name|escape }}">Delete</button>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center py-3 text-secondary">No consumable types found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<form method="post" action="{% url 'consumables_items_bulk_delete' %}" id="consumablesBulkDeleteForm" class="assets-bulk-action-bar d-none">
+    {% csrf_token %}
+    <input type="hidden" name="item_ids" id="consumablesBulkDeleteIds">
+    <span class="small fw-semibold" id="consumablesBulkSelectedLabel">0 selected</span>
+    <button type="submit" class="btn btn-danger btn-sm">Delete Selected</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="consumablesBulkClearBtn">Clear</button>
+</form>
+
+<div class="modal fade" id="itemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content"><form method="post" id="itemModalForm" action="{% url 'consumables_item_create' %}">{% csrf_token %}
+        <div class="modal-header"><h5 class="modal-title" id="itemModalTitle">Add Consumable Item</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Department</label>{{ item_form.department }}</div>
+                <div class="col-md-6"><label class="form-label">Name</label>{{ item_form.item_name }}</div>
+                <div class="col-md-6"><label class="form-label">Type</label>{{ item_form.item_type }}</div>
+                <div class="col-md-6"><label class="form-label">Code Prefix</label>{{ item_form.code_prefix }}</div>
+                <div class="col-md-8"><label class="form-label">Specification</label>{{ item_form.specification }}</div>
+                <div class="col-md-4"><label class="form-label">Stock</label>{{ item_form.stock_quantity }}</div>
+                <div class="col-md-4"><label class="form-label">Low Stock Threshold</label>{{ item_form.low_stock_threshold }}</div>
+                <div class="col-md-8"><label class="form-label">Note</label>{{ item_form.note }}</div>
+                <div class="col-12"><div class="form-check">{{ item_form.is_active }}<label class="form-check-label" for="{{ item_form.is_active.id_for_label }}">Active</label></div></div>
+            </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success" id="itemModalSubmit">Save Item</button></div>
+    </form></div></div>
+</div>
+
+<div class="modal fade" id="itemDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" id="itemDeleteForm" action=""><div class="modal-header"><h5 class="modal-title">Delete Consumable Item</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">Delete <span class="fw-semibold" id="itemDeleteLabel"></span>?</div><div class="modal-footer">{% csrf_token %}<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-danger">Delete</button></div></form></div></div>
+</div>
+
+<div class="modal fade" id="itemTypeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" id="itemTypeModalForm" action="{% url 'consumables_item_type_create' %}">{% csrf_token %}
+        <div class="modal-header"><h5 class="modal-title" id="itemTypeModalTitle">Add Consumable Type</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Name</label>{{ item_type_form.name }}</div>
+            <div class="mb-3"><label class="form-label">Code</label>{{ item_type_form.code }}</div>
+            <div class="mb-3"><label class="form-label">Prefix</label>{{ item_type_form.prefix }}</div>
+            <div class="form-check">{{ item_type_form.is_active }}<label class="form-check-label" for="{{ item_type_form.is_active.id_for_label }}">Active</label></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save Type</button></div>
+    </form></div></div>
+</div>
+
+<div class="modal fade" id="itemTypeDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" id="itemTypeDeleteForm" action=""><div class="modal-header"><h5 class="modal-title">Delete Consumable Type</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">Delete <span class="fw-semibold" id="itemTypeDeleteLabel"></span>?</div><div class="modal-footer">{% csrf_token %}<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-danger">Delete</button></div></form></div></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const createItemUrl = "{% url 'consumables_item_create' %}";
+    const updateItemUrlTemplate = "{% url 'consumables_item_update' 0 %}";
+    const deleteItemUrlTemplate = "{% url 'consumables_item_delete' 0 %}";
+    const createTypeUrl = "{% url 'consumables_item_type_create' %}";
+    const updateTypeUrlTemplate = "{% url 'consumables_item_type_update' 0 %}";
+    const deleteTypeUrlTemplate = "{% url 'consumables_item_type_delete' 0 %}";
+
+    const itemForm = document.getElementById('itemModalForm');
+    const itemTitle = document.getElementById('itemModalTitle');
+    const itemNameInput = itemForm.querySelector('[name="item_name"]');
+    const itemDeptInput = itemForm.querySelector('[name="department"]');
+    const itemTypeInput = itemForm.querySelector('[name="item_type"]');
+    const itemCodePrefixInput = itemForm.querySelector('[name="code_prefix"]');
+    const itemSpecInput = itemForm.querySelector('[name="specification"]');
+    const itemNoteInput = itemForm.querySelector('[name="note"]');
+    const itemStockInput = itemForm.querySelector('[name="stock_quantity"]');
+    const itemLowStockInput = itemForm.querySelector('[name="low_stock_threshold"]');
+    const itemActiveInput = itemForm.querySelector('[name="is_active"]');
+
+    function resetItemForm() {
+        itemForm.action = createItemUrl;
+        itemTitle.textContent = 'Add Consumable Item';
+        itemForm.reset();
+        if (itemActiveInput) itemActiveInput.checked = true;
+    }
+
+    document.querySelectorAll('[data-item-action="create"]').forEach(function (btn) {
+        btn.addEventListener('click', resetItemForm);
+    });
+
+    document.querySelectorAll('.js-edit-item').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            itemForm.action = updateItemUrlTemplate.replace('/0/', '/' + btn.dataset.id + '/');
+            itemTitle.textContent = 'Edit Consumable Item';
+            itemDeptInput.value = btn.dataset.departmentId || '';
+            itemNameInput.value = btn.dataset.itemName || '';
+            itemTypeInput.value = btn.dataset.itemType || '';
+            itemCodePrefixInput.value = btn.dataset.codePrefix || '';
+            itemSpecInput.value = btn.dataset.specification || '';
+            itemNoteInput.value = btn.dataset.note || '';
+            itemStockInput.value = btn.dataset.stock || '0';
+            itemLowStockInput.value = btn.dataset.lowStock || '5';
+            itemActiveInput.checked = (btn.dataset.isActive === '1');
+        });
+    });
+
+    document.querySelectorAll('.js-delete-item').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.getElementById('itemDeleteForm').action = deleteItemUrlTemplate.replace('/0/', '/' + btn.dataset.id + '/');
+            document.getElementById('itemDeleteLabel').textContent = btn.dataset.label || 'this item';
+        });
+    });
+
+    const typeForm = document.getElementById('itemTypeModalForm');
+    const typeTitle = document.getElementById('itemTypeModalTitle');
+    const typeNameInput = typeForm.querySelector('[name="name"]');
+    const typeCodeInput = typeForm.querySelector('[name="code"]');
+    const typePrefixInput = typeForm.querySelector('[name="prefix"]');
+    const typeActiveInput = typeForm.querySelector('[name="is_active"]');
+
+    document.querySelectorAll('[data-item-type-action="create"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            typeForm.action = createTypeUrl;
+            typeTitle.textContent = 'Add Consumable Type';
+            typeForm.reset();
+            if (typeActiveInput) typeActiveInput.checked = true;
+        });
+    });
+
+    document.querySelectorAll('.js-edit-type').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            typeForm.action = updateTypeUrlTemplate.replace('/0/', '/' + btn.dataset.id + '/');
+            typeTitle.textContent = 'Edit Consumable Type';
+            typeNameInput.value = btn.dataset.name || '';
+            typeCodeInput.value = btn.dataset.code || '';
+            typePrefixInput.value = btn.dataset.prefix || '';
+            typeActiveInput.checked = (btn.dataset.isActive === '1');
+        });
+    });
+
+    document.querySelectorAll('.js-delete-type').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.getElementById('itemTypeDeleteForm').action = deleteTypeUrlTemplate.replace('/0/', '/' + btn.dataset.id + '/');
+            document.getElementById('itemTypeDeleteLabel').textContent = btn.dataset.label || 'this type';
+        });
+    });
+
+    const selectAll = document.getElementById('selectAllConsumables');
+    const rowCheckboxes = Array.from(document.querySelectorAll('.js-consumable-checkbox'));
+    const bulkBar = document.getElementById('consumablesBulkDeleteForm');
+    const bulkIds = document.getElementById('consumablesBulkDeleteIds');
+    const bulkLabel = document.getElementById('consumablesBulkSelectedLabel');
+    const bulkClearBtn = document.getElementById('consumablesBulkClearBtn');
+
+    function syncBulk() {
+        const selected = rowCheckboxes.filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+        bulkIds.value = selected;
+        bulkLabel.textContent = selected.length + ' selected';
+        bulkBar.classList.toggle('d-none', selected.length === 0);
+        selectAll.checked = selected.length > 0 && selected.length === rowCheckboxes.length;
+        selectAll.indeterminate = selected.length > 0 && selected.length < rowCheckboxes.length;
+    }
+
+    rowCheckboxes.forEach(function (cb) { cb.addEventListener('change', syncBulk); });
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            rowCheckboxes.forEach(function (cb) { cb.checked = selectAll.checked; });
+            syncBulk();
+        });
+    }
+    if (bulkClearBtn) {
+        bulkClearBtn.addEventListener('click', function () {
+            rowCheckboxes.forEach(function (cb) { cb.checked = false; });
+            syncBulk();
+        });
+    }
+});
+</script>
+{% endblock %}

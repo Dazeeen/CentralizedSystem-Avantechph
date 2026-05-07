@@ -124,7 +124,7 @@
                                 </a>
                             </div>
                         {% endif %}
-                        {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
+                        {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_consumableitem or perms.core.view_consumableitemtype or perms.core.view_consumablescategory or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
                                     <span class="nav-logo" aria-hidden="true">
@@ -145,7 +145,7 @@
                             </button>
                             <div class="nav-subgroup">
                                 {% if request.user.is_superuser or perms.core.view_assetitem %}
-                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% url 'assets_list' %}" style="font-size: 0.9rem;">
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' or request.resolver_match.url_name == 'consumables_list' %}active{% endif %}" href="{% url 'assets_list' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -591,7 +591,7 @@
                             </a>
                         </div>
                     {% endif %}
-                    {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
+                    {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_consumableitem or perms.core.view_consumableitemtype or perms.core.view_consumablescategory or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
@@ -612,7 +612,7 @@
                         </button>
                         <div class="nav-subgroup">
                             {% if request.user.is_superuser or perms.core.view_assetitem %}
-                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' %}active{% endif %}" href="{% url 'assets_list' %}" style="font-size: 0.9rem;">
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'assets_list' or request.resolver_match.url_name == 'assets_department_create' or request.resolver_match.url_name == 'assets_department_update' or request.resolver_match.url_name == 'assets_item_create' or request.resolver_match.url_name == 'assets_item_update' or request.resolver_match.url_name == 'assets_item_delete' or request.resolver_match.url_name == 'assets_item_types_list' or request.resolver_match.url_name == 'assets_item_type_create' or request.resolver_match.url_name == 'assets_item_type_update' or request.resolver_match.url_name == 'assets_item_type_delete' or request.resolver_match.url_name == 'assets_tag_document' or request.resolver_match.url_name == 'consumables_list' %}active{% endif %}" href="{% url 'assets_list' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>

@@ -75,6 +75,8 @@ from .forms import (
 	AssetDepartmentForm,
 	AssetItemForm,
 	AssetItemTypeForm,
+	ConsumableItemForm,
+	ConsumableItemTypeForm,
 	ClientForm,
 	ClientQuotationForm,
 	CompanyInternetAccountForm,
@@ -106,6 +108,9 @@ from .models import (
 	AssetItem,
 	AssetItemImage,
 	AssetItemType,
+	ConsumableItem,
+	ConsumableItemType,
+	ensure_consumable_asset_proxy,
 	ActivityLog,
 	AssetReturnProof,
 	AssetTagBatch,
@@ -8410,6 +8415,235 @@ def assets_item_types_bulk_delete(request):
 		messages.warning(request, f'{failed_count} item type(s) could not be deleted due to existing references.')
 
 	return redirect('assets_item_types_list')
+
+
+@login_required
+def consumables_list(request):
+	can_view_categories = (
+		request.user.is_superuser
+		or request.user.has_perm('core.view_consumablescategory')
+		or request.user.has_perm('core.view_consumableitem')
+		or request.user.has_perm('core.view_consumableitemtype')
+	)
+	if not can_view_categories:
+		return _permission_denied_response(request, 'You do not have permission to perform this action.')
+
+	query = (request.GET.get('q') or '').strip()
+	selected_department = (request.GET.get('department') or '').strip()
+	selected_type = (request.GET.get('type') or '').strip().lower()
+
+	departments = AssetDepartment.objects.order_by('name')
+	item_types = ConsumableItemType.objects.order_by('name')
+	for consumable in ConsumableItem.objects.select_related('department').filter(is_active=True):
+		ensure_consumable_asset_proxy(consumable, created_by=request.user)
+	items = ConsumableItem.objects.select_related('department').order_by('item_code', 'id')
+
+	if selected_department:
+		items = items.filter(department_id=selected_department)
+	if selected_type:
+		items = items.filter(item_type=selected_type)
+	if query:
+		items = items.filter(
+			Q(item_code__icontains=query)
+			| Q(item_name__icontains=query)
+			| Q(specification__icontains=query)
+			| Q(department__name__icontains=query)
+		)
+
+	items_page = Paginator(items, 20).get_page(request.GET.get('page'))
+	stock_status_map = {}
+	for item in items_page.object_list:
+		current_stock = int(item.stock_quantity or 0)
+		if current_stock <= 0:
+			stock_status_map[item.id] = 'out_of_stock'
+		elif current_stock <= int(item.low_stock_threshold or 0):
+			stock_status_map[item.id] = 'low_stock'
+		else:
+			stock_status_map[item.id] = 'in_stock'
+
+	context = {
+		'query': query,
+		'selected_department': selected_department,
+		'selected_type': selected_type,
+		'departments': departments,
+		'item_types': item_types,
+		'items_page': items_page,
+		'stock_status_map': stock_status_map,
+		'item_form': ConsumableItemForm(),
+		'item_type_form': ConsumableItemTypeForm(),
+		'total_items': ConsumableItem.objects.count(),
+		'total_stock_units': ConsumableItem.objects.aggregate(total=Sum('stock_quantity')).get('total') or 0,
+		'low_stock_items_count': sum(1 for status in stock_status_map.values() if status == 'low_stock'),
+	}
+	return render(request, 'core/consumables_list.html', context)
+
+
+@login_required
+@require_POST
+def consumables_item_create(request):
+	restricted_response = _require_permission(request, 'core.add_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	form = ConsumableItemForm(request.POST)
+	if form.is_valid():
+		item = form.save(commit=False)
+		item.created_by = request.user
+		item.save()
+		ensure_consumable_asset_proxy(item, created_by=request.user)
+		record_activity(
+			request,
+			'create',
+			'assets',
+			f'Created consumable item {item.item_code} - {item.item_name}.',
+			target=item,
+			target_label=f'{item.item_code} - {item.item_name}',
+		)
+		messages.success(request, f'Consumable item saved with Item ID {item.item_code}.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_update(request, item_id):
+	restricted_response = _require_permission(request, 'core.change_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	item = get_object_or_404(ConsumableItem, pk=item_id)
+	form = ConsumableItemForm(request.POST, instance=item)
+	if form.is_valid():
+		updated_item = form.save()
+		ensure_consumable_asset_proxy(updated_item, created_by=request.user)
+		record_activity(
+			request,
+			'update',
+			'assets',
+			f'Updated consumable item {updated_item.item_code} - {updated_item.item_name}.',
+			target=updated_item,
+			target_label=f'{updated_item.item_code} - {updated_item.item_name}',
+		)
+		messages.success(request, f'Consumable item {updated_item.item_code} updated successfully.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_delete(request, item_id):
+	restricted_response = _require_permission(request, 'core.delete_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	item = get_object_or_404(ConsumableItem, pk=item_id)
+	item_code = item.item_code
+	item_name = item.item_name
+	proxy_marker = item.proxy_marker()
+	AssetItem.objects.filter(note__icontains=proxy_marker).update(is_active=False, stock_quantity=0)
+	item.delete()
+	record_activity(
+		request,
+		'delete',
+		'assets',
+		f'Deleted consumable item {item_code} - {item_name}.',
+		target_label=f'{item_code} - {item_name}',
+	)
+	messages.success(request, f'Consumable item {item_code} deleted successfully.')
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_items_bulk_delete(request):
+	restricted_response = _require_permission(request, 'core.delete_consumableitem')
+	if restricted_response:
+		return restricted_response
+
+	item_ids = request.POST.getlist('item_ids')
+	if not item_ids:
+		raw_selected_ids = (request.POST.get('selected_ids') or request.POST.get('item_ids') or '').strip()
+		if raw_selected_ids:
+			item_ids = [segment.strip() for segment in raw_selected_ids.split(',') if segment.strip()]
+	parsed_ids = []
+	for raw_id in item_ids:
+		for segment in str(raw_id).split(','):
+			value = segment.strip()
+			if value.isdigit():
+				parsed_ids.append(int(value))
+	if not parsed_ids:
+		messages.warning(request, 'No consumable items selected for deletion.')
+		return redirect('consumables_list')
+
+	deleted_count = ConsumableItem.objects.filter(pk__in=parsed_ids).delete()[0]
+	if deleted_count:
+		messages.success(request, f'{deleted_count} consumable item(s) deleted successfully.')
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_type_create(request):
+	restricted_response = _require_permission(request, 'core.add_consumableitemtype')
+	if restricted_response:
+		return restricted_response
+
+	form = ConsumableItemTypeForm(request.POST)
+	if form.is_valid():
+		form.save()
+		messages.success(request, 'Consumable type created successfully.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_type_update(request, item_type_id):
+	restricted_response = _require_permission(request, 'core.change_consumableitemtype')
+	if restricted_response:
+		return restricted_response
+
+	item_type = get_object_or_404(ConsumableItemType, pk=item_type_id)
+	form = ConsumableItemTypeForm(request.POST, instance=item_type)
+	if form.is_valid():
+		form.save()
+		messages.success(request, 'Consumable type updated successfully.')
+	else:
+		for _, errors in form.errors.items():
+			if errors:
+				messages.error(request, errors[0])
+				break
+	return redirect('consumables_list')
+
+
+@login_required
+@require_POST
+def consumables_item_type_delete(request, item_type_id):
+	restricted_response = _require_permission(request, 'core.delete_consumableitemtype')
+	if restricted_response:
+		return restricted_response
+
+	item_type = get_object_or_404(ConsumableItemType, pk=item_type_id)
+	if ConsumableItem.objects.filter(item_type=item_type.code).exists():
+		messages.error(request, 'This consumable type is currently used by existing consumable items and cannot be deleted.')
+		return redirect('consumables_list')
+	item_type.delete()
+	messages.success(request, 'Consumable type deleted successfully.')
+	return redirect('consumables_list')
 
 
 @login_required

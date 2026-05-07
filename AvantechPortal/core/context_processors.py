@@ -104,6 +104,13 @@ PAGE_ACCESS_RULES = {
             'core.change_companyinternetaccount',
         ],
     },
+    'consumables_list': {'label': 'Consumables Inventory', 'perms': ['core.view_consumableitem']},
+    'consumables_item_create': {'label': 'Create Consumable Item', 'perms': ['core.add_consumableitem']},
+    'consumables_item_update': {'label': 'Edit Consumable Item', 'perms': ['core.change_consumableitem']},
+    'consumables_item_delete': {'label': 'Delete Consumable Item', 'perms': ['core.delete_consumableitem']},
+    'consumables_item_type_create': {'label': 'Create Consumable Type', 'perms': ['core.add_consumableitemtype']},
+    'consumables_item_type_update': {'label': 'Edit Consumable Type', 'perms': ['core.change_consumableitemtype']},
+    'consumables_item_type_delete': {'label': 'Delete Consumable Type', 'perms': ['core.delete_consumableitemtype']},
     'accountability_list': {'label': 'Accountability', 'perms': ['core.view_assetaccountability']},
     'accountability_create': {'label': 'Borrow Assets', 'perms': ['core.can_borrow_assets']},
     'accountability_form_batch_create': {'label': 'Accountability Forms', 'perms': ['core.change_assetaccountability']},
@@ -267,6 +274,7 @@ def finance_navigation_state(request):
     )
     is_asset_tracker_nav_active = (
         url_name.startswith('assets_')
+        or url_name.startswith('consumables_')
         or url_name.startswith('accountability')
     )
     is_support_ticket_nav_active = url_name.startswith('support_ticket')
