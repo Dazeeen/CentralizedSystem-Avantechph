@@ -1,0 +1,18 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | CRM Dashboard{% endblock %}
+{% block page_heading %}CRM Dashboard{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Total Clients</div><div class="display-6 fw-bold">{{ total_clients }}</div></div></div></div>
+    <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New Leads</div><div class="display-6 fw-bold">{{ new_leads }}</div></div></div></div>
+    <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Converted</div><div class="display-6 fw-bold">{{ converted_clients }}</div></div></div></div>
+</div>
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Summary / Overview</h2>
+        <p class="text-secondary mb-0">Main CRM overview page. Report creation can be added here as next step.</p>
+    </div>
+</div>
+{% endblock %}

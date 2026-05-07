@@ -1,0 +1,293 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | CRM Clients{% endblock %}
+{% block page_heading %}CRM Clients{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <h2 class="h5 mb-0">Customer Information</h2>
+            <div class="d-flex align-items-center gap-2">
+                {% if request.user.is_superuser or perms.core.add_client %}
+                    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCrmClientModal">Add Client</button>
+                {% endif %}
+            </div>
+        </div>
+        <form method="post" id="crmBulkForm" class="mb-3 d-flex align-items-center gap-2">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="bulk_delete">
+            <input type="hidden" name="selected_ids" id="crmSelectedIds" value="">
+        </form>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 36px;"><input type="checkbox" id="crmSelectAll"></th>
+                        <th>Customer ID</th>
+                        <th>Full name</th>
+                        <th>Customer Type</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in clients %}
+                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}">
+                            <td><input type="checkbox" class="crm-row-checkbox" name="client_ids" form="crmBulkForm" value="{{ row.id }}"></td>
+                            <td>{{ row.customer_id }}</td>
+                            <td>{{ row.first_name }} {{ row.last_name }}</td>
+                            <td>{{ row.get_customer_type_display }}</td>
+                            <td><button type="button" class="btn btn-sm btn-outline-secondary js-open-client-modal">View</button></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5" class="text-center text-secondary py-3">No CRM client records yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-3 small text-secondary">Customer Type options: residential, commercial, industrial</div>
+    </div>
+</div>
+
+<div id="crmBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="CRM clients bulk actions">
+    <div class="bulk-action-content">
+        <span class="bulk-action-count" id="selectedCountLabel">0 selected</span>
+        <button type="submit" class="btn btn-sm btn-outline-danger" id="bulkDeleteBtn" form="crmBulkForm" disabled>Bulk Delete</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="crmClearSelectionBtn">Clear</button>
+    </div>
+</div>
+
+<div class="modal fade" id="crmClientInfoModal" tabindex="-1" aria-labelledby="crmClientInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crmClientInfoModalLabel">Client Information</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><strong>Customer ID:</strong> <span id="infoCustomerId"></span></div>
+                    <div class="col-md-6"><strong>Name:</strong> <span id="infoName"></span></div>
+                    <div class="col-md-6"><strong>Customer Type:</strong> <span id="infoCustomerType"></span></div>
+                    <div class="col-md-6"><strong>Contact Number:</strong> <span id="infoContactNumber"></span></div>
+                    <div class="col-md-6"><strong>Email:</strong> <span id="infoEmail"></span></div>
+                    <div class="col-12"><strong>Home Address:</strong> <span id="infoHomeAddress"></span></div>
+                    <div class="col-md-6"><strong>City:</strong> <span id="infoCity"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if request.user.is_superuser or perms.core.add_client %}
+<div class="modal fade" id="addCrmClientModal" tabindex="-1" aria-labelledby="addCrmClientModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addCrmClientModalLabel">Add Client</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label" for="{{ form.first_name.id_for_label }}">Full name</label>
+                            <div class="row g-2">
+                                <div class="col-md-6">{{ form.first_name }}</div>
+                                <div class="col-md-6">{{ form.last_name }}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="{{ form.customer_type.id_for_label }}">Customer Type</label>
+                            {{ form.customer_type }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="{{ form.contact_number.id_for_label }}">Contact Number</label>
+                            {{ form.contact_number }}
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label" for="{{ form.home_address.id_for_label }}">Home Address</label>
+                            {{ form.home_address }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="{{ form.city.id_for_label }}">City</label>
+                            {{ form.city }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="{{ form.email.id_for_label }}">Email (Optional)</label>
+                            {{ form.email }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="{{ form.media_files.id_for_label }}">Media File (Optional)</label>
+                            <div class="d-none">{{ form.media_files }}</div>
+                            <div class="border border-2 border-success-subtle rounded-3 p-3 text-center text-secondary" id="crmDropZone" role="button" tabindex="0">
+                                Drag and drop or click to choose a file
+                            </div>
+                            <div class="small text-secondary mt-2">Multiple files are supported.</div>
+                        </div>
+                    </div>
+                    {% if form.errors %}
+                        <div class="alert alert-danger mt-3 mb-0">
+                            Please fix highlighted fields.
+                            {{ form.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Client</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var input = document.getElementById('{% if form and form.media_files %}{{ form.media_files.id_for_label }}{% endif %}');
+    var dropZone = document.getElementById('crmDropZone');
+    if (input && dropZone) {
+        ['dragenter', 'dragover'].forEach(function (eventName) {
+            dropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                dropZone.classList.add('bg-success-subtle');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(function (eventName) {
+            dropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                dropZone.classList.remove('bg-success-subtle');
+            });
+        });
+
+        dropZone.addEventListener('drop', function (event) {
+            var files = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : null;
+            if (!files || !files.length) {
+                return;
+            }
+            input.files = files;
+        });
+
+        dropZone.addEventListener('click', function () {
+            input.click();
+        });
+
+        dropZone.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                input.click();
+            }
+        });
+    }
+
+    var selectAll = document.getElementById('crmSelectAll');
+    var rowChecks = Array.from(document.querySelectorAll('.crm-row-checkbox'));
+    var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    var selectedCountLabel = document.getElementById('selectedCountLabel');
+    var selectedIdsInput = document.getElementById('crmSelectedIds');
+    var clearSelectionBtn = document.getElementById('crmClearSelectionBtn');
+    var bulkActionBar = document.getElementById('crmBulkActionBar');
+
+    function syncBulkSelectionState() {
+        var selected = rowChecks.filter(function (cb) { return cb.checked; });
+        var selectedCount = selected.length;
+        var selectedIds = selected.map(function (cb) { return cb.value; });
+        if (selectedCountLabel) {
+            selectedCountLabel.textContent = selectedCount + ' selected';
+        }
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.disabled = selectedCount === 0;
+        }
+        if (selectedIdsInput) {
+            selectedIdsInput.value = selectedIds.join(',');
+        }
+        if (bulkActionBar) {
+            bulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (selectAll) {
+            selectAll.indeterminate = selectedCount > 0 && selectedCount < rowChecks.length;
+            selectAll.checked = rowChecks.length > 0 && selectedCount === rowChecks.length;
+        }
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            rowChecks.forEach(function (cb) { cb.checked = selectAll.checked; });
+            syncBulkSelectionState();
+        });
+    }
+    rowChecks.forEach(function (cb) {
+        cb.addEventListener('click', function (event) {
+            event.stopPropagation();
+        });
+        cb.addEventListener('change', syncBulkSelectionState);
+    });
+
+    if (clearSelectionBtn) {
+        clearSelectionBtn.addEventListener('click', function () {
+            rowChecks.forEach(function (cb) { cb.checked = false; });
+            if (selectAll) {
+                selectAll.checked = false;
+                selectAll.indeterminate = false;
+            }
+            syncBulkSelectionState();
+        });
+    }
+
+    syncBulkSelectionState();
+
+    var clientModalEl = document.getElementById('crmClientInfoModal');
+    var clientModal = (clientModalEl && window.bootstrap) ? new bootstrap.Modal(clientModalEl) : null;
+    function openClientModalFromRow(row) {
+        if (!row || !clientModal) {
+            return;
+        }
+        document.getElementById('infoCustomerId').textContent = row.dataset.customerId || '-';
+        document.getElementById('infoName').textContent = ((row.dataset.firstName || '') + ' ' + (row.dataset.lastName || '')).trim() || '-';
+        document.getElementById('infoCustomerType').textContent = row.dataset.customerType || '-';
+        document.getElementById('infoContactNumber').textContent = row.dataset.contactNumber || '-';
+        document.getElementById('infoEmail').textContent = row.dataset.email || '-';
+        document.getElementById('infoHomeAddress').textContent = row.dataset.homeAddress || '-';
+        document.getElementById('infoCity').textContent = row.dataset.city || '-';
+        clientModal.show();
+    }
+
+    document.querySelectorAll('.crm-client-row').forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('input, button, a, label')) {
+                return;
+            }
+            openClientModalFromRow(row);
+        });
+        row.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter') {
+                return;
+            }
+            event.preventDefault();
+            openClientModalFromRow(row);
+        });
+        row.setAttribute('tabindex', '0');
+        row.style.cursor = 'pointer';
+    });
+    document.querySelectorAll('.js-open-client-modal').forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+            var row = event.target.closest('.crm-client-row');
+            openClientModalFromRow(row);
+        });
+    });
+
+    {% if form.errors %}
+    var modalEl = document.getElementById('addCrmClientModal');
+    if (modalEl && window.bootstrap) {
+        var modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    }
+    {% endif %}
+});
+</script>
