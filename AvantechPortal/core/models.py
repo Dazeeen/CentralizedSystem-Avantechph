@@ -46,6 +46,16 @@ def client_lead_proof_upload_to(instance, filename):
 	return f'client_lead_proofs/{formatted_name}'
 
 
+def crm_client_media_upload_to(instance, filename):
+	original_name = filename or 'crm-client-media.file'
+	extension = Path(original_name).suffix.lower() or '.file'
+	client = getattr(instance, 'client', None)
+	client_label = f'{getattr(client, "customer_id", "")}-{getattr(client, "last_name", "")}-{getattr(client, "first_name", "")}'
+	client_slug = slugify(client_label) or 'crm-client'
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'crm_clients/media/{client_slug}_{date_stamp}{extension}'
+
+
 def accountability_return_proof_upload_to(instance, filename):
 	original_name = filename or 'return-proof.jpg'
 	extension = Path(original_name).suffix.lower() or '.jpg'
@@ -516,6 +526,74 @@ class Client(models.Model):
 
 	def __str__(self):
 		return f'Client<{self.full_name}:{self.status}>'
+
+
+class CRMClient(models.Model):
+	CUSTOMER_TYPE_CHOICES = [
+		('residential', 'Residential'),
+		('commercial', 'Commercial'),
+		('industrial', 'Industrial'),
+	]
+
+	customer_id = models.CharField(max_length=64, unique=True)
+	last_name = models.CharField(max_length=100)
+	first_name = models.CharField(max_length=100)
+	contact_number = models.CharField(max_length=32)
+	email = models.EmailField(blank=True)
+	date_of_birth = models.DateField(blank=True, null=True)
+	home_address = models.TextField(blank=True)
+	city = models.CharField(max_length=100, blank=True)
+	customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPE_CHOICES, default='residential')
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_clients_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-created_at']
+
+	@classmethod
+	def _generate_customer_id(cls):
+		today = timezone.localdate()
+		date_part = today.strftime('%d%m%Y')
+		prefix = f'CX{date_part}-'
+		latest = cls.objects.filter(customer_id__startswith=prefix).order_by('-customer_id').values_list('customer_id', flat=True).first()
+		next_sequence = 1
+		if latest and '-' in latest:
+			try:
+				next_sequence = int(latest.split('-')[-1]) + 1
+			except (TypeError, ValueError):
+				next_sequence = 1
+		return f'{prefix}{next_sequence:04d}'
+
+	def save(self, *args, **kwargs):
+		if not self.customer_id:
+			for _ in range(5):
+				candidate = self._generate_customer_id()
+				if not CRMClient.objects.filter(customer_id=candidate).exists():
+					self.customer_id = candidate
+					break
+		super().save(*args, **kwargs)
+
+	def __str__(self):
+		return f'CRMClient<{self.customer_id}:{self.last_name}, {self.first_name}>'
+
+
+class CRMClientMedia(models.Model):
+	client = models.ForeignKey(CRMClient, on_delete=models.CASCADE, related_name='media_files')
+	file = models.FileField(upload_to=crm_client_media_upload_to)
+	uploaded_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-uploaded_at']
+
+	def __str__(self):
+		return f'CRMClientMedia<{self.client_id}:{self.file.name}>'
 
 
 class ClientDeletionRequest(models.Model):

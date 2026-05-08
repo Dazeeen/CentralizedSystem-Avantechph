@@ -78,6 +78,7 @@ from .forms import (
 	ConsumableItemForm,
 	ConsumableItemTypeForm,
 	ClientForm,
+	CRMClientForm,
 	ClientQuotationForm,
 	CompanyInternetAccountForm,
 	CompanyInternetAccountUnlockForm,
@@ -116,6 +117,7 @@ from .models import (
 	AssetTagBatch,
 	AssetTagEntry,
 	Client,
+	CRMClient,
 	ClientDeletionRequest,
 	ClientQuotation,
 	ClientQuotationDocument,
@@ -511,6 +513,80 @@ def dashboard(request):
 		)
 
 	return render(request, 'core/dashboard.html', context)
+
+
+@login_required
+def crm_dashboard(request):
+	restricted_response = _require_permission(request, 'core.view_client')
+	if restricted_response:
+		return restricted_response
+
+	context = {
+		'total_clients': Client.objects.count(),
+		'new_leads': Client.objects.filter(lead_status='intake').count(),
+		'converted_clients': Client.objects.filter(lead_status='converted').count(),
+	}
+	return render(request, 'core/crm_dashboard.html', context)
+
+
+@login_required
+def crm_clients(request):
+	restricted_response = _require_permission(request, 'core.view_client')
+	if restricted_response:
+		return restricted_response
+
+	form = CRMClientForm()
+	if request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'bulk_delete':
+			restricted_response = _require_permission(request, 'core.delete_client')
+			if restricted_response:
+				return restricted_response
+			raw_ids = request.POST.getlist('client_ids')
+			parsed_ids = []
+			for raw_id in raw_ids:
+				try:
+					parsed_ids.append(int(str(raw_id).strip()))
+				except (TypeError, ValueError):
+					continue
+			deleted_count, _ = CRMClient.objects.filter(id__in=parsed_ids).delete()
+			if deleted_count:
+				messages.success(request, f'{deleted_count} CRM client record(s) deleted.')
+			else:
+				messages.warning(request, 'No CRM clients selected.')
+			return redirect('crm_clients')
+		else:
+			restricted_response = _require_permission(request, 'core.add_client')
+			if restricted_response:
+				return restricted_response
+			form = CRMClientForm(request.POST, request.FILES)
+			if form.is_valid():
+				record = form.save(commit=False)
+				record.created_by = request.user
+				record.save()
+				form.save_media(record)
+				messages.success(request, 'CRM client record added successfully.')
+				return redirect('crm_clients')
+			messages.error(request, 'Please review the CRM client form fields.')
+
+	clients = CRMClient.objects.prefetch_related('media_files').order_by('-created_at')
+	return render(request, 'core/crm_clients.html', {'form': form, 'clients': clients})
+
+
+@login_required
+def crm_sales(request):
+	restricted_response = _require_permission(request, 'core.view_client')
+	if restricted_response:
+		return restricted_response
+	return render(request, 'core/crm_sales.html')
+
+
+@login_required
+def crm_technicals(request):
+	restricted_response = _require_permission(request, 'core.view_client')
+	if restricted_response:
+		return restricted_response
+	return render(request, 'core/crm_technicals.html')
 
 
 @login_required

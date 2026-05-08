@@ -70,6 +70,10 @@ PAGE_ACCESS_RULES = {
     'clients_delete': {'label': 'Delete Client', 'perms': ['core.delete_client']},
     'clients_quote': {'label': 'Client Quotation', 'perms': ['core.change_clientquotation']},
     'clients_quotation_document': {'label': 'Client Quotation Document', 'perms': ['core.view_clientquotation']},
+    'crm_dashboard': {'label': 'CRM Dashboard', 'perms': ['core.view_client']},
+    'crm_clients': {'label': 'CRM Clients', 'perms': ['core.view_client']},
+    'crm_sales': {'label': 'CRM Sales', 'perms': ['core.view_client']},
+    'crm_technicals': {'label': 'CRM Technicals', 'perms': ['core.view_client']},
     'finance_dashboard': {'label': 'Finance Dashboard', 'perms': ['core.view_fundrequest']},
     'fund_requests_list': {'label': 'Payment Request', 'perms': ['core.view_fundrequest']},
     'fund_request_records': {'label': 'Payment Request Records', 'perms': ['core.view_fundrequest']},
@@ -278,6 +282,7 @@ def finance_navigation_state(request):
         or url_name.startswith('accountability')
     )
     is_support_ticket_nav_active = url_name.startswith('support_ticket')
+    is_crm_nav_active = url_name.startswith('crm_')
 
     important_ticket_count = 0
     if request.user.is_authenticated:
@@ -297,6 +302,7 @@ def finance_navigation_state(request):
             important_ticket_count = important_query.filter(created_by=request.user).count()
 
     return {
+        'is_crm_nav_active': is_crm_nav_active,
         'is_finance_nav_active': is_finance_nav_active,
         'is_asset_tracker_nav_active': is_asset_tracker_nav_active,
         'is_support_ticket_nav_active': is_support_ticket_nav_active,

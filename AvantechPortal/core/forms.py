@@ -35,6 +35,8 @@ from .models import (
     ConsumableItemType,
     ensure_consumable_asset_proxy,
     Client,
+    CRMClient,
+    CRMClientMedia,
     ClientQuotation,
     CompanyInternetAccount,
     DevelopmentFeedback,
@@ -473,6 +475,8 @@ class ClientForm(forms.ModelForm):
             else:
                 field.widget.attrs.setdefault('class', 'form-control')
 
+        self.fields['full_name'].label = 'Full name'
+
         self.fields['handled_by'].required = False
         self.fields['lead_disposition_reason'].required = False
         self.fields['lead_proof_image'].required = False
@@ -523,6 +527,44 @@ class ClientForm(forms.ModelForm):
             cleaned_data['lead_status'] = 'intake'
 
         return cleaned_data
+
+
+class CRMClientForm(forms.ModelForm):
+    media_files = MultipleFileField(
+        required=False,
+        widget=MultipleFileInput(attrs={'accept': 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx', 'multiple': True}),
+        label='Customer Media',
+    )
+
+    class Meta:
+        model = CRMClient
+        fields = [
+            'last_name',
+            'first_name',
+            'contact_number',
+            'email',
+            'home_address',
+            'city',
+            'customer_type',
+            'media_files',
+        ]
+        widgets = {
+            'home_address': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.Select):
+                field.widget.attrs.setdefault('class', 'form-select')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['email'].required = False
+
+    def save_media(self, client):
+        files = self.cleaned_data.get('media_files') or []
+        for upload in files:
+            CRMClientMedia.objects.create(client=client, file=upload)
 
 
 class ClientQuotationForm(forms.ModelForm):
