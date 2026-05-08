@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.conf import settings
 from django.utils.dateparse import parse_date
+from django.utils import timezone
 from PIL import Image, ImageOps
 
 try:
@@ -543,23 +544,30 @@ class CRMClientForm(forms.ModelForm):
             'first_name',
             'contact_number',
             'email',
+            'date_of_birth',
             'home_address',
             'city',
+            'notes',
             'customer_type',
             'media_files',
         ]
         widgets = {
+            'date_of_birth': forms.DateInput(attrs={'type': 'date', 'min': '1900-01-01'}),
             'home_address': forms.Textarea(attrs={'rows': 3}),
+            'notes': forms.Textarea(attrs={'rows': 3}),
         }
 
     def __init__(self, *args, **kwargs):
+        require_email_dob = kwargs.pop('require_email_dob', False)
         super().__init__(*args, **kwargs)
         for _field_name, field in self.fields.items():
             if isinstance(field.widget, forms.Select):
                 field.widget.attrs.setdefault('class', 'form-select')
             else:
                 field.widget.attrs.setdefault('class', 'form-control')
-        self.fields['email'].required = False
+        self.fields['date_of_birth'].widget.attrs['max'] = timezone.localdate().isoformat()
+        self.fields['email'].required = require_email_dob
+        self.fields['date_of_birth'].required = require_email_dob
 
     def save_media(self, client):
         files = self.cleaned_data.get('media_files') or []

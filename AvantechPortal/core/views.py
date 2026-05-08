@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 import base64
 import csv
+import json
 import mimetypes
 from functools import lru_cache
 from io import BytesIO
@@ -118,6 +119,8 @@ from .models import (
 	AssetTagEntry,
 	Client,
 	CRMClient,
+	CRMSalesRecord,
+	CRMTechnicalRecord,
 	ClientDeletionRequest,
 	ClientQuotation,
 	ClientQuotationDocument,
@@ -535,7 +538,19 @@ def crm_clients(request):
 	if restricted_response:
 		return restricted_response
 
-	form = CRMClientForm()
+	is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+	query = (request.GET.get('q') or '').strip()
+	filter_customer_type = (request.GET.get('customer_type') or '').strip().lower()
+	filter_customer_id_from = (request.GET.get('customer_id_from') or '').strip()
+	filter_customer_id_to = (request.GET.get('customer_id_to') or '').strip()
+	filter_registered_from = parse_date((request.GET.get('registered_from') or '').strip())
+	filter_registered_to = parse_date((request.GET.get('registered_to') or '').strip())
+	sort_field = (request.GET.get('sort') or 'created_at').strip()
+	sort_dir = (request.GET.get('dir') or 'desc').strip().lower()
+	if sort_dir not in {'asc', 'desc'}:
+		sort_dir = 'desc'
+
+	form = CRMClientForm(require_email_dob=True)
 	if request.method == 'POST':
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'bulk_delete':
@@ -551,26 +566,412 @@ def crm_clients(request):
 					continue
 			deleted_count, _ = CRMClient.objects.filter(id__in=parsed_ids).delete()
 			if deleted_count:
-				messages.success(request, f'{deleted_count} CRM client record(s) deleted.')
+				message = f'{deleted_count} CRM client record(s) deleted.'
+				messages.success(request, message)
 			else:
-				messages.warning(request, 'No CRM clients selected.')
+				message = 'No CRM clients selected.'
+				messages.warning(request, message)
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': message, 'deleted_count': deleted_count})
+			return redirect('crm_clients')
+		if form_action == 'import_submit':
+			restricted_response = _require_permission(request, 'core.add_client')
+			if restricted_response:
+				return restricted_response
+
+			raw_payload = (request.POST.get('import_preview_payload') or '').strip()
+			if not raw_payload:
+				message = 'No import preview data found. Please upload and preview first.'
+				messages.warning(request, message)
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				return redirect('crm_clients')
+
+			try:
+				payload = json.loads(raw_payload)
+			except Exception:
+				message = 'Invalid import payload format.'
+				messages.error(request, message)
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				return redirect('crm_clients')
+
+			columns = payload.get('columns') if isinstance(payload, dict) else None
+			rows = payload.get('rows') if isinstance(payload, dict) else None
+			if not isinstance(rows, list) or not rows:
+				message = 'No rows available to import.'
+				messages.warning(request, message)
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				return redirect('crm_clients')
+			if not isinstance(columns, list) or not columns:
+				message = 'Missing header definition. Please set valid headers before importing.'
+				messages.warning(request, message)
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				return redirect('crm_clients')
+
+			def _key(value):
+				return str(value or '').strip().lower().replace(' ', '_')
+			normalized_columns = {_key(col) for col in columns}
+			required_client_headers = {
+				'last_name',
+				'first_name',
+				'contact_number',
+				'email',
+				'date_of_birth',
+				'home_address',
+				'city',
+				'customer_type',
+			}
+			missing_headers = sorted(required_client_headers - normalized_columns)
+			if missing_headers:
+				message = f'Invalid headers. Missing required client headers: {", ".join(missing_headers)}.'
+				messages.error(request, message)
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				return redirect('crm_clients')
+
+			type_map = {
+				'residential': 'residential',
+				'commercial': 'commercial',
+				'industrial': 'industrial',
+			}
+			lead_source_allowed = {'facebook ads', 'referral', 'walkin', 'website', 'developer', 'event', 'telemarketing'}
+			ownership_allowed = {'owner', 'tenant'}
+			sales_status_allowed = {'new', 'contacted', 'for survey', 'forproposal', 'negotiation', 'close won', 'close lost', 'closed won', 'closed lost'}
+
+			def _norm_text(value):
+				return str(value or '').strip().lower()
+
+			def _find_existing_client(*, customer_id, first_name, last_name, contact_number, email, date_of_birth):
+				if customer_id:
+					match = CRMClient.objects.filter(customer_id=customer_id).first()
+					if match:
+						return match
+				if email:
+					match = CRMClient.objects.filter(email__iexact=email).first()
+					if match:
+						return match
+				if first_name and last_name and date_of_birth:
+					match = CRMClient.objects.filter(
+						first_name__iexact=first_name,
+						last_name__iexact=last_name,
+						date_of_birth=date_of_birth,
+					).first()
+					if match:
+						return match
+				if first_name and last_name and contact_number:
+					match = CRMClient.objects.filter(
+						first_name__iexact=first_name,
+						last_name__iexact=last_name,
+						contact_number__iexact=contact_number,
+					).first()
+					if match:
+						return match
+				return None
+
+			def _pick(item, *names):
+				for name in names:
+					value = item.get(name)
+					if value is not None and str(value).strip() != '':
+						return str(value).strip()
+				return ''
+
+			def _money(raw):
+				text = str(raw or '').strip().replace(',', '').replace(' ', '')
+				if not text:
+					return None
+				try:
+					return Decimal(text)
+				except Exception:
+					return None
+
+			created_count = 0
+			skipped_count = 0
+			sales_created_count = 0
+			seen_import_keys = set()
+			for item in rows:
+				if not isinstance(item, dict):
+					skipped_count += 1
+					continue
+
+				normalized = {_key(k): (v if v is not None else '') for k, v in item.items()}
+				customer_id = str(normalized.get('customer_id', '')).strip()
+				first_name = str(normalized.get('first_name', '')).strip()
+				last_name = str(normalized.get('last_name', '')).strip()
+				contact_number = str(normalized.get('contact_number', '')).strip()
+				email = str(normalized.get('email', '')).strip()
+				date_of_birth_raw = str(normalized.get('date_of_birth', '') or normalized.get('dob', '')).strip()
+				home_address = str(normalized.get('home_address', '')).strip()
+				city = str(normalized.get('city', '')).strip()
+				notes = str(
+					normalized.get('notes', '')
+					or normalized.get('note', '')
+					or normalized.get('comment', '')
+					or normalized.get('remarks', '')
+				).strip()
+				customer_type_raw = str(normalized.get('customer_type', '')).strip().lower()
+				customer_type = type_map.get(customer_type_raw, 'residential')
+				date_of_birth = parse_date(date_of_birth_raw) if date_of_birth_raw else None
+
+				if not first_name or not last_name or not contact_number:
+					skipped_count += 1
+					continue
+
+				dedupe_key = (
+					_norm_text(first_name),
+					_norm_text(last_name),
+					_norm_text(email),
+					str(date_of_birth or ''),
+					_norm_text(contact_number),
+					_norm_text(customer_id),
+				)
+				if dedupe_key in seen_import_keys:
+					skipped_count += 1
+					continue
+				seen_import_keys.add(dedupe_key)
+
+				existing_client = _find_existing_client(
+					customer_id=customer_id,
+					first_name=first_name,
+					last_name=last_name,
+					contact_number=contact_number,
+					email=email,
+					date_of_birth=date_of_birth,
+				)
+				if existing_client:
+					skipped_count += 1
+					continue
+
+				record = CRMClient(
+					customer_id=customer_id,
+					first_name=first_name,
+					last_name=last_name,
+					contact_number=contact_number,
+					email=email,
+					date_of_birth=date_of_birth,
+					home_address=home_address,
+					city=city,
+					notes=notes,
+					customer_type=customer_type,
+					created_by=request.user,
+				)
+				# Let model auto-generate when customer_id is empty.
+				if not customer_id:
+					record.customer_id = ''
+				record.save()
+				created_count += 1
+
+				lead_source_raw = _pick(normalized, 'lead_source').lower()
+				ownership_raw = _pick(normalized, 'ownership').lower()
+				sales_status_raw = _pick(normalized, 'sales_status').lower()
+				lead_source = lead_source_raw if lead_source_raw in lead_source_allowed else ''
+				ownership = ownership_raw if ownership_raw in ownership_allowed else ''
+				sales_status = sales_status_raw if sales_status_raw in sales_status_allowed else ''
+				sales_date = parse_date(_pick(normalized, 'date_created'))
+				monthly_electric_bill = _money(_pick(normalized, 'monthly_electric_bill'))
+				project_cost = _money(_pick(normalized, 'project_cost'))
+				roof_type = _pick(normalized, 'roof_type')
+				return_on_investment = _pick(normalized, 'return_on_investment')
+				assigned_sales = _pick(normalized, 'assigned_sales')
+
+				has_sales_values = any(
+					[
+						sales_date,
+						lead_source,
+						monthly_electric_bill is not None,
+						roof_type,
+						ownership,
+						project_cost is not None,
+						return_on_investment,
+						assigned_sales,
+						sales_status,
+					]
+				)
+				if has_sales_values:
+					sales_record = CRMSalesRecord.objects.create(
+						client=record,
+						date_created=sales_date,
+						lead_source=lead_source,
+						monthly_electric_bill=monthly_electric_bill,
+						roof_type=roof_type,
+						ownership=ownership,
+						project_cost=project_cost,
+						return_on_investment=return_on_investment,
+						assigned_sales=assigned_sales,
+						sales_status=sales_status,
+						created_by=request.user,
+					)
+				else:
+					sales_record = CRMSalesRecord.objects.create(client=record, created_by=request.user)
+				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+				sales_created_count += 1
+
+			if created_count:
+				success_message = f'Imported {created_count} CRM client record(s).'
+				messages.success(request, success_message)
+			if sales_created_count:
+				messages.success(request, f'Created {sales_created_count} linked CRM sales record(s).')
+			if skipped_count:
+				warn_message = f'Skipped {skipped_count} row(s) due to missing required fields or duplicate client detection.'
+				messages.warning(request, warn_message)
+			if not created_count and not skipped_count:
+				info_message = 'No rows were processed.'
+				messages.info(request, info_message)
+			if is_ajax:
+				return JsonResponse(
+					{
+						'ok': True,
+						'created_count': created_count,
+						'sales_created_count': sales_created_count,
+						'skipped_count': skipped_count,
+						'message': f'Imported {created_count} client row(s), created {sales_created_count} sales row(s), skipped {skipped_count} row(s).',
+					}
+				)
 			return redirect('crm_clients')
 		else:
 			restricted_response = _require_permission(request, 'core.add_client')
 			if restricted_response:
 				return restricted_response
-			form = CRMClientForm(request.POST, request.FILES)
+			form = CRMClientForm(request.POST, request.FILES, require_email_dob=True)
 			if form.is_valid():
 				record = form.save(commit=False)
 				record.created_by = request.user
 				record.save()
 				form.save_media(record)
-				messages.success(request, 'CRM client record added successfully.')
+				sales_record, _ = CRMSalesRecord.objects.get_or_create(client=record, defaults={'created_by': request.user})
+				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+				message = 'CRM client record added successfully.'
+				messages.success(request, message)
+				if is_ajax:
+					return JsonResponse({'ok': True, 'message': message, 'client_id': record.id})
 				return redirect('crm_clients')
-			messages.error(request, 'Please review the CRM client form fields.')
+			message = 'Please review the CRM client form fields.'
+			messages.error(request, message)
+			if is_ajax:
+				return JsonResponse({'ok': False, 'message': message, 'errors': form.errors}, status=400)
 
-	clients = CRMClient.objects.prefetch_related('media_files').order_by('-created_at')
-	return render(request, 'core/crm_clients.html', {'form': form, 'clients': clients})
+	clients_queryset = CRMClient.objects.prefetch_related('media_files').order_by('-created_at')
+	if query:
+		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
+		for term in search_terms:
+			clients_queryset = clients_queryset.filter(
+				Q(customer_id__icontains=term)
+				| Q(first_name__icontains=term)
+				| Q(last_name__icontains=term)
+				| Q(contact_number__icontains=term)
+				| Q(email__icontains=term)
+				| Q(home_address__icontains=term)
+				| Q(city__icontains=term)
+			)
+
+	if filter_customer_type in {'residential', 'commercial', 'industrial'}:
+		clients_queryset = clients_queryset.filter(customer_type=filter_customer_type)
+
+	if filter_customer_id_from:
+		clients_queryset = clients_queryset.filter(customer_id__gte=filter_customer_id_from)
+	if filter_customer_id_to:
+		clients_queryset = clients_queryset.filter(customer_id__lte=filter_customer_id_to)
+
+	if filter_registered_from:
+		clients_queryset = clients_queryset.filter(created_at__date__gte=filter_registered_from)
+	if filter_registered_to:
+		clients_queryset = clients_queryset.filter(created_at__date__lte=filter_registered_to)
+
+	sortable_fields = {
+		'customer_id': 'customer_id',
+		'last_name': 'last_name',
+		'first_name': 'first_name',
+		'customer_type': 'customer_type',
+		'created_at': 'created_at',
+	}
+	order_field = sortable_fields.get(sort_field, 'created_at')
+	order_prefix = '' if sort_dir == 'asc' else '-'
+	clients_queryset = clients_queryset.order_by(f'{order_prefix}{order_field}', '-id')
+
+	clients_page = Paginator(clients_queryset, 20).get_page(request.GET.get('page'))
+	base_query_params = request.GET.copy()
+	base_query_params.pop('page', None)
+	current_query_string = base_query_params.urlencode()
+
+	def _build_sort_url(field_name):
+		params = request.GET.copy()
+		params.pop('page', None)
+		next_dir = 'asc'
+		if sort_field == field_name and sort_dir == 'asc':
+			next_dir = 'desc'
+		params['sort'] = field_name
+		params['dir'] = next_dir
+		return f'?{params.urlencode()}'
+
+	sort_urls = {field: _build_sort_url(field) for field in sortable_fields.keys()}
+
+	def _sort_indicator(field_name):
+		if sort_field != field_name:
+			return '↕'
+		return '↑' if sort_dir == 'asc' else '↓'
+
+	sort_indicators = {field: _sort_indicator(field) for field in sortable_fields.keys()}
+	return render(
+		request,
+		'core/crm_clients.html',
+		{
+			'form': form,
+			'clients_page': clients_page,
+			'q': query,
+			'filter_customer_type': filter_customer_type,
+			'filter_customer_id_from': filter_customer_id_from,
+			'filter_customer_id_to': filter_customer_id_to,
+			'filter_registered_from': request.GET.get('registered_from', ''),
+			'filter_registered_to': request.GET.get('registered_to', ''),
+			'sort_urls': sort_urls,
+			'sort_indicators': sort_indicators,
+			'current_query_string': current_query_string,
+		},
+	)
+
+
+@login_required
+def crm_client_update(request, client_id):
+	restricted_response = _require_permission(request, 'core.change_client')
+	if restricted_response:
+		return restricted_response
+
+	is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+	client = get_object_or_404(CRMClient, pk=client_id)
+	if request.method != 'POST':
+		return redirect('crm_clients')
+
+	form = CRMClientForm(request.POST, request.FILES, instance=client)
+	if form.is_valid():
+		updated = form.save(commit=False)
+		updated.created_by = client.created_by
+		updated.save()
+		form.save_media(updated)
+		message = 'CRM client updated successfully.'
+		messages.success(request, message)
+		if is_ajax:
+			return JsonResponse({'ok': True, 'message': message, 'client_id': updated.id})
+	else:
+		message = 'Unable to update CRM client. Please review the form fields.'
+		messages.error(request, message)
+		if is_ajax:
+			return JsonResponse({'ok': False, 'message': message, 'errors': form.errors}, status=400)
+	return redirect('crm_clients')
+
+
+@login_required
+def crm_client_profile(request, client_id):
+	restricted_response = _require_permission(request, 'core.view_client')
+	if restricted_response:
+		return restricted_response
+
+	client = get_object_or_404(
+		CRMClient.objects.select_related('created_by').prefetch_related('media_files'),
+		pk=client_id,
+	)
+	return render(request, 'core/crm_client_profile.html', {'client': client})
 
 
 @login_required
@@ -578,7 +979,12 @@ def crm_sales(request):
 	restricted_response = _require_permission(request, 'core.view_client')
 	if restricted_response:
 		return restricted_response
-	return render(request, 'core/crm_sales.html')
+
+	sales_page = Paginator(
+		CRMSalesRecord.objects.select_related('client').order_by('-date_created', '-created_at'),
+		20,
+	).get_page(request.GET.get('page'))
+	return render(request, 'core/crm_sales.html', {'sales_page': sales_page})
 
 
 @login_required
@@ -586,7 +992,12 @@ def crm_technicals(request):
 	restricted_response = _require_permission(request, 'core.view_client')
 	if restricted_response:
 		return restricted_response
-	return render(request, 'core/crm_technicals.html')
+
+	technical_page = Paginator(
+		CRMSalesRecord.objects.select_related('client', 'technical_record').order_by('-date_created', '-created_at'),
+		20,
+	).get_page(request.GET.get('page'))
+	return render(request, 'core/crm_technicals.html', {'technical_page': technical_page})
 
 
 @login_required

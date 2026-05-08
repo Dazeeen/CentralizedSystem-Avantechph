@@ -1,0 +1,46 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | CRM Client Profile{% endblock %}
+{% block page_heading %}CRM Client Profile{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+    <a href="{% url 'crm_clients' %}" class="btn btn-outline-secondary btn-sm">Back to Client List</a>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Client Information</h2>
+        <div class="row g-3">
+            <div class="col-md-4"><strong>Customer ID:</strong> {{ client.customer_id }}</div>
+            <div class="col-md-4"><strong>First Name:</strong> {{ client.first_name }}</div>
+            <div class="col-md-4"><strong>Last Name:</strong> {{ client.last_name }}</div>
+            <div class="col-md-4"><strong>Customer Type:</strong> {{ client.get_customer_type_display }}</div>
+            <div class="col-md-4"><strong>Contact Number:</strong> {{ client.contact_number|default:"-" }}</div>
+            <div class="col-md-4"><strong>Email:</strong> {{ client.email|default:"-" }}</div>
+            <div class="col-md-4"><strong>Date of Birth:</strong> {{ client.date_of_birth|date:"F j, Y"|default:"-" }}</div>
+            <div class="col-md-4"><strong>City:</strong> {{ client.city|default:"-" }}</div>
+            <div class="col-md-4"><strong>Created By:</strong> {% if client.created_by %}{{ client.created_by.get_full_name|default:client.created_by.username }}{% else %}-{% endif %}</div>
+            <div class="col-12"><strong>Home Address:</strong> {{ client.home_address|default:"-" }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Attached Media</h2>
+        {% if client.media_files.all %}
+            <div class="list-group">
+                {% for media in client.media_files.all %}
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="{{ media.file.url }}" target="_blank" rel="noopener">
+                        <span>{{ media.file.name }}</span>
+                        <small class="text-secondary">{{ media.uploaded_at|date:"M j, Y g:i A" }}</small>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-secondary mb-0">No media files uploaded for this client.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

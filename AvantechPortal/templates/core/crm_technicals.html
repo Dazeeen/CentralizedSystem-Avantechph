@@ -1,37 +1,108 @@
 {% extends 'base_app.html' %}
+{% load core_extras %}
 
 {% block title %}Avantech Portal | CRM Technicals{% endblock %}
 {% block page_heading %}CRM Technicals{% endblock %}
 
 {% block content %}
-<div class="row g-3 mb-3">
-    <div class="col-lg-7">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Schedules</h2>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Last Name</th>
+                        <th>First Name</th>
+                        <th>Contact Number</th>
+                        <th>Email</th>
+                        <th>Date of Birth</th>
+                        <th>Home Address</th>
+                        <th>City</th>
+                        <th>Customer Type</th>
+                        <th>Date Created</th>
+                        <th>Lead Source</th>
+                        <th>Monthly Electric Bill</th>
+                        <th>Roof Type</th>
+                        <th>Ownership</th>
+                        <th>Project Cost</th>
+                        <th>Return On Investment</th>
+                        <th>Assigned Sales</th>
+                        <th>Sales Status</th>
+                        <th>Installation Date</th>
+                        <th>Team Assigned</th>
+                        <th>System Size Kwh</th>
+                        <th>Panel Units</th>
+                        <th>Inverter Model</th>
+                        <th>Battery Model</th>
+                        <th>Net-Metering</th>
+                        <th>Installation Status</th>
+                        <th>PO#</th>
+                        <th>Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in technical_page %}
+                        {% with client=row.client tech=row.technical_record %}
                             <tr>
-                                <th>Installation Date</th><th>Team Assigned</th><th>Panels Unit</th><th>Inverter Model</th><th>System Size kWp</th><th>Installation Status</th><th>Purchase Order (PO#)</th>
+                                <td>{{ client.last_name|default:"-" }}</td>
+                                <td>{{ client.first_name|default:"-" }}</td>
+                                <td>{{ client.contact_number|default:"-" }}</td>
+                                <td>{{ client.email|default:"-" }}</td>
+                                <td>{{ client.date_of_birth|date:"Y-m-d"|default:"-" }}</td>
+                                <td>{{ client.home_address|default:"-" }}</td>
+                                <td>{{ client.city|default:"-" }}</td>
+                                <td>{{ client.get_customer_type_display|default:"-" }}</td>
+                                <td>{{ row.date_created|date:"Y-m-d"|default:"-" }}</td>
+                                <td>{{ row.lead_source|default:"-" }}</td>
+                                <td>{{ row.monthly_electric_bill|default:"-" }}</td>
+                                <td>{{ row.roof_type|default:"-" }}</td>
+                                <td>{{ row.ownership|default:"-" }}</td>
+                                <td>{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}</td>
+                                <td>{{ row.return_on_investment|default:"-" }}</td>
+                                <td>{{ row.assigned_sales|default:"-" }}</td>
+                                <td>{{ row.sales_status|default:"-" }}</td>
+                                <td>{{ tech.installation_date|date:"Y-m-d"|default:"-" }}</td>
+                                <td>{{ tech.team_assigned|default:"-" }}</td>
+                                <td>{{ tech.system_size_kwh|default:"-" }}</td>
+                                <td>{{ tech.panel_units|default:"-" }}</td>
+                                <td>{{ tech.inverter_model|default:"-" }}</td>
+                                <td>{{ tech.battery_model|default:"-" }}</td>
+                                <td>{{ tech.net_metering|default:"-" }}</td>
+                                <td>{{ tech.installation_status|default:"-" }}</td>
+                                <td>{{ tech.po_number|default:"-" }}</td>
+                                <td>{{ tech.remarks|default:"-" }}</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="7" class="text-center text-secondary py-3">No technical schedules yet.</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="mt-3 small text-secondary">Installation Status: `scheduled`, `ongoing`, `completed`, `back jobs`, `reschedules`</div>
-            </div>
+                        {% endwith %}
+                    {% empty %}
+                        <tr>
+                            <td colspan="27" class="text-center text-secondary py-3">No CRM technical records yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-    </div>
-    <div class="col-lg-5">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Calendar / Main Agenda</h2>
-                <div class="border rounded-3 p-3 text-secondary">Calendar placeholder for schedules and technical agenda.</div>
-            </div>
-        </div>
+        {% if technical_page.paginator.num_pages > 1 %}
+            <nav class="mt-3" aria-label="CRM technical pagination">
+                <ul class="pagination pagination-sm mb-0 justify-content-end">
+                    {% if technical_page.has_previous %}
+                        <li class="page-item"><a class="page-link" href="?page={{ technical_page.previous_page_number }}">Previous</a></li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                    {% endif %}
+                    {% for page_num in technical_page.paginator.page_range %}
+                        <li class="page-item {% if technical_page.number == page_num %}active{% endif %}">
+                            <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                        </li>
+                    {% endfor %}
+                    {% if technical_page.has_next %}
+                        <li class="page-item"><a class="page-link" href="?page={{ technical_page.next_page_number }}">Next</a></li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">Next</span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        {% endif %}
+        <div class="mt-3 small text-secondary">Technical table is dependent on CRM Clients + CRM Sales records.</div>
     </div>
 </div>
 {% endblock %}

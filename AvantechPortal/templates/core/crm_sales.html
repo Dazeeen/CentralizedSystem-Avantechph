@@ -1,4 +1,5 @@
 {% extends 'base_app.html' %}
+{% load core_extras %}
 
 {% block title %}Avantech Portal | CRM Sales{% endblock %}
 {% block page_heading %}CRM Sales{% endblock %}
@@ -10,16 +11,229 @@
             <table class="table table-sm align-middle mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>Date Created</th><th>Lead Source</th><th>Monthly Electric Bill</th><th>Roof Type</th><th>Ownership</th><th>Project Cost</th><th>Return On Investment</th><th>Assigned Sales</th><th>Sales Status</th>
+                        <th style="width: 36px;"><input type="checkbox" id="crmSalesSelectAll"></th>
+                        <th>Client</th>
+                        <th>Assigned Sales</th>
+                        <th>Project Cost</th>
+                        <th>Sales Status</th>
+                        <th style="width: 72px;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="9" class="text-center text-secondary py-3">No CRM sales records yet.</td></tr>
+                    {% for row in sales_page %}
+                        <tr class="crm-sales-row"
+                            data-client-id="{{ row.client.id }}"
+                            data-client-name="{{ row.client.last_name }}, {{ row.client.first_name }}"
+                            data-client-customer-id="{{ row.client.customer_id|default:'-' }}"
+                            data-client-contact-number="{{ row.client.contact_number|default:'-' }}"
+                            data-client-email="{{ row.client.email|default:'-' }}"
+                            data-client-date-of-birth="{% if row.client.date_of_birth %}{{ row.client.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}"
+                            data-client-home-address="{{ row.client.home_address|default:'-' }}"
+                            data-client-city="{{ row.client.city|default:'-' }}"
+                            data-client-customer-type="{{ row.client.get_customer_type_display|default:'-' }}"
+                            data-client-notes="{{ row.client.notes|default:'-' }}"
+                            data-date-created="{{ row.date_created|date:'Y-m-d'|default:'-' }}"
+                            data-lead-source="{{ row.lead_source|default:'-' }}"
+                            data-monthly-electric-bill="{{ row.monthly_electric_bill|default:'-' }}"
+                            data-roof-type="{{ row.roof_type|default:'-' }}"
+                            data-ownership="{{ row.ownership|default:'-' }}"
+                            data-project-cost="{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}"
+                            data-return-on-investment="{{ row.return_on_investment|default:'-' }}"
+                            data-assigned-sales="{{ row.assigned_sales|default:'-' }}"
+                            data-sales-status="{{ row.sales_status|default:'-' }}">
+                            <td><input type="checkbox" class="crm-sales-row-checkbox" value="{{ row.id }}"></td>
+                            <td>{{ row.client.last_name }}, {{ row.client.first_name }}</td>
+                            <td>{{ row.assigned_sales|default:"-" }}</td>
+                            <td>{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}</td>
+                            <td>{{ row.sales_status|default:"-" }}</td>
+                            <td>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <li><button type="button" class="dropdown-item js-sales-action-update">Update</button></li>
+                                        <li><button type="button" class="dropdown-item js-sales-action-view-profile">View Profile</button></li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="6" class="text-center text-secondary py-3">No CRM sales records yet.</td></tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% if sales_page.paginator.num_pages > 1 %}
+            <nav class="mt-3" aria-label="CRM sales pagination">
+                <ul class="pagination pagination-sm mb-0 justify-content-end">
+                    {% if sales_page.has_previous %}
+                        <li class="page-item"><a class="page-link" href="?page={{ sales_page.previous_page_number }}">Previous</a></li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                    {% endif %}
+                    {% for page_num in sales_page.paginator.page_range %}
+                        <li class="page-item {% if sales_page.number == page_num %}active{% endif %}">
+                            <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                        </li>
+                    {% endfor %}
+                    {% if sales_page.has_next %}
+                        <li class="page-item"><a class="page-link" href="?page={{ sales_page.next_page_number }}">Next</a></li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">Next</span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        {% endif %}
         <div class="mt-3 small text-secondary">Lead Source: `facebook ads`, `referral`, `walkin`, `website`, `developer`, `event`, `telemarketing`</div>
         <div class="small text-secondary">Ownership: `owner`, `tenant` | Sales Status: `new`, `contacted`, `for survey`, `forproposal`, `negotiation`, `close won`, `close lost`</div>
     </div>
 </div>
+
+<div class="modal fade" id="crmSalesClientProfileModal" tabindex="-1" aria-labelledby="crmSalesClientProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crmSalesClientProfileModalLabel">Client Profile</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><strong>Customer ID:</strong> <span id="salesClientInfoCustomerId"></span></div>
+                    <div class="col-md-6"><strong>Name:</strong> <span id="salesClientInfoName"></span></div>
+                    <div class="col-md-6"><strong>Customer Type:</strong> <span id="salesClientInfoCustomerType"></span></div>
+                    <div class="col-md-6"><strong>Contact Number:</strong> <span id="salesClientInfoContact"></span></div>
+                    <div class="col-md-6"><strong>Email:</strong> <span id="salesClientInfoEmail"></span></div>
+                    <div class="col-md-6"><strong>Date of Birth:</strong> <span id="salesClientInfoDob"></span></div>
+                    <div class="col-12"><strong>Home Address:</strong> <span id="salesClientInfoAddress"></span></div>
+                    <div class="col-md-6"><strong>City:</strong> <span id="salesClientInfoCity"></span></div>
+                    <div class="col-12"><strong>Note / Comment:</strong> <span id="salesClientInfoNotes"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="crmSalesInfoModal" tabindex="-1" aria-labelledby="crmSalesInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crmSalesInfoModalLabel">Sales Information</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><strong>Client:</strong> <span id="salesInfoClientName"></span></div>
+                    <div class="col-md-6"><strong>Date Created:</strong> <span id="salesInfoDateCreated"></span></div>
+                    <div class="col-md-6"><strong>Lead Source:</strong> <span id="salesInfoLeadSource"></span></div>
+                    <div class="col-md-6"><strong>Monthly Electric Bill:</strong> <span id="salesInfoMonthlyBill"></span></div>
+                    <div class="col-md-6"><strong>Roof Type:</strong> <span id="salesInfoRoofType"></span></div>
+                    <div class="col-md-6"><strong>Ownership:</strong> <span id="salesInfoOwnership"></span></div>
+                    <div class="col-md-6"><strong>Project Cost:</strong> <span id="salesInfoProjectCost"></span></div>
+                    <div class="col-md-6"><strong>Return On Investment:</strong> <span id="salesInfoROI"></span></div>
+                    <div class="col-md-6"><strong>Assigned Sales:</strong> <span id="salesInfoAssignedSales"></span></div>
+                    <div class="col-md-6"><strong>Sales Status:</strong> <span id="salesInfoStatus"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var selectAll = document.getElementById('crmSalesSelectAll');
+    var salesModalEl = document.getElementById('crmSalesInfoModal');
+    var salesModal = (salesModalEl && window.bootstrap) ? new bootstrap.Modal(salesModalEl) : null;
+    var clientProfileModalEl = document.getElementById('crmSalesClientProfileModal');
+    var clientProfileModal = (clientProfileModalEl && window.bootstrap) ? new bootstrap.Modal(clientProfileModalEl) : null;
+
+    function rowChecks() {
+        return Array.from(document.querySelectorAll('.crm-sales-row-checkbox'));
+    }
+
+    function syncSelectAllState() {
+        var checks = rowChecks();
+        var selected = checks.filter(function (cb) { return cb.checked; }).length;
+        if (selectAll) {
+            selectAll.indeterminate = selected > 0 && selected < checks.length;
+            selectAll.checked = checks.length > 0 && selected === checks.length;
+        }
+    }
+
+    function openSalesModalFromRow(row) {
+        if (!row || !salesModal) {
+            return;
+        }
+        document.getElementById('salesInfoClientName').textContent = row.dataset.clientName || '-';
+        document.getElementById('salesInfoDateCreated').textContent = row.dataset.dateCreated || '-';
+        document.getElementById('salesInfoLeadSource').textContent = row.dataset.leadSource || '-';
+        document.getElementById('salesInfoMonthlyBill').textContent = row.dataset.monthlyElectricBill || '-';
+        document.getElementById('salesInfoRoofType').textContent = row.dataset.roofType || '-';
+        document.getElementById('salesInfoOwnership').textContent = row.dataset.ownership || '-';
+        document.getElementById('salesInfoProjectCost').textContent = row.dataset.projectCost || '-';
+        document.getElementById('salesInfoROI').textContent = row.dataset.returnOnInvestment || '-';
+        document.getElementById('salesInfoAssignedSales').textContent = row.dataset.assignedSales || '-';
+        document.getElementById('salesInfoStatus').textContent = row.dataset.salesStatus || '-';
+        salesModal.show();
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            rowChecks().forEach(function (cb) { cb.checked = selectAll.checked; });
+            syncSelectAllState();
+        });
+    }
+    function openClientProfileModalFromRow(row) {
+        if (!row || !clientProfileModal) {
+            return;
+        }
+        document.getElementById('salesClientInfoCustomerId').textContent = row.dataset.clientCustomerId || '-';
+        document.getElementById('salesClientInfoName').textContent = row.dataset.clientName || '-';
+        document.getElementById('salesClientInfoCustomerType').textContent = row.dataset.clientCustomerType || '-';
+        document.getElementById('salesClientInfoContact').textContent = row.dataset.clientContactNumber || '-';
+        document.getElementById('salesClientInfoEmail').textContent = row.dataset.clientEmail || '-';
+        document.getElementById('salesClientInfoDob').textContent = row.dataset.clientDateOfBirth || '-';
+        document.getElementById('salesClientInfoAddress').textContent = row.dataset.clientHomeAddress || '-';
+        document.getElementById('salesClientInfoCity').textContent = row.dataset.clientCity || '-';
+        document.getElementById('salesClientInfoNotes').textContent = row.dataset.clientNotes || '-';
+        clientProfileModal.show();
+    }
+
+    document.querySelectorAll('.crm-sales-row-checkbox').forEach(function (cb) {
+        cb.addEventListener('click', function (event) { event.stopPropagation(); });
+        cb.addEventListener('change', syncSelectAllState);
+    });
+
+    document.addEventListener('click', function (event) {
+        var profileBtn = event.target.closest('.js-sales-action-view-profile');
+        if (profileBtn) {
+            var profileRow = profileBtn.closest('.crm-sales-row');
+            openClientProfileModalFromRow(profileRow);
+            return;
+        }
+        var updateBtn = event.target.closest('.js-sales-action-update');
+        if (updateBtn) {
+            alert('Update action for sales record will be added next.');
+            return;
+        }
+    });
+
+    document.querySelectorAll('.crm-sales-row').forEach(function (row) {
+        row.setAttribute('tabindex', '0');
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('input, button, a, label')) {
+                return;
+            }
+            openSalesModalFromRow(row);
+        });
+        row.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter') {
+                return;
+            }
+            event.preventDefault();
+            openSalesModalFromRow(row);
+        });
+    });
+
+    syncSelectAllState();
+});
+</script>
 {% endblock %}
