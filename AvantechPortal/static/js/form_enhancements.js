@@ -3,7 +3,8 @@
         if (!field || !field.closest) {
             return;
         }
-        var container = field.closest('.mb-2, .mb-3, .mb-4, .mb-5, .form-group, .row, .col, .col-md-6, .col-lg-6') || field.parentElement;
+        // Keep validation highlights scoped to the field wrapper, not the whole row.
+        var container = field.closest('.mb-2, .mb-3, .mb-4, .mb-5, .form-group, .col, [class*="col-"]') || field.parentElement;
         if (!container || !container.classList) {
             return;
         }

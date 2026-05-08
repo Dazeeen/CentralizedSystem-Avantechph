@@ -543,6 +543,7 @@ class CRMClient(models.Model):
 	date_of_birth = models.DateField(blank=True, null=True)
 	home_address = models.TextField(blank=True)
 	city = models.CharField(max_length=100, blank=True)
+	notes = models.TextField(blank=True)
 	customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPE_CHOICES, default='residential')
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
@@ -594,6 +595,94 @@ class CRMClientMedia(models.Model):
 
 	def __str__(self):
 		return f'CRMClientMedia<{self.client_id}:{self.file.name}>'
+
+
+class CRMSalesRecord(models.Model):
+	LEAD_SOURCE_CHOICES = [
+		('facebook ads', 'Facebook Ads'),
+		('referral', 'Referral'),
+		('walkin', 'Walk-in'),
+		('website', 'Website'),
+		('developer', 'Developer'),
+		('event', 'Event'),
+		('telemarketing', 'Telemarketing'),
+	]
+	OWNERSHIP_CHOICES = [
+		('owner', 'Owner'),
+		('tenant', 'Tenant'),
+	]
+	SALES_STATUS_CHOICES = [
+		('new', 'New'),
+		('contacted', 'Contacted'),
+		('for survey', 'For Survey'),
+		('forproposal', 'For Proposal'),
+		('negotiation', 'Negotiation'),
+		('close won', 'Closed Won'),
+		('close lost', 'Closed Lost'),
+	]
+
+	client = models.ForeignKey(CRMClient, on_delete=models.CASCADE, related_name='sales_records')
+	date_created = models.DateField(blank=True, null=True)
+	lead_source = models.CharField(max_length=50, blank=True)
+	monthly_electric_bill = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+	roof_type = models.CharField(max_length=80, blank=True)
+	ownership = models.CharField(max_length=20, blank=True)
+	project_cost = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+	return_on_investment = models.CharField(max_length=80, blank=True)
+	assigned_sales = models.CharField(max_length=150, blank=True)
+	sales_status = models.CharField(max_length=50, blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_sales_records_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-date_created', '-created_at']
+
+	def __str__(self):
+		return f'CRMSalesRecord<{self.client_id}:{self.sales_status or "n/a"}>'
+
+
+class CRMTechnicalRecord(models.Model):
+	INSTALLATION_STATUS_CHOICES = [
+		('scheduled', 'Scheduled'),
+		('ongoing', 'Ongoing'),
+		('completed', 'Completed'),
+		('back jobs', 'Back Jobs'),
+		('reschedules', 'Reschedules'),
+	]
+
+	sales_record = models.OneToOneField(CRMSalesRecord, on_delete=models.CASCADE, related_name='technical_record')
+	installation_date = models.DateField(blank=True, null=True)
+	team_assigned = models.CharField(max_length=150, blank=True)
+	system_size_kwh = models.CharField(max_length=50, blank=True)
+	panel_units = models.CharField(max_length=50, blank=True)
+	inverter_model = models.CharField(max_length=150, blank=True)
+	battery_model = models.CharField(max_length=150, blank=True)
+	net_metering = models.CharField(max_length=80, blank=True)
+	installation_status = models.CharField(max_length=50, blank=True)
+	po_number = models.CharField(max_length=80, blank=True)
+	remarks = models.TextField(blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_technical_records_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-installation_date', '-created_at']
+
+	def __str__(self):
+		return f'CRMTechnicalRecord<{self.sales_record_id}:{self.installation_status or "n/a"}>'
 
 
 class ClientDeletionRequest(models.Model):
