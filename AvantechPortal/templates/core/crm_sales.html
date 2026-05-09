@@ -7,15 +7,84 @@
 {% block content %}
 <div class="card border-0 shadow-sm">
     <div class="card-body">
+        <form method="get" class="row g-2 mb-3">
+            <div class="col-lg-4 col-md-6">
+                <label class="form-label mb-1" for="crmSalesSearchInput">Search (fuzzy)</label>
+                <input type="text" class="form-control" id="crmSalesSearchInput" name="q" value="{{ q }}" placeholder="Client, customer id, assigned sales...">
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesAssignedInput">Assigned Sales</label>
+                <select class="form-select" id="crmSalesAssignedInput" name="assigned_sales">
+                    <option value="">All</option>
+                    {% for assigned_name in assigned_sales_options %}
+                        <option value="{{ assigned_name }}" {% if filter_assigned_sales == assigned_name %}selected{% endif %}>{{ assigned_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesStatusInput">Sales Status</label>
+                <select class="form-select" id="crmSalesStatusInput" name="sales_status">
+                    <option value="">All</option>
+                    <option value="new" {% if filter_sales_status == 'new' %}selected{% endif %}>new</option>
+                    <option value="contracted" {% if filter_sales_status == 'contracted' %}selected{% endif %}>contracted</option>
+                    <option value="for survey" {% if filter_sales_status == 'for survey' %}selected{% endif %}>for survey</option>
+                    <option value="for proposal" {% if filter_sales_status == 'for proposal' %}selected{% endif %}>for proposal</option>
+                    <option value="negotiation" {% if filter_sales_status == 'negotiation' %}selected{% endif %}>negotiation</option>
+                    <option value="closed won" {% if filter_sales_status == 'closed won' %}selected{% endif %}>closed won</option>
+                    <option value="closed lost" {% if filter_sales_status == 'closed lost' %}selected{% endif %}>closed lost</option>
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesLeadSourceInput">Lead Source</label>
+                <select class="form-select" id="crmSalesLeadSourceInput" name="lead_source">
+                    <option value="">All</option>
+                    <option value="facebook ads" {% if filter_lead_source == 'facebook ads' %}selected{% endif %}>facebook ads</option>
+                    <option value="referral" {% if filter_lead_source == 'referral' %}selected{% endif %}>referral</option>
+                    <option value="walk-in" {% if filter_lead_source == 'walk-in' %}selected{% endif %}>walk-in</option>
+                    <option value="website" {% if filter_lead_source == 'website' %}selected{% endif %}>website</option>
+                    <option value="developer" {% if filter_lead_source == 'developer' %}selected{% endif %}>developer</option>
+                    <option value="event" {% if filter_lead_source == 'event' %}selected{% endif %}>event</option>
+                    <option value="telemarketing" {% if filter_lead_source == 'telemarketing' %}selected{% endif %}>telemarketing</option>
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesRoofTypeInput">Roof Type</label>
+                <select class="form-select" id="crmSalesRoofTypeInput" name="roof_type">
+                    <option value="">All</option>
+                    <option value="Metal" {% if filter_roof_type == 'Metal' %}selected{% endif %}>Metal</option>
+                    <option value="Asphalt shingles" {% if filter_roof_type == 'Asphalt shingles' %}selected{% endif %}>Asphalt shingles</option>
+                    <option value="slate" {% if filter_roof_type == 'slate' %}selected{% endif %}>slate</option>
+                    <option value="clay tiles" {% if filter_roof_type == 'clay tiles' %}selected{% endif %}>clay tiles</option>
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesRoiInput">ROI</label>
+                <input type="text" class="form-control" id="crmSalesRoiInput" name="roi" value="{{ filter_roi }}">
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesProjectCostMin">Project Cost Min</label>
+                <input type="number" step="0.01" class="form-control" id="crmSalesProjectCostMin" name="project_cost_min" value="{{ filter_project_cost_min }}">
+            </div>
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label mb-1" for="crmSalesProjectCostMax">Project Cost Max</label>
+                <input type="number" step="0.01" class="form-control" id="crmSalesProjectCostMax" name="project_cost_max" value="{{ filter_project_cost_max }}">
+            </div>
+            <div class="col-lg-2 col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-outline-primary w-100">Apply</button>
+            </div>
+            <div class="col-lg-2 col-md-3 d-flex align-items-end">
+                <a href="{% url 'crm_sales' %}" class="btn btn-outline-secondary w-100">Reset</a>
+            </div>
+        </form>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
                 <thead class="table-light">
                     <tr>
                         <th style="width: 36px;"><input type="checkbox" id="crmSalesSelectAll"></th>
-                        <th>Client</th>
-                        <th>Assigned Sales</th>
-                        <th>Project Cost</th>
-                        <th>Sales Status</th>
+                        <th><a class="text-decoration-none text-dark" href="{{ sort_urls.client }}">Client <span class="ms-1">{{ sort_indicators.client }}</span></a></th>
+                        <th><a class="text-decoration-none text-dark" href="{{ sort_urls.assigned_sales }}">Assigned Sales <span class="ms-1">{{ sort_indicators.assigned_sales }}</span></a></th>
+                        <th><a class="text-decoration-none text-dark" href="{{ sort_urls.project_cost }}">Project Cost <span class="ms-1">{{ sort_indicators.project_cost }}</span></a></th>
+                        <th><a class="text-decoration-none text-dark" href="{{ sort_urls.sales_status }}">Sales Status <span class="ms-1">{{ sort_indicators.sales_status }}</span></a></th>
                         <th style="width: 72px;">Action</th>
                     </tr>
                 </thead>
@@ -66,17 +135,17 @@
             <nav class="mt-3" aria-label="CRM sales pagination">
                 <ul class="pagination pagination-sm mb-0 justify-content-end">
                     {% if sales_page.has_previous %}
-                        <li class="page-item"><a class="page-link" href="?page={{ sales_page.previous_page_number }}">Previous</a></li>
+                        <li class="page-item"><a class="page-link" href="?{% if current_query_string %}{{ current_query_string }}&{% endif %}page={{ sales_page.previous_page_number }}">Previous</a></li>
                     {% else %}
                         <li class="page-item disabled"><span class="page-link">Previous</span></li>
                     {% endif %}
                     {% for page_num in sales_page.paginator.page_range %}
                         <li class="page-item {% if sales_page.number == page_num %}active{% endif %}">
-                            <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                            <a class="page-link" href="?{% if current_query_string %}{{ current_query_string }}&{% endif %}page={{ page_num }}">{{ page_num }}</a>
                         </li>
                     {% endfor %}
                     {% if sales_page.has_next %}
-                        <li class="page-item"><a class="page-link" href="?page={{ sales_page.next_page_number }}">Next</a></li>
+                        <li class="page-item"><a class="page-link" href="?{% if current_query_string %}{{ current_query_string }}&{% endif %}page={{ sales_page.next_page_number }}">Next</a></li>
                     {% else %}
                         <li class="page-item disabled"><span class="page-link">Next</span></li>
                     {% endif %}
@@ -89,53 +158,220 @@
 </div>
 
 <div class="modal fade" id="crmSalesClientProfileModal" tabindex="-1" aria-labelledby="crmSalesClientProfileModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="crmSalesClientProfileModalLabel">Client Profile</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-md-6"><strong>Customer ID:</strong> <span id="salesClientInfoCustomerId"></span></div>
-                    <div class="col-md-6"><strong>Name:</strong> <span id="salesClientInfoName"></span></div>
-                    <div class="col-md-6"><strong>Customer Type:</strong> <span id="salesClientInfoCustomerType"></span></div>
-                    <div class="col-md-6"><strong>Contact Number:</strong> <span id="salesClientInfoContact"></span></div>
-                    <div class="col-md-6"><strong>Email:</strong> <span id="salesClientInfoEmail"></span></div>
-                    <div class="col-md-6"><strong>Date of Birth:</strong> <span id="salesClientInfoDob"></span></div>
-                    <div class="col-12"><strong>Home Address:</strong> <span id="salesClientInfoAddress"></span></div>
-                    <div class="col-md-6"><strong>City:</strong> <span id="salesClientInfoCity"></span></div>
-                    <div class="col-12"><strong>Note / Comment:</strong> <span id="salesClientInfoNotes"></span></div>
+            <div class="modal-body p-0">
+                <div class="row g-0 crm-client-profile-shell">
+                    <div class="col-lg-4 border-end">
+                        <div class="p-3 p-lg-4 h-100">
+                            <div class="fw-semibold fs-5 mb-3 text-break" id="salesClientSidebarEmail">-</div>
+                            <div class="nav flex-column nav-pills gap-2" role="tablist" aria-orientation="vertical">
+                                <button class="nav-link active text-start d-flex align-items-center justify-content-between" id="sales-client-profile-tab" data-bs-toggle="pill" data-bs-target="#sales-client-profile-pane" type="button" role="tab" aria-controls="sales-client-profile-pane" aria-selected="true">
+                                    <span>Profile</span><span>&rsaquo;</span>
+                                </button>
+                                <button class="nav-link text-start d-flex align-items-center justify-content-between" id="sales-client-sales-tab" data-bs-toggle="pill" data-bs-target="#sales-client-sales-pane" type="button" role="tab" aria-controls="sales-client-sales-pane" aria-selected="false">
+                                    <span>Sales</span><span>&rsaquo;</span>
+                                </button>
+                                <button class="nav-link text-start d-flex align-items-center justify-content-between" id="sales-client-technical-tab" data-bs-toggle="pill" data-bs-target="#sales-client-technical-pane" type="button" role="tab" aria-controls="sales-client-technical-pane" aria-selected="false">
+                                    <span>Technical</span><span>&rsaquo;</span>
+                                </button>
+                                <button class="nav-link text-start d-flex align-items-center justify-content-between" id="sales-client-more-tab" data-bs-toggle="pill" data-bs-target="#sales-client-more-pane" type="button" role="tab" aria-controls="sales-client-more-pane" aria-selected="false">
+                                    <span>More</span><span>&rsaquo;</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-8">
+                        <div class="tab-content p-3 p-lg-4">
+                            <div class="tab-pane fade show active" id="sales-client-profile-pane" role="tabpanel" aria-labelledby="sales-client-profile-tab" tabindex="0">
+                                <h4 class="mb-3">Profile</h4>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Customer ID</label>
+                                        <input type="text" class="form-control" id="salesClientInfoCustomerId" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Name</label>
+                                        <input type="text" class="form-control" id="salesClientInfoName" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Customer Type</label>
+                                        <input type="text" class="form-control" id="salesClientInfoCustomerType" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Contact Number</label>
+                                        <input type="text" class="form-control" id="salesClientInfoContact" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Email</label>
+                                        <input type="text" class="form-control" id="salesClientInfoEmail" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Date of Birth</label>
+                                        <input type="text" class="form-control" id="salesClientInfoDob" readonly>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Home Address</label>
+                                        <textarea class="form-control" id="salesClientInfoAddress" rows="3" readonly></textarea>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">City</label>
+                                        <input type="text" class="form-control" id="salesClientInfoCity" readonly>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Note / Comment</label>
+                                        <textarea class="form-control" id="salesClientInfoNotes" rows="3" readonly></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="sales-client-sales-pane" role="tabpanel" aria-labelledby="sales-client-sales-tab" tabindex="0">
+                                <h4 class="mb-3">Sales</h4>
+                                <div class="row g-3">
+                                    <div class="col-md-6"><label class="form-label">Date Created</label><input type="text" class="form-control" id="salesClientSalesDateCreated" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Lead Source</label><input type="text" class="form-control" id="salesClientSalesLeadSource" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Monthly Electric Bill</label><input type="text" class="form-control" id="salesClientSalesMonthlyBill" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Roof Type</label><input type="text" class="form-control" id="salesClientSalesRoofType" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Ownership</label><input type="text" class="form-control" id="salesClientSalesOwnership" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Project Cost</label><input type="text" class="form-control" id="salesClientSalesProjectCost" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Return On Investment</label><input type="text" class="form-control" id="salesClientSalesROI" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Assigned Sales</label><input type="text" class="form-control" id="salesClientSalesAssignedSales" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Sales Status</label><input type="text" class="form-control" id="salesClientSalesStatus" readonly></div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="sales-client-technical-pane" role="tabpanel" aria-labelledby="sales-client-technical-tab" tabindex="0">
+                                <h4 class="mb-3">Technical</h4>
+                                <div class="alert alert-light border mb-0">Technical details can be added here in future updates.</div>
+                            </div>
+                            <div class="tab-pane fade" id="sales-client-more-pane" role="tabpanel" aria-labelledby="sales-client-more-tab" tabindex="0">
+                                <h4 class="mb-3">More</h4>
+                                <div class="alert alert-light border mb-0">Additional categories can be added here in future updates.</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
 </div>
 
 <div class="modal fade" id="crmSalesInfoModal" tabindex="-1" aria-labelledby="crmSalesInfoModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="crmSalesInfoModalLabel">Sales Information</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-md-6"><strong>Client:</strong> <span id="salesInfoClientName"></span></div>
-                    <div class="col-md-6"><strong>Date Created:</strong> <span id="salesInfoDateCreated"></span></div>
-                    <div class="col-md-6"><strong>Lead Source:</strong> <span id="salesInfoLeadSource"></span></div>
-                    <div class="col-md-6"><strong>Monthly Electric Bill:</strong> <span id="salesInfoMonthlyBill"></span></div>
-                    <div class="col-md-6"><strong>Roof Type:</strong> <span id="salesInfoRoofType"></span></div>
-                    <div class="col-md-6"><strong>Ownership:</strong> <span id="salesInfoOwnership"></span></div>
-                    <div class="col-md-6"><strong>Project Cost:</strong> <span id="salesInfoProjectCost"></span></div>
-                    <div class="col-md-6"><strong>Return On Investment:</strong> <span id="salesInfoROI"></span></div>
-                    <div class="col-md-6"><strong>Assigned Sales:</strong> <span id="salesInfoAssignedSales"></span></div>
-                    <div class="col-md-6"><strong>Sales Status:</strong> <span id="salesInfoStatus"></span></div>
+            <div class="modal-body p-0">
+                <div class="row g-0 crm-sales-profile-shell">
+                    <div class="col-lg-4 border-end">
+                        <div class="p-3 p-lg-4 h-100">
+                            <div class="fw-semibold fs-5 mb-3 text-break" id="salesSidebarClientName">-</div>
+                            <div class="nav flex-column nav-pills gap-2" role="tablist" aria-orientation="vertical">
+                                <button class="nav-link active text-start d-flex align-items-center justify-content-between" id="crm-sales-only-tab" data-bs-toggle="pill" data-bs-target="#crm-sales-only-pane" type="button" role="tab" aria-controls="crm-sales-only-pane" aria-selected="true">
+                                    <span>Sales</span><span>&rsaquo;</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-8">
+                        <div class="tab-content p-3 p-lg-4">
+                            <div class="tab-pane fade show active" id="crm-sales-only-pane" role="tabpanel" aria-labelledby="crm-sales-only-tab" tabindex="0">
+                                <h4 class="mb-3">Sales</h4>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Client</label>
+                                        <input type="text" class="form-control" id="salesInfoClientName" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Date Created</label>
+                                        <input type="text" class="form-control" id="salesInfoDateCreated" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Lead Source</label>
+                                        <input type="text" class="form-control" id="salesInfoLeadSource" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Monthly Electric Bill</label>
+                                        <input type="text" class="form-control" id="salesInfoMonthlyBill" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Roof Type</label>
+                                        <input type="text" class="form-control" id="salesInfoRoofType" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Ownership</label>
+                                        <input type="text" class="form-control" id="salesInfoOwnership" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Project Cost</label>
+                                        <input type="text" class="form-control" id="salesInfoProjectCost" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Return On Investment</label>
+                                        <input type="text" class="form-control" id="salesInfoROI" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Assigned Sales</label>
+                                        <input type="text" class="form-control" id="salesInfoAssignedSales" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Sales Status</label>
+                                        <input type="text" class="form-control" id="salesInfoStatus" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
 </div>
+<style>
+    .crm-sales-profile-shell .nav-pills .nav-link {
+        border: 1px solid #e9ecef;
+        color: #212529;
+        background: #fff;
+        border-radius: 0.75rem;
+        padding: 0.65rem 0.85rem;
+        font-weight: 600;
+    }
+    .crm-sales-profile-shell .nav-pills .nav-link.active {
+        color: #0d6efd;
+        background: #f1f5ff;
+        border-color: #d7e3ff;
+    }
+    @media (max-width: 991.98px) {
+        .crm-client-profile-shell > .border-end,
+        .crm-sales-profile-shell > .border-end {
+            border-right: 0 !important;
+            border-bottom: 1px solid #dee2e6;
+        }
+    }
+    .crm-client-profile-shell .nav-pills .nav-link {
+        border: 1px solid #e9ecef;
+        color: #212529;
+        background: #fff;
+        border-radius: 0.75rem;
+        padding: 0.65rem 0.85rem;
+        font-weight: 600;
+    }
+    .crm-client-profile-shell .nav-pills .nav-link.active {
+        color: #0d6efd;
+        background: #f1f5ff;
+        border-color: #d7e3ff;
+    }
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var selectAll = document.getElementById('crmSalesSelectAll');
@@ -161,16 +397,21 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!row || !salesModal) {
             return;
         }
-        document.getElementById('salesInfoClientName').textContent = row.dataset.clientName || '-';
-        document.getElementById('salesInfoDateCreated').textContent = row.dataset.dateCreated || '-';
-        document.getElementById('salesInfoLeadSource').textContent = row.dataset.leadSource || '-';
-        document.getElementById('salesInfoMonthlyBill').textContent = row.dataset.monthlyElectricBill || '-';
-        document.getElementById('salesInfoRoofType').textContent = row.dataset.roofType || '-';
-        document.getElementById('salesInfoOwnership').textContent = row.dataset.ownership || '-';
-        document.getElementById('salesInfoProjectCost').textContent = row.dataset.projectCost || '-';
-        document.getElementById('salesInfoROI').textContent = row.dataset.returnOnInvestment || '-';
-        document.getElementById('salesInfoAssignedSales').textContent = row.dataset.assignedSales || '-';
-        document.getElementById('salesInfoStatus').textContent = row.dataset.salesStatus || '-';
+        document.getElementById('salesSidebarClientName').textContent = row.dataset.clientName || '-';
+        document.getElementById('salesInfoClientName').value = row.dataset.clientName || '-';
+        document.getElementById('salesInfoDateCreated').value = row.dataset.dateCreated || '-';
+        document.getElementById('salesInfoLeadSource').value = row.dataset.leadSource || '-';
+        document.getElementById('salesInfoMonthlyBill').value = row.dataset.monthlyElectricBill || '-';
+        document.getElementById('salesInfoRoofType').value = row.dataset.roofType || '-';
+        document.getElementById('salesInfoOwnership').value = row.dataset.ownership || '-';
+        document.getElementById('salesInfoProjectCost').value = row.dataset.projectCost || '-';
+        document.getElementById('salesInfoROI').value = row.dataset.returnOnInvestment || '-';
+        document.getElementById('salesInfoAssignedSales').value = row.dataset.assignedSales || '-';
+        document.getElementById('salesInfoStatus').value = row.dataset.salesStatus || '-';
+        var salesTab = document.getElementById('crm-sales-only-tab');
+        if (salesTab && window.bootstrap && window.bootstrap.Tab) {
+            window.bootstrap.Tab.getOrCreateInstance(salesTab).show();
+        }
         salesModal.show();
     }
 
@@ -184,15 +425,29 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!row || !clientProfileModal) {
             return;
         }
-        document.getElementById('salesClientInfoCustomerId').textContent = row.dataset.clientCustomerId || '-';
-        document.getElementById('salesClientInfoName').textContent = row.dataset.clientName || '-';
-        document.getElementById('salesClientInfoCustomerType').textContent = row.dataset.clientCustomerType || '-';
-        document.getElementById('salesClientInfoContact').textContent = row.dataset.clientContactNumber || '-';
-        document.getElementById('salesClientInfoEmail').textContent = row.dataset.clientEmail || '-';
-        document.getElementById('salesClientInfoDob').textContent = row.dataset.clientDateOfBirth || '-';
-        document.getElementById('salesClientInfoAddress').textContent = row.dataset.clientHomeAddress || '-';
-        document.getElementById('salesClientInfoCity').textContent = row.dataset.clientCity || '-';
-        document.getElementById('salesClientInfoNotes').textContent = row.dataset.clientNotes || '-';
+        document.getElementById('salesClientSidebarEmail').textContent = row.dataset.clientEmail || '-';
+        document.getElementById('salesClientInfoCustomerId').value = row.dataset.clientCustomerId || '-';
+        document.getElementById('salesClientInfoName').value = row.dataset.clientName || '-';
+        document.getElementById('salesClientInfoCustomerType').value = row.dataset.clientCustomerType || '-';
+        document.getElementById('salesClientInfoContact').value = row.dataset.clientContactNumber || '-';
+        document.getElementById('salesClientInfoEmail').value = row.dataset.clientEmail || '-';
+        document.getElementById('salesClientInfoDob').value = row.dataset.clientDateOfBirth || '-';
+        document.getElementById('salesClientInfoAddress').value = row.dataset.clientHomeAddress || '-';
+        document.getElementById('salesClientInfoCity').value = row.dataset.clientCity || '-';
+        document.getElementById('salesClientInfoNotes').value = row.dataset.clientNotes || '-';
+        document.getElementById('salesClientSalesDateCreated').value = row.dataset.dateCreated || '-';
+        document.getElementById('salesClientSalesLeadSource').value = row.dataset.leadSource || '-';
+        document.getElementById('salesClientSalesMonthlyBill').value = row.dataset.monthlyElectricBill || '-';
+        document.getElementById('salesClientSalesRoofType').value = row.dataset.roofType || '-';
+        document.getElementById('salesClientSalesOwnership').value = row.dataset.ownership || '-';
+        document.getElementById('salesClientSalesProjectCost').value = row.dataset.projectCost || '-';
+        document.getElementById('salesClientSalesROI').value = row.dataset.returnOnInvestment || '-';
+        document.getElementById('salesClientSalesAssignedSales').value = row.dataset.assignedSales || '-';
+        document.getElementById('salesClientSalesStatus').value = row.dataset.salesStatus || '-';
+        var profileTab = document.getElementById('sales-client-profile-tab');
+        if (profileTab && window.bootstrap && window.bootstrap.Tab) {
+            window.bootstrap.Tab.getOrCreateInstance(profileTab).show();
+        }
         clientProfileModal.show();
     }
 

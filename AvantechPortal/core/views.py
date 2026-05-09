@@ -617,12 +617,6 @@ def crm_clients(request):
 			required_client_headers = {
 				'last_name',
 				'first_name',
-				'contact_number',
-				'email',
-				'date_of_birth',
-				'home_address',
-				'city',
-				'customer_type',
 			}
 			missing_headers = sorted(required_client_headers - normalized_columns)
 			if missing_headers:
@@ -644,28 +638,15 @@ def crm_clients(request):
 			def _norm_text(value):
 				return str(value or '').strip().lower()
 
-			def _find_existing_client(*, customer_id, first_name, last_name, contact_number, email, date_of_birth):
+			def _find_existing_client(*, customer_id, first_name, last_name):
 				if customer_id:
 					match = CRMClient.objects.filter(customer_id=customer_id).first()
 					if match:
 						return match
-				if email:
-					match = CRMClient.objects.filter(email__iexact=email).first()
-					if match:
-						return match
-				if first_name and last_name and date_of_birth:
+				if first_name and last_name:
 					match = CRMClient.objects.filter(
 						first_name__iexact=first_name,
 						last_name__iexact=last_name,
-						date_of_birth=date_of_birth,
-					).first()
-					if match:
-						return match
-				if first_name and last_name and contact_number:
-					match = CRMClient.objects.filter(
-						first_name__iexact=first_name,
-						last_name__iexact=last_name,
-						contact_number__iexact=contact_number,
 					).first()
 					if match:
 						return match
@@ -691,13 +672,15 @@ def crm_clients(request):
 			skipped_count = 0
 			sales_created_count = 0
 			seen_import_keys = set()
+			skipped_duplicate_labels = []
 			for item in rows:
 				if not isinstance(item, dict):
 					skipped_count += 1
 					continue
 
 				normalized = {_key(k): (v if v is not None else '') for k, v in item.items()}
-				customer_id = str(normalized.get('customer_id', '')).strip()
+				# Always auto-generate CRM customer_id from model save().
+				customer_id = ''
 				first_name = str(normalized.get('first_name', '')).strip()
 				last_name = str(normalized.get('last_name', '')).strip()
 				contact_number = str(normalized.get('contact_number', '')).strip()
@@ -715,34 +698,27 @@ def crm_clients(request):
 				customer_type = type_map.get(customer_type_raw, 'residential')
 				date_of_birth = parse_date(date_of_birth_raw) if date_of_birth_raw else None
 
-				if not first_name or not last_name or not contact_number:
-					skipped_count += 1
-					continue
+				if first_name and last_name:
+					dedupe_key = (
+						_norm_text(first_name),
+						_norm_text(last_name),
+					)
+					duplicate_label = f'{last_name}, {first_name}'
+					if dedupe_key in seen_import_keys:
+						skipped_count += 1
+						skipped_duplicate_labels.append(f'{duplicate_label} (duplicate in import file)')
+						continue
+					seen_import_keys.add(dedupe_key)
 
-				dedupe_key = (
-					_norm_text(first_name),
-					_norm_text(last_name),
-					_norm_text(email),
-					str(date_of_birth or ''),
-					_norm_text(contact_number),
-					_norm_text(customer_id),
-				)
-				if dedupe_key in seen_import_keys:
-					skipped_count += 1
-					continue
-				seen_import_keys.add(dedupe_key)
-
-				existing_client = _find_existing_client(
-					customer_id=customer_id,
-					first_name=first_name,
-					last_name=last_name,
-					contact_number=contact_number,
-					email=email,
-					date_of_birth=date_of_birth,
-				)
-				if existing_client:
-					skipped_count += 1
-					continue
+					existing_client = _find_existing_client(
+						customer_id=customer_id,
+						first_name=first_name,
+						last_name=last_name,
+					)
+					if existing_client:
+						skipped_count += 1
+						skipped_duplicate_labels.append(f'{duplicate_label} (already exists)')
+						continue
 
 				record = CRMClient(
 					customer_id=customer_id,
@@ -810,15 +786,20 @@ def crm_clients(request):
 
 			if created_count:
 				success_message = f'Imported {created_count} CRM client record(s).'
-				messages.success(request, success_message)
+				messages.success(request, success_message, extra_tags='toast')
 			if sales_created_count:
-				messages.success(request, f'Created {sales_created_count} linked CRM sales record(s).')
+				messages.success(request, f'Created {sales_created_count} linked CRM sales record(s).', extra_tags='toast')
 			if skipped_count:
-				warn_message = f'Skipped {skipped_count} row(s) due to missing required fields or duplicate client detection.'
-				messages.warning(request, warn_message)
+				warn_message = f'Skipped {skipped_count} row(s) due to duplicate full name detection.'
+				if skipped_duplicate_labels:
+					details = ', '.join(skipped_duplicate_labels[:6])
+					if len(skipped_duplicate_labels) > 6:
+						details += f', and {len(skipped_duplicate_labels) - 6} more'
+					warn_message = f'{warn_message} Duplicates: {details}.'
+				messages.warning(request, warn_message, extra_tags='toast')
 			if not created_count and not skipped_count:
 				info_message = 'No rows were processed.'
-				messages.info(request, info_message)
+				messages.info(request, info_message, extra_tags='toast')
 			if is_ajax:
 				return JsonResponse(
 					{
@@ -852,7 +833,7 @@ def crm_clients(request):
 			if is_ajax:
 				return JsonResponse({'ok': False, 'message': message, 'errors': form.errors}, status=400)
 
-	clients_queryset = CRMClient.objects.prefetch_related('media_files').order_by('-created_at')
+	clients_queryset = CRMClient.objects.prefetch_related('media_files', 'sales_records').order_by('-created_at')
 	if query:
 		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
 		for term in search_terms:
@@ -980,11 +961,138 @@ def crm_sales(request):
 	if restricted_response:
 		return restricted_response
 
-	sales_page = Paginator(
-		CRMSalesRecord.objects.select_related('client').order_by('-date_created', '-created_at'),
-		20,
-	).get_page(request.GET.get('page'))
-	return render(request, 'core/crm_sales.html', {'sales_page': sales_page})
+	query = (request.GET.get('q') or '').strip()
+	filter_assigned_sales = (request.GET.get('assigned_sales') or '').strip()
+	filter_sales_status = (request.GET.get('sales_status') or '').strip()
+	filter_lead_source = (request.GET.get('lead_source') or '').strip()
+	filter_roof_type = (request.GET.get('roof_type') or '').strip()
+	filter_roi = (request.GET.get('roi') or '').strip()
+	filter_project_cost_min_raw = (request.GET.get('project_cost_min') or '').strip()
+	filter_project_cost_max_raw = (request.GET.get('project_cost_max') or '').strip()
+	sort_field = (request.GET.get('sort') or 'date_created').strip()
+	sort_dir = (request.GET.get('dir') or 'desc').strip().lower()
+	if sort_dir not in {'asc', 'desc'}:
+		sort_dir = 'desc'
+
+	sales_queryset = CRMSalesRecord.objects.select_related('client')
+	if query:
+		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
+		for term in search_terms:
+			sales_queryset = sales_queryset.filter(
+				Q(client__first_name__icontains=term)
+				| Q(client__last_name__icontains=term)
+				| Q(client__customer_id__icontains=term)
+				| Q(assigned_sales__icontains=term)
+				| Q(sales_status__icontains=term)
+				| Q(lead_source__icontains=term)
+				| Q(roof_type__icontains=term)
+				| Q(return_on_investment__icontains=term)
+			)
+
+	if filter_assigned_sales:
+		sales_queryset = sales_queryset.filter(assigned_sales__icontains=filter_assigned_sales)
+	if filter_sales_status:
+		status_aliases = {
+			'new': ['new'],
+			'contracted': ['contracted', 'contacted'],
+			'for survey': ['for survey'],
+			'for proposal': ['for proposal', 'forproposal'],
+			'negotiation': ['negotiation'],
+			'closed won': ['closed won', 'close won'],
+			'closed lost': ['closed lost', 'close lost'],
+		}
+		status_values = status_aliases.get(filter_sales_status, [filter_sales_status])
+		status_query = Q()
+		for status_value in status_values:
+			status_query |= Q(sales_status__iexact=status_value)
+		sales_queryset = sales_queryset.filter(status_query)
+	if filter_lead_source:
+		lead_aliases = {
+			'walk-in': ['walk-in', 'walkin'],
+		}
+		lead_values = lead_aliases.get(filter_lead_source, [filter_lead_source])
+		lead_query = Q()
+		for lead_value in lead_values:
+			lead_query |= Q(lead_source__iexact=lead_value)
+		sales_queryset = sales_queryset.filter(lead_query)
+	if filter_roof_type:
+		sales_queryset = sales_queryset.filter(roof_type__iexact=filter_roof_type)
+	if filter_roi:
+		sales_queryset = sales_queryset.filter(return_on_investment__icontains=filter_roi)
+
+	try:
+		project_cost_min = Decimal(filter_project_cost_min_raw) if filter_project_cost_min_raw else None
+	except (InvalidOperation, TypeError, ValueError):
+		project_cost_min = None
+	try:
+		project_cost_max = Decimal(filter_project_cost_max_raw) if filter_project_cost_max_raw else None
+	except (InvalidOperation, TypeError, ValueError):
+		project_cost_max = None
+	if project_cost_min is not None:
+		sales_queryset = sales_queryset.filter(project_cost__gte=project_cost_min)
+	if project_cost_max is not None:
+		sales_queryset = sales_queryset.filter(project_cost__lte=project_cost_max)
+
+	assigned_sales_options = list(
+		CRMSalesRecord.objects.exclude(assigned_sales__isnull=True)
+		.exclude(assigned_sales__exact='')
+		.order_by('assigned_sales')
+		.values_list('assigned_sales', flat=True)
+		.distinct()
+	)
+
+	sortable_fields = {
+		'client': 'client__last_name',
+		'assigned_sales': 'assigned_sales',
+		'project_cost': 'project_cost',
+		'sales_status': 'sales_status',
+		'date_created': 'date_created',
+		'lead_source': 'lead_source',
+		'roof_type': 'roof_type',
+		'roi': 'return_on_investment',
+	}
+	order_field = sortable_fields.get(sort_field, 'date_created')
+	order_prefix = '' if sort_dir == 'asc' else '-'
+	sales_queryset = sales_queryset.order_by(f'{order_prefix}{order_field}', '-created_at')
+
+	sales_page = Paginator(sales_queryset, 20).get_page(request.GET.get('page'))
+	base_query_params = request.GET.copy()
+	base_query_params.pop('page', None)
+	current_query_string = base_query_params.urlencode()
+
+	def _build_sort_url(field_name):
+		params = request.GET.copy()
+		params.pop('page', None)
+		current_sort = (params.get('sort') or '').strip()
+		current_dir = (params.get('dir') or 'desc').strip().lower()
+		next_dir = 'asc'
+		if current_sort == field_name and current_dir == 'asc':
+			next_dir = 'desc'
+		params['sort'] = field_name
+		params['dir'] = next_dir
+		return f'?{params.urlencode()}'
+
+	sort_urls = {key: _build_sort_url(key) for key in sortable_fields.keys()}
+	sort_indicators = {key: '↕' for key in sortable_fields.keys()}
+	if sort_field in sort_indicators:
+		sort_indicators[sort_field] = '↑' if sort_dir == 'asc' else '↓'
+
+	context = {
+		'sales_page': sales_page,
+		'q': query,
+		'filter_assigned_sales': filter_assigned_sales,
+		'filter_sales_status': filter_sales_status,
+		'filter_lead_source': filter_lead_source,
+		'filter_roof_type': filter_roof_type,
+		'filter_roi': filter_roi,
+		'filter_project_cost_min': filter_project_cost_min_raw,
+		'filter_project_cost_max': filter_project_cost_max_raw,
+		'sort_urls': sort_urls,
+		'sort_indicators': sort_indicators,
+		'current_query_string': current_query_string,
+		'assigned_sales_options': assigned_sales_options,
+	}
+	return render(request, 'core/crm_sales.html', context)
 
 
 @login_required

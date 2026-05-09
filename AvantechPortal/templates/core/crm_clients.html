@@ -7,7 +7,10 @@
 <div class="card border-0 shadow-sm">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-            <h2 class="h5 mb-0">Customer Information</h2>
+            <div>
+                <div class="crm-date-label">{% now "M d" %}</div>
+                <h2 class="crm-page-title mb-0">Clients</h2>
+            </div>
             <div class="d-flex align-items-center gap-2">
                 <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#crmImportModal">Import</button>
                 {% if request.user.is_superuser or perms.core.add_client %}
@@ -57,9 +60,11 @@
                 <a href="{% url 'crm_clients' %}" class="btn btn-outline-secondary w-100">Reset</a>
             </div>
         </form>
+        <div class="crm-clients-split-layout">
+        <div>
         <div id="crmClientsListRoot">
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
+        <div class="table-responsive crm-clients-table-wrap">
+            <table class="table table-sm align-middle mb-0 crm-clients-table">
                 <thead class="table-light">
                     <tr>
                         <th style="width: 36px;"><input type="checkbox" id="crmSelectAll"></th>
@@ -72,7 +77,18 @@
                 </thead>
                 <tbody>
                     {% for row in clients_page %}
-                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}">
+                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}"
+                            {% with sales=row.sales_records.first %}
+                                data-sales-date-created="{% if sales and sales.date_created %}{{ sales.date_created|date:'F j, Y' }}{% else %}-{% endif %}"
+                                data-sales-lead-source="{% if sales and sales.lead_source %}{{ sales.lead_source }}{% else %}-{% endif %}"
+                                data-sales-monthly-electric-bill="{% if sales and sales.monthly_electric_bill is not None %}{{ sales.monthly_electric_bill }}{% else %}-{% endif %}"
+                                data-sales-roof-type="{% if sales and sales.roof_type %}{{ sales.roof_type }}{% else %}-{% endif %}"
+                                data-sales-ownership="{% if sales and sales.ownership %}{{ sales.ownership }}{% else %}-{% endif %}"
+                                data-sales-project-cost="{% if sales and sales.project_cost is not None %}{{ sales.project_cost }}{% else %}-{% endif %}"
+                                data-sales-roi="{% if sales and sales.return_on_investment %}{{ sales.return_on_investment }}{% else %}-{% endif %}"
+                                data-sales-assigned="{% if sales and sales.assigned_sales %}{{ sales.assigned_sales }}{% else %}-{% endif %}"
+                                data-sales-status="{% if sales and sales.sales_status %}{{ sales.sales_status }}{% else %}-{% endif %}"
+                            {% endwith %}>
                             <td><input type="checkbox" class="crm-row-checkbox" name="client_ids" form="crmBulkForm" value="{{ row.id }}"></td>
                             <td>{{ row.customer_id }}</td>
                             <td>{{ row.last_name }}</td>
@@ -149,6 +165,27 @@
         {% endif %}
         <div class="mt-3 small text-secondary">Customer Type options: residential, commercial, industrial</div>
         </div>
+        </div>
+        <aside class="crm-client-summary-panel">
+            <h3 class="crm-summary-name" id="crmSummaryName">Select a client</h3>
+            <div class="small text-secondary mb-3">Client Summary</div>
+            <div class="crm-summary-grid">
+                <div><div class="crm-summary-label">Customer ID</div><div class="crm-summary-value" id="crmSummaryCustomerId">-</div></div>
+                <div><div class="crm-summary-label">Type</div><div class="crm-summary-value" id="crmSummaryType">-</div></div>
+            </div>
+            <div class="crm-summary-item"><div class="crm-summary-label">Email</div><div class="crm-summary-value" id="crmSummaryEmail">-</div></div>
+            <div class="crm-summary-item"><div class="crm-summary-label">Contact</div><div class="crm-summary-value" id="crmSummaryContact">-</div></div>
+            <div class="crm-summary-item"><div class="crm-summary-label">Address</div><div class="crm-summary-value" id="crmSummaryAddress">-</div></div>
+            <div class="crm-summary-item"><div class="crm-summary-label">City</div><div class="crm-summary-value" id="crmSummaryCity">-</div></div>
+            <div class="crm-summary-item"><div class="crm-summary-label">Registered</div><div class="crm-summary-value" id="crmSummaryRegistered">-</div></div>
+            <div class="mt-3 d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" id="crmSummaryViewBtn">View</button>
+                {% if request.user.is_superuser or perms.core.change_client %}
+                    <button type="button" class="btn btn-sm btn-success flex-fill" id="crmSummaryEditBtn">Edit</button>
+                {% endif %}
+            </div>
+        </aside>
+        </div>
     </div>
 </div>
 
@@ -176,9 +213,9 @@
                         <div class="col-md-4 d-flex align-items-end">
                             <div class="w-100">
                                 <div class="small fw-semibold mb-2">Selected Files</div>
-                                <div id="crmImportFilePreview" class="border rounded-3 p-2 text-secondary" style="min-height: 104px;">
-                                    <div id="crmImportFilePreviewGrid" class="d-flex flex-nowrap gap-2 overflow-auto">
-                                        <div class="border rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 88px; height: 88px;">
+                                <div id="crmImportFilePreview" class="border rounded-3 p-2 text-secondary" style="min-height: 104px; overflow: visible;">
+                                    <div id="crmImportFilePreviewGrid" class="d-flex flex-nowrap gap-2 overflow-auto" style="overflow-y: visible; padding-top: 8px; padding-right: 8px;">
+                                        <div class="border rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 88px; height: 88px; overflow: visible;">
                                             <span class="small">No file</span>
                                         </div>
                                     </div>
@@ -186,20 +223,11 @@
                             </div>
                         </div>
                         <div class="col-12">
-                            <label class="form-label" for="crmImportHeadersInput">Headers to collect/detect (comma separated)</label>
-                            <input type="text" class="form-control" id="crmImportHeadersInput" list="crmImportHeaderOptions" placeholder="Customer ID, Last Name, First Name, Contact Number, Email">
-                            <datalist id="crmImportHeaderOptions">
-                                <option value="Customer ID"></option>
-                                <option value="Last Name"></option>
-                                <option value="First Name"></option>
-                                <option value="Contact Number"></option>
-                                <option value="Email"></option>
-                                <option value="Home Address"></option>
-                                <option value="City"></option>
-                                <option value="Customer Type"></option>
-                                <option value="Date of Birth"></option>
-                            </datalist>
-                            <div class="small text-secondary mt-2">Tip: If empty, the first row of the file will be used as headers.</div>
+                            <label class="form-label">Headers to collect/detect</label>
+                            <div id="crmImportHeadersContainer" class="border rounded-3 p-3 bg-light-subtle">
+                                <div class="small text-secondary">No detected headers yet. Upload a file to detect headers automatically.</div>
+                            </div>
+                            <div class="small text-secondary mt-2">Detected headers are checked by default. Uncheck a header to exclude it from data collection.</div>
                         </div>
                     </div>
                 </form>
@@ -254,34 +282,116 @@
 </div>
 
 <div class="modal fade" id="crmClientInfoModal" tabindex="-1" aria-labelledby="crmClientInfoModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="crmClientInfoModalLabel">Client Information</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-md-6"><strong>Customer ID:</strong> <span id="infoCustomerId"></span></div>
-                    <div class="col-md-6"><strong>Name:</strong> <span id="infoName"></span></div>
-                    <div class="col-md-6"><strong>Customer Type:</strong> <span id="infoCustomerType"></span></div>
-                    <div class="col-md-6"><strong>Contact Number:</strong> <span id="infoContactNumber"></span></div>
-                    <div class="col-md-6"><strong>Email:</strong> <span id="infoEmail"></span></div>
-                    <div class="col-md-6"><strong>Date of Birth:</strong> <span id="infoDateOfBirth"></span></div>
-                    <div class="col-md-6"><strong>Registered In System:</strong> <span id="infoRegisteredAt"></span></div>
-                    <div class="col-12"><strong>Home Address:</strong> <span id="infoHomeAddress"></span></div>
-                    <div class="col-md-6"><strong>City:</strong> <span id="infoCity"></span></div>
-                    <div class="col-12"><strong>Note / Comment:</strong> <span id="infoNotes"></span></div>
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content crm-profile-modal-shell">
+            <div class="modal-body p-0">
+                <div class="crm-profile-modal-layout">
+                    <aside class="crm-profile-modal-nav">
+                        <div class="crm-profile-modal-email" id="infoSidebarEmail">-</div>
+                        <button type="button" class="crm-profile-nav-item active" data-target-pane="client-profile-pane">
+                            <span>Client Profile</span><span>&rsaquo;</span>
+                        </button>
+                        <button type="button" class="crm-profile-nav-item" data-target-pane="client-sales-pane">
+                            <span>Sales</span><span>&rsaquo;</span>
+                        </button>
+                        <button type="button" class="crm-profile-nav-item" data-target-pane="client-technical-pane">
+                            <span>Technical</span><span>&rsaquo;</span>
+                        </button>
+                        <button type="button" class="crm-profile-nav-item" data-target-pane="client-more-pane">
+                            <span>More</span><span>&rsaquo;</span>
+                        </button>
+                    </aside>
+                    <section class="crm-profile-modal-content">
+                        <div class="d-flex align-items-start justify-content-between mb-3">
+                            <h5 class="modal-title mb-0" id="crmClientInfoModalLabel">Profile</h5>
+                            <button type="button" class="btn-close crm-profile-close-btn" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="crm-profile-pane" id="client-profile-pane">
+                        <form id="crmInlineProfileForm" class="row g-3">
+                            {% csrf_token %}
+                            <div class="col-md-6">
+                                <label class="form-label">Customer ID</label>
+                                <input class="form-control bg-light" id="infoCustomerId" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Customer Type</label>
+                                <select class="form-select crm-inline-editable-select" id="infoCustomerType" name="customer_type" disabled>
+                                    <option value="residential">Residential</option>
+                                    <option value="commercial">Commercial</option>
+                                    <option value="industrial">Industrial</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">First Name</label>
+                                <input class="form-control bg-light crm-inline-editable" id="infoFirstName" name="first_name" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Last Name</label>
+                                <input class="form-control bg-light crm-inline-editable" id="infoLastName" name="last_name" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Contact Number</label>
+                                <input class="form-control bg-light crm-inline-editable" id="infoContactNumber" name="contact_number" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Date of Birth</label>
+                                <input class="form-control bg-light crm-inline-editable" id="infoDateOfBirth" name="date_of_birth" type="date" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Registered In System</label>
+                                <input class="form-control bg-light" id="infoRegisteredAt" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input class="form-control bg-light crm-inline-editable" id="infoEmail" name="email" readonly>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Home Address</label>
+                                <textarea class="form-control bg-light crm-inline-editable" id="infoHomeAddress" name="home_address" rows="2" readonly></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">City</label>
+                                <input class="form-control bg-light crm-inline-editable" id="infoCity" name="city" readonly>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Note / Comment</label>
+                                <textarea class="form-control bg-light crm-inline-editable" id="infoNotes" name="notes" rows="2" readonly></textarea>
+                            </div>
+                        </form>
+                        <div class="mt-3">
+                            <h6 class="mb-2">Attached Media</h6>
+                            <div id="infoMediaFiles"></div>
+                        </div>
+                        </div>
+                        <div class="crm-profile-pane d-none" id="client-sales-pane">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label class="form-label">Date Created</label><input class="form-control bg-light" id="infoSalesDateCreated" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Lead Source</label><input class="form-control bg-light" id="infoSalesLeadSource" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Monthly Electric Bill</label><input class="form-control bg-light" id="infoSalesMonthlyBill" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Roof Type</label><input class="form-control bg-light" id="infoSalesRoofType" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Ownership</label><input class="form-control bg-light" id="infoSalesOwnership" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Project Cost</label><input class="form-control bg-light" id="infoSalesProjectCost" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Return on Investment</label><input class="form-control bg-light" id="infoSalesRoi" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Assigned Sales</label><input class="form-control bg-light" id="infoSalesAssigned" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Sales Status</label><input class="form-control bg-light" id="infoSalesStatus" readonly></div>
+                            </div>
+                        </div>
+                        <div class="crm-profile-pane d-none" id="client-technical-pane">
+                            <div class="alert alert-light border mb-0">Technical details can be shown here once linked records are available.</div>
+                        </div>
+                        <div class="crm-profile-pane d-none" id="client-more-pane">
+                            <div class="alert alert-light border mb-0">More client info placeholder for future updates.</div>
+                        </div>
+                        <div class="mt-4 d-flex gap-2">
+                            {% if request.user.is_superuser or perms.core.change_client %}
+                                <button type="button" class="btn btn-success" id="crmInlineEditBtn">Edit Info</button>
+                                <button type="submit" class="btn btn-success d-none" id="crmInlineSaveBtn" form="crmInlineProfileForm">Save Info</button>
+                                <button type="button" class="btn btn-outline-secondary d-none" id="crmInlineCancelBtn">Cancel</button>
+                            {% endif %}
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </section>
                 </div>
-                <hr>
-                <h6 class="mb-2">Attached Media</h6>
-                <div id="infoMediaFiles"></div>
-            </div>
-            <div class="modal-footer">
-                {% if request.user.is_superuser or perms.core.change_client %}
-                    <button type="button" class="btn btn-primary" id="crmOpenEditModalBtn">Edit Client</button>
-                {% endif %}
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -428,9 +538,144 @@
     </div>
 </div>
 {% endif %}
+<style>
+    .crm-date-label { font-size: 10px; letter-spacing: .06em; color: #8f8b85; margin-bottom: 2px; }
+    .crm-page-title { font-size: 2rem; font-weight: 600; line-height: 1.1; }
+    .crm-clients-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+    .crm-clients-table-wrap {
+        max-height: 470px;
+        min-height: 470px;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        scrollbar-gutter: stable;
+        border: 1px solid #e5efe8;
+        border-radius: 12px;
+        position: relative;
+        clip-path: none;
+    }
+    #crmClientsListRoot,
+    .crm-clients-split-layout {
+        overflow: visible;
+    }
+    .crm-clients-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+    .crm-clients-table thead th { position: sticky; top: 0; z-index: 2; background: #f7fbf8; border-bottom: 0; }
+    .crm-clients-table tbody tr { background: #f4f7f5; height: 42px; }
+    .crm-clients-table tbody tr td { border-top: 0; border-bottom: 0; }
+    .crm-clients-table tbody tr td:first-child { border-radius: 8px 0 0 8px; }
+    .crm-clients-table tbody tr td:last-child { border-radius: 0 8px 8px 0; }
+    .crm-client-row.is-active { background: #1f8f53; color: #fff; }
+    .crm-client-summary-panel { border-left: 1px solid #e4e9e6; padding-left: 12px; }
+    .crm-summary-name { font-size: 1.75rem; margin: 0 0 8px; }
+    .crm-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .crm-summary-item { margin-bottom: 8px; }
+    .crm-summary-label { font-size: 11px; color: #6f776f; margin-bottom: 2px; }
+    .crm-summary-value { font-size: 13px; color: #202420; word-break: break-word; }
+    .pagination .page-item.active .page-link { background: #1f8f53; border-color: #1f8f53; }
+    .crm-profile-modal-shell {
+        border-radius: 18px;
+        overflow: hidden;
+        background: #f6f6f6;
+    }
+    .crm-profile-modal-layout {
+        display: grid;
+        grid-template-columns: 320px minmax(0, 1fr);
+        min-height: 640px;
+    }
+    .crm-profile-modal-nav {
+        border-right: 1px solid #e4e4e4;
+        background: #fbfbfb;
+        padding: 20px 18px;
+    }
+    .crm-profile-modal-email {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 18px;
+        word-break: break-word;
+    }
+    .crm-profile-nav-item {
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: transparent;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+    .crm-profile-nav-item.active {
+        background: #ece7ff;
+        color: #4a46d8;
+    }
+    .crm-profile-modal-content {
+        padding: 22px 24px 24px;
+        background: #f7f7f7;
+    }
+    .crm-profile-close-btn {
+        border: 1px solid #ddd;
+        border-radius: 999px;
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        background-size: 16px;
+    }
+    .crm-profile-avatar {
+        width: 78px;
+        height: 78px;
+        border-radius: 50%;
+        background: #d8d8d8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        color: #444;
+    }
+    @media (max-width: 991.98px) {
+        .crm-clients-split-layout { grid-template-columns: 1fr; }
+        .crm-client-summary-panel { border-left: 0; border-top: 1px solid #e4e9e6; padding-left: 0; padding-top: 12px; }
+        .crm-profile-modal-layout { grid-template-columns: 1fr; }
+        .crm-profile-modal-nav { border-right: 0; border-bottom: 1px solid #e4e4e4; }
+    }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    var activeClientId = null;
+
+    function safeText(value) {
+        return value == null || String(value).trim() === '' ? '-' : String(value);
+    }
+    function renderSummaryFromRow(row) {
+        if (!row) return;
+        var fullName = ((row.dataset.firstName || '') + ' ' + (row.dataset.lastName || '')).trim();
+        document.getElementById('crmSummaryName').textContent = fullName || 'Unnamed Client';
+        document.getElementById('crmSummaryCustomerId').textContent = safeText(row.dataset.customerId);
+        document.getElementById('crmSummaryType').textContent = safeText(row.dataset.customerType);
+        document.getElementById('crmSummaryEmail').textContent = safeText(row.dataset.email);
+        document.getElementById('crmSummaryContact').textContent = safeText(row.dataset.contactNumber);
+        document.getElementById('crmSummaryAddress').textContent = safeText(row.dataset.homeAddress);
+        document.getElementById('crmSummaryCity').textContent = safeText(row.dataset.city);
+        document.getElementById('crmSummaryRegistered').textContent = safeText(row.dataset.registeredAt);
+    }
+    function setActiveRow(row) {
+        if (!row) return;
+        document.querySelectorAll('.crm-client-row.is-active').forEach(function (r) { r.classList.remove('is-active'); });
+        row.classList.add('is-active');
+        activeClientId = row.dataset.clientId || null;
+        renderSummaryFromRow(row);
+    }
+    function applyClientRowsUI() {
+        var rows = Array.from(document.querySelectorAll('.crm-client-row'));
+        rows.forEach(function (row) {
+            row.setAttribute('tabindex', '0');
+            row.style.cursor = 'pointer';
+        });
+        if (!rows.length) return;
+        var preferred = activeClientId ? rows.find(function (r) { return r.dataset.clientId === activeClientId; }) : null;
+        setActiveRow(preferred || rows[0]);
+    }
+
     function getCsrfToken() {
         var tokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
         return tokenInput ? tokenInput.value : '';
@@ -453,6 +698,7 @@ document.addEventListener('DOMContentLoaded', function () {
             currentRoot.innerHTML = nextRoot.innerHTML;
         }
         syncBulkSelectionState();
+        applyClientRowsUI();
     }
 
     async function postFormAjax(form) {
@@ -581,84 +827,141 @@ document.addEventListener('DOMContentLoaded', function () {
     var editModalEl = document.getElementById('crmClientEditModal');
     var editModal = (editModalEl && window.bootstrap) ? new bootstrap.Modal(editModalEl) : null;
     var editForm = document.getElementById('crmEditClientForm');
-    var openEditBtn = document.getElementById('crmOpenEditModalBtn');
+    var inlineProfileForm = document.getElementById('crmInlineProfileForm');
+    var inlineEditBtn = document.getElementById('crmInlineEditBtn');
+    var inlineSaveBtn = document.getElementById('crmInlineSaveBtn');
+    var inlineCancelBtn = document.getElementById('crmInlineCancelBtn');
     var currentRowForModal = null;
+    var isInlineEditing = false;
+    function setInlineEditMode(editing) {
+        isInlineEditing = !!editing;
+        document.querySelectorAll('#crmClientInfoModal .crm-inline-editable').forEach(function (field) {
+            field.readOnly = !isInlineEditing;
+        });
+        document.querySelectorAll('#crmClientInfoModal .crm-inline-editable-select').forEach(function (field) {
+            field.disabled = !isInlineEditing;
+        });
+        if (inlineEditBtn) inlineEditBtn.classList.toggle('d-none', isInlineEditing);
+        if (inlineSaveBtn) inlineSaveBtn.classList.toggle('d-none', !isInlineEditing);
+        if (inlineCancelBtn) inlineCancelBtn.classList.toggle('d-none', !isInlineEditing);
+    }
+    function syncRowFromInlineForm(row) {
+        if (!row) return;
+        row.dataset.firstName = document.getElementById('infoFirstName').value || '';
+        row.dataset.lastName = document.getElementById('infoLastName').value || '';
+        row.dataset.contactNumber = document.getElementById('infoContactNumber').value || '-';
+        row.dataset.email = document.getElementById('infoEmail').value || '-';
+        row.dataset.dateOfBirthIso = document.getElementById('infoDateOfBirth').value || '';
+        row.dataset.homeAddress = document.getElementById('infoHomeAddress').value || '-';
+        row.dataset.city = document.getElementById('infoCity').value || '-';
+        row.dataset.notes = document.getElementById('infoNotes').value || '-';
+        var typeSelect = document.getElementById('infoCustomerType');
+        row.dataset.customerTypeValue = typeSelect ? typeSelect.value : 'residential';
+        row.dataset.customerType = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : row.dataset.customerTypeValue;
+        var cells = row.querySelectorAll('td');
+        if (cells.length >= 6) {
+            cells[2].textContent = row.dataset.lastName;
+            cells[3].textContent = row.dataset.firstName;
+            cells[4].textContent = row.dataset.customerType;
+        }
+        setActiveRow(row);
+    }
     function openClientModalFromRow(row) {
         if (!row || !clientModal) {
             return;
         }
         currentRowForModal = row;
-        document.getElementById('infoCustomerId').textContent = row.dataset.customerId || '-';
-        document.getElementById('infoName').textContent = ((row.dataset.firstName || '') + ' ' + (row.dataset.lastName || '')).trim() || '-';
-        document.getElementById('infoCustomerType').textContent = row.dataset.customerType || '-';
-        document.getElementById('infoContactNumber').textContent = row.dataset.contactNumber || '-';
-        document.getElementById('infoEmail').textContent = row.dataset.email || '-';
-        document.getElementById('infoDateOfBirth').textContent = row.dataset.dateOfBirth || '-';
-        document.getElementById('infoRegisteredAt').textContent = row.dataset.registeredAt || '-';
-        document.getElementById('infoHomeAddress').textContent = row.dataset.homeAddress || '-';
-        document.getElementById('infoCity').textContent = row.dataset.city || '-';
-        document.getElementById('infoNotes').textContent = row.dataset.notes || '-';
+        document.getElementById('infoCustomerId').value = row.dataset.customerId || '-';
+        document.getElementById('infoFirstName').value = row.dataset.firstName || '';
+        document.getElementById('infoLastName').value = row.dataset.lastName || '';
+        var typeSelect = document.getElementById('infoCustomerType');
+        if (typeSelect) typeSelect.value = row.dataset.customerTypeValue || 'residential';
+        document.getElementById('infoContactNumber').value = row.dataset.contactNumber === '-' ? '' : (row.dataset.contactNumber || '');
+        document.getElementById('infoEmail').value = row.dataset.email === '-' ? '' : (row.dataset.email || '');
+        document.getElementById('infoSidebarEmail').textContent = row.dataset.email || '-';
+        document.getElementById('infoDateOfBirth').value = row.dataset.dateOfBirthIso || '';
+        document.getElementById('infoRegisteredAt').value = row.dataset.registeredAt || '-';
+        document.getElementById('infoHomeAddress').value = row.dataset.homeAddress === '-' ? '' : (row.dataset.homeAddress || '');
+        document.getElementById('infoCity').value = row.dataset.city === '-' ? '' : (row.dataset.city || '');
+        document.getElementById('infoNotes').value = row.dataset.notes === '-' ? '' : (row.dataset.notes || '');
+        document.getElementById('infoSalesDateCreated').value = row.dataset.salesDateCreated || '-';
+        document.getElementById('infoSalesLeadSource').value = row.dataset.salesLeadSource || '-';
+        document.getElementById('infoSalesMonthlyBill').value = row.dataset.salesMonthlyElectricBill || '-';
+        document.getElementById('infoSalesRoofType').value = row.dataset.salesRoofType || '-';
+        document.getElementById('infoSalesOwnership').value = row.dataset.salesOwnership || '-';
+        document.getElementById('infoSalesProjectCost').value = row.dataset.salesProjectCost || '-';
+        document.getElementById('infoSalesRoi').value = row.dataset.salesRoi || '-';
+        document.getElementById('infoSalesAssigned').value = row.dataset.salesAssigned || '-';
+        document.getElementById('infoSalesStatus').value = row.dataset.salesStatus || '-';
         var mediaContainer = document.getElementById('infoMediaFiles');
         var mediaTemplateId = row.dataset.mediaTemplateId;
         var mediaTemplate = mediaTemplateId ? document.getElementById(mediaTemplateId) : null;
         if (mediaContainer) {
             mediaContainer.innerHTML = mediaTemplate ? mediaTemplate.innerHTML : '<p class="text-secondary mb-0">No media files uploaded for this client.</p>';
         }
+        var firstNav = document.querySelector('#crmClientInfoModal .crm-profile-nav-item');
+        if (firstNav) {
+            firstNav.click();
+        }
+        setInlineEditMode(false);
         clientModal.show();
     }
 
-    if (openEditBtn) {
-        openEditBtn.addEventListener('click', function () {
-            if (!currentRowForModal || !editModal || !editForm) {
-                return;
+    document.querySelectorAll('#crmClientInfoModal .crm-profile-nav-item').forEach(function (item) {
+        item.addEventListener('click', function () {
+            var target = item.getAttribute('data-target-pane');
+            document.querySelectorAll('#crmClientInfoModal .crm-profile-nav-item').forEach(function (nav) {
+                nav.classList.remove('active');
+            });
+            item.classList.add('active');
+            document.querySelectorAll('#crmClientInfoModal .crm-profile-pane').forEach(function (pane) {
+                pane.classList.add('d-none');
+            });
+            var paneEl = target ? document.getElementById(target) : null;
+            if (paneEl) {
+                paneEl.classList.remove('d-none');
             }
-            editForm.action = currentRowForModal.dataset.editUrl || '';
-            document.getElementById('editFirstName').value = currentRowForModal.dataset.firstName || '';
-            document.getElementById('editLastName').value = currentRowForModal.dataset.lastName || '';
-            document.getElementById('editContactNumber').value = currentRowForModal.dataset.contactNumber || '';
-            document.getElementById('editEmail').value = currentRowForModal.dataset.email === '-' ? '' : (currentRowForModal.dataset.email || '');
-            document.getElementById('editDateOfBirth').value = currentRowForModal.dataset.dateOfBirthIso || '';
-            document.getElementById('editHomeAddress').value = currentRowForModal.dataset.homeAddress === '-' ? '' : (currentRowForModal.dataset.homeAddress || '');
-            document.getElementById('editCity').value = currentRowForModal.dataset.city === '-' ? '' : (currentRowForModal.dataset.city || '');
-            document.getElementById('editNotes').value = currentRowForModal.dataset.notes === '-' ? '' : (currentRowForModal.dataset.notes || '');
-            document.getElementById('editCustomerType').value = currentRowForModal.dataset.customerTypeValue || 'residential';
-            clientModal.hide();
-            editModal.show();
+        });
+    });
+
+    if (inlineEditBtn) inlineEditBtn.addEventListener('click', function () { setInlineEditMode(true); });
+    if (inlineCancelBtn) inlineCancelBtn.addEventListener('click', function () { if (currentRowForModal) openClientModalFromRow(currentRowForModal); });
+    if (inlineProfileForm) {
+        inlineProfileForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            if (!currentRowForModal) return;
+            try {
+                inlineProfileForm.action = currentRowForModal.dataset.editUrl || '';
+                await postFormAjax(inlineProfileForm);
+                syncRowFromInlineForm(currentRowForModal);
+                setInlineEditMode(false);
+            } catch (error) {
+                alert(error.message || 'Unable to update client.');
+            }
         });
     }
     document.addEventListener('click', function (event) {
         var viewBtn = event.target.closest('.js-action-view');
         if (viewBtn) {
             var rowForView = viewBtn.closest('.crm-client-row');
+            setActiveRow(rowForView);
             openClientModalFromRow(rowForView);
             return;
         }
         var editBtn = event.target.closest('.js-action-edit');
         if (editBtn) {
-            if (!editModal || !editForm) {
-                return;
-            }
             var rowForEdit = editBtn.closest('.crm-client-row');
             if (!rowForEdit) {
                 return;
             }
-            currentRowForModal = rowForEdit;
-            editForm.action = rowForEdit.dataset.editUrl || '';
-            document.getElementById('editFirstName').value = rowForEdit.dataset.firstName || '';
-            document.getElementById('editLastName').value = rowForEdit.dataset.lastName || '';
-            document.getElementById('editContactNumber').value = rowForEdit.dataset.contactNumber || '';
-            document.getElementById('editEmail').value = rowForEdit.dataset.email === '-' ? '' : (rowForEdit.dataset.email || '');
-            document.getElementById('editDateOfBirth').value = rowForEdit.dataset.dateOfBirthIso || '';
-            document.getElementById('editHomeAddress').value = rowForEdit.dataset.homeAddress === '-' ? '' : (rowForEdit.dataset.homeAddress || '');
-            document.getElementById('editCity').value = rowForEdit.dataset.city === '-' ? '' : (rowForEdit.dataset.city || '');
-            document.getElementById('editNotes').value = rowForEdit.dataset.notes === '-' ? '' : (rowForEdit.dataset.notes || '');
-            document.getElementById('editCustomerType').value = rowForEdit.dataset.customerTypeValue || 'residential';
-            editModal.show();
+            setActiveRow(rowForEdit);
+            openClientModalFromRow(rowForEdit);
+            setInlineEditMode(true);
             return;
         }
         var row = event.target.closest('.crm-client-row');
         if (row && !event.target.closest('input, button, a, label')) {
-            openClientModalFromRow(row);
+            setActiveRow(row);
         }
     });
     document.addEventListener('keydown', function (event) {
@@ -667,12 +970,34 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         event.preventDefault();
-        openClientModalFromRow(row);
+        setActiveRow(row);
     });
-    document.querySelectorAll('.crm-client-row').forEach(function (row) {
-        row.setAttribute('tabindex', '0');
-        row.style.cursor = 'pointer';
+    applyClientRowsUI();
+
+    document.addEventListener('dblclick', function (event) {
+        var row = event.target.closest('.crm-client-row');
+        if (row && !event.target.closest('input, button, a, label')) {
+            setActiveRow(row);
+            openClientModalFromRow(row);
+        }
     });
+
+    var summaryViewBtn = document.getElementById('crmSummaryViewBtn');
+    var summaryEditBtn = document.getElementById('crmSummaryEditBtn');
+    if (summaryViewBtn) {
+        summaryViewBtn.addEventListener('click', function () {
+            var row = document.querySelector('.crm-client-row.is-active');
+            if (row) openClientModalFromRow(row);
+        });
+    }
+    if (summaryEditBtn) {
+        summaryEditBtn.addEventListener('click', function () {
+            var row = document.querySelector('.crm-client-row.is-active');
+            if (!row) return;
+            openClientModalFromRow(row);
+            setInlineEditMode(true);
+        });
+    }
 
     var addClientForm = document.getElementById('addCrmClientForm');
     if (addClientForm) {
@@ -783,6 +1108,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (nextRoot && currentRoot) {
                     currentRoot.innerHTML = nextRoot.innerHTML;
                     syncBulkSelectionState();
+                    applyClientRowsUI();
                 }
                 window.history.replaceState({}, '', pageLink.href);
             });
@@ -803,13 +1129,13 @@ document.addEventListener('DOMContentLoaded', function () {
     var importPaginationWrap = document.getElementById('crmImportPreviewPaginationWrap');
     var importPagination = document.getElementById('crmImportPreviewPagination');
     var clearPreviewBtn = document.getElementById('crmImportClearPreviewBtn');
-    var importHeadersInput = document.getElementById('crmImportHeadersInput');
+    var importHeadersContainer = document.getElementById('crmImportHeadersContainer');
     var importFilePreview = document.getElementById('crmImportFilePreview');
     var importPayloadInput = document.getElementById('crmImportPayloadInput');
     var importSubmitBtn = document.getElementById('crmImportSubmitBtn');
     var previewStorageKey = 'crm_import_preview_data_v1';
-    var previewHeadersStorageKey = 'crm_import_preview_headers_v1';
-    var importPreviewState = { columns: [], rows: [], page: 1 };
+    var previewHeadersStorageKey = 'crm_import_selected_headers_v1';
+    var importPreviewState = { columns: [], rows: [], page: 1, selectedColumns: [], headersSelectionActive: false };
     var previewPageSize = 10;
 
     function escapeHtml(value) {
@@ -824,7 +1150,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (importPayloadInput) {
             importPayloadInput.value = JSON.stringify({
-                columns: importPreviewState.columns || [],
+                columns: importPreviewState.headersSelectionActive ? (importPreviewState.selectedColumns || []) : (importPreviewState.columns || []),
                 rows: importPreviewState.rows || []
             });
         }
@@ -846,37 +1172,38 @@ document.addEventListener('DOMContentLoaded', function () {
             importPreviewState.columns = parsed.columns;
             importPreviewState.rows = parsed.rows;
             importPreviewState.page = parsed.page || 1;
+            importPreviewState.selectedColumns = Array.isArray(parsed.selectedColumns) ? parsed.selectedColumns : [];
+            importPreviewState.headersSelectionActive = !!parsed.headersSelectionActive;
         } catch (error) {
         }
     }
 
     function saveHeadersState() {
-        if (!importHeadersInput) {
-            return;
-        }
         try {
-            sessionStorage.setItem(previewHeadersStorageKey, String(importHeadersInput.value || ''));
+            sessionStorage.setItem(previewHeadersStorageKey, JSON.stringify(importPreviewState.selectedColumns || []));
         } catch (error) {
         }
     }
 
     function loadHeadersState() {
-        if (!importHeadersInput) {
-            return;
-        }
         try {
             var saved = sessionStorage.getItem(previewHeadersStorageKey);
             if (saved != null) {
-                importHeadersInput.value = saved;
+                var parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                    importPreviewState.selectedColumns = parsed;
+                    importPreviewState.headersSelectionActive = true;
+                }
             }
         } catch (error) {
         }
     }
 
     function clearPreviewState() {
-        importPreviewState = { columns: [], rows: [], page: 1 };
+        importPreviewState = { columns: [], rows: [], page: 1, selectedColumns: [], headersSelectionActive: false };
         try {
             sessionStorage.removeItem(previewStorageKey);
+            sessionStorage.removeItem(previewHeadersStorageKey);
         } catch (error) {
         }
         if (importPayloadInput) {
@@ -885,6 +1212,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (importSubmitBtn) {
             importSubmitBtn.disabled = true;
         }
+        renderHeaderSelection();
     }
 
     function setInputFiles(files) {
@@ -926,8 +1254,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 + '    <div class="fw-semibold" style="font-size: 10px; line-height: 1.2;">FILE</div>'
                 + '    <div class="small text-truncate" style="max-width: 74px;">' + safeName + '</div>'
                 + '  </div>'
-                + '  <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 d-inline-flex align-items-center justify-content-center js-remove-import-file"'
-                + ' data-file-index="' + index + '" style="width: 20px; height: 20px; border-radius: 50%;" aria-label="Remove file">×</button>'
+                + '  <button type="button" class="btn btn-sm btn-danger position-absolute p-0 d-inline-flex align-items-center justify-content-center js-remove-import-file"'
+                + ' data-file-index="' + index + '" style="width: 20px; height: 20px; border-radius: 50%; top: -6px; right: -6px; z-index: 9999;" aria-label="Remove file">×</button>'
                 + '</div>';
         });
         grid.innerHTML = html;
@@ -947,19 +1275,23 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderPreviewPage(page) {
-        var columns = importPreviewState.columns || [];
+        var columns = importPreviewState.headersSelectionActive
+            ? (importPreviewState.selectedColumns || [])
+            : (importPreviewState.columns || []);
         var rows = importPreviewState.rows || [];
         var totalPages = Math.max(1, Math.ceil(rows.length / previewPageSize));
         var safePage = Math.min(Math.max(1, page || 1), totalPages);
         importPreviewState.page = safePage;
         savePreviewState();
 
-        if (!columns.length || !rows.length) {
+        if (!rows.length || !columns.length) {
             importPreviewHead.innerHTML = '';
             importPreviewBody.innerHTML = '<tr><td class="text-center text-secondary py-3">No imported preview data yet.</td></tr>';
             importPaginationWrap.classList.add('d-none');
+            renderHeaderSelection();
             return;
         }
+        renderHeaderSelection();
 
         var headHtml = '<tr>';
         columns.forEach(function (column) {
@@ -1001,15 +1333,49 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    function parseRequestedHeaders() {
-        if (!importHeadersInput) {
-            return [];
+    function renderHeaderSelection() {
+        if (!importHeadersContainer) {
+            return;
         }
-        var raw = String(importHeadersInput.value || '');
-        return raw
-            .split(',')
-            .map(function (item) { return item.trim(); })
-            .filter(function (item, index, arr) { return item && arr.indexOf(item) === index; });
+        var columns = importPreviewState.columns || [];
+        if (!columns.length) {
+            importHeadersContainer.innerHTML = '<div class="small text-secondary">No detected headers yet. Upload a file to detect headers automatically.</div>';
+            return;
+        }
+        var selected = importPreviewState.headersSelectionActive
+            ? (importPreviewState.selectedColumns || []).slice()
+            : columns.slice();
+        importPreviewState.selectedColumns = selected;
+        var html = '<div class="row g-2">';
+        columns.forEach(function (column, index) {
+            var checked = selected.indexOf(column) !== -1 ? 'checked' : '';
+            var id = 'crmImportHeaderCheck' + index;
+            html += '<div class="col-md-4 col-sm-6">';
+            html += '<div class="form-check">';
+            html += '<input class="form-check-input js-import-header-check" type="checkbox" value="' + escapeHtml(column) + '" id="' + id + '" ' + checked + '>';
+            html += '<label class="form-check-label" for="' + id + '">' + escapeHtml(column) + '</label>';
+            html += '</div></div>';
+        });
+        html += '</div>';
+        importHeadersContainer.innerHTML = html;
+        importHeadersContainer.querySelectorAll('.js-import-header-check').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                var chosen = Array.from(importHeadersContainer.querySelectorAll('.js-import-header-check:checked')).map(function (el) { return el.value; });
+                importPreviewState.selectedColumns = chosen;
+                importPreviewState.headersSelectionActive = true;
+                savePreviewState();
+                saveHeadersState();
+                renderPreviewPage(importPreviewState.page || 1);
+            });
+        });
+    }
+
+    function parseRequestedHeaders() {
+        if (!importPreviewState.headersSelectionActive) {
+            return null;
+        }
+        var selected = importPreviewState.selectedColumns || [];
+        return selected.filter(function (item, index, arr) { return item && arr.indexOf(item) === index; });
     }
 
     function normalizeHeaderKey(value) {
@@ -1086,7 +1452,8 @@ document.addEventListener('DOMContentLoaded', function () {
             var label = String(value == null ? '' : value).trim();
             return label || ('Column ' + (index + 1));
         });
-        var columns = (requestedHeaders && requestedHeaders.length) ? requestedHeaders : detectedColumns;
+        var useRequestedHeaders = Array.isArray(requestedHeaders);
+        var columns = useRequestedHeaders ? requestedHeaders : detectedColumns;
         var detectedColumnIndexMap = {};
         detectedColumns.forEach(function (col, idx) {
             detectedColumnIndexMap[normalizeHeaderKey(col)] = idx;
@@ -1098,7 +1465,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var hasValue = false;
             columns.forEach(function (column, colIndex) {
                 var sourceIndex = colIndex;
-                if (requestedHeaders && requestedHeaders.length) {
+                if (useRequestedHeaders) {
                     var key = normalizeHeaderKey(column);
                     sourceIndex = Object.prototype.hasOwnProperty.call(detectedColumnIndexMap, key) ? detectedColumnIndexMap[key] : -1;
                 }
@@ -1115,7 +1482,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         // Fallback: if caller provided requested headers but mapping produced empty rows,
         // retry with strict column-order mapping from the detected header row.
-        if (requestedHeaders && requestedHeaders.length && !normalizedRows.length) {
+        if (useRequestedHeaders && requestedHeaders.length && !normalizedRows.length) {
             var orderedRows = [];
             for (var j = headerRowIndex + 1; j < rawRows.length; j += 1) {
                 var src = rawRows[j] || [];
@@ -1277,16 +1644,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    if (importHeadersInput) {
-        importHeadersInput.addEventListener('input', function () {
-            saveHeadersState();
-            var file = importInput && importInput.files && importInput.files.length ? importInput.files[0] : null;
-            if (file) {
-                handleImportFile(file);
-            }
-        });
-    }
-
     if (clearPreviewBtn) {
         clearPreviewBtn.addEventListener('click', function () {
             clearPreviewState();
@@ -1298,10 +1655,25 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    loadHeadersState();
-    loadPreviewState();
-    renderPreviewPage(importPreviewState.page || 1);
-    renderSelectedFilePreview(getSelectedFiles());
+    var importModalEl = document.getElementById('crmImportModal');
+    if (importModalEl) {
+        importModalEl.addEventListener('hidden.bs.modal', function () {
+            clearPreviewState();
+            renderPreviewPage(1);
+            if (importInput) {
+                importInput.value = '';
+            }
+            renderSelectedFilePreview([]);
+        });
+    }
+
+    window.addEventListener('beforeunload', function () {
+        clearPreviewState();
+    });
+
+    renderHeaderSelection();
+    renderPreviewPage(1);
+    renderSelectedFilePreview([]);
 });
 </script>
 {% endblock %}

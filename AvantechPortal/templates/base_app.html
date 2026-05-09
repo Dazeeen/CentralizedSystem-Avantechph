@@ -1138,9 +1138,22 @@
                 content.appendChild(body);
                 content.appendChild(closeButton);
                 toast.appendChild(content);
+
+                while (toastContainer.children.length >= 3) {
+                    const oldestToast = toastContainer.firstElementChild;
+                    if (!oldestToast) {
+                        break;
+                    }
+                    const oldestInstance = window.bootstrap.Toast.getInstance(oldestToast);
+                    if (oldestInstance) {
+                        oldestInstance.hide();
+                    } else {
+                        oldestToast.remove();
+                    }
+                }
                 toastContainer.appendChild(toast);
 
-                const delay = variant === 'danger' ? 5200 : 3200;
+                const delay = 3000;
                 const toastInstance = window.bootstrap.Toast.getOrCreateInstance(toast, { delay });
                 toast.addEventListener('hidden.bs.toast', () => toast.remove());
                 toastInstance.show();
