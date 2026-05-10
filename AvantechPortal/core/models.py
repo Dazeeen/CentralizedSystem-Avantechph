@@ -543,6 +543,8 @@ class CRMClient(models.Model):
 	date_of_birth = models.DateField(blank=True, null=True)
 	home_address = models.TextField(blank=True)
 	city = models.CharField(max_length=100, blank=True)
+	geo_latitude = models.FloatField(blank=True, null=True)
+	geo_longitude = models.FloatField(blank=True, null=True)
 	notes = models.TextField(blank=True)
 	customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPE_CHOICES, default='residential')
 	created_by = models.ForeignKey(
@@ -631,6 +633,8 @@ class CRMSalesRecord(models.Model):
 	return_on_investment = models.CharField(max_length=80, blank=True)
 	assigned_sales = models.CharField(max_length=150, blank=True)
 	sales_status = models.CharField(max_length=50, blank=True)
+	client_status = models.CharField(max_length=80, blank=True)
+	interaction_notes = models.TextField(blank=True)
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
 		on_delete=models.SET_NULL,
@@ -648,6 +652,63 @@ class CRMSalesRecord(models.Model):
 		return f'CRMSalesRecord<{self.client_id}:{self.sales_status or "n/a"}>'
 
 
+class CRMSalesActivityLog(models.Model):
+	sales_record = models.ForeignKey(CRMSalesRecord, on_delete=models.CASCADE, related_name='activity_logs')
+	client_status = models.CharField(max_length=80, blank=True)
+	lead_source = models.CharField(max_length=50, blank=True)
+	monthly_electric_bill = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+	roof_type = models.CharField(max_length=80, blank=True)
+	ownership = models.CharField(max_length=20, blank=True)
+	project_cost = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+	return_on_investment = models.CharField(max_length=80, blank=True)
+	sales_status = models.CharField(max_length=50, blank=True)
+	interaction_notes = models.TextField(blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_sales_activity_logs_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+
+	def __str__(self):
+		return f'CRMSalesActivityLog<{self.sales_record_id}:{self.sales_status or "n/a"}>'
+
+
+def crm_sales_activity_attachment_upload_to(instance, filename):
+	return f'crm/sales/activity/{instance.activity_log_id}/{filename}'
+
+
+class CRMSalesActivityAttachment(models.Model):
+	activity_log = models.ForeignKey(CRMSalesActivityLog, on_delete=models.CASCADE, related_name='attachments')
+	file = models.FileField(upload_to=crm_sales_activity_attachment_upload_to)
+	uploaded_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-uploaded_at']
+
+	def __str__(self):
+		return f'CRMSalesActivityAttachment<{self.activity_log_id}:{self.file.name}>'
+
+
+class CRMSalesAgingSetting(models.Model):
+	aging_days = models.PositiveIntegerField(default=30)
+	notify_remaining_days = models.PositiveIntegerField(default=5)
+	include_closed_won = models.BooleanField(default=False)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		verbose_name = 'CRM Sales Aging Setting'
+		verbose_name_plural = 'CRM Sales Aging Settings'
+
+	def __str__(self):
+		return f'CRMSalesAgingSetting<{self.aging_days}d, notify<= {self.notify_remaining_days}d, include_closed_won={self.include_closed_won}>'
+
+
 class CRMTechnicalRecord(models.Model):
 	INSTALLATION_STATUS_CHOICES = [
 		('scheduled', 'Scheduled'),
@@ -659,6 +720,7 @@ class CRMTechnicalRecord(models.Model):
 
 	sales_record = models.OneToOneField(CRMSalesRecord, on_delete=models.CASCADE, related_name='technical_record')
 	installation_date = models.DateField(blank=True, null=True)
+	installation_time = models.TimeField(blank=True, null=True)
 	team_assigned = models.CharField(max_length=150, blank=True)
 	system_size_kwh = models.CharField(max_length=50, blank=True)
 	panel_units = models.CharField(max_length=50, blank=True)
@@ -683,6 +745,85 @@ class CRMTechnicalRecord(models.Model):
 
 	def __str__(self):
 		return f'CRMTechnicalRecord<{self.sales_record_id}:{self.installation_status or "n/a"}>'
+
+
+class CRMTechnicalActionLog(models.Model):
+	ACTION_CHOICES = [
+		('schedule_set', 'Schedule Set'),
+		('schedule_rescheduled', 'Schedule Rescheduled'),
+	]
+
+	technical_record = models.ForeignKey(CRMTechnicalRecord, on_delete=models.CASCADE, related_name='action_logs')
+	sales_record = models.ForeignKey(CRMSalesRecord, on_delete=models.CASCADE, related_name='technical_action_logs')
+	action = models.CharField(max_length=40, choices=ACTION_CHOICES, default='schedule_set')
+	previous_installation_date = models.DateField(blank=True, null=True)
+	previous_installation_time = models.TimeField(blank=True, null=True)
+	new_installation_date = models.DateField(blank=True, null=True)
+	new_installation_time = models.TimeField(blank=True, null=True)
+	previous_team_assigned = models.CharField(max_length=150, blank=True)
+	new_team_assigned = models.CharField(max_length=150, blank=True)
+	previous_status = models.CharField(max_length=50, blank=True)
+	new_status = models.CharField(max_length=50, blank=True)
+	previous_remarks = models.TextField(blank=True)
+	new_remarks = models.TextField(blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_technical_action_logs_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+
+	def __str__(self):
+		return f'CRMTechnicalActionLog<{self.sales_record_id}:{self.action}>'
+
+
+class CRMTechnicalTeam(models.Model):
+	name = models.CharField(max_length=120, unique=True)
+	source_role = models.ForeignKey(
+		'auth.Group',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_technical_teams',
+	)
+	members = models.ManyToManyField(
+		settings.AUTH_USER_MODEL,
+		blank=True,
+		related_name='crm_technical_teams',
+	)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_technical_teams_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['name']
+
+	def __str__(self):
+		return f'CRMTechnicalTeam<{self.name}>'
+
+
+class CRMTechnicalNotificationSetting(models.Model):
+	notify_days_before = models.PositiveIntegerField(default=3)
+	include_backlogs = models.BooleanField(default=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		verbose_name = 'CRM Technical Notification Setting'
+		verbose_name_plural = 'CRM Technical Notification Settings'
+
+	def __str__(self):
+		return f'CRMTechnicalNotificationSetting<notify_days_before={self.notify_days_before}, include_backlogs={self.include_backlogs}>'
 
 
 class ClientDeletionRequest(models.Model):

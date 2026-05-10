@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from decimal import Decimal, InvalidOperation
 import base64
 import csv
@@ -16,6 +16,7 @@ import tempfile
 import time
 import uuid
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 import zipfile
 from xml.sax.saxutils import escape
 import re
@@ -120,7 +121,13 @@ from .models import (
 	Client,
 	CRMClient,
 	CRMSalesRecord,
+	CRMSalesActivityLog,
+	CRMSalesActivityAttachment,
+	CRMSalesAgingSetting,
 	CRMTechnicalRecord,
+	CRMTechnicalActionLog,
+	CRMTechnicalTeam,
+	CRMTechnicalNotificationSetting,
 	ClientDeletionRequest,
 	ClientQuotation,
 	ClientQuotationDocument,
@@ -168,6 +175,35 @@ ROLE_PREVIEW_DEFAULT_AUDIENCES = {
 	'The signed-in account',
 	'Ticket participants',
 }
+
+
+def _geocode_ph_address(full_address):
+	address = (full_address or '').strip()
+	if not address:
+		return None
+	query = quote(address)
+	url = f'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ph&q={query}'
+	req = Request(
+		url,
+		headers={
+			'User-Agent': 'AvantechCRM/1.0 (dashboard-map-geocoder)',
+			'Accept': 'application/json',
+		},
+	)
+	try:
+		with urlopen(req, timeout=8) as response:
+			payload = json.loads(response.read().decode('utf-8'))
+	except Exception:
+		return None
+	if not payload:
+		return None
+	first = payload[0]
+	try:
+		lat = float(first.get('lat'))
+		lng = float(first.get('lon'))
+	except (TypeError, ValueError):
+		return None
+	return {'lat': lat, 'lng': lng}
 
 def _set_user_status(user, status):
 	profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -524,10 +560,141 @@ def crm_dashboard(request):
 	if restricted_response:
 		return restricted_response
 
+	clients_qs = CRMClient.objects.all()
+	can_view_all_clients = request.user.is_superuser or request.user.has_perm('core.change_client')
+	if not can_view_all_clients:
+		user_full_name = (request.user.get_full_name() or '').strip()
+		user_username = (request.user.username or '').strip()
+		ownership_filter = Q(created_by=request.user)
+		if user_full_name:
+			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
+		if user_username:
+			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
+		clients_qs = clients_qs.filter(ownership_filter).distinct()
+
+	today = timezone.localdate()
+	week_start = today - timedelta(days=today.weekday())
+	month_start = today.replace(day=1)
+	year_start = today.replace(month=1, day=1)
+
+	new_today = clients_qs.filter(created_at__date=today).count()
+	new_week = clients_qs.filter(created_at__date__gte=week_start).count()
+	new_month = clients_qs.filter(created_at__date__gte=month_start).count()
+	new_year = clients_qs.filter(created_at__date__gte=year_start).count()
+
+	created_datetimes = [timezone.localtime(ts) for ts in clients_qs.values_list('created_at', flat=True)]
+
+	# Today timeline: hourly buckets (12AM to 11PM)
+	today_labels = []
+	today_values = []
+	for hour in range(24):
+		today_labels.append(datetime.strptime(f'{hour:02d}:00', '%H:%M').strftime('%I %p').lstrip('0'))
+		today_values.append(
+			sum(1 for dt in created_datetimes if dt.date() == today and dt.hour == hour)
+		)
+
+	# This week timeline: Mon-Sun of current week
+	week_labels = []
+	week_values = []
+	for i in range(7):
+		d = week_start + timedelta(days=i)
+		week_labels.append(d.strftime('%a'))
+		week_values.append(sum(1 for dt in created_datetimes if dt.date() == d))
+
+	# This month timeline: day 1..last day of month
+	month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+	month_total_days = month_end.day
+	month_labels = []
+	month_values = []
+	for day in range(1, month_total_days + 1):
+		d = month_start.replace(day=day)
+		month_labels.append(str(day))
+		month_values.append(sum(1 for dt in created_datetimes if dt.date() == d))
+
+	# This year timeline: Jan..Dec of current year
+	year_labels = []
+	year_values = []
+	for month_num in range(1, 13):
+		year_labels.append(datetime.strptime(str(month_num), '%m').strftime('%b'))
+		year_values.append(
+			sum(1 for dt in created_datetimes if dt.year == today.year and dt.month == month_num)
+		)
+
+	city_to_province = {
+		'manila': 'metro-manila',
+		'quezon city': 'metro-manila',
+		'makati': 'metro-manila',
+		'taguig': 'metro-manila',
+		'pasig': 'metro-manila',
+		'pasay': 'metro-manila',
+		'caloocan': 'metro-manila',
+		'bacoor': 'cavite',
+		'imus': 'cavite',
+		'dasmarinas': 'cavite',
+		'cavite city': 'cavite',
+		'antipolo': 'rizal',
+		'san pedro': 'laguna',
+		'santa rosa': 'laguna',
+		'cebu city': 'cebu',
+		'mandaue': 'cebu',
+		'lapu-lapu': 'cebu',
+		'iloilo city': 'iloilo',
+		'bacolod': 'negros-occidental',
+		'cagayan de oro': 'misamis-oriental',
+		'davao city': 'davao-del-sur',
+		'general santos': 'south-cotabato',
+		'zamboanga city': 'zamboanga-del-sur',
+		'butuan': 'agusan-del-norte',
+		'naga': 'camarines-sur',
+		'baguio': 'benguet',
+	}
+
+	city_clusters = {}
+	for client in clients_qs.exclude(city__isnull=True).exclude(city__exact=''):
+		city_raw = (client.city or '').strip()
+		city_key = city_raw.casefold()
+		if client.geo_latitude is None or client.geo_longitude is None:
+			continue
+		coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
+		if not coord:
+			continue
+		client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
+		cluster = city_clusters.setdefault(
+			city_key,
+			{
+				'city': city_raw,
+				'lat': coord['lat'],
+				'lng': coord['lng'],
+				'province': city_to_province.get(city_key, ''),
+				'count': 0,
+				'names': [],
+			},
+		)
+		cluster['count'] += 1
+		cluster['names'].append(client_name)
+
+	map_pins = sorted(city_clusters.values(), key=lambda row: (-row['count'], row['city'].lower()))
+
 	context = {
-		'total_clients': Client.objects.count(),
-		'new_leads': Client.objects.filter(lead_status='intake').count(),
-		'converted_clients': Client.objects.filter(lead_status='converted').count(),
+		'total_clients': clients_qs.count(),
+		# Dashboard counters are based on the CRM clients dataset itself.
+		'new_leads': new_month,
+		'converted_clients': new_year,
+		'new_today': new_today,
+		'new_week': new_week,
+		'new_month': new_month,
+		'new_year': new_year,
+		'new_client_period_labels_json': dumps(['Today', 'This Week', 'This Month', 'This Year']),
+		'new_client_period_values_json': dumps([new_today, new_week, new_month, new_year]),
+		'crm_new_clients_report_json': dumps(
+			{
+				'today': {'labels': today_labels, 'values': today_values},
+				'week': {'labels': week_labels, 'values': week_values},
+				'month': {'labels': month_labels, 'values': month_values},
+				'year': {'labels': year_labels, 'values': year_values},
+			}
+		),
+		'crm_map_pins_json': dumps(map_pins),
 	}
 	return render(request, 'core/crm_dashboard.html', context)
 
@@ -751,6 +918,16 @@ def crm_clients(request):
 				roof_type = _pick(normalized, 'roof_type')
 				return_on_investment = _pick(normalized, 'return_on_investment')
 				assigned_sales = _pick(normalized, 'assigned_sales')
+				installation_date = parse_date(_pick(normalized, 'installation_date', 'installation-date'))
+				team_assigned = _pick(normalized, 'team_assigned', 'team-assigned')
+				system_size_kwh = _pick(normalized, 'system_size_kwh', 'system-size-kwh', 'system_size_kwp', 'system_size')
+				panel_units = _pick(normalized, 'panel_units', 'panel-units')
+				inverter_model = _pick(normalized, 'inverter_model', 'inverter-model')
+				battery_model = _pick(normalized, 'battery_model', 'battery-model')
+				net_metering = _pick(normalized, 'net_metering', 'net-metering', 'netmetering')
+				installation_status = _pick(normalized, 'installation_status', 'installation-status')
+				po_number = _pick(normalized, 'po_number', 'po-number', 'po', 'po#')
+				technical_remarks = _pick(normalized, 'technical_remarks', 'technical-remarks', 'remarks')
 
 				has_sales_values = any(
 					[
@@ -781,7 +958,37 @@ def crm_clients(request):
 					)
 				else:
 					sales_record = CRMSalesRecord.objects.create(client=record, created_by=request.user)
-				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+				has_technical_values = any(
+					[
+						installation_date,
+						team_assigned,
+						system_size_kwh,
+						panel_units,
+						inverter_model,
+						battery_model,
+						net_metering,
+						installation_status,
+						po_number,
+						technical_remarks,
+					]
+				)
+				if has_technical_values:
+					CRMTechnicalRecord.objects.create(
+						sales_record=sales_record,
+						installation_date=installation_date,
+						team_assigned=team_assigned,
+						system_size_kwh=system_size_kwh,
+						panel_units=panel_units,
+						inverter_model=inverter_model,
+						battery_model=battery_model,
+						net_metering=net_metering,
+						installation_status=installation_status,
+						po_number=po_number,
+						remarks=technical_remarks,
+						created_by=request.user,
+					)
+				else:
+					CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
 				sales_created_count += 1
 
 			if created_count:
@@ -821,7 +1028,14 @@ def crm_clients(request):
 				record.created_by = request.user
 				record.save()
 				form.save_media(record)
-				sales_record, _ = CRMSalesRecord.objects.get_or_create(client=record, defaults={'created_by': request.user})
+				assignee_name = (request.user.get_full_name() or request.user.username or '').strip()
+				sales_record, created_sales = CRMSalesRecord.objects.get_or_create(
+					client=record,
+					defaults={'created_by': request.user, 'assigned_sales': assignee_name},
+				)
+				if not created_sales and not (sales_record.assigned_sales or '').strip():
+					sales_record.assigned_sales = assignee_name
+					sales_record.save(update_fields=['assigned_sales', 'updated_at'])
 				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
 				message = 'CRM client record added successfully.'
 				messages.success(request, message)
@@ -834,6 +1048,16 @@ def crm_clients(request):
 				return JsonResponse({'ok': False, 'message': message, 'errors': form.errors}, status=400)
 
 	clients_queryset = CRMClient.objects.prefetch_related('media_files', 'sales_records').order_by('-created_at')
+	can_view_all_clients = request.user.is_superuser or request.user.has_perm('core.change_client')
+	if not can_view_all_clients:
+		user_full_name = (request.user.get_full_name() or '').strip()
+		user_username = (request.user.username or '').strip()
+		ownership_filter = Q(created_by=request.user)
+		if user_full_name:
+			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
+		if user_username:
+			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
+		clients_queryset = clients_queryset.filter(ownership_filter).distinct()
 	if query:
 		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
 		for term in search_terms:
@@ -961,6 +1185,168 @@ def crm_sales(request):
 	if restricted_response:
 		return restricted_response
 
+	if request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'assign_sales_to_client':
+			sales_id = (request.POST.get('sales_record_id') or '').strip()
+			sales_record = get_object_or_404(CRMSalesRecord, pk=sales_id)
+			selected_sales = [item.strip() for item in request.POST.getlist('assigned_sales_values') if (item or '').strip()]
+			sales_record.assigned_sales = ', '.join(selected_sales)
+			sales_record.save(update_fields=['assigned_sales', 'updated_at'])
+			messages.success(request, 'Assigned sales updated successfully.', extra_tags='toast')
+			return redirect('crm_sales')
+		if form_action == 'update_sales_aging_settings':
+			aging_days_raw = (request.POST.get('aging_days') or '').strip()
+			notify_remaining_days_raw = (request.POST.get('notify_remaining_days') or '').strip()
+			include_closed_won = (request.POST.get('include_closed_won') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
+			try:
+				aging_days = int(aging_days_raw) if aging_days_raw else 30
+			except (TypeError, ValueError):
+				aging_days = 30
+			try:
+				notify_remaining_days = int(notify_remaining_days_raw) if notify_remaining_days_raw else 5
+			except (TypeError, ValueError):
+				notify_remaining_days = 5
+			if aging_days < 1:
+				aging_days = 1
+			if notify_remaining_days < 1:
+				notify_remaining_days = 1
+			settings_obj, _ = CRMSalesAgingSetting.objects.get_or_create(
+				pk=1,
+				defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
+			)
+			settings_obj.aging_days = aging_days
+			settings_obj.notify_remaining_days = notify_remaining_days
+			settings_obj.include_closed_won = include_closed_won
+			settings_obj.save(update_fields=['aging_days', 'notify_remaining_days', 'include_closed_won', 'updated_at'])
+			messages.success(request, 'Sales aging settings updated.', extra_tags='toast')
+			return redirect('crm_sales')
+		if form_action == 'log_sales_activity':
+			sales_id = (request.POST.get('sales_record_id') or '').strip()
+			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_id)
+
+			lead_source = (request.POST.get('lead_source') or '').strip().lower()
+			roof_type = (request.POST.get('roof_type') or '').strip()
+			ownership = (request.POST.get('ownership') or '').strip().lower()
+			return_on_investment = (request.POST.get('return_on_investment') or '').strip()
+			sales_status = (request.POST.get('sales_status') or '').strip().lower()
+			client_status = (request.POST.get('client_status') or '').strip()
+			interaction_notes = (request.POST.get('interaction_notes') or '').strip()
+
+			def _to_decimal(raw_value):
+				value = (raw_value or '').strip()
+				if not value:
+					return None
+				try:
+					return Decimal(value)
+				except (InvalidOperation, TypeError, ValueError):
+					return None
+
+			monthly_electric_bill = _to_decimal(request.POST.get('monthly_electric_bill'))
+			project_cost = _to_decimal(request.POST.get('project_cost'))
+
+			sales_record.lead_source = lead_source
+			sales_record.monthly_electric_bill = monthly_electric_bill
+			sales_record.roof_type = roof_type
+			sales_record.ownership = ownership
+			sales_record.project_cost = project_cost
+			sales_record.return_on_investment = return_on_investment
+			sales_record.sales_status = sales_status
+			sales_record.client_status = client_status
+			sales_record.interaction_notes = interaction_notes
+			sales_record.save(update_fields=[
+				'lead_source',
+				'monthly_electric_bill',
+				'roof_type',
+				'ownership',
+				'project_cost',
+				'return_on_investment',
+				'sales_status',
+				'client_status',
+				'interaction_notes',
+				'updated_at',
+			])
+
+			activity_log = CRMSalesActivityLog.objects.create(
+				sales_record=sales_record,
+				client_status=client_status,
+				lead_source=lead_source,
+				monthly_electric_bill=monthly_electric_bill,
+				roof_type=roof_type,
+				ownership=ownership,
+				project_cost=project_cost,
+				return_on_investment=return_on_investment,
+				sales_status=sales_status,
+				interaction_notes=interaction_notes,
+				created_by=request.user,
+			)
+			for uploaded_file in request.FILES.getlist('activity_files'):
+				CRMSalesActivityAttachment.objects.create(activity_log=activity_log, file=uploaded_file)
+			messages.success(request, 'Sales activity logged successfully.', extra_tags='toast')
+			return redirect('crm_sales')
+
+	aging_settings, _ = CRMSalesAgingSetting.objects.get_or_create(
+		pk=1,
+		defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
+	)
+	cutoff = timezone.now() - timedelta(days=aging_settings.aging_days)
+	notify_cutoff_remaining = max(int(aging_settings.notify_remaining_days or 1), 1)
+	today = timezone.localdate()
+	notify_recipients = User.objects.filter(
+		Q(is_superuser=True) | Q(is_active=True, user_permissions__codename='view_client')
+	).distinct()
+	all_sales_for_aging = list(
+		CRMSalesRecord.objects.prefetch_related('activity_logs').select_related('client')
+	)
+	for sales_row in all_sales_for_aging:
+		status = (sales_row.sales_status or '').strip().lower()
+		if status in {'closed lost', 'close lost'}:
+			continue
+		if not aging_settings.include_closed_won and status in {'closed won', 'close won'}:
+			continue
+		last_activity = sales_row.activity_logs.order_by('-created_at').first()
+		last_touch = sales_row.updated_at
+		if last_activity and last_activity.created_at and last_activity.created_at > last_touch:
+			last_touch = last_activity.created_at
+		inactive_days = max((timezone.now() - last_touch).days, 0) if last_touch else 0
+		days_remaining = max(aging_settings.aging_days - inactive_days, 0)
+		if days_remaining <= notify_cutoff_remaining and status not in {'closed lost', 'close lost'}:
+			client_label = sales_row.client.customer_id if sales_row.client_id else f'#{sales_row.id}'
+			alert_title = 'CRM Sales Aging Alert'
+			alert_message = f'{client_label} has {days_remaining} day(s) remaining before auto closed lost.'
+			for recipient in notify_recipients:
+				exists_today = Notification.objects.filter(
+					user=recipient,
+					title=alert_title,
+					message=alert_message,
+					created_at__date=today,
+				).exists()
+				if not exists_today:
+					create_notification(
+						recipient,
+						alert_title,
+						alert_message,
+						link_url=reverse('crm_sales'),
+					)
+		if last_touch and last_touch <= cutoff:
+			sales_row.sales_status = 'closed lost'
+			sales_row.client_status = sales_row.client_status or 'Auto-aged due to inactivity'
+			sales_row.interaction_notes = 'Auto-updated to closed lost due to inactivity.'
+			sales_row.save(update_fields=['sales_status', 'client_status', 'interaction_notes', 'updated_at'])
+			CRMSalesActivityLog.objects.create(
+				sales_record=sales_row,
+				client_status=sales_row.client_status,
+				lead_source=sales_row.lead_source,
+				monthly_electric_bill=sales_row.monthly_electric_bill,
+				roof_type=sales_row.roof_type,
+				ownership=sales_row.ownership,
+				project_cost=sales_row.project_cost,
+				return_on_investment=sales_row.return_on_investment,
+				sales_status='closed lost',
+				interaction_notes='System auto-aging: no updates received within configured aging period.',
+				created_by=None,
+			)
+
 	query = (request.GET.get('q') or '').strip()
 	filter_assigned_sales = (request.GET.get('assigned_sales') or '').strip()
 	filter_sales_status = (request.GET.get('sales_status') or '').strip()
@@ -974,7 +1360,21 @@ def crm_sales(request):
 	if sort_dir not in {'asc', 'desc'}:
 		sort_dir = 'desc'
 
-	sales_queryset = CRMSalesRecord.objects.select_related('client')
+	sales_queryset = CRMSalesRecord.objects.select_related('client').prefetch_related(
+		'activity_logs',
+		'activity_logs__created_by',
+		'activity_logs__attachments',
+	)
+	can_view_all_sales = request.user.is_superuser or request.user.has_perm('core.change_client')
+	if not can_view_all_sales:
+		user_full_name = (request.user.get_full_name() or '').strip()
+		user_username = (request.user.username or '').strip()
+		ownership_filter = Q(client__created_by=request.user)
+		if user_full_name:
+			ownership_filter |= Q(assigned_sales__icontains=user_full_name)
+		if user_username:
+			ownership_filter |= Q(assigned_sales__icontains=user_username)
+		sales_queryset = sales_queryset.filter(ownership_filter).distinct()
 	if query:
 		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
 		for term in search_terms:
@@ -1040,11 +1440,18 @@ def crm_sales(request):
 		.values_list('assigned_sales', flat=True)
 		.distinct()
 	)
+	assignable_sales_users = []
+	for user in User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username'):
+		if user.is_superuser or user.has_perm('core.view_client'):
+			label = (user.get_full_name() or user.username or '').strip()
+			if label:
+				assignable_sales_users.append({'value': label, 'username': user.username, 'label': label})
 
 	sortable_fields = {
 		'client': 'client__last_name',
 		'assigned_sales': 'assigned_sales',
 		'project_cost': 'project_cost',
+		'last_update': 'updated_at',
 		'sales_status': 'sales_status',
 		'date_created': 'date_created',
 		'lead_source': 'lead_source',
@@ -1056,6 +1463,17 @@ def crm_sales(request):
 	sales_queryset = sales_queryset.order_by(f'{order_prefix}{order_field}', '-created_at')
 
 	sales_page = Paginator(sales_queryset, 20).get_page(request.GET.get('page'))
+	now_ts = timezone.now()
+	for sales_row in sales_page.object_list:
+		last_activity = sales_row.activity_logs.first() if hasattr(sales_row, 'activity_logs') else None
+		last_touch = sales_row.updated_at
+		if last_activity and last_activity.created_at and last_activity.created_at > last_touch:
+			last_touch = last_activity.created_at
+		inactive_days = max((now_ts - last_touch).days, 0) if last_touch else 0
+		days_remaining = max(aging_settings.aging_days - inactive_days, 0)
+		sales_row.inactive_days = inactive_days
+		sales_row.days_remaining = days_remaining
+		sales_row.last_touch_display = timezone.localtime(last_touch).strftime('%b %d, %Y %I:%M %p') if last_touch else '-'
 	base_query_params = request.GET.copy()
 	base_query_params.pop('page', None)
 	current_query_string = base_query_params.urlencode()
@@ -1091,6 +1509,8 @@ def crm_sales(request):
 		'sort_indicators': sort_indicators,
 		'current_query_string': current_query_string,
 		'assigned_sales_options': assigned_sales_options,
+		'assignable_sales_users': assignable_sales_users,
+		'sales_aging_settings': aging_settings,
 	}
 	return render(request, 'core/crm_sales.html', context)
 
@@ -1101,11 +1521,328 @@ def crm_technicals(request):
 	if restricted_response:
 		return restricted_response
 
-	technical_page = Paginator(
-		CRMSalesRecord.objects.select_related('client', 'technical_record').order_by('-date_created', '-created_at'),
-		20,
-	).get_page(request.GET.get('page'))
-	return render(request, 'core/crm_technicals.html', {'technical_page': technical_page})
+	def _is_sqlite_locked_error(exc):
+		return 'database is locked' in str(exc).lower()
+
+	def _run_with_sqlite_retry(write_callback):
+		for attempt in range(6):
+			try:
+				return write_callback()
+			except OperationalError as exc:
+				if not _is_sqlite_locked_error(exc):
+					raise
+				if attempt == 5:
+					return None
+				time.sleep(0.2 * (attempt + 1))
+		return None
+
+	if request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'update_technical_notification_settings':
+			days_raw = (request.POST.get('notify_days_before') or '').strip()
+			include_backlogs = (request.POST.get('include_backlogs') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
+			try:
+				notify_days_before = max(0, int(days_raw or '0'))
+			except (TypeError, ValueError):
+				notify_days_before = 3
+			setting, _ = CRMTechnicalNotificationSetting.objects.get_or_create(pk=1)
+			setting.notify_days_before = notify_days_before
+			setting.include_backlogs = include_backlogs
+			def _save_technical_notify_setting():
+				setting.save(update_fields=['notify_days_before', 'include_backlogs', 'updated_at'])
+				return True
+			save_ok = _run_with_sqlite_retry(_save_technical_notify_setting)
+			if save_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+			else:
+				messages.success(request, 'Technical notification settings updated.', extra_tags='toast')
+			return redirect('crm_technicals')
+
+		if form_action == 'create_technical_team':
+			team_name = (request.POST.get('team_name') or '').strip()
+			source_role_id = (request.POST.get('source_role_id') or '').strip()
+			if not team_name:
+				messages.error(request, 'Team name is required.', extra_tags='toast')
+				return redirect('crm_technicals')
+			source_role = Group.objects.filter(pk=source_role_id).first() if source_role_id else None
+			result = _run_with_sqlite_retry(
+				lambda: CRMTechnicalTeam.objects.get_or_create(
+					name=team_name,
+					defaults={'source_role': source_role, 'created_by': request.user},
+				)
+			)
+			if result is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+			team, created = result
+			if not created:
+				messages.warning(request, 'Team name already exists.', extra_tags='toast')
+				return redirect('crm_technicals')
+			if source_role:
+				def _set_team_members_from_role():
+					team.members.set(User.objects.filter(groups=source_role, is_active=True))
+					return True
+				member_update_ok = _run_with_sqlite_retry(_set_team_members_from_role)
+				if member_update_ok is None:
+					messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+					return redirect('crm_technicals')
+			messages.success(request, 'Technical team created.', extra_tags='toast')
+			return redirect('crm_technicals')
+
+		if form_action == 'update_technical_team_members':
+			team_id = (request.POST.get('team_id') or '').strip()
+			team = get_object_or_404(CRMTechnicalTeam, pk=team_id)
+			member_ids = request.POST.getlist('member_ids')
+			members_qs = User.objects.filter(id__in=member_ids, is_active=True)
+			source_role_id = (request.POST.get('source_role_id') or '').strip()
+			def _update_team_members_write():
+				team.members.set(members_qs)
+				team.source_role = Group.objects.filter(pk=source_role_id).first() if source_role_id else None
+				team.save(update_fields=['source_role', 'updated_at'])
+				return True
+			write_ok = _run_with_sqlite_retry(_update_team_members_write)
+			if write_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+			messages.success(request, f'Members updated for {team.name}.', extra_tags='toast')
+			return redirect('crm_technicals')
+
+		if form_action == 'set_installation_schedule':
+			sales_record_id = (request.POST.get('sales_record_id') or '').strip()
+			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
+			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+			previous_installation_date = tech_record.installation_date
+			previous_installation_time = tech_record.installation_time
+			previous_team_assigned = tech_record.team_assigned or ''
+			previous_status = tech_record.installation_status or ''
+			previous_remarks = tech_record.remarks or ''
+
+			installation_date = parse_date((request.POST.get('installation_date') or '').strip())
+			installation_time_raw = (request.POST.get('installation_time') or '').strip()
+			team_assigned = (request.POST.get('team_assigned') or '').strip()
+			remarks = (request.POST.get('remarks') or '').strip()
+
+			try:
+				installation_time = datetime.strptime(installation_time_raw, '%H:%M').time() if installation_time_raw else None
+			except (TypeError, ValueError):
+				installation_time = None
+
+			conflict_qs = CRMTechnicalRecord.objects.none()
+			if installation_date and installation_time:
+				conflict_qs = CRMTechnicalRecord.objects.select_related('sales_record__client').filter(
+					installation_date=installation_date,
+					installation_time=installation_time,
+				).exclude(pk=tech_record.pk)
+			is_conflict = conflict_qs.exists()
+			is_overdue = bool(installation_date and installation_date < timezone.localdate())
+			is_first_schedule = not tech_record.installation_date and not tech_record.installation_time
+			has_existing_schedule = bool(tech_record.installation_date or tech_record.installation_time)
+
+			def _save_schedule_write():
+				with transaction.atomic():
+					tech_record.installation_date = installation_date
+					tech_record.installation_time = installation_time
+					tech_record.team_assigned = team_assigned
+					tech_record.remarks = remarks
+					if is_conflict or is_overdue or has_existing_schedule:
+						tech_record.installation_status = 'reschedules'
+					elif is_first_schedule:
+						tech_record.installation_status = 'scheduled'
+					elif not (tech_record.installation_status or '').strip():
+						tech_record.installation_status = 'scheduled'
+					tech_record.save()
+
+					CRMTechnicalActionLog.objects.create(
+						technical_record=tech_record,
+						sales_record=sales_record,
+						action='schedule_rescheduled' if tech_record.installation_status == 'reschedules' else 'schedule_set',
+						previous_installation_date=previous_installation_date,
+						previous_installation_time=previous_installation_time,
+						new_installation_date=tech_record.installation_date,
+						new_installation_time=tech_record.installation_time,
+						previous_team_assigned=previous_team_assigned,
+						new_team_assigned=tech_record.team_assigned or '',
+						previous_status=previous_status,
+						new_status=tech_record.installation_status or '',
+						previous_remarks=previous_remarks,
+						new_remarks=tech_record.remarks or '',
+						created_by=request.user,
+					)
+				return True
+
+			saved_ok = _run_with_sqlite_retry(_save_schedule_write)
+			if saved_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+
+			if is_conflict or is_overdue or has_existing_schedule:
+				notify_title = 'Technical Schedule Needs Reschedule'
+				client_label = f'{sales_record.client.last_name}, {sales_record.client.first_name}' if sales_record.client_id else f'Sales #{sales_record.id}'
+				if is_conflict and is_overdue:
+					reason = 'overlap and overdue'
+				elif is_conflict:
+					reason = 'time overlap'
+				elif has_existing_schedule:
+					reason = 'existing schedule updated'
+				else:
+					reason = 'overdue date'
+				notify_message = f'{client_label} marked as reschedules due to {reason}.'
+				recipients = User.objects.filter(
+					Q(is_superuser=True) | Q(is_active=True, user_permissions__codename='view_client')
+				).distinct()
+				today = timezone.localdate()
+				for recipient in recipients:
+					exists_today = Notification.objects.filter(
+						user=recipient,
+						title=notify_title,
+						message=notify_message,
+						created_at__date=today,
+					).exists()
+					if not exists_today:
+						create_notification(recipient, notify_title, notify_message, link_url=reverse('crm_technicals'))
+				messages.warning(request, f'Schedule saved with status reschedules ({reason}).', extra_tags='toast')
+			else:
+				messages.success(request, 'Installation schedule updated successfully.', extra_tags='toast')
+			return redirect('crm_technicals')
+
+	queryset = CRMSalesRecord.objects.select_related('client', 'technical_record').filter(
+		project_cost__isnull=False
+	).filter(
+		Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won')
+	)
+
+	can_view_all_sales = request.user.is_superuser or request.user.has_perm('core.change_client')
+	if not can_view_all_sales:
+		user_full_name = (request.user.get_full_name() or '').strip()
+		user_username = (request.user.username or '').strip()
+		ownership_filter = Q(client__created_by=request.user)
+		if user_full_name:
+			ownership_filter |= Q(assigned_sales__icontains=user_full_name)
+		if user_username:
+			ownership_filter |= Q(assigned_sales__icontains=user_username)
+		queryset = queryset.filter(ownership_filter).distinct()
+
+	technical_page = Paginator(queryset.order_by('-updated_at', '-created_at'), 20).get_page(request.GET.get('page'))
+	schedule_slots = []
+	for tech in CRMTechnicalRecord.objects.select_related('sales_record__client').exclude(installation_date__isnull=True).exclude(installation_time__isnull=True):
+		client_label = '-'
+		if tech.sales_record_id and tech.sales_record.client_id:
+			c = tech.sales_record.client
+			client_label = f'{c.last_name}, {c.first_name}'
+		schedule_slots.append(
+			{
+				'sales_record_id': tech.sales_record_id,
+				'date': tech.installation_date.strftime('%Y-%m-%d'),
+				'time': tech.installation_time.strftime('%H:%M'),
+				'client': client_label,
+				'team_assigned': tech.team_assigned or '',
+			}
+		)
+	visible_sales_record_ids = [row.id for row in technical_page.object_list]
+	technical_history_map = {}
+	if visible_sales_record_ids:
+		history_qs = CRMTechnicalActionLog.objects.select_related('created_by').filter(
+			sales_record_id__in=visible_sales_record_ids
+		).order_by('-created_at')[:400]
+		for log in history_qs:
+			technical_history_map.setdefault(str(log.sales_record_id), []).append(
+				{
+					'action': log.get_action_display(),
+					'previous_date': log.previous_installation_date.strftime('%Y-%m-%d') if log.previous_installation_date else '-',
+					'previous_time': log.previous_installation_time.strftime('%H:%M') if log.previous_installation_time else '-',
+					'new_date': log.new_installation_date.strftime('%Y-%m-%d') if log.new_installation_date else '-',
+					'new_time': log.new_installation_time.strftime('%H:%M') if log.new_installation_time else '-',
+					'previous_team': log.previous_team_assigned or '-',
+					'new_team': log.new_team_assigned or '-',
+					'previous_status': log.previous_status or '-',
+					'new_status': log.new_status or '-',
+					'previous_remarks': log.previous_remarks or '-',
+					'new_remarks': log.new_remarks or '-',
+					'actor': (log.created_by.get_full_name() or log.created_by.username) if log.created_by_id else 'System',
+					'created_at': timezone.localtime(log.created_at).strftime('%Y-%m-%d %I:%M %p'),
+				}
+			)
+	technical_teams = list(
+		CRMTechnicalTeam.objects.select_related('source_role').prefetch_related('members').all()
+	)
+	team_payload = []
+	for team in technical_teams:
+		team_payload.append(
+			{
+				'id': team.id,
+				'name': team.name,
+				'source_role_id': team.source_role_id or '',
+				'members': [
+					{
+						'id': member.id,
+						'name': member.get_full_name() or member.username,
+					}
+					for member in team.members.all().order_by('first_name', 'last_name', 'username')
+				],
+			}
+		)
+
+	role_options = list(Group.objects.all().order_by('name').values('id', 'name'))
+	role_user_map = {}
+	for role in Group.objects.all():
+		role_user_map[str(role.id)] = [
+			{
+				'id': user.id,
+				'name': user.get_full_name() or user.username,
+			}
+			for user in User.objects.filter(groups=role, is_active=True).order_by('first_name', 'last_name', 'username').distinct()
+		]
+
+	technical_notify_setting, _ = CRMTechnicalNotificationSetting.objects.get_or_create(pk=1)
+	today = timezone.localdate()
+	notify_before_date = today + timedelta(days=technical_notify_setting.notify_days_before)
+	actionable_q = Q(installation_status__iexact='back jobs') | Q(installation_status__iexact='reschedules')
+	actionable_q |= (
+		Q(installation_date__isnull=False, installation_date__lte=notify_before_date)
+		& ~Q(installation_status__iexact='completed')
+	)
+	actionable_q &= Q(sales_record__project_cost__isnull=False) & (Q(sales_record__sales_status__iexact='closed won') | Q(sales_record__sales_status__iexact='close won'))
+	if not technical_notify_setting.include_backlogs:
+		actionable_q = (
+			Q(installation_date__isnull=False, installation_date__lte=notify_before_date)
+			& ~Q(installation_status__iexact='completed')
+		)
+		actionable_q &= Q(sales_record__project_cost__isnull=False) & (Q(sales_record__sales_status__iexact='closed won') | Q(sales_record__sales_status__iexact='close won'))
+	actionable_records = CRMTechnicalRecord.objects.select_related('sales_record__client').filter(actionable_q)
+	technical_action_required_count = actionable_records.count()
+
+	if technical_action_required_count:
+		recipients = User.objects.filter(
+			Q(is_superuser=True) | Q(is_active=True, user_permissions__codename='view_client')
+		).distinct()
+		message = (
+			f'{technical_action_required_count} technical schedule(s) require action '
+			f'(<= {technical_notify_setting.notify_days_before} day(s) before schedule and/or backlogs).'
+		)
+		for recipient in recipients:
+			exists_today = Notification.objects.filter(
+				user=recipient,
+				title='Technical Action Required',
+				message=message,
+				created_at__date=today,
+			).exists()
+			if not exists_today:
+				create_notification(recipient, 'Technical Action Required', message, link_url=reverse('crm_technicals'))
+
+	return render(
+		request,
+		'core/crm_technicals.html',
+		{
+			'technical_page': technical_page,
+			'schedule_slots': schedule_slots,
+			'technical_history_map': technical_history_map,
+			'technical_teams': team_payload,
+			'technical_team_roles': role_options,
+			'technical_role_user_map': role_user_map,
+			'technical_notification_setting': technical_notify_setting,
+			'technical_action_required_count': technical_action_required_count,
+		},
+	)
 
 
 @login_required
@@ -1478,6 +2215,67 @@ def profile_page(request):
 	presence_status = request.session.get('presence_status') or profile.status
 	last_event_ms = request.session.get('presence_last_event_ms')
 	last_activity_label = _format_last_activity_label(last_event_ms)
+	is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+
+	if request.method == 'POST':
+		first_name = (request.POST.get('first_name') or '').strip()
+		last_name = (request.POST.get('last_name') or '').strip()
+		email = (request.POST.get('email') or '').strip()
+		branch_raw = (request.POST.get('branch') or '').strip()
+
+		request.user.first_name = first_name
+		request.user.last_name = last_name
+		request.user.email = email
+		request.user.save(update_fields=['first_name', 'last_name', 'email'])
+
+		profile.branch = branch_raw
+		profile.save(update_fields=['branch'])
+
+		full_name = request.user.get_full_name() or request.user.username
+		payload = {
+			'ok': True,
+			'message': 'Profile updated successfully.',
+			'user': {
+				'full_name': full_name,
+				'first_name': request.user.first_name or '',
+				'last_name': request.user.last_name or '',
+				'username': request.user.username,
+				'email': request.user.email or '',
+				'branch': profile.branch or 'Not assigned',
+				'department': department,
+				'presence_status': str(presence_status).title(),
+				'last_activity_label': last_activity_label,
+				'roles': role_names,
+				'status_display': profile.get_status_display(),
+				'status_color': profile.get_status_color(),
+			},
+		}
+		if is_ajax:
+			return JsonResponse(payload)
+		messages.success(request, payload['message'])
+		return redirect('profile_page')
+
+	if is_ajax:
+		full_name = request.user.get_full_name() or request.user.username
+		return JsonResponse(
+			{
+				'ok': True,
+				'user': {
+					'full_name': full_name,
+					'first_name': request.user.first_name or '',
+					'last_name': request.user.last_name or '',
+					'username': request.user.username,
+					'email': request.user.email or '',
+					'branch': profile.branch or 'Not assigned',
+					'department': department,
+					'presence_status': str(presence_status).title(),
+					'last_activity_label': last_activity_label,
+					'roles': role_names,
+					'status_display': profile.get_status_display(),
+					'status_color': profile.get_status_color(),
+				},
+			}
+		)
 
 	context = {
 		'profile': profile,
@@ -4045,17 +4843,27 @@ def users_update(request, user_id):
 	if request.method == 'POST':
 		form = StaffUserUpdateForm(request.POST, instance=managed_user)
 		if form.is_valid():
-			updated_user = form.save()
-			record_activity(
-				request,
-				'update',
-				'users',
-				f'Updated user account {updated_user.username}.',
-				target=updated_user,
-				target_label=updated_user.username,
-			)
-			messages.success(request, 'User account updated successfully.')
-			return redirect('users_list')
+			for attempt in range(3):
+				try:
+					with transaction.atomic():
+						updated_user = form.save()
+						record_activity(
+							request,
+							'update',
+							'users',
+							f'Updated user account {updated_user.username}.',
+							target=updated_user,
+							target_label=updated_user.username,
+						)
+					messages.success(request, 'User account updated successfully.')
+					return redirect('users_list')
+				except OperationalError as exc:
+					if 'database is locked' not in str(exc).lower():
+						raise
+					if attempt == 2:
+						messages.error(request, 'The database is busy right now. Please try again in a moment.')
+						return redirect('users_update', user_id=user_id)
+					time.sleep(0.15 * (attempt + 1))
 	else:
 		form = StaffUserUpdateForm(instance=managed_user)
 

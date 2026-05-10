@@ -88,6 +88,16 @@
                                 data-sales-roi="{% if sales and sales.return_on_investment %}{{ sales.return_on_investment }}{% else %}-{% endif %}"
                                 data-sales-assigned="{% if sales and sales.assigned_sales %}{{ sales.assigned_sales }}{% else %}-{% endif %}"
                                 data-sales-status="{% if sales and sales.sales_status %}{{ sales.sales_status }}{% else %}-{% endif %}"
+                                data-tech-installation-date="{% if sales and sales.technical_record and sales.technical_record.installation_date %}{{ sales.technical_record.installation_date|date:'F j, Y' }}{% else %}-{% endif %}"
+                                data-tech-team-assigned="{% if sales and sales.technical_record and sales.technical_record.team_assigned %}{{ sales.technical_record.team_assigned }}{% else %}-{% endif %}"
+                                data-tech-system-size-kwh="{% if sales and sales.technical_record and sales.technical_record.system_size_kwh %}{{ sales.technical_record.system_size_kwh }}{% else %}-{% endif %}"
+                                data-tech-panel-units="{% if sales and sales.technical_record and sales.technical_record.panel_units %}{{ sales.technical_record.panel_units }}{% else %}-{% endif %}"
+                                data-tech-inverter-model="{% if sales and sales.technical_record and sales.technical_record.inverter_model %}{{ sales.technical_record.inverter_model }}{% else %}-{% endif %}"
+                                data-tech-battery-model="{% if sales and sales.technical_record and sales.technical_record.battery_model %}{{ sales.technical_record.battery_model }}{% else %}-{% endif %}"
+                                data-tech-net-metering="{% if sales and sales.technical_record and sales.technical_record.net_metering %}{{ sales.technical_record.net_metering }}{% else %}-{% endif %}"
+                                data-tech-installation-status="{% if sales and sales.technical_record and sales.technical_record.installation_status %}{{ sales.technical_record.installation_status }}{% else %}-{% endif %}"
+                                data-tech-po-number="{% if sales and sales.technical_record and sales.technical_record.po_number %}{{ sales.technical_record.po_number }}{% else %}-{% endif %}"
+                                data-tech-remarks="{% if sales and sales.technical_record and sales.technical_record.remarks %}{{ sales.technical_record.remarks }}{% else %}-{% endif %}"
                             {% endwith %}>
                             <td><input type="checkbox" class="crm-row-checkbox" name="client_ids" form="crmBulkForm" value="{{ row.id }}"></td>
                             <td>{{ row.customer_id }}</td>
@@ -118,11 +128,13 @@
                         </tr>
                         <template id="crm-client-media-{{ row.id }}">
                             {% if row.media_files.all %}
-                                <div class="list-group">
+                                <div class="crm-modal-media-grid">
                                     {% for media in row.media_files.all %}
-                                        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="{{ media.file.url }}" target="_blank" rel="noopener">
-                                            <span>{{ media.file.name }}</span>
-                                            <small class="text-secondary">{{ media.uploaded_at|date:"M j, Y g:i A" }}</small>
+                                        <a class="crm-modal-media-card" href="{{ media.file.url }}" target="_blank" rel="noopener">
+                                            <div class="crm-modal-media-name" title="{{ media.file.name }}">{{ media.file.name }}</div>
+                                            <div class="crm-modal-media-meta">{{ media.file.size|filesizeformat }}</div>
+                                            <div class="crm-modal-media-meta">{{ media.file.name|slice:"-8:" }}</div>
+                                            <div class="crm-modal-media-meta">{{ media.uploaded_at|date:"M j, Y g:i A" }}</div>
                                         </a>
                                     {% endfor %}
                                 </div>
@@ -301,7 +313,7 @@
                             <span>More</span><span>&rsaquo;</span>
                         </button>
                     </aside>
-                    <section class="crm-profile-modal-content">
+                    <section class="crm-profile-modal-content crm-profile-content-shell">
                         <div class="d-flex align-items-start justify-content-between mb-3">
                             <h5 class="modal-title mb-0" id="crmClientInfoModalLabel">Profile</h5>
                             <button type="button" class="btn-close crm-profile-close-btn" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -377,16 +389,29 @@
                             </div>
                         </div>
                         <div class="crm-profile-pane d-none" id="client-technical-pane">
-                            <div class="alert alert-light border mb-0">Technical details can be shown here once linked records are available.</div>
+                            <div class="row g-3">
+                                <div class="col-md-6"><label class="form-label">Installation Date</label><input class="form-control bg-light" id="infoTechInstallationDate" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Team Assigned</label><input class="form-control bg-light" id="infoTechTeamAssigned" readonly></div>
+                                <div class="col-md-6"><label class="form-label">System Size Kwh</label><input class="form-control bg-light" id="infoTechSystemSizeKwh" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Panel Units</label><input class="form-control bg-light" id="infoTechPanelUnits" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control bg-light" id="infoTechInverterModel" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control bg-light" id="infoTechBatteryModel" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Net-Metering</label><input class="form-control bg-light" id="infoTechNetMetering" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Installation Status</label><input class="form-control bg-light" id="infoTechInstallationStatus" readonly></div>
+                                <div class="col-md-6"><label class="form-label">PO#</label><input class="form-control bg-light" id="infoTechPoNumber" readonly></div>
+                                <div class="col-12"><label class="form-label">Remarks</label><textarea class="form-control bg-light" id="infoTechRemarks" rows="2" readonly></textarea></div>
+                            </div>
                         </div>
                         <div class="crm-profile-pane d-none" id="client-more-pane">
                             <div class="alert alert-light border mb-0">More client info placeholder for future updates.</div>
                         </div>
-                        <div class="mt-4 d-flex gap-2">
+                        <div class="mt-4 d-flex gap-2 justify-content-end align-items-center crm-profile-actions">
                             {% if request.user.is_superuser or perms.core.change_client %}
+                            <div class="d-flex gap-2" id="crmInlineActionsWrap">
                                 <button type="button" class="btn btn-success" id="crmInlineEditBtn">Edit Info</button>
                                 <button type="submit" class="btn btn-success d-none" id="crmInlineSaveBtn" form="crmInlineProfileForm">Save Info</button>
                                 <button type="button" class="btn btn-outline-secondary d-none" id="crmInlineCancelBtn">Cancel</button>
+                            </div>
                             {% endif %}
                             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
                         </div>
@@ -514,12 +539,17 @@
                             {{ form.date_of_birth }}
                         </div>
                         <div class="col-12">
-                            <label class="form-label" for="{{ form.media_files.id_for_label }}">Media File (Optional)</label>
+                            <label class="form-label" for="{{ form.media_files.id_for_label }}">Files (Optional)</label>
                             <div class="d-none">{{ form.media_files }}</div>
                             <div class="border border-2 border-success-subtle rounded-3 p-3 text-center text-secondary" id="crmDropZone" role="button" tabindex="0">
-                                Drag and drop or click to choose a file
+                                Drag and drop or click to choose file(s)
                             </div>
                             <div class="small text-secondary mt-2">Multiple files are supported.</div>
+                            <div class="border rounded-3 p-2 mt-2" id="crmUploadPreviewWrap">
+                                <div class="d-flex flex-nowrap gap-2 overflow-auto" id="crmUploadPreviewGrid">
+                                    <div class="crm-upload-preview-empty text-secondary small">No files selected.</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     {% if form.errors %}
@@ -559,11 +589,12 @@
     }
     .crm-clients-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
     .crm-clients-table thead th { position: sticky; top: 0; z-index: 2; background: #f7fbf8; border-bottom: 0; }
-    .crm-clients-table tbody tr { background: #f4f7f5; height: 42px; }
-    .crm-clients-table tbody tr td { border-top: 0; border-bottom: 0; }
+    .crm-clients-table tbody tr { background: #f4f7f5; height: 42px; transition: background-color 0.15s ease, color 0.15s ease; }
+    .crm-clients-table tbody tr td { border-top: 0; border-bottom: 0; transition: background-color 0.15s ease, color 0.15s ease; }
     .crm-clients-table tbody tr td:first-child { border-radius: 8px 0 0 8px; }
     .crm-clients-table tbody tr td:last-child { border-radius: 0 8px 8px 0; }
-    .crm-client-row.is-active { background: #1f8f53; color: #fff; }
+    .crm-client-row:hover:not(.is-active) td { background: #d7efe0; }
+    .crm-client-row.is-active td { background: #1f8f53; color: #fff; }
     .crm-client-summary-panel { border-left: 1px solid #e4e9e6; padding-left: 12px; }
     .crm-summary-name { font-size: 1.75rem; margin: 0 0 8px; }
     .crm-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -611,6 +642,130 @@
     .crm-profile-modal-content {
         padding: 22px 24px 24px;
         background: #f7f7f7;
+    }
+    .crm-profile-content-shell {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    .crm-profile-content-shell .crm-profile-pane {
+        flex: 1 1 auto;
+    }
+    .crm-profile-actions {
+        margin-top: auto !important;
+        position: sticky;
+        bottom: 0;
+        background: #f7f7f7;
+        padding-top: 12px;
+    }
+    #crmUploadPreviewWrap {
+        min-height: 116px;
+        max-width: 100%;
+        overflow: hidden;
+    }
+    #crmUploadPreviewGrid {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 2px;
+    }
+    .crm-upload-preview-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 96px;
+    }
+    .crm-upload-card {
+        width: 120px;
+        min-width: 120px;
+        height: 96px;
+        border: 1px solid #d7e6db;
+        border-radius: 10px;
+        background: #f8fbf9;
+        padding: 8px 8px 6px;
+        position: relative;
+        overflow: hidden;
+    }
+    .crm-upload-remove-btn {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        border: 0;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: #e25555;
+        color: #fff;
+        font-size: 12px;
+        line-height: 1;
+        padding: 0;
+    }
+    .crm-upload-name {
+        font-size: 11px;
+        font-weight: 600;
+        max-width: 94px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .crm-upload-meta {
+        font-size: 10px;
+        color: #6b736d;
+        line-height: 1.25;
+    }
+    .crm-upload-progress {
+        height: 6px;
+        margin-top: 4px;
+        background: #e6ece8;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+    .crm-upload-progress-bar {
+        height: 100%;
+        width: 0%;
+        background: #1f8f53;
+        transition: width .25s ease;
+    }
+    .crm-modal-media-grid {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 4px;
+    }
+    .crm-modal-media-card {
+        width: 140px;
+        min-width: 140px;
+        height: 108px;
+        border: 1px solid #d7e6db;
+        border-radius: 10px;
+        background: #f8fbf9;
+        padding: 8px;
+        color: #1f2a22;
+        text-decoration: none;
+        display: block;
+        overflow: hidden;
+    }
+    .crm-modal-media-card:hover {
+        background: #e9f5ee;
+        border-color: #b8d9c6;
+    }
+    .crm-modal-media-name {
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 4px;
+    }
+    .crm-modal-media-meta {
+        font-size: 10px;
+        color: #6b736d;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .crm-profile-close-btn {
         border: 1px solid #ddd;
@@ -720,7 +875,78 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var input = document.getElementById('{% if form and form.media_files %}{{ form.media_files.id_for_label }}{% endif %}');
     var dropZone = document.getElementById('crmDropZone');
+    var uploadPreviewGrid = document.getElementById('crmUploadPreviewGrid');
     if (input && dropZone) {
+        input.multiple = true;
+        input.removeAttribute('accept');
+        var uploadFiles = [];
+
+        function humanFileSize(bytes) {
+            if (!bytes) return '0 B';
+            var units = ['B', 'KB', 'MB', 'GB'];
+            var size = Number(bytes);
+            var idx = 0;
+            while (size >= 1024 && idx < units.length - 1) {
+                size /= 1024;
+                idx += 1;
+            }
+            var rounded = idx === 0 ? String(Math.round(size)) : size.toFixed(1);
+            return rounded + ' ' + units[idx];
+        }
+
+        function shortFileType(file) {
+            var type = (file && file.type) ? String(file.type) : '';
+            if (type) return type;
+            var name = (file && file.name) ? String(file.name) : '';
+            var dotIndex = name.lastIndexOf('.');
+            return dotIndex > -1 ? ('*' + name.slice(dotIndex)) : 'unknown';
+        }
+
+        function syncUploadInputFiles() {
+            var dt = new DataTransfer();
+            uploadFiles.forEach(function (file) { dt.items.add(file); });
+            input.files = dt.files;
+        }
+
+        function renderUploadPreview() {
+            if (!uploadPreviewGrid) return;
+            if (!uploadFiles.length) {
+                uploadPreviewGrid.innerHTML = '<div class="crm-upload-preview-empty text-secondary small">No files selected.</div>';
+                return;
+            }
+            var html = '';
+            uploadFiles.forEach(function (file, index) {
+                html += ''
+                    + '<div class="crm-upload-card">'
+                    + '  <button type="button" class="crm-upload-remove-btn js-crm-upload-remove" data-index="' + index + '" aria-label="Remove file">x</button>'
+                    + '  <div class="crm-upload-name" title="' + (file.name || '').replace(/"/g, '&quot;') + '">' + (file.name || '-') + '</div>'
+                    + '  <div class="crm-upload-meta">' + humanFileSize(file.size) + '</div>'
+                    + '  <div class="crm-upload-meta">' + shortFileType(file) + '</div>'
+                    + '  <div class="crm-upload-progress"><div class="crm-upload-progress-bar" id="crmUploadBar' + index + '"></div></div>'
+                    + '  <div class="crm-upload-meta" id="crmUploadProgressText' + index + '">0%</div>'
+                    + '</div>';
+            });
+            uploadPreviewGrid.innerHTML = html;
+            uploadFiles.forEach(function (_, idx) {
+                var pct = 0;
+                var bar = document.getElementById('crmUploadBar' + idx);
+                var text = document.getElementById('crmUploadProgressText' + idx);
+                var timer = setInterval(function () {
+                    pct += 20;
+                    if (bar) bar.style.width = Math.min(pct, 100) + '%';
+                    if (text) text.textContent = Math.min(pct, 100) + '%';
+                    if (pct >= 100) clearInterval(timer);
+                }, 35);
+            });
+        }
+
+        function addFiles(files) {
+            if (!files || !files.length) return;
+            Array.from(files).forEach(function (file) { uploadFiles.push(file); });
+            syncUploadInputFiles();
+            renderUploadPreview();
+        }
+
         ['dragenter', 'dragover'].forEach(function (eventName) {
             dropZone.addEventListener(eventName, function (event) {
                 event.preventDefault();
@@ -742,7 +968,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!files || !files.length) {
                 return;
             }
-            input.files = files;
+            addFiles(files);
         });
 
         dropZone.addEventListener('click', function () {
@@ -755,6 +981,22 @@ document.addEventListener('DOMContentLoaded', function () {
                 input.click();
             }
         });
+
+        input.addEventListener('change', function () {
+            addFiles(input.files);
+        });
+
+        document.addEventListener('click', function (event) {
+            var removeBtn = event.target.closest('.js-crm-upload-remove');
+            if (!removeBtn) return;
+            var idx = Number(removeBtn.getAttribute('data-index'));
+            if (Number.isNaN(idx) || idx < 0 || idx >= uploadFiles.length) return;
+            uploadFiles.splice(idx, 1);
+            syncUploadInputFiles();
+            renderUploadPreview();
+        });
+
+        renderUploadPreview();
     }
 
     var selectAll = document.getElementById('crmSelectAll');
@@ -831,8 +1073,15 @@ document.addEventListener('DOMContentLoaded', function () {
     var inlineEditBtn = document.getElementById('crmInlineEditBtn');
     var inlineSaveBtn = document.getElementById('crmInlineSaveBtn');
     var inlineCancelBtn = document.getElementById('crmInlineCancelBtn');
+    var inlineActionsWrap = document.getElementById('crmInlineActionsWrap');
     var currentRowForModal = null;
     var isInlineEditing = false;
+    function syncInlineActionsVisibility() {
+        if (!inlineActionsWrap) return;
+        var activePane = document.querySelector('#crmClientInfoModal .crm-profile-pane:not(.d-none)');
+        var isProfilePane = !!activePane && activePane.id === 'client-profile-pane';
+        inlineActionsWrap.classList.toggle('d-none', !isProfilePane);
+    }
     function setInlineEditMode(editing) {
         isInlineEditing = !!editing;
         document.querySelectorAll('#crmClientInfoModal .crm-inline-editable').forEach(function (field) {
@@ -844,6 +1093,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (inlineEditBtn) inlineEditBtn.classList.toggle('d-none', isInlineEditing);
         if (inlineSaveBtn) inlineSaveBtn.classList.toggle('d-none', !isInlineEditing);
         if (inlineCancelBtn) inlineCancelBtn.classList.toggle('d-none', !isInlineEditing);
+        syncInlineActionsVisibility();
     }
     function syncRowFromInlineForm(row) {
         if (!row) return;
@@ -893,6 +1143,16 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('infoSalesRoi').value = row.dataset.salesRoi || '-';
         document.getElementById('infoSalesAssigned').value = row.dataset.salesAssigned || '-';
         document.getElementById('infoSalesStatus').value = row.dataset.salesStatus || '-';
+        document.getElementById('infoTechInstallationDate').value = row.dataset.techInstallationDate || '-';
+        document.getElementById('infoTechTeamAssigned').value = row.dataset.techTeamAssigned || '-';
+        document.getElementById('infoTechSystemSizeKwh').value = row.dataset.techSystemSizeKwh || '-';
+        document.getElementById('infoTechPanelUnits').value = row.dataset.techPanelUnits || '-';
+        document.getElementById('infoTechInverterModel').value = row.dataset.techInverterModel || '-';
+        document.getElementById('infoTechBatteryModel').value = row.dataset.techBatteryModel || '-';
+        document.getElementById('infoTechNetMetering').value = row.dataset.techNetMetering || '-';
+        document.getElementById('infoTechInstallationStatus').value = row.dataset.techInstallationStatus || '-';
+        document.getElementById('infoTechPoNumber').value = row.dataset.techPoNumber || '-';
+        document.getElementById('infoTechRemarks').value = row.dataset.techRemarks || '-';
         var mediaContainer = document.getElementById('infoMediaFiles');
         var mediaTemplateId = row.dataset.mediaTemplateId;
         var mediaTemplate = mediaTemplateId ? document.getElementById(mediaTemplateId) : null;
@@ -904,6 +1164,7 @@ document.addEventListener('DOMContentLoaded', function () {
             firstNav.click();
         }
         setInlineEditMode(false);
+        syncInlineActionsVisibility();
         clientModal.show();
     }
 
@@ -921,6 +1182,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (paneEl) {
                 paneEl.classList.remove('d-none');
             }
+            syncInlineActionsVisibility();
         });
     });
 

@@ -1,7 +1,17 @@
+from datetime import timedelta
+
 from django.contrib.auth.models import Group, Permission, User
 from django.db.models import Q
+from django.utils import timezone
 
-from .models import Notification, SuperUserChatMessage, SuperUserChatReadState, SupportTicket
+from .models import (
+    Notification,
+    SuperUserChatMessage,
+    SuperUserChatReadState,
+    SupportTicket,
+    CRMTechnicalRecord,
+    CRMTechnicalNotificationSetting,
+)
 from .ticketing_services import (
     IMPORTANT_PRIORITY_VALUES,
     OPEN_TICKET_STATUS_VALUES,
@@ -285,6 +295,7 @@ def finance_navigation_state(request):
     is_crm_nav_active = url_name.startswith('crm_')
 
     important_ticket_count = 0
+    technical_action_required_count = 0
     if request.user.is_authenticated:
         important_query = SupportTicket.objects.filter(
             status__in=OPEN_TICKET_STATUS_VALUES,
@@ -301,10 +312,39 @@ def finance_navigation_state(request):
         else:
             important_ticket_count = important_query.filter(created_by=request.user).count()
 
+        can_view_crm = request.user.is_superuser or request.user.has_perm('core.view_client')
+        if can_view_crm:
+            setting = CRMTechnicalNotificationSetting.objects.order_by('id').first()
+            notify_days_before = getattr(setting, 'notify_days_before', 3)
+            include_backlogs = bool(getattr(setting, 'include_backlogs', True))
+            today = timezone.localdate()
+            notify_before_date = today + timedelta(days=notify_days_before)
+            actionable_q = (
+                Q(installation_date__isnull=False, installation_date__lte=notify_before_date)
+                & ~Q(installation_status__iexact='completed')
+            )
+            if include_backlogs:
+                actionable_q = actionable_q | Q(installation_status__iexact='back jobs') | Q(installation_status__iexact='reschedules')
+
+            actionable_q &= Q(sales_record__project_cost__isnull=False) & (
+                Q(sales_record__sales_status__iexact='closed won') | Q(sales_record__sales_status__iexact='close won')
+            )
+            if not (request.user.is_superuser or request.user.has_perm('core.change_client')):
+                user_full_name = (request.user.get_full_name() or '').strip()
+                user_username = (request.user.username or '').strip()
+                ownership_filter = Q(sales_record__client__created_by=request.user)
+                if user_full_name:
+                    ownership_filter |= Q(sales_record__assigned_sales__icontains=user_full_name)
+                if user_username:
+                    ownership_filter |= Q(sales_record__assigned_sales__icontains=user_username)
+                actionable_q &= ownership_filter
+            technical_action_required_count = CRMTechnicalRecord.objects.filter(actionable_q).distinct().count()
+
     return {
         'is_crm_nav_active': is_crm_nav_active,
         'is_finance_nav_active': is_finance_nav_active,
         'is_asset_tracker_nav_active': is_asset_tracker_nav_active,
         'is_support_ticket_nav_active': is_support_ticket_nav_active,
         'important_ticket_count': important_ticket_count,
+        'technical_action_required_count': technical_action_required_count,
     }

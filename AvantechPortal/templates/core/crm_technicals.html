@@ -7,102 +7,1249 @@
 {% block content %}
 <div class="card border-0 shadow-sm">
     <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Last Name</th>
-                        <th>First Name</th>
-                        <th>Contact Number</th>
-                        <th>Email</th>
-                        <th>Date of Birth</th>
-                        <th>Home Address</th>
-                        <th>City</th>
-                        <th>Customer Type</th>
-                        <th>Date Created</th>
-                        <th>Lead Source</th>
-                        <th>Monthly Electric Bill</th>
-                        <th>Roof Type</th>
-                        <th>Ownership</th>
-                        <th>Project Cost</th>
-                        <th>Return On Investment</th>
-                        <th>Assigned Sales</th>
-                        <th>Sales Status</th>
-                        <th>Installation Date</th>
-                        <th>Team Assigned</th>
-                        <th>System Size Kwh</th>
-                        <th>Panel Units</th>
-                        <th>Inverter Model</th>
-                        <th>Battery Model</th>
-                        <th>Net-Metering</th>
-                        <th>Installation Status</th>
-                        <th>PO#</th>
-                        <th>Remarks</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in technical_page %}
-                        {% with client=row.client tech=row.technical_record %}
-                            <tr>
-                                <td>{{ client.last_name|default:"-" }}</td>
-                                <td>{{ client.first_name|default:"-" }}</td>
-                                <td>{{ client.contact_number|default:"-" }}</td>
-                                <td>{{ client.email|default:"-" }}</td>
-                                <td>{{ client.date_of_birth|date:"Y-m-d"|default:"-" }}</td>
-                                <td>{{ client.home_address|default:"-" }}</td>
-                                <td>{{ client.city|default:"-" }}</td>
-                                <td>{{ client.get_customer_type_display|default:"-" }}</td>
-                                <td>{{ row.date_created|date:"Y-m-d"|default:"-" }}</td>
-                                <td>{{ row.lead_source|default:"-" }}</td>
-                                <td>{{ row.monthly_electric_bill|default:"-" }}</td>
-                                <td>{{ row.roof_type|default:"-" }}</td>
-                                <td>{{ row.ownership|default:"-" }}</td>
-                                <td>{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}</td>
-                                <td>{{ row.return_on_investment|default:"-" }}</td>
-                                <td>{{ row.assigned_sales|default:"-" }}</td>
-                                <td>{{ row.sales_status|default:"-" }}</td>
-                                <td>{{ tech.installation_date|date:"Y-m-d"|default:"-" }}</td>
-                                <td>{{ tech.team_assigned|default:"-" }}</td>
-                                <td>{{ tech.system_size_kwh|default:"-" }}</td>
-                                <td>{{ tech.panel_units|default:"-" }}</td>
-                                <td>{{ tech.inverter_model|default:"-" }}</td>
-                                <td>{{ tech.battery_model|default:"-" }}</td>
-                                <td>{{ tech.net_metering|default:"-" }}</td>
-                                <td>{{ tech.installation_status|default:"-" }}</td>
-                                <td>{{ tech.po_number|default:"-" }}</td>
-                                <td>{{ tech.remarks|default:"-" }}</td>
-                            </tr>
-                        {% endwith %}
-                    {% empty %}
-                        <tr>
-                            <td colspan="27" class="text-center text-secondary py-3">No CRM technical records yet.</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <h2 class="h4 mb-0">Technical Queue</h2>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#technicalNotificationSettingsModal">Settings</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#manageTechnicalTeamsModal">Manage Teams</button>
+                <button type="button" class="btn btn-outline-success" id="setInstallationScheduleBtn">Set Installation Schedule</button>
+                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#technicalCalendarModal">View Calendar</button>
+            </div>
         </div>
-        {% if technical_page.paginator.num_pages > 1 %}
-            <nav class="mt-3" aria-label="CRM technical pagination">
-                <ul class="pagination pagination-sm mb-0 justify-content-end">
-                    {% if technical_page.has_previous %}
-                        <li class="page-item"><a class="page-link" href="?page={{ technical_page.previous_page_number }}">Previous</a></li>
-                    {% else %}
-                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
-                    {% endif %}
-                    {% for page_num in technical_page.paginator.page_range %}
-                        <li class="page-item {% if technical_page.number == page_num %}active{% endif %}">
-                            <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
-                        </li>
-                    {% endfor %}
-                    {% if technical_page.has_next %}
-                        <li class="page-item"><a class="page-link" href="?page={{ technical_page.next_page_number }}">Next</a></li>
-                    {% else %}
-                        <li class="page-item disabled"><span class="page-link">Next</span></li>
-                    {% endif %}
-                </ul>
-            </nav>
-        {% endif %}
-        <div class="mt-3 small text-secondary">Technical table is dependent on CRM Clients + CRM Sales records.</div>
+
+        <div class="crm-tech-split-layout">
+            <div>
+                <div class="table-responsive crm-tech-table-wrap">
+                    <table class="table table-sm align-middle mb-0 crm-tech-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Client's Full Name</th>
+                                <th>Team Assigned</th>
+                                <th>Installation Status</th>
+                                <th>PO#</th>
+                                <th style="width: 72px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in technical_page %}
+                                {% with client=row.client tech=row.technical_record %}
+                                <tr class="crm-tech-row"
+                                    data-sales-record-id="{{ row.id }}"
+                                    data-client-name="{{ client.last_name }}, {{ client.first_name }}"
+                                    data-installation-date="{{ tech.installation_date|date:'Y-m-d'|default:'-' }}"
+                                    data-installation-time="{% if tech.installation_time %}{{ tech.installation_time|time:'H:i' }}{% else %}-{% endif %}"
+                                    data-team-assigned="{{ tech.team_assigned|default:'-' }}"
+                                    data-system-size-kwh="{{ tech.system_size_kwh|default:'-' }}"
+                                    data-panel-units="{{ tech.panel_units|default:'-' }}"
+                                    data-inverter-model="{{ tech.inverter_model|default:'-' }}"
+                                    data-battery-model="{{ tech.battery_model|default:'-' }}"
+                                    data-net-metering="{{ tech.net_metering|default:'-' }}"
+                                    data-installation-status="{{ tech.installation_status|default:'-' }}"
+                                    data-po-number="{{ tech.po_number|default:'-' }}"
+                                    data-remarks="{{ tech.remarks|default:'-' }}">
+                                    <td>{{ client.last_name }}, {{ client.first_name }}</td>
+                                    <td>{{ tech.team_assigned|default:"-" }}</td>
+                                    <td>
+                                        {% with status_value=tech.installation_status|default:"-" %}
+                                            {% if status_value|lower == 'completed' %}
+                                                <span class="badge text-bg-success">{{ status_value }}</span>
+                                            {% elif status_value|lower == 'scheduled' %}
+                                                <span class="badge text-bg-primary">{{ status_value }}</span>
+                                            {% elif status_value|lower == 'ongoing' %}
+                                                <span class="badge text-bg-warning">{{ status_value }}</span>
+                                            {% elif status_value|lower == 'back jobs' %}
+                                                <span class="badge text-bg-danger">{{ status_value }}</span>
+                                            {% elif status_value|lower == 'reschedules' %}
+                                                <span class="badge text-bg-secondary">{{ status_value }}</span>
+                                            {% else %}
+                                                <span class="badge text-bg-light border text-dark">{{ status_value }}</span>
+                                            {% endif %}
+                                        {% endwith %}
+                                    </td>
+                                    <td>{{ tech.po_number|default:"-" }}</td>
+                                    <td>
+                                        <div class="dropdown">
+                                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><button type="button" class="dropdown-item js-tech-view-btn">View Technical Info</button></li>
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endwith %}
+                            {% empty %}
+                                <tr><td colspan="5" class="text-center text-secondary py-3">No closed won technical records with project cost yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% if technical_page.paginator.num_pages > 1 %}
+                    <nav class="mt-3" aria-label="CRM technical pagination">
+                        <ul class="pagination pagination-sm mb-0 justify-content-end">
+                            {% if technical_page.has_previous %}
+                                <li class="page-item"><a class="page-link" href="?page={{ technical_page.previous_page_number }}">Previous</a></li>
+                            {% else %}
+                                <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                            {% endif %}
+                            {% for page_num in technical_page.paginator.page_range %}
+                                <li class="page-item {% if technical_page.number == page_num %}active{% endif %}">
+                                    <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                                </li>
+                            {% endfor %}
+                            {% if technical_page.has_next %}
+                                <li class="page-item"><a class="page-link" href="?page={{ technical_page.next_page_number }}">Next</a></li>
+                            {% else %}
+                                <li class="page-item disabled"><span class="page-link">Next</span></li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                {% endif %}
+            </div>
+            <aside class="crm-tech-summary-panel">
+                <h3 class="crm-tech-summary-name" id="techSummaryClient">Select a technical record</h3>
+                <div class="small text-secondary mb-3">Technical Summary</div>
+                <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Installation Date</div><div class="crm-tech-summary-value" id="techSummaryInstallDate">-</div></div>
+                <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Team Assigned</div><div class="crm-tech-summary-value" id="techSummaryTeam">-</div></div>
+                <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Installation Status</div><div class="crm-tech-summary-value" id="techSummaryInstallStatus">-</div></div>
+                <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Remarks</div><div class="crm-tech-summary-value" id="techSummaryRemarks">-</div></div>
+            </aside>
+        </div>
     </div>
 </div>
+
+<div class="modal fade" id="technicalNotificationSettingsModal" tabindex="-1" aria-labelledby="technicalNotificationSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-md modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="update_technical_notification_settings">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="technicalNotificationSettingsModalLabel">Technical Notification Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Notify Users N Day(s) Before Schedule</label>
+                        <input type="number" min="0" class="form-control" name="notify_days_before" value="{{ technical_notification_setting.notify_days_before|default:3 }}">
+                        <div class="form-text">Users with access/permission on this page will get daily notifications.</div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="includeBacklogsSetting" name="include_backlogs" {% if technical_notification_setting.include_backlogs %}checked{% endif %}>
+                        <label class="form-check-label" for="includeBacklogsSetting">
+                            Include backlog statuses (`back jobs` and `reschedules`) in action-required notifications.
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="technicalInfoModal" tabindex="-1" aria-labelledby="technicalInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable technical-info-modal-dialog">
+        <div class="modal-content crm-profile-modal-shell">
+            <div class="modal-header bg-white border-0 pb-0">
+                <h5 class="modal-title" id="technicalInfoModalLabel">Technical Info</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="crm-profile-modal-layout">
+                    <aside class="crm-profile-modal-nav">
+                        <div class="fw-semibold fs-5 mb-3 text-break" id="techInfoSidebarClient">-</div>
+                        <button type="button" class="crm-profile-nav-item active js-tech-modal-tab" data-tech-tab="technical">
+                            <span>Technical</span><span>&rsaquo;</span>
+                        </button>
+                        <button type="button" class="crm-profile-nav-item js-tech-modal-tab" data-tech-tab="history">
+                            <span>History</span><span>&rsaquo;</span>
+                        </button>
+                    </aside>
+                    <section class="crm-profile-modal-content">
+                        <div class="js-tech-modal-panel" data-tech-panel="technical">
+                            <h4 class="mb-3">Technical</h4>
+                            <div class="row g-3">
+                                <div class="col-md-6"><label class="form-label">Client's Full Name</label><input class="form-control" id="techInfoClientName" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Installation Date</label><input class="form-control" id="techInfoInstallationDate" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Team Assigned</label><input class="form-control" id="techInfoTeamAssigned" readonly></div>
+                                <div class="col-md-6"><label class="form-label">System Size Kwh</label><input class="form-control" id="techInfoSystemSizeKwh" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Panel Units</label><input class="form-control" id="techInfoPanelUnits" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" id="techInfoInverterModel" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control" id="techInfoBatteryModel" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Net-Metering</label><input class="form-control" id="techInfoNetMetering" readonly></div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Installation Status</label>
+                                    <div class="form-control d-flex align-items-center" id="techInfoInstallationStatusWrap">
+                                        <span id="techInfoInstallationStatusBadge" class="badge text-bg-light border text-dark">-</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6"><label class="form-label">PO#</label><input class="form-control" id="techInfoPoNumber" readonly></div>
+                                <div class="col-12"><label class="form-label">Remarks</label><textarea class="form-control" id="techInfoRemarks" rows="3" readonly></textarea></div>
+                            </div>
+                        </div>
+                        <div class="js-tech-modal-panel d-none" data-tech-panel="history">
+                            <h4 class="mb-3">Technical History</h4>
+                            <div class="border rounded-3 p-2 bg-white" style="max-height:420px; overflow:auto;">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Operation (User)</th>
+                                            <th>Action</th>
+                                            <th>Date and Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="techInfoHistoryBody">
+                                        <tr><td colspan="3" class="text-secondary text-center py-3">No history yet.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="technicalHistoryDetailModal" tabindex="-1" aria-labelledby="technicalHistoryDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="technicalHistoryDetailModalLabel">Technical History Detail</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><label class="form-label">Operation (User)</label><input class="form-control" id="techHistoryDetailOperator" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Action</label><input class="form-control" id="techHistoryDetailAction" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Date and Time</label><input class="form-control" id="techHistoryDetailDateTime" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Previous Status</label><input class="form-control" id="techHistoryDetailPrevStatus" readonly></div>
+                    <div class="col-md-6"><label class="form-label">New Status</label><input class="form-control" id="techHistoryDetailNewStatus" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Previous Date/Time</label><input class="form-control" id="techHistoryDetailPrevDateTime" readonly></div>
+                    <div class="col-md-6"><label class="form-label">New Date/Time</label><input class="form-control" id="techHistoryDetailNewDateTime" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Previous Team</label><input class="form-control" id="techHistoryDetailPrevTeam" readonly></div>
+                    <div class="col-md-6"><label class="form-label">New Team</label><input class="form-control" id="techHistoryDetailNewTeam" readonly></div>
+                    <div class="col-12"><label class="form-label">Previous Remarks</label><textarea class="form-control" id="techHistoryDetailPrevRemarks" rows="2" readonly></textarea></div>
+                    <div class="col-12"><label class="form-label">New Remarks</label><textarea class="form-control" id="techHistoryDetailNewRemarks" rows="2" readonly></textarea></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="manageTechnicalTeamsModal" tabindex="-1" aria-labelledby="manageTechnicalTeamsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="manageTechnicalTeamsModalLabel">Manage Technical Teams</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-success w-100 mb-2" id="newTechnicalTeamBtn">+ New</button>
+                        <div class="list-group" id="technicalTeamsList"></div>
+                    </div>
+                    <div class="col-md-8">
+                        <form method="post" id="createTechnicalTeamForm" class="border rounded-3 p-3 mb-3 d-none">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="create_technical_team">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Team Name</label>
+                                    <input class="form-control" name="team_name" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Role Source</label>
+                                    <select class="form-select" name="source_role_id">
+                                        <option value="">Select role</option>
+                                        {% for role in technical_team_roles %}
+                                        <option value="{{ role.id }}">{{ role.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-12 d-flex justify-content-end">
+                                    <button type="submit" class="btn btn-success">Create Team</button>
+                                </div>
+                            </div>
+                        </form>
+                        <form method="post" id="updateTechnicalTeamMembersForm" class="border rounded-3 p-3 d-none">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="update_technical_team_members">
+                            <input type="hidden" name="team_id" id="technicalTeamIdInput">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0" id="technicalTeamTitle">Member List</h6>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Role Source</label>
+                                <select class="form-select" name="source_role_id" id="technicalTeamRoleSelect">
+                                    <option value="">Select role</option>
+                                    {% for role in technical_team_roles %}
+                                    <option value="{{ role.id }}">{{ role.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="border rounded-2 p-2" style="max-height:320px; overflow:auto;" id="technicalTeamMembersChecklist"></div>
+                            <div class="d-flex justify-content-end mt-2">
+                                <button type="submit" class="btn btn-primary">Save Members</button>
+                            </div>
+                        </form>
+                        <div class="text-secondary small" id="technicalTeamHint">Select a team from the left list.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="setInstallationScheduleModal" tabindex="-1" aria-labelledby="setInstallationScheduleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" id="setInstallationScheduleForm">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="set_installation_schedule">
+                <input type="hidden" name="sales_record_id" id="scheduleSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="setInstallationScheduleModalLabel">Set Installation Schedule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger d-none py-2 mb-3" id="scheduleConflictHint"></div>
+                    <div class="tech-schedule-modal-layout">
+                        <section class="tech-schedule-modal-fields">
+                            <div class="row g-3">
+                                <div class="col-12"><label class="form-label">Installation Date</label><input type="date" class="form-control" name="installation_date" id="scheduleInstallationDate"></div>
+                                <div class="col-12"><label class="form-label">Time</label><input type="time" class="form-control" name="installation_time" id="scheduleInstallationTime"></div>
+                                <div class="col-12">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <label class="form-label mb-1">Team Assigned</label>
+                                        <span class="badge text-bg-secondary" id="scheduleTeamMembersBadge">0 members</span>
+                                    </div>
+                                    <select class="form-select" name="team_assigned" id="scheduleTeamAssigned">
+                                        <option value="">Select team</option>
+                                        {% for team in technical_teams %}
+                                        <option value="{{ team.name }}" data-member-count="{{ team.members|length }}">{{ team.name }} ({{ team.members|length }})</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-12"><label class="form-label">Remark</label><input class="form-control" name="remarks" id="scheduleRemarks"></div>
+                            </div>
+                        </section>
+                        <section>
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <h6 class="mb-0">Schedule Calendar Preview</h6>
+                                <span class="small text-secondary" id="techCalendarModeHint">Week navigation</span>
+                            </div>
+                            <div class="tech-inline-calendar" id="techInlineCalendar"></div>
+                        </section>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Schedule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="technicalCalendarModal" tabindex="-1" aria-labelledby="technicalCalendarModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-sm">
+            <div class="modal-header bg-white">
+                <h5 class="modal-title" id="technicalCalendarModalLabel">Calendar</h5>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button type="button" class="btn-close ms-1" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="small text-secondary mb-2" id="techOverviewModeHint">Week navigation</div>
+                <div class="tech-inline-calendar" id="techOverviewCalendar"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ schedule_slots|json_script:"technical-schedule-slots-data" }}
+{{ technical_history_map|json_script:"technical-history-map-data" }}
+{{ technical_teams|json_script:"technical-teams-data" }}
+{{ technical_role_user_map|json_script:"technical-role-user-map-data" }}
+
+<style>
+    .crm-tech-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+    .crm-tech-table-wrap { max-height: 520px; min-height: 520px; overflow-y: auto !important; overflow-x: hidden !important; border: 1px solid #e5efe8; border-radius: 12px; }
+    .crm-tech-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+    .crm-tech-table thead th { position: sticky; top: 0; z-index: 2; background: #f7fbf8; border-bottom: 0; }
+    .crm-tech-table tbody tr { background: #f4f7f5; height: 42px; }
+    .crm-tech-table tbody tr td { border-top: 0; border-bottom: 0; transition: background-color .15s ease, color .15s ease; }
+    .crm-tech-table tbody tr td:first-child { border-radius: 8px 0 0 8px; }
+    .crm-tech-table tbody tr td:last-child { border-radius: 0 8px 8px 0; }
+    .crm-tech-row:hover:not(.is-active) td { background: #d7efe0; }
+    .crm-tech-row.is-active td { background: #1f8f53; color: #fff; }
+    .crm-profile-modal-shell { border-radius: 18px; overflow: hidden; background: #f6f6f6; }
+    .crm-profile-modal-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 640px; }
+    .crm-profile-modal-nav { border-right: 1px solid #e4e4e4; background: #fbfbfb; padding: 20px 18px; }
+    .crm-profile-modal-content { padding: 22px 24px 24px; background: #f7f7f7; }
+    .crm-profile-nav-item {
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: #e5f2ea;
+        color: #1f8f53;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+    .crm-tech-summary-panel { border-left: 1px solid #e4e9e6; padding-left: 12px; }
+    .crm-tech-summary-name { font-size: 1.5rem; margin: 0 0 8px; }
+    .crm-tech-summary-item { margin-bottom: 8px; }
+    .crm-tech-summary-label { font-size: 11px; color: #6f776f; margin-bottom: 2px; }
+    .crm-tech-summary-value { font-size: 13px; color: #202420; word-break: break-word; }
+    .pagination .page-item.active .page-link { background: #1f8f53; border-color: #1f8f53; }
+    .technical-info-modal-dialog { max-width: min(92vw, 1120px); }
+    .tech-schedule-modal-dialog { max-width: min(99vw, 1850px); }
+    .tech-inline-calendar { border: 1px solid #e3e9e5; border-radius: 14px; background: #fff; overflow: auto; max-height: 620px; }
+    .tech-schedule-modal-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; align-items: start; }
+    .tech-schedule-modal-fields { border: 1px solid #e4ebe6; border-radius: 12px; background: #fbfcfb; padding: 12px; position: sticky; top: 0; }
+    .tech-inline-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 420px; min-width: 980px; }
+    .tech-inline-side { border-right: 1px solid #edf0f2; padding: 12px; background: #fbfcfb; }
+    .tech-inline-main { padding: 10px; }
+    .tech-inline-mini-box { border: 1px solid #e6ece8; border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fff; }
+    .tech-inline-mini-head { font-weight: 700; font-size: 15px; color: #2c3135; margin-bottom: 6px; }
+    .tech-inline-mini-label { font-size: 12px; color: #707a83; }
+    .tech-inline-mini-month-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .tech-inline-mini-month-title { font-size: 25px; font-weight: 400; color: #242a2f; letter-spacing: .02em; }
+    .tech-inline-mini-month-nav { display: inline-flex; gap: 6px; }
+    .tech-inline-mini-month-btn { border: 1px solid #d9e0e4; background: #fff; color: #4d5660; border-radius: 8px; width: 30px; height: 30px; line-height: 1; font-size: 18px; }
+    .tech-inline-mini-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 4px; font-size: 11px; color: #6f7881; text-align: center; }
+    .tech-inline-mini-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 12px; }
+    .tech-inline-mini-day { text-align: center; padding: 6px 0; border-radius: 999px; color: #3b434b; cursor: pointer; border: 0; background: transparent; }
+    .tech-inline-mini-day:hover { background: #eef2f4; }
+    .tech-inline-mini-day.is-current { background: #f27433; color: #fff; font-weight: 700; }
+    .tech-inline-mini-day.is-out { color: #b5bec6; }
+    .tech-inline-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .tech-inline-title { font-size: 24px; font-weight: 700; color: #282d32; display: flex; align-items: center; gap: 10px; }
+    .tech-inline-nav { border: 1px solid #d7dde2; background: #fff; border-radius: 8px; padding: 2px 10px; font-size: 18px; line-height: 1.2; color: #4f5861; }
+    .tech-inline-mode-group { display: inline-flex; flex-wrap: wrap; border: 1px solid #d8e0e4; border-radius: 10px; overflow: visible; background: #fff; }
+    .tech-inline-mode-btn { border: 0; border-right: 1px solid #d8e0e4; background: #fff; color: #5a646d; padding: 6px 12px; min-width: 56px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .tech-inline-mode-btn:last-child { border-right: 0; }
+    .tech-inline-mode-btn.is-active { background: #1f8f53; color: #fff; }
+    .tech-inline-mode-label { font-size: 12px; color: #6f7982; margin-left: 8px; font-weight: 600; white-space: normal; }
+    .tech-inline-grid-wrap { border: 1px solid #e4eaee; border-radius: 12px; overflow: hidden; }
+    .tech-inline-calendar-grid { display: grid; grid-template-columns: 58px repeat(7, 1fr); min-height: 340px; }
+    .tech-inline-time-col { border-right: 1px solid #edf0f2; background: #fafcfd; }
+    .tech-inline-time-cell { height: 56px; border-bottom: 1px solid #f0f3f5; font-size: 11px; color: #7c8791; display: flex; align-items: center; justify-content: center; }
+    .tech-inline-day { border-right: 1px solid #edf0f2; position: relative; }
+    .tech-inline-day:last-child { border-right: 0; }
+    .tech-inline-day-head { min-height: 48px; border-bottom: 1px solid #edf0f2; padding: 8px 6px; font-size: 12px; font-weight: 700; color: #2a2f34; text-align: center; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .tech-inline-day-body { position: relative; height: 336px; background-image: linear-gradient(to bottom, #f0f3f5 1px, transparent 1px); background-size: 100% 56px; }
+    .tech-inline-slot { border: 1px solid #dfe7e2; border-left: 3px solid #1f8f53; border-radius: 8px; padding: 6px; font-size: 11px; background: #f6fbf8; margin-bottom: 6px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .tech-inline-slot-time { color: #1f8f53; font-weight: 600; }
+    .tech-inline-slot.slot-1 { border-left-color: #2d9c5f; background: #eefaf2; }
+    .tech-inline-slot.slot-2 { border-left-color: #2f7dd1; background: #eef4fc; }
+    .tech-inline-slot.slot-3 { border-left-color: #e07c2f; background: #fff4ea; }
+    .tech-inline-slot.slot-4 { border-left-color: #8d5bd8; background: #f4effd; }
+    .tech-inline-slot.slot-5 { border-left-color: #d44b72; background: #fdeff4; }
+    .tech-inline-slot.is-draft { border-left-color: #1f8f53; border-style: dashed; background: #eaf8f0; }
+    .tech-inline-slot.is-draft .tech-inline-slot-time { color: #1f8f53; }
+    .tech-inline-slot.is-draft[draggable="true"] { cursor: grab; }
+    .tech-inline-slot.is-draft.dragging { opacity: .65; cursor: grabbing; }
+    .tech-inline-slot.is-conflict { border-left-color: #d62828; background: #ffecec; border-color: #f3b2b2; }
+    .tech-inline-slot.is-conflict .tech-inline-slot-time { color: #b11818; }
+    .tech-inline-day-body.drop-hover { outline: 2px dashed #1f8f53; outline-offset: -2px; }
+    .tech-inline-slot-label { font-size: 10px; font-weight: 700; letter-spacing: .02em; color: #54606a; margin-bottom: 2px; text-transform: uppercase; }
+    .tech-inline-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .tech-inline-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #56606a; }
+    .tech-inline-legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+    .tech-inline-empty { font-size: 11px; color: #8a9298; padding: 6px; }
+    .tech-inline-day-empty { position: absolute; top: 8px; left: 8px; right: 8px; }
+    @media (max-width: 991.98px) {
+        .crm-tech-split-layout { grid-template-columns: 1fr; }
+        .crm-tech-summary-panel { border-left: 0; border-top: 1px solid #e4e9e6; padding-left: 0; padding-top: 12px; }
+        .crm-tech-table-wrap { max-height: 460px; min-height: 460px; }
+        .crm-profile-modal-layout { grid-template-columns: 1fr; }
+        .crm-profile-modal-nav { border-right: 0; border-bottom: 1px solid #e4e4e4; }
+        .tech-schedule-modal-layout { grid-template-columns: 1fr; }
+        .tech-schedule-modal-fields { position: static; }
+        .tech-inline-shell { grid-template-columns: 1fr; }
+        .tech-inline-side { border-right: 0; border-bottom: 1px solid #edf0f2; }
+        .tech-inline-toolbar { align-items: flex-start; gap: 8px; flex-direction: column; }
+        .tech-inline-mode-group { width: 100%; }
+        .tech-inline-mode-btn { flex: 1 1 25%; min-width: 0; }
+        .tech-inline-calendar-grid { grid-template-columns: 1fr; }
+        .tech-inline-time-col { display: none; }
+        .tech-inline-day { border-right: 0; border-bottom: 1px solid #edf0f2; min-height: 210px; }
+        .tech-inline-day-body { height: auto; min-height: 190px; background: none; }
+        .tech-inline-day:last-child { border-bottom: 0; }
+        .tech-inline-slot { position: static !important; margin: 8px; }
+    }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var technicalInfoModalEl = document.getElementById('technicalInfoModal');
+    var technicalInfoModal = (technicalInfoModalEl && window.bootstrap) ? new bootstrap.Modal(technicalInfoModalEl) : null;
+    var technicalHistoryDetailModalEl = document.getElementById('technicalHistoryDetailModal');
+    var technicalHistoryDetailModal = (technicalHistoryDetailModalEl && window.bootstrap) ? new bootstrap.Modal(technicalHistoryDetailModalEl) : null;
+    var scheduleModalEl = document.getElementById('setInstallationScheduleModal');
+    var scheduleModal = (scheduleModalEl && window.bootstrap) ? new bootstrap.Modal(scheduleModalEl) : null;
+    var scheduleButton = document.getElementById('setInstallationScheduleBtn');
+    var scheduleSlotsNode = document.getElementById('technical-schedule-slots-data');
+    var scheduleSlots = [];
+    try { scheduleSlots = scheduleSlotsNode ? JSON.parse(scheduleSlotsNode.textContent || '[]') : []; } catch (e) { scheduleSlots = []; }
+    var technicalHistoryNode = document.getElementById('technical-history-map-data');
+    var technicalHistoryMap = {};
+    try { technicalHistoryMap = technicalHistoryNode ? JSON.parse(technicalHistoryNode.textContent || '{}') : {}; } catch (e) { technicalHistoryMap = {}; }
+    var technicalTeamsNode = document.getElementById('technical-teams-data');
+    var technicalTeams = [];
+    try { technicalTeams = technicalTeamsNode ? JSON.parse(technicalTeamsNode.textContent || '[]') : []; } catch (e) { technicalTeams = []; }
+    var technicalRoleUserMapNode = document.getElementById('technical-role-user-map-data');
+    var technicalRoleUserMap = {};
+    try { technicalRoleUserMap = technicalRoleUserMapNode ? JSON.parse(technicalRoleUserMapNode.textContent || '{}') : {}; } catch (e) { technicalRoleUserMap = {}; }
+    var inlineCalendarEl = document.getElementById('techInlineCalendar');
+    var overviewCalendarEl = document.getElementById('techOverviewCalendar');
+    var overviewModalEl = document.getElementById('technicalCalendarModal');
+    var calendarAnchorDate = null;
+    var calendarNavMode = 'week';
+    var overviewAnchorDate = new Date();
+    var overviewNavMode = 'week';
+    var currentTechnicalHistoryRows = [];
+    var activeTechnicalTeam = null;
+
+    function setText(id, value) { var el = document.getElementById(id); if (el) el.textContent = value || '-'; }
+    function updateScheduleTeamMembersBadge() {
+        var selectEl = document.getElementById('scheduleTeamAssigned');
+        var badgeEl = document.getElementById('scheduleTeamMembersBadge');
+        if (!selectEl || !badgeEl) return;
+        var selected = selectEl.options[selectEl.selectedIndex];
+        var count = selected ? parseInt(selected.getAttribute('data-member-count') || '0', 10) : 0;
+        if (Number.isNaN(count) || count < 0) count = 0;
+        badgeEl.textContent = count + ' member' + (count === 1 ? '' : 's');
+    }
+    function getInstallationStatusBadgeHtml(rawStatus) {
+        var status = String(rawStatus || '-').trim();
+        var key = status.toLowerCase();
+        var cls = 'text-bg-light border text-dark';
+        if (key === 'completed') cls = 'text-bg-success';
+        else if (key === 'scheduled') cls = 'text-bg-primary';
+        else if (key === 'ongoing') cls = 'text-bg-warning';
+        else if (key === 'back jobs') cls = 'text-bg-danger';
+        else if (key === 'reschedules') cls = 'text-bg-secondary';
+        return '<span class="badge ' + cls + '">' + status + '</span>';
+    }
+    function setActiveRow(row) {
+        if (!row) return;
+        document.querySelectorAll('.crm-tech-row.is-active').forEach(function (r) { r.classList.remove('is-active'); });
+        row.classList.add('is-active');
+        setText('techSummaryClient', row.dataset.clientName || '-');
+        setText('techSummaryInstallDate', row.dataset.installationDate || '-');
+        setText('techSummaryTeam', row.dataset.teamAssigned || '-');
+        var summaryStatusEl = document.getElementById('techSummaryInstallStatus');
+        if (summaryStatusEl) summaryStatusEl.innerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-');
+        setText('techSummaryRemarks', row.dataset.remarks || '-');
+    }
+
+    function openScheduleModalFromRow(row) {
+        if (!row || !scheduleModal) return;
+        var setVal = function (id, value) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.value = (value && value !== '-') ? value : '';
+        };
+        setVal('scheduleSalesRecordId', row.dataset.salesRecordId || '');
+        setVal('scheduleInstallationDate', row.dataset.installationDate || '');
+        setVal('scheduleInstallationTime', row.dataset.installationTime || '');
+        var teamEl = document.getElementById('scheduleTeamAssigned');
+        if (teamEl) {
+            var targetTeam = row.dataset.teamAssigned || '';
+            var found = false;
+            Array.from(teamEl.options).forEach(function (opt) {
+                if (opt.value === targetTeam) {
+                    teamEl.value = opt.value;
+                    found = true;
+                }
+            });
+            if (!found) teamEl.value = '';
+        }
+        setVal('scheduleRemarks', row.dataset.remarks || '');
+        updateScheduleTeamMembersBadge();
+        checkScheduleConflict();
+        renderInlineCalendar();
+        scheduleModal.show();
+    }
+
+    function formatMonthYear(d) {
+        return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    }
+    function formatMonthOnly(d) {
+        return d.toLocaleDateString(undefined, { month: 'long' });
+    }
+    function formatLocalISODate(d) {
+        var year = d.getFullYear();
+        var month = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+    }
+
+    function parseTimeToMinutes(timeStr) {
+        if (!timeStr || !String(timeStr).includes(':')) return null;
+        var parts = String(timeStr).split(':');
+        var h = parseInt(parts[0], 10);
+        var m = parseInt(parts[1], 10);
+        if (Number.isNaN(h) || Number.isNaN(m)) return null;
+        return (h * 60) + m;
+    }
+    function minutesToHHMM(totalMinutes) {
+        var h = Math.floor(totalMinutes / 60);
+        var m = totalMinutes % 60;
+        return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    }
+    function shiftAnchorByMode(direction) {
+        calendarAnchorDate = calendarAnchorDate || new Date();
+        if (calendarNavMode === 'day') {
+            calendarAnchorDate.setDate(calendarAnchorDate.getDate() + direction);
+        } else if (calendarNavMode === 'month') {
+            calendarAnchorDate.setMonth(calendarAnchorDate.getMonth() + direction);
+        } else if (calendarNavMode === 'year') {
+            calendarAnchorDate.setFullYear(calendarAnchorDate.getFullYear() + direction);
+        } else {
+            calendarAnchorDate.setDate(calendarAnchorDate.getDate() + (direction * 7));
+        }
+        var dateEl = document.getElementById('scheduleInstallationDate');
+        if (dateEl) dateEl.value = formatLocalISODate(calendarAnchorDate);
+    }
+    function prettyMode(mode) {
+        if (mode === 'day') return 'Day';
+        if (mode === 'month') return 'Month';
+        if (mode === 'year') return 'Year';
+        return 'Week';
+    }
+    function shiftDateByMode(baseDate, mode, direction) {
+        var d = new Date(baseDate);
+        if (mode === 'day') d.setDate(d.getDate() + direction);
+        else if (mode === 'month') d.setMonth(d.getMonth() + direction);
+        else if (mode === 'year') d.setFullYear(d.getFullYear() + direction);
+        else d.setDate(d.getDate() + (direction * 7));
+        return d;
+    }
+
+    function renderInlineCalendar() {
+        if (!inlineCalendarEl) return;
+        var dateInput = document.getElementById('scheduleInstallationDate');
+        var timeInput = document.getElementById('scheduleInstallationTime');
+        var teamInput = document.getElementById('scheduleTeamAssigned');
+        var salesIdEl = document.getElementById('scheduleSalesRecordId');
+        var activeRow = document.querySelector('.crm-tech-row.is-active');
+        if (!calendarAnchorDate) {
+            calendarAnchorDate = dateInput && dateInput.value ? new Date(dateInput.value + 'T00:00:00') : new Date();
+        }
+        var anchorDate = new Date(calendarAnchorDate);
+        if (Number.isNaN(anchorDate.getTime())) anchorDate = new Date();
+        var dayIndex = anchorDate.getDay();
+        var sunday = new Date(anchorDate);
+        sunday.setDate(anchorDate.getDate() - dayIndex);
+        var labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var hours = ['7AM', '8AM', '9AM', '10AM', '11AM', '12PM', '1PM', '2PM', '3PM', '4PM', '5PM', '6PM', '7PM', '8PM'];
+        var slotHeight = 56;
+        var gridStartMinutes = 7 * 60;
+        var gridEndMinutes = 20 * 60;
+        var monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+        var monthGridStart = new Date(monthStart);
+        monthGridStart.setDate(monthStart.getDate() - monthStart.getDay());
+        var miniWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        var days = [];
+        for (var i = 0; i < 7; i += 1) {
+            var d = new Date(sunday);
+            d.setDate(sunday.getDate() + i);
+            var iso = formatLocalISODate(d);
+            var slots = scheduleSlots.filter(function (slot) { return String(slot.date || '') === iso; });
+            slots.sort(function (a, b) { return String(a.time || '').localeCompare(String(b.time || '')); });
+            days.push({ label: labels[i], iso: iso, slots: slots });
+        }
+
+        var draftDate = dateInput ? String(dateInput.value || '') : '';
+        var draftTime = timeInput ? String(timeInput.value || '') : '';
+        var draftTeam = teamInput ? String(teamInput.value || '') : '';
+        var draftSalesId = salesIdEl ? String(salesIdEl.value || '') : '';
+        var draftClient = activeRow ? (activeRow.dataset.clientName || '-') : '-';
+        var hasDraft = !!(draftDate && draftTime);
+        var hasDraftConflict = hasDraft && scheduleSlots.some(function (slot) {
+            return String(slot.date || '') === draftDate
+                && String(slot.time || '') === draftTime
+                && String(slot.sales_record_id || '') !== draftSalesId;
+        });
+
+        var html = '';
+        html += '<div class="tech-inline-legend">';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2d9c5f;"></span>Existing schedule</span>';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#1f8f53;"></span>Current draft</span>';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#d62828;"></span>Conflict</span>';
+        html += '</div>';
+        html += '<div class="tech-inline-shell">';
+        html += '<aside class="tech-inline-side">';
+        html += '<div class="tech-inline-mini-box"><div class="tech-inline-mini-head">All Calendar</div><div class="tech-inline-mini-label">Technical schedules</div></div>';
+        html += '<div class="tech-inline-mini-box">';
+        html += '<div class="tech-inline-mini-month-head">';
+        html += '<div class="tech-inline-mini-month-title">' + formatMonthOnly(anchorDate) + ' ' + anchorDate.getFullYear() + '</div>';
+        html += '<div class="tech-inline-mini-month-nav"><button type="button" class="tech-inline-mini-month-btn" data-shift-month="-1">&lsaquo;</button><button type="button" class="tech-inline-mini-month-btn" data-shift-month="1">&rsaquo;</button></div>';
+        html += '</div>';
+        html += '<div class="tech-inline-mini-weekdays">';
+        miniWeekdays.forEach(function (wd) { html += '<div>' + wd + '</div>'; });
+        html += '</div>';
+        html += '<div class="tech-inline-mini-days">';
+        for (var cell = 0; cell < 42; cell += 1) {
+            var md = new Date(monthGridStart);
+            md.setDate(monthGridStart.getDate() + cell);
+            var isoMini = formatLocalISODate(md);
+            var isOutMonth = md.getMonth() !== anchorDate.getMonth();
+            var isCurrent = isoMini === formatLocalISODate(anchorDate);
+            html += '<button type="button" class="tech-inline-mini-day' + (isOutMonth ? ' is-out' : '') + (isCurrent ? ' is-current' : '') + '" data-mini-date="' + isoMini + '">' + md.getDate() + '</button>';
+        }
+        html += '</div></div>';
+        html += '<div class="tech-inline-mini-box"><div class="tech-inline-mini-label">Tip: Scroll to move inside calendar.</div></div>';
+        html += '</aside>';
+        html += '<section class="tech-inline-main">';
+        html += '<div class="tech-inline-toolbar">';
+        html += '<div class="tech-inline-title"><button type="button" class="tech-inline-nav" data-shift-nav="-1">&lsaquo;</button><span>' + formatMonthYear(anchorDate) + '</span><button type="button" class="tech-inline-nav" data-shift-nav="1">&rsaquo;</button><span class="tech-inline-mode-label">Navigating: ' + prettyMode(calendarNavMode) + '</span></div>';
+        html += '<div class="tech-inline-mode-group">';
+        html += '<button type="button" class="tech-inline-mode-btn' + (calendarNavMode === 'day' ? ' is-active' : '') + '" data-nav-mode="day">Day</button>';
+        html += '<button type="button" class="tech-inline-mode-btn' + (calendarNavMode === 'week' ? ' is-active' : '') + '" data-nav-mode="week">Week</button>';
+        html += '<button type="button" class="tech-inline-mode-btn' + (calendarNavMode === 'month' ? ' is-active' : '') + '" data-nav-mode="month">Month</button>';
+        html += '<button type="button" class="tech-inline-mode-btn' + (calendarNavMode === 'year' ? ' is-active' : '') + '" data-nav-mode="year">Year</button>';
+        html += '</div></div>';
+        var gridBodyHeight = hours.length * slotHeight;
+        html += '<div class="tech-inline-grid-wrap"><div class="tech-inline-calendar-grid">';
+        html += '<div class="tech-inline-time-col"><div class="tech-inline-time-cell"></div>';
+        hours.forEach(function (h) { html += '<div class="tech-inline-time-cell">' + h + '</div>'; });
+        html += '</div>';
+        days.forEach(function (d) {
+            html += '<div class="tech-inline-day">';
+            html += '<div class="tech-inline-day-head">' + d.label + ' <span class="text-secondary">' + d.iso.slice(5) + '</span></div>';
+            html += '<div class="tech-inline-day-body" data-day-iso="' + d.iso + '" style="height:' + gridBodyHeight + 'px;background-size:100% ' + slotHeight + 'px;">';
+            if (!d.slots.length && !(hasDraft && d.iso === draftDate)) {
+                html += '<div class="tech-inline-empty tech-inline-day-empty">No schedule</div>';
+            } else {
+                d.slots.forEach(function (slot, slotIndex) {
+                    var slotTimeMinutes = parseTimeToMinutes(slot.time || '');
+                    var slotTop = 0;
+                    if (slotTimeMinutes !== null) {
+                        var boundedMinutes = Math.max(gridStartMinutes, Math.min(gridEndMinutes, slotTimeMinutes));
+                        slotTop = Math.round(((boundedMinutes - gridStartMinutes) / 60) * slotHeight);
+                    }
+                    var colorClass = 'slot-' + ((slotIndex % 5) + 1);
+                    html += '<div class="tech-inline-slot ' + colorClass + '" style="position:absolute;left:6px;right:6px;top:' + slotTop + 'px;">';
+                    html += '<div class="tech-inline-slot-label">Existing</div>';
+                    html += '<div class="tech-inline-slot-time">' + (slot.time || '--:--') + '</div>';
+                    html += '<div>' + (slot.client || '-') + '</div>';
+                    if (slot.team_assigned) html += '<div class="text-secondary">' + slot.team_assigned + '</div>';
+                    html += '</div>';
+                });
+                if (hasDraft && d.iso === draftDate) {
+                    var draftMinutes = parseTimeToMinutes(draftTime);
+                    var draftTop = 0;
+                    if (draftMinutes !== null) {
+                        var boundedDraftMinutes = Math.max(gridStartMinutes, Math.min(gridEndMinutes, draftMinutes));
+                        draftTop = Math.round(((boundedDraftMinutes - gridStartMinutes) / 60) * slotHeight);
+                    }
+                    html += '<div class="tech-inline-slot is-draft' + (hasDraftConflict ? ' is-conflict' : '') + '" draggable="true" style="position:absolute;left:6px;right:6px;top:' + draftTop + 'px;z-index:3;">';
+                    html += '<div class="tech-inline-slot-label">Current Draft</div>';
+                    html += '<div class="tech-inline-slot-time">' + draftTime + '</div>';
+                    html += '<div>' + draftClient + '</div>';
+                    if (draftTeam) html += '<div class="text-secondary">' + draftTeam + '</div>';
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
+            html += '</div>';
+        });
+        html += '</div></div></section></div>';
+        inlineCalendarEl.innerHTML = html;
+
+        var modeHintEl = document.getElementById('techCalendarModeHint');
+        if (modeHintEl) modeHintEl.textContent = prettyMode(calendarNavMode) + ' navigation';
+
+        inlineCalendarEl.querySelectorAll('[data-shift-nav]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var shift = parseInt(btn.getAttribute('data-shift-nav') || '0', 10);
+                if (Number.isNaN(shift) || !shift) return;
+                shiftAnchorByMode(shift);
+                renderInlineCalendar();
+            });
+        });
+        inlineCalendarEl.querySelectorAll('[data-nav-mode]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var mode = String(btn.getAttribute('data-nav-mode') || 'week');
+                if (!mode) return;
+                calendarNavMode = mode;
+                renderInlineCalendar();
+            });
+        });
+        inlineCalendarEl.querySelectorAll('[data-shift-month]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var shift = parseInt(btn.getAttribute('data-shift-month') || '0', 10);
+                if (Number.isNaN(shift) || !shift) return;
+                calendarAnchorDate = calendarAnchorDate || new Date();
+                calendarAnchorDate.setMonth(calendarAnchorDate.getMonth() + shift);
+                renderInlineCalendar();
+            });
+        });
+        inlineCalendarEl.querySelectorAll('[data-mini-date]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var iso = btn.getAttribute('data-mini-date');
+                if (!iso) return;
+                var nextDate = new Date(iso + 'T00:00:00');
+                if (Number.isNaN(nextDate.getTime())) return;
+                calendarAnchorDate = nextDate;
+                var dateEl = document.getElementById('scheduleInstallationDate');
+                if (dateEl) dateEl.value = iso;
+                checkScheduleConflict();
+                renderInlineCalendar();
+            });
+        });
+
+        var draftCard = inlineCalendarEl.querySelector('.tech-inline-slot.is-draft[draggable="true"]');
+        var dayBodies = inlineCalendarEl.querySelectorAll('.tech-inline-day-body[data-day-iso]');
+        if (draftCard && dayBodies.length) {
+            draftCard.addEventListener('dragstart', function (event) {
+                draftCard.classList.add('dragging');
+                if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', 'current-draft');
+                }
+            });
+            draftCard.addEventListener('dragend', function () {
+                draftCard.classList.remove('dragging');
+                dayBodies.forEach(function (el) { el.classList.remove('drop-hover'); });
+            });
+
+            dayBodies.forEach(function (dayBody) {
+                dayBody.addEventListener('dragover', function (event) {
+                    event.preventDefault();
+                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+                    dayBody.classList.add('drop-hover');
+                });
+                dayBody.addEventListener('dragleave', function () {
+                    dayBody.classList.remove('drop-hover');
+                });
+                dayBody.addEventListener('drop', function (event) {
+                    event.preventDefault();
+                    dayBody.classList.remove('drop-hover');
+                    var iso = dayBody.getAttribute('data-day-iso');
+                    if (!iso) return;
+
+                    var rect = dayBody.getBoundingClientRect();
+                    var y = event.clientY - rect.top;
+                    var hourOffset = y / slotHeight;
+                    var minutesFromStart = Math.round(hourOffset * 60);
+                    var clampedMinutes = Math.max(0, Math.min((gridEndMinutes - gridStartMinutes), minutesFromStart));
+                    var finalMinutes = gridStartMinutes + clampedMinutes;
+
+                    var dateEl = document.getElementById('scheduleInstallationDate');
+                    var timeEl = document.getElementById('scheduleInstallationTime');
+                    if (dateEl) dateEl.value = iso;
+                    if (timeEl) timeEl.value = minutesToHHMM(finalMinutes);
+                    calendarAnchorDate = new Date(iso + 'T00:00:00');
+                    checkScheduleConflict();
+                    renderInlineCalendar();
+                });
+            });
+        }
+    }
+
+    function renderOverviewCalendar() {
+        if (!overviewCalendarEl) return;
+        var anchorDate = new Date(overviewAnchorDate || new Date());
+        if (Number.isNaN(anchorDate.getTime())) anchorDate = new Date();
+        var dayIndex = anchorDate.getDay();
+        var sunday = new Date(anchorDate);
+        sunday.setDate(anchorDate.getDate() - dayIndex);
+        var labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var hours = ['7AM', '8AM', '9AM', '10AM', '11AM', '12PM', '1PM', '2PM', '3PM', '4PM', '5PM', '6PM', '7PM', '8PM'];
+        var slotHeight = 56;
+        var gridStartMinutes = 7 * 60;
+        var gridEndMinutes = 20 * 60;
+        var monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+        var monthGridStart = new Date(monthStart);
+        monthGridStart.setDate(monthStart.getDate() - monthStart.getDay());
+        var miniWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        var days = [];
+        for (var i = 0; i < 7; i += 1) {
+            var d = new Date(sunday);
+            d.setDate(sunday.getDate() + i);
+            var iso = formatLocalISODate(d);
+            var slots = scheduleSlots.filter(function (slot) { return String(slot.date || '') === iso; });
+            slots.sort(function (a, b) { return String(a.time || '').localeCompare(String(b.time || '')); });
+            days.push({ label: labels[i], iso: iso, slots: slots });
+        }
+
+        var html = '';
+        html += '<div class="tech-inline-legend">';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2d9c5f;"></span>Existing schedule</span>';
+        html += '</div>';
+        html += '<div class="tech-inline-shell">';
+        html += '<aside class="tech-inline-side">';
+        html += '<div class="tech-inline-mini-box"><div class="tech-inline-mini-head">All Calendar</div><div class="tech-inline-mini-label">Technical schedules</div></div>';
+        html += '<div class="tech-inline-mini-box">';
+        html += '<div class="tech-inline-mini-month-head">';
+        html += '<div class="tech-inline-mini-month-title">' + formatMonthOnly(anchorDate) + ' ' + anchorDate.getFullYear() + '</div>';
+        html += '<div class="tech-inline-mini-month-nav"><button type="button" class="tech-inline-mini-month-btn" data-ov-shift-month="-1">&lsaquo;</button><button type="button" class="tech-inline-mini-month-btn" data-ov-shift-month="1">&rsaquo;</button></div>';
+        html += '</div><div class="tech-inline-mini-weekdays">';
+        miniWeekdays.forEach(function (wd) { html += '<div>' + wd + '</div>'; });
+        html += '</div><div class="tech-inline-mini-days">';
+        for (var cell = 0; cell < 42; cell += 1) {
+            var md = new Date(monthGridStart);
+            md.setDate(monthGridStart.getDate() + cell);
+            var isoMini = formatLocalISODate(md);
+            var isOutMonth = md.getMonth() !== anchorDate.getMonth();
+            var isCurrent = isoMini === formatLocalISODate(anchorDate);
+            html += '<button type="button" class="tech-inline-mini-day' + (isOutMonth ? ' is-out' : '') + (isCurrent ? ' is-current' : '') + '" data-ov-mini-date="' + isoMini + '">' + md.getDate() + '</button>';
+        }
+        html += '</div></div></aside><section class="tech-inline-main">';
+        html += '<div class="tech-inline-toolbar">';
+        html += '<div class="tech-inline-title"><button type="button" class="tech-inline-nav" data-ov-shift-nav="-1">&lsaquo;</button><span>' + formatMonthYear(anchorDate) + '</span><button type="button" class="tech-inline-nav" data-ov-shift-nav="1">&rsaquo;</button><span class="tech-inline-mode-label">Navigating: ' + prettyMode(overviewNavMode) + '</span></div>';
+        html += '<div class="tech-inline-mode-group">';
+        html += '<button type="button" class="tech-inline-mode-btn' + (overviewNavMode === 'day' ? ' is-active' : '') + '" data-ov-nav-mode="day">Day</button>';
+        html += '<button type="button" class="tech-inline-mode-btn' + (overviewNavMode === 'week' ? ' is-active' : '') + '" data-ov-nav-mode="week">Week</button>';
+        html += '<button type="button" class="tech-inline-mode-btn' + (overviewNavMode === 'month' ? ' is-active' : '') + '" data-ov-nav-mode="month">Month</button>';
+        html += '<button type="button" class="tech-inline-mode-btn' + (overviewNavMode === 'year' ? ' is-active' : '') + '" data-ov-nav-mode="year">Year</button>';
+        html += '</div></div>';
+        var gridBodyHeight = hours.length * slotHeight;
+        html += '<div class="tech-inline-grid-wrap"><div class="tech-inline-calendar-grid"><div class="tech-inline-time-col"><div class="tech-inline-time-cell"></div>';
+        hours.forEach(function (h) { html += '<div class="tech-inline-time-cell">' + h + '</div>'; });
+        html += '</div>';
+        days.forEach(function (d) {
+            html += '<div class="tech-inline-day"><div class="tech-inline-day-head">' + d.label + ' <span class="text-secondary">' + d.iso.slice(5) + '</span></div><div class="tech-inline-day-body" style="height:' + gridBodyHeight + 'px;background-size:100% ' + slotHeight + 'px;">';
+            if (!d.slots.length) html += '<div class="tech-inline-empty tech-inline-day-empty">No schedule</div>';
+            d.slots.forEach(function (slot, slotIndex) {
+                var slotTimeMinutes = parseTimeToMinutes(slot.time || '');
+                var slotTop = 0;
+                if (slotTimeMinutes !== null) {
+                    var boundedMinutes = Math.max(gridStartMinutes, Math.min(gridEndMinutes, slotTimeMinutes));
+                    slotTop = Math.round(((boundedMinutes - gridStartMinutes) / 60) * slotHeight);
+                }
+                var colorClass = 'slot-' + ((slotIndex % 5) + 1);
+                html += '<div class="tech-inline-slot ' + colorClass + '" style="position:absolute;left:6px;right:6px;top:' + slotTop + 'px;">';
+                html += '<div class="tech-inline-slot-time">' + (slot.time || '--:--') + '</div>';
+                html += '<div>' + (slot.client || '-') + '</div>';
+                if (slot.team_assigned) html += '<div class="text-secondary">' + slot.team_assigned + '</div>';
+                html += '</div>';
+            });
+            html += '</div></div>';
+        });
+        html += '</div></div></section></div>';
+        overviewCalendarEl.innerHTML = html;
+
+        var modeHintEl = document.getElementById('techOverviewModeHint');
+        if (modeHintEl) modeHintEl.textContent = prettyMode(overviewNavMode) + ' navigation';
+
+        overviewCalendarEl.querySelectorAll('[data-ov-shift-nav]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var shift = parseInt(btn.getAttribute('data-ov-shift-nav') || '0', 10);
+                if (Number.isNaN(shift) || !shift) return;
+                overviewAnchorDate = shiftDateByMode(overviewAnchorDate, overviewNavMode, shift);
+                renderOverviewCalendar();
+            });
+        });
+        overviewCalendarEl.querySelectorAll('[data-ov-nav-mode]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                overviewNavMode = String(btn.getAttribute('data-ov-nav-mode') || 'week');
+                renderOverviewCalendar();
+            });
+        });
+        overviewCalendarEl.querySelectorAll('[data-ov-shift-month]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var shift = parseInt(btn.getAttribute('data-ov-shift-month') || '0', 10);
+                if (Number.isNaN(shift) || !shift) return;
+                overviewAnchorDate = shiftDateByMode(overviewAnchorDate, 'month', shift);
+                renderOverviewCalendar();
+            });
+        });
+        overviewCalendarEl.querySelectorAll('[data-ov-mini-date]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var iso = btn.getAttribute('data-ov-mini-date');
+                if (!iso) return;
+                var nextDate = new Date(iso + 'T00:00:00');
+                if (Number.isNaN(nextDate.getTime())) return;
+                overviewAnchorDate = nextDate;
+                renderOverviewCalendar();
+            });
+        });
+    }
+
+    function checkScheduleConflict() {
+        var dateEl = document.getElementById('scheduleInstallationDate');
+        var timeEl = document.getElementById('scheduleInstallationTime');
+        var salesIdEl = document.getElementById('scheduleSalesRecordId');
+        var hintEl = document.getElementById('scheduleConflictHint');
+        if (!dateEl || !timeEl || !hintEl) return;
+        var chosenDate = dateEl.value || '';
+        var chosenTime = timeEl.value || '';
+        var currentSalesId = salesIdEl ? String(salesIdEl.value || '') : '';
+        if (!chosenDate || !chosenTime) {
+            hintEl.classList.add('d-none');
+            hintEl.textContent = '';
+            return;
+        }
+        var conflicts = scheduleSlots.filter(function (slot) {
+            return String(slot.date || '') === chosenDate
+                && String(slot.time || '') === chosenTime
+                && String(slot.sales_record_id || '') !== currentSalesId;
+        });
+        if (conflicts.length) {
+            var names = conflicts.map(function (c) { return c.client || 'another client'; }).slice(0, 3).join(', ');
+            hintEl.textContent = 'Schedule conflict: may naka-set na sa oras na ito (' + names + ').';
+            hintEl.classList.remove('d-none');
+        } else {
+            hintEl.classList.add('d-none');
+            hintEl.textContent = '';
+        }
+    }
+
+    function openTechnicalModalFromRow(row) {
+        if (!row || !technicalInfoModal) return;
+        setTechModalTab('technical');
+        document.getElementById('techInfoSidebarClient').textContent = row.dataset.clientName || '-';
+        document.getElementById('techInfoClientName').value = row.dataset.clientName || '-';
+        document.getElementById('techInfoInstallationDate').value = row.dataset.installationDate || '-';
+        document.getElementById('techInfoTeamAssigned').value = row.dataset.teamAssigned || '-';
+        document.getElementById('techInfoSystemSizeKwh').value = row.dataset.systemSizeKwh || '-';
+        document.getElementById('techInfoPanelUnits').value = row.dataset.panelUnits || '-';
+        document.getElementById('techInfoInverterModel').value = row.dataset.inverterModel || '-';
+        document.getElementById('techInfoBatteryModel').value = row.dataset.batteryModel || '-';
+        document.getElementById('techInfoNetMetering').value = row.dataset.netMetering || '-';
+        var infoStatusEl = document.getElementById('techInfoInstallationStatusBadge');
+        if (infoStatusEl) infoStatusEl.outerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-').replace('<span', '<span id="techInfoInstallationStatusBadge"');
+        document.getElementById('techInfoPoNumber').value = row.dataset.poNumber || '-';
+        document.getElementById('techInfoRemarks').value = row.dataset.remarks || '-';
+        renderTechnicalHistory(row.dataset.salesRecordId || '');
+        technicalInfoModal.show();
+    }
+
+    function setTechModalTab(tabName) {
+        document.querySelectorAll('.js-tech-modal-tab').forEach(function (tab) {
+            tab.classList.toggle('active', tab.getAttribute('data-tech-tab') === tabName);
+        });
+        document.querySelectorAll('.js-tech-modal-panel').forEach(function (panel) {
+            panel.classList.toggle('d-none', panel.getAttribute('data-tech-panel') !== tabName);
+        });
+    }
+
+    function renderTechnicalHistory(salesRecordId) {
+        var body = document.getElementById('techInfoHistoryBody');
+        if (!body) return;
+        var rows = technicalHistoryMap[String(salesRecordId || '')] || [];
+        currentTechnicalHistoryRows = rows.slice();
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="3" class="text-secondary text-center py-3">No history yet.</td></tr>';
+            return;
+        }
+        var html = '';
+        rows.forEach(function (item, index) {
+            html += '<tr class="js-tech-history-row" data-history-index="' + index + '" style="cursor:pointer;">';
+            html += '<td>' + (item.actor || '-') + '</td>';
+            html += '<td>' + (item.action || '-') + '</td>';
+            html += '<td>' + (item.created_at || '-') + '</td>';
+            html += '</tr>';
+        });
+        body.innerHTML = html;
+    }
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    function renderTechnicalTeamsList() {
+        var listEl = document.getElementById('technicalTeamsList');
+        if (!listEl) return;
+        if (!technicalTeams.length) {
+            listEl.innerHTML = '<div class="text-secondary small p-2">No teams yet.</div>';
+            return;
+        }
+        var html = '';
+        technicalTeams.forEach(function (team) {
+            html += '<button type="button" class="list-group-item list-group-item-action js-tech-team-item' + (activeTechnicalTeam && activeTechnicalTeam.id === team.id ? ' active' : '') + '" data-team-id="' + team.id + '">';
+            html += '[' + escapeHtml(team.name) + ']';
+            html += '</button>';
+        });
+        listEl.innerHTML = html;
+    }
+    function renderTechnicalTeamMembersPanel(team) {
+        var formEl = document.getElementById('updateTechnicalTeamMembersForm');
+        var hintEl = document.getElementById('technicalTeamHint');
+        var createFormEl = document.getElementById('createTechnicalTeamForm');
+        if (!formEl || !hintEl) return;
+        if (!team) {
+            formEl.classList.add('d-none');
+            hintEl.classList.remove('d-none');
+            if (createFormEl) createFormEl.classList.add('d-none');
+            return;
+        }
+        hintEl.classList.add('d-none');
+        formEl.classList.remove('d-none');
+        if (createFormEl) createFormEl.classList.add('d-none');
+        document.getElementById('technicalTeamIdInput').value = String(team.id);
+        document.getElementById('technicalTeamTitle').textContent = '[' + team.name + '] | Member List';
+        var roleSelect = document.getElementById('technicalTeamRoleSelect');
+        if (roleSelect) roleSelect.value = team.source_role_id ? String(team.source_role_id) : '';
+        renderTechnicalTeamMemberChecklist(team);
+    }
+    function renderTechnicalTeamMemberChecklist(team) {
+        var target = document.getElementById('technicalTeamMembersChecklist');
+        var roleSelect = document.getElementById('technicalTeamRoleSelect');
+        if (!target) return;
+        var roleId = roleSelect ? String(roleSelect.value || '') : '';
+        var users = roleId ? (technicalRoleUserMap[roleId] || []) : [];
+        var selectedIds = new Set((team.members || []).map(function (m) { return String(m.id); }));
+        if (!users.length) {
+            target.innerHTML = '<div class="text-secondary small">No users for this role.</div>';
+            return;
+        }
+        var html = '';
+        users.forEach(function (user) {
+            var checked = selectedIds.has(String(user.id)) ? ' checked' : '';
+            html += '<div class="form-check">';
+            html += '<input class="form-check-input" type="checkbox" name="member_ids" value="' + user.id + '" id="teamMember' + user.id + '"' + checked + '>';
+            html += '<label class="form-check-label" for="teamMember' + user.id + '">' + escapeHtml(user.name) + '</label>';
+            html += '</div>';
+        });
+        target.innerHTML = html;
+    }
+    function openTechnicalHistoryDetail(index) {
+        if (!technicalHistoryDetailModal) return;
+        var item = currentTechnicalHistoryRows[index];
+        if (!item) return;
+        var setVal = function (id, value) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            if ('value' in el) el.value = value || '-';
+        };
+        setVal('techHistoryDetailOperator', item.actor || '-');
+        setVal('techHistoryDetailAction', item.action || '-');
+        setVal('techHistoryDetailDateTime', item.created_at || '-');
+        setVal('techHistoryDetailPrevStatus', item.previous_status || '-');
+        setVal('techHistoryDetailNewStatus', item.new_status || '-');
+        setVal('techHistoryDetailPrevDateTime', (item.previous_date || '-') + ' ' + (item.previous_time || '-'));
+        setVal('techHistoryDetailNewDateTime', (item.new_date || '-') + ' ' + (item.new_time || '-'));
+        setVal('techHistoryDetailPrevTeam', item.previous_team || '-');
+        setVal('techHistoryDetailNewTeam', item.new_team || '-');
+        setVal('techHistoryDetailPrevRemarks', item.previous_remarks || '-');
+        setVal('techHistoryDetailNewRemarks', item.new_remarks || '-');
+        technicalHistoryDetailModal.show();
+    }
+
+    document.addEventListener('click', function (event) {
+        var row = event.target.closest('.crm-tech-row');
+        if (row && !event.target.closest('input, button, a, label')) setActiveRow(row);
+
+        var viewBtn = event.target.closest('.js-tech-view-btn');
+        if (!viewBtn || !technicalInfoModal) return;
+        var viewRow = viewBtn.closest('.crm-tech-row');
+        if (!viewRow) return;
+        setActiveRow(viewRow);
+        openTechnicalModalFromRow(viewRow);
+    });
+
+    document.addEventListener('dblclick', function (event) {
+        var row = event.target.closest('.crm-tech-row');
+        if (row && !event.target.closest('input, button, a, label')) {
+            setActiveRow(row);
+            openTechnicalModalFromRow(row);
+        }
+    });
+    document.addEventListener('click', function (event) {
+        var tabBtn = event.target.closest('.js-tech-modal-tab');
+        if (tabBtn) {
+            setTechModalTab(tabBtn.getAttribute('data-tech-tab') || 'technical');
+            return;
+        }
+        var historyRow = event.target.closest('.js-tech-history-row');
+        if (!historyRow) return;
+        var index = parseInt(historyRow.getAttribute('data-history-index') || '-1', 10);
+        if (Number.isNaN(index) || index < 0) return;
+        openTechnicalHistoryDetail(index);
+    });
+    document.addEventListener('click', function (event) {
+        var teamItem = event.target.closest('.js-tech-team-item');
+        if (!teamItem) return;
+        var teamId = parseInt(teamItem.getAttribute('data-team-id') || '0', 10);
+        activeTechnicalTeam = technicalTeams.find(function (t) { return t.id === teamId; }) || null;
+        renderTechnicalTeamsList();
+        renderTechnicalTeamMembersPanel(activeTechnicalTeam);
+    });
+    var newTeamBtn = document.getElementById('newTechnicalTeamBtn');
+    if (newTeamBtn) {
+        newTeamBtn.addEventListener('click', function () {
+            var createFormEl = document.getElementById('createTechnicalTeamForm');
+            var updateFormEl = document.getElementById('updateTechnicalTeamMembersForm');
+            var hintEl = document.getElementById('technicalTeamHint');
+            if (createFormEl) createFormEl.classList.remove('d-none');
+            if (updateFormEl) updateFormEl.classList.add('d-none');
+            if (hintEl) hintEl.classList.add('d-none');
+        });
+    }
+    var teamRoleSelect = document.getElementById('technicalTeamRoleSelect');
+    if (teamRoleSelect) {
+        teamRoleSelect.addEventListener('change', function () {
+            if (!activeTechnicalTeam) return;
+            renderTechnicalTeamMemberChecklist(activeTechnicalTeam);
+        });
+    }
+    renderTechnicalTeamsList();
+
+    if (scheduleButton) {
+        scheduleButton.addEventListener('click', function () {
+            var activeRow = document.querySelector('.crm-tech-row.is-active');
+            if (!activeRow) return;
+            openScheduleModalFromRow(activeRow);
+        });
+    }
+    ['scheduleInstallationDate', 'scheduleInstallationTime', 'scheduleTeamAssigned', 'scheduleRemarks'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) {
+            var reRender = function () {
+                if (id === 'scheduleInstallationDate' && el.value) {
+                    var nextAnchor = new Date(el.value + 'T00:00:00');
+                    if (!Number.isNaN(nextAnchor.getTime())) calendarAnchorDate = nextAnchor;
+                }
+                if (id === 'scheduleTeamAssigned') updateScheduleTeamMembersBadge();
+                checkScheduleConflict();
+                renderInlineCalendar();
+            };
+            el.addEventListener('change', reRender);
+            el.addEventListener('input', reRender);
+        }
+    });
+
+    // Wheel now only scrolls inside the calendar container; no date navigation on scroll.
+
+    var rows = Array.from(document.querySelectorAll('.crm-tech-row'));
+    if (rows.length) setActiveRow(rows[0]);
+    updateScheduleTeamMembersBadge();
+    renderInlineCalendar();
+    if (overviewModalEl) {
+        overviewModalEl.addEventListener('shown.bs.modal', function () {
+            renderOverviewCalendar();
+        });
+    }
+});
+</script>
 {% endblock %}

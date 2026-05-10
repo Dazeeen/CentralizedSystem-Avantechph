@@ -7,6 +7,12 @@
 {% block content %}
 <div class="card border-0 shadow-sm">
     <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 mb-3">
+            <button type="button" class="btn btn-success" id="crmLogSalesActivityBtn">+ Log Sales Activity</button>
+            <button type="button" class="btn btn-outline-secondary" id="crmExportSalesReportBtn">Export Report</button>
+            <button type="button" class="btn btn-outline-secondary" id="crmAssignSalesBtn">Assign Sales</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#crmSalesAgingSettingsModal">Settings</button>
+        </div>
         <form method="get" class="row g-2 mb-3">
             <div class="col-lg-4 col-md-6">
                 <label class="form-label mb-1" for="crmSalesSearchInput">Search (fuzzy)</label>
@@ -76,14 +82,17 @@
                 <a href="{% url 'crm_sales' %}" class="btn btn-outline-secondary w-100">Reset</a>
             </div>
         </form>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
+        <div class="crm-sales-split-layout">
+        <div>
+        <div class="table-responsive crm-sales-table-wrap">
+            <table class="table table-sm align-middle mb-0 crm-sales-table">
                 <thead class="table-light">
                     <tr>
                         <th style="width: 36px;"><input type="checkbox" id="crmSalesSelectAll"></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.client }}">Client <span class="ms-1">{{ sort_indicators.client }}</span></a></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.assigned_sales }}">Assigned Sales <span class="ms-1">{{ sort_indicators.assigned_sales }}</span></a></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.project_cost }}">Project Cost <span class="ms-1">{{ sort_indicators.project_cost }}</span></a></th>
+                        <th><a class="text-decoration-none text-dark" href="{{ sort_urls.last_update }}">Last Update <span class="ms-1">{{ sort_indicators.last_update }}</span></a></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.sales_status }}">Sales Status <span class="ms-1">{{ sort_indicators.sales_status }}</span></a></th>
                         <th style="width: 72px;">Action</th>
                     </tr>
@@ -91,6 +100,7 @@
                 <tbody>
                     {% for row in sales_page %}
                         <tr class="crm-sales-row"
+                            data-sales-record-id="{{ row.id }}"
                             data-client-id="{{ row.client.id }}"
                             data-client-name="{{ row.client.last_name }}, {{ row.client.first_name }}"
                             data-client-customer-id="{{ row.client.customer_id|default:'-' }}"
@@ -107,13 +117,33 @@
                             data-roof-type="{{ row.roof_type|default:'-' }}"
                             data-ownership="{{ row.ownership|default:'-' }}"
                             data-project-cost="{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}"
+                            data-project-cost-raw="{% if row.project_cost is not None %}{{ row.project_cost }}{% endif %}"
+                            data-monthly-electric-bill-raw="{% if row.monthly_electric_bill is not None %}{{ row.monthly_electric_bill }}{% endif %}"
                             data-return-on-investment="{{ row.return_on_investment|default:'-' }}"
                             data-assigned-sales="{{ row.assigned_sales|default:'-' }}"
-                            data-sales-status="{{ row.sales_status|default:'-' }}">
+                            data-sales-status="{{ row.sales_status|default:'-' }}"
+                            data-client-status="{{ row.client_status|default:'-' }}"
+                            data-interaction-notes="{{ row.interaction_notes|default:'-' }}"
+                            data-inactive-days="{{ row.inactive_days|default:0 }}"
+                            data-days-remaining="{{ row.days_remaining|default:0 }}"
+                            data-last-touch="{{ row.last_touch_display|default:'-' }}">
                             <td><input type="checkbox" class="crm-sales-row-checkbox" value="{{ row.id }}"></td>
                             <td>{{ row.client.last_name }}, {{ row.client.first_name }}</td>
                             <td>{{ row.assigned_sales|default:"-" }}</td>
                             <td>{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}</td>
+                            <td>
+                                {% if row.days_remaining <= 0 %}
+                                    <span class="badge text-bg-secondary">inactive na</span>
+                                {% elif row.days_remaining <= sales_aging_settings.notify_remaining_days %}
+                                    <span class="badge text-bg-danger">{{ row.inactive_days|default:0 }} day(s) ago</span>
+                                {% elif row.days_remaining <= sales_aging_settings.notify_remaining_days|add:"5" %}
+                                    <span class="badge" style="background:#fd7e14;color:#fff;">{{ row.inactive_days|default:0 }} day(s) ago</span>
+                                {% elif row.days_remaining <= sales_aging_settings.aging_days|add:"-10" %}
+                                    <span class="badge text-bg-warning">{{ row.inactive_days|default:0 }} day(s) ago</span>
+                                {% else %}
+                                    <span class="badge text-bg-success">{{ row.inactive_days|default:0 }} day(s) ago</span>
+                                {% endif %}
+                            </td>
                             <td>{{ row.sales_status|default:"-" }}</td>
                             <td>
                                 <div class="dropdown">
@@ -125,8 +155,70 @@
                                 </div>
                             </td>
                         </tr>
+                        <template id="crm-sales-history-{{ row.id }}">
+                            {% if row.activity_logs.all %}
+                                <div class="list-group">
+                                    {% for log in row.activity_logs.all %}
+                                        <button
+                                            type="button"
+                                            class="list-group-item list-group-item-action d-flex align-items-center justify-content-between gap-2 js-sales-history-row"
+                                            data-history-name="{{ log.created_by.get_full_name|default:log.created_by.username|default:'System' }}"
+                                            data-history-client-status="{{ log.client_status|default:'-' }}"
+                                            data-history-date="{{ log.created_at|date:'M j, Y g:i A' }}"
+                                            data-history-lead-source="{{ log.lead_source|default:'-' }}"
+                                            data-history-monthly-bill="{% if log.monthly_electric_bill is not None %}PHP {{ log.monthly_electric_bill|comma2 }}{% else %}-{% endif %}"
+                                            data-history-roof-type="{{ log.roof_type|default:'-' }}"
+                                            data-history-ownership="{{ log.ownership|default:'-' }}"
+                                            data-history-project-cost="{% if log.project_cost is not None %}PHP {{ log.project_cost|comma2 }}{% else %}-{% endif %}"
+                                            data-history-roi="{{ log.return_on_investment|default:'-' }}"
+                                            data-history-sales-status="{{ log.sales_status|default:'-' }}"
+                                            data-history-notes="{{ log.interaction_notes|default:'-' }}"
+                                            data-history-attachments-template-id="crm-sales-history-attachments-{{ log.id }}">
+                                            <span class="small fw-semibold">{{ log.created_by.get_full_name|default:log.created_by.username|default:'System' }}</span>
+                                            <span class="small text-secondary">{{ log.client_status|default:"-" }}</span>
+                                            <span class="small text-secondary">{{ log.created_at|date:"M j, Y g:i A" }}</span>
+                                        </button>
+                                        <template id="crm-sales-history-attachments-{{ log.id }}">
+                                            {% if log.attachments.all %}
+                                                <div class="crm-sales-history-attachments">
+                                                    {% for attachment in log.attachments.all %}
+                                                        <a href="{{ attachment.file.url }}" target="_blank" rel="noopener" class="crm-sales-history-attachment-card">
+                                                            <div class="crm-sales-history-attachment-name" title="{{ attachment.file.name }}">{{ attachment.file.name }}</div>
+                                                            <div class="crm-sales-history-attachment-meta">{{ attachment.file.size|filesizeformat }}</div>
+                                                        </a>
+                                                    {% endfor %}
+                                                </div>
+                                            {% else %}
+                                                <p class="text-secondary mb-0">No attachments uploaded.</p>
+                                            {% endif %}
+                                        </template>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <p class="text-secondary mb-0">No activity history yet.</p>
+                            {% endif %}
+                        </template>
+                        <template id="crm-sales-files-{{ row.id }}">
+                            {% with logs=row.activity_logs.all %}
+                                {% if logs %}
+                                    <div class="crm-sales-history-attachments">
+                                        {% for log in logs %}
+                                            {% for attachment in log.attachments.all %}
+                                                <a href="{{ attachment.file.url }}" target="_blank" rel="noopener" class="crm-sales-history-attachment-card">
+                                                    <div class="crm-sales-history-attachment-name" title="{{ attachment.file.name }}">{{ attachment.file.name }}</div>
+                                                    <div class="crm-sales-history-attachment-meta">{{ attachment.file.size|filesizeformat }}</div>
+                                                    <div class="crm-sales-history-attachment-meta">{{ attachment.uploaded_at|date:"M j, Y g:i A" }}</div>
+                                                </a>
+                                            {% endfor %}
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <p class="text-secondary mb-0">No uploaded files yet.</p>
+                                {% endif %}
+                            {% endwith %}
+                        </template>
                     {% empty %}
-                        <tr><td colspan="6" class="text-center text-secondary py-3">No CRM sales records yet.</td></tr>
+                        <tr><td colspan="7" class="text-center text-secondary py-3">No CRM sales records yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -154,39 +246,54 @@
         {% endif %}
         <div class="mt-3 small text-secondary">Lead Source: `facebook ads`, `referral`, `walkin`, `website`, `developer`, `event`, `telemarketing`</div>
         <div class="small text-secondary">Ownership: `owner`, `tenant` | Sales Status: `new`, `contacted`, `for survey`, `forproposal`, `negotiation`, `close won`, `close lost`</div>
+        </div>
+        <aside class="crm-sales-summary-panel">
+            <h3 class="crm-sales-summary-name" id="crmSalesSummaryClientName">Select a sales record</h3>
+            <div class="small text-secondary mb-3">Sales Summary</div>
+            <div class="crm-sales-summary-item"><div class="crm-sales-summary-label">Customer ID</div><div class="crm-sales-summary-value" id="crmSalesSummaryCustomerId">-</div></div>
+            <div class="crm-sales-summary-item"><div class="crm-sales-summary-label">Assigned Sales</div><div class="crm-sales-summary-value" id="crmSalesSummaryAssignedSales">-</div></div>
+            <div class="crm-sales-summary-item"><div class="crm-sales-summary-label">Project Cost</div><div class="crm-sales-summary-value" id="crmSalesSummaryProjectCost">-</div></div>
+            <div class="crm-sales-summary-item"><div class="crm-sales-summary-label">Sales Status</div><div class="crm-sales-summary-value" id="crmSalesSummaryStatus">-</div></div>
+            <div class="crm-sales-summary-item"><div class="crm-sales-summary-label">Lead Source</div><div class="crm-sales-summary-value" id="crmSalesSummaryLeadSource">-</div></div>
+            <div class="crm-sales-summary-item"><div class="crm-sales-summary-label">Contact</div><div class="crm-sales-summary-value" id="crmSalesSummaryContact">-</div></div>
+            <div class="mt-3 d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" id="crmSalesSummaryViewBtn">View</button>
+            </div>
+        </aside>
+        </div>
     </div>
 </div>
 
 <div class="modal fade" id="crmSalesClientProfileModal" tabindex="-1" aria-labelledby="crmSalesClientProfileModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
+        <div class="modal-content crm-profile-modal-shell">
+            <div class="modal-header bg-white border-0 pb-0">
                 <h5 class="modal-title" id="crmSalesClientProfileModalLabel">Client Profile</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-0">
-                <div class="row g-0 crm-client-profile-shell">
-                    <div class="col-lg-4 border-end">
-                        <div class="p-3 p-lg-4 h-100">
+                <div class="crm-profile-modal-layout crm-client-profile-shell">
+                    <div class="crm-profile-modal-nav">
+                        <div>
                             <div class="fw-semibold fs-5 mb-3 text-break" id="salesClientSidebarEmail">-</div>
                             <div class="nav flex-column nav-pills gap-2" role="tablist" aria-orientation="vertical">
-                                <button class="nav-link active text-start d-flex align-items-center justify-content-between" id="sales-client-profile-tab" data-bs-toggle="pill" data-bs-target="#sales-client-profile-pane" type="button" role="tab" aria-controls="sales-client-profile-pane" aria-selected="true">
+                                <button class="crm-profile-nav-item active" id="sales-client-profile-tab" data-bs-toggle="pill" data-bs-target="#sales-client-profile-pane" type="button" role="tab" aria-controls="sales-client-profile-pane" aria-selected="true">
                                     <span>Profile</span><span>&rsaquo;</span>
                                 </button>
-                                <button class="nav-link text-start d-flex align-items-center justify-content-between" id="sales-client-sales-tab" data-bs-toggle="pill" data-bs-target="#sales-client-sales-pane" type="button" role="tab" aria-controls="sales-client-sales-pane" aria-selected="false">
+                                <button class="crm-profile-nav-item" id="sales-client-sales-tab" data-bs-toggle="pill" data-bs-target="#sales-client-sales-pane" type="button" role="tab" aria-controls="sales-client-sales-pane" aria-selected="false">
                                     <span>Sales</span><span>&rsaquo;</span>
                                 </button>
-                                <button class="nav-link text-start d-flex align-items-center justify-content-between" id="sales-client-technical-tab" data-bs-toggle="pill" data-bs-target="#sales-client-technical-pane" type="button" role="tab" aria-controls="sales-client-technical-pane" aria-selected="false">
+                                <button class="crm-profile-nav-item" id="sales-client-technical-tab" data-bs-toggle="pill" data-bs-target="#sales-client-technical-pane" type="button" role="tab" aria-controls="sales-client-technical-pane" aria-selected="false">
                                     <span>Technical</span><span>&rsaquo;</span>
                                 </button>
-                                <button class="nav-link text-start d-flex align-items-center justify-content-between" id="sales-client-more-tab" data-bs-toggle="pill" data-bs-target="#sales-client-more-pane" type="button" role="tab" aria-controls="sales-client-more-pane" aria-selected="false">
+                                <button class="crm-profile-nav-item" id="sales-client-more-tab" data-bs-toggle="pill" data-bs-target="#sales-client-more-pane" type="button" role="tab" aria-controls="sales-client-more-pane" aria-selected="false">
                                     <span>More</span><span>&rsaquo;</span>
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <div class="col-lg-8">
-                        <div class="tab-content p-3 p-lg-4">
+                    <div class="crm-profile-modal-content">
+                        <div class="tab-content">
                             <div class="tab-pane fade show active" id="sales-client-profile-pane" role="tabpanel" aria-labelledby="sales-client-profile-tab" tabindex="0">
                                 <h4 class="mb-3">Profile</h4>
                                 <div class="row g-3">
@@ -263,25 +370,28 @@
 
 <div class="modal fade" id="crmSalesInfoModal" tabindex="-1" aria-labelledby="crmSalesInfoModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
+        <div class="modal-content crm-profile-modal-shell">
+            <div class="modal-header bg-white border-0 pb-0">
                 <h5 class="modal-title" id="crmSalesInfoModalLabel">Sales Information</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-0">
-                <div class="row g-0 crm-sales-profile-shell">
-                    <div class="col-lg-4 border-end">
-                        <div class="p-3 p-lg-4 h-100">
+                <div class="crm-profile-modal-layout crm-sales-profile-shell">
+                    <div class="crm-profile-modal-nav">
+                        <div>
                             <div class="fw-semibold fs-5 mb-3 text-break" id="salesSidebarClientName">-</div>
                             <div class="nav flex-column nav-pills gap-2" role="tablist" aria-orientation="vertical">
-                                <button class="nav-link active text-start d-flex align-items-center justify-content-between" id="crm-sales-only-tab" data-bs-toggle="pill" data-bs-target="#crm-sales-only-pane" type="button" role="tab" aria-controls="crm-sales-only-pane" aria-selected="true">
+                                <button class="crm-profile-nav-item active" id="crm-sales-only-tab" data-bs-toggle="pill" data-bs-target="#crm-sales-only-pane" type="button" role="tab" aria-controls="crm-sales-only-pane" aria-selected="true">
                                     <span>Sales</span><span>&rsaquo;</span>
+                                </button>
+                                <button class="crm-profile-nav-item" id="crm-sales-history-tab" data-bs-toggle="pill" data-bs-target="#crm-sales-history-pane" type="button" role="tab" aria-controls="crm-sales-history-pane" aria-selected="false">
+                                    <span>History</span><span>&rsaquo;</span>
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <div class="col-lg-8">
-                        <div class="tab-content p-3 p-lg-4">
+                    <div class="crm-profile-modal-content">
+                        <div class="tab-content">
                             <div class="tab-pane fade show active" id="crm-sales-only-pane" role="tabpanel" aria-labelledby="crm-sales-only-tab" tabindex="0">
                                 <h4 class="mb-3">Sales</h4>
                                 <div class="row g-3">
@@ -325,6 +435,26 @@
                                         <label class="form-label">Sales Status</label>
                                         <input type="text" class="form-control" id="salesInfoStatus" readonly>
                                     </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Client Status</label>
+                                        <input type="text" class="form-control" id="salesInfoClientStatus" readonly>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Interaction Notes</label>
+                                        <textarea class="form-control" id="salesInfoInteractionNotes" rows="3" readonly></textarea>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Uploaded Files</label>
+                                        <div id="salesInfoFilesContainer" class="border rounded-3 p-2 bg-white">
+                                            <p class="text-secondary mb-0">No uploaded files yet.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="crm-sales-history-pane" role="tabpanel" aria-labelledby="crm-sales-history-tab" tabindex="0">
+                                <h4 class="mb-3">History</h4>
+                                <div id="crmSalesHistoryContainer" class="border rounded-3 p-3 bg-white">
+                                    <p class="text-secondary mb-0">No activity history yet.</p>
                                 </div>
                             </div>
                         </div>
@@ -337,48 +467,430 @@
         </div>
     </div>
 </div>
+<div class="modal fade" id="crmLogSalesActivityModal" tabindex="-1" aria-labelledby="crmLogSalesActivityModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="log_sales_activity">
+                <input type="hidden" name="sales_record_id" id="crmLogSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="crmLogSalesActivityModalLabel">Log Sales Activity</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Client Name</label>
+                            <input type="text" class="form-control" id="logClientName" readonly disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Client Status</label>
+                            <input type="text" class="form-control" name="client_status" id="logClientStatus" placeholder="e.g. Follow-up Needed">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Lead Source</label>
+                            <select class="form-select" name="lead_source" id="logLeadSource">
+                                <option value="">Select</option>
+                                <option value="facebook ads">facebook ads</option>
+                                <option value="referral">referral</option>
+                                <option value="walkin">walk-in</option>
+                                <option value="website">website</option>
+                                <option value="developer">developer</option>
+                                <option value="event">event</option>
+                                <option value="telemarketing">telemarketing</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Monthly Electric Bill</label>
+                            <input type="number" step="0.01" class="form-control" name="monthly_electric_bill" id="logMonthlyElectricBill">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Roof Type</label>
+                            <select class="form-select" name="roof_type" id="logRoofType">
+                                <option value="">Select</option>
+                                <option value="Metal">Metal</option>
+                                <option value="Asphalt shingles">Asphalt shingles</option>
+                                <option value="slate">slate</option>
+                                <option value="clay tiles">clay tiles</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Ownership</label>
+                            <select class="form-select" name="ownership" id="logOwnership">
+                                <option value="">Select</option>
+                                <option value="owner">owner</option>
+                                <option value="tenant">tenant</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Project Cost</label>
+                            <input type="number" step="0.01" class="form-control" name="project_cost" id="logProjectCost">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Return On Investment</label>
+                            <input type="text" class="form-control" name="return_on_investment" id="logROI">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Sales Status</label>
+                            <select class="form-select" name="sales_status" id="logSalesStatus">
+                                <option value="">Select</option>
+                                <option value="new">new</option>
+                                <option value="contacted">contacted</option>
+                                <option value="for survey">for survey</option>
+                                <option value="forproposal">for proposal</option>
+                                <option value="negotiation">negotiation</option>
+                                <option value="close won">close won</option>
+                                <option value="close lost">close lost</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Interaction Notes</label>
+                            <textarea class="form-control" name="interaction_notes" id="logInteractionNotes" rows="3" placeholder="What happened in this interaction?"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="crmSalesActivityFiles">File Upload (Optional)</label>
+                            <input type="file" class="d-none" id="crmSalesActivityFiles" name="activity_files" multiple>
+                            <div class="border border-2 border-success-subtle rounded-3 p-3 text-center text-secondary" id="crmSalesActivityDropZone" role="button" tabindex="0">
+                                Drag and drop or click to choose file(s)
+                            </div>
+                            <div class="small text-secondary mt-2">Optional files: quotations, documentations, report, proof, etc. You can also paste files/screenshots from clipboard (Ctrl+V).</div>
+                            <div class="border rounded-3 p-2 mt-2" id="crmSalesActivityPreviewWrap">
+                                <div class="d-flex flex-nowrap gap-2 overflow-auto" id="crmSalesActivityPreviewGrid">
+                                    <div class="crm-upload-preview-empty text-secondary small">No files selected.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Activity</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="crmSalesAgingSettingsModal" tabindex="-1" aria-labelledby="crmSalesAgingSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="update_sales_aging_settings">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="crmSalesAgingSettingsModalLabel">Sales Aging Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="crmAgingDaysInput">Aging Threshold (Days)</label>
+                        <input type="number" min="1" class="form-control" id="crmAgingDaysInput" name="aging_days" value="{{ sales_aging_settings.aging_days|default:30 }}">
+                        <div class="small text-secondary mt-1">Default recommendation: 30 days (1 month).</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="crmNotifyRemainingDaysInput">Notify When Remaining Days Is</label>
+                        <input type="number" min="1" class="form-control" id="crmNotifyRemainingDaysInput" name="notify_remaining_days" value="{{ sales_aging_settings.notify_remaining_days|default:5 }}">
+                        <div class="small text-secondary mt-1">Daily notification is sent to sales/admin/authorized users when remaining days is less than or equal to this value.</div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="crmIncludeClosedWonInput" name="include_closed_won" {% if sales_aging_settings.include_closed_won %}checked{% endif %}>
+                        <label class="form-check-label" for="crmIncludeClosedWonInput">
+                            Include `closed won` deals in inactivity aging
+                        </label>
+                    </div>
+                    <div class="small text-secondary mt-2">
+                        If a sales record receives no update within the threshold, system auto-updates it to `closed lost`.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="crmAssignSalesModal" tabindex="-1" aria-labelledby="crmAssignSalesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="assign_sales_to_client">
+                <input type="hidden" name="sales_record_id" id="crmAssignSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="crmAssignSalesModalLabel">Assign Sales</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2 small text-secondary">Select one or more sales users for this client.</div>
+                    <div class="border rounded-3 p-3" style="max-height: 360px; overflow-y: auto;">
+                        {% if assignable_sales_users %}
+                            <div class="row g-2">
+                                {% for sales_user in assignable_sales_users %}
+                                    <div class="col-md-6">
+                                        <label class="form-check border rounded-3 px-3 py-2 mb-0 d-flex align-items-center gap-2">
+                                            <input class="form-check-input m-0 js-assign-sales-check" type="checkbox" name="assigned_sales_values" value="{{ sales_user.value }}">
+                                            <span class="small">{{ sales_user.label }}</span>
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-secondary mb-0">No assignable sales users found.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Assignment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="crmSalesHistoryDetailModal" tabindex="-1" aria-labelledby="crmSalesHistoryDetailModalLabel" aria-hidden="true" data-bs-backdrop="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crmSalesHistoryDetailModalLabel">History Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><label class="form-label">Name</label><input type="text" class="form-control" id="historyDetailName" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Date and Time</label><input type="text" class="form-control" id="historyDetailDate" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Client Status</label><input type="text" class="form-control" id="historyDetailClientStatus" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Lead Source</label><input type="text" class="form-control" id="historyDetailLeadSource" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Monthly Bill</label><input type="text" class="form-control" id="historyDetailMonthlyBill" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Roof Type</label><input type="text" class="form-control" id="historyDetailRoofType" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Ownership</label><input type="text" class="form-control" id="historyDetailOwnership" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Project Cost</label><input type="text" class="form-control" id="historyDetailProjectCost" readonly></div>
+                    <div class="col-md-6"><label class="form-label">ROI</label><input type="text" class="form-control" id="historyDetailRoi" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Sales Status</label><input type="text" class="form-control" id="historyDetailSalesStatus" readonly></div>
+                    <div class="col-12"><label class="form-label">Interaction Notes</label><textarea class="form-control" id="historyDetailNotes" rows="3" readonly></textarea></div>
+                    <div class="col-12">
+                        <label class="form-label">Attachments</label>
+                        <div id="historyDetailAttachments" class="border rounded-3 p-2 bg-white">
+                            <p class="text-secondary mb-0">No attachments uploaded.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 <style>
-    .crm-sales-profile-shell .nav-pills .nav-link {
-        border: 1px solid #e9ecef;
-        color: #212529;
-        background: #fff;
-        border-radius: 0.75rem;
-        padding: 0.65rem 0.85rem;
+    .crm-sales-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+    .crm-sales-table-wrap {
+        max-height: 470px;
+        min-height: 470px;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        scrollbar-gutter: stable;
+        border: 1px solid #e5efe8;
+        border-radius: 12px;
+    }
+    .crm-sales-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+    .crm-sales-table thead th { position: sticky; top: 0; z-index: 2; background: #f7fbf8; border-bottom: 0; }
+    .crm-sales-table tbody tr { background: #f4f7f5; height: 42px; transition: background-color 0.15s ease, color 0.15s ease; }
+    .crm-sales-table tbody tr td { border-top: 0; border-bottom: 0; transition: background-color 0.15s ease, color 0.15s ease; }
+    .crm-sales-table tbody tr td:first-child { border-radius: 8px 0 0 8px; }
+    .crm-sales-table tbody tr td:last-child { border-radius: 0 8px 8px 0; }
+    .crm-sales-row:hover:not(.is-active) td { background: #d7efe0; }
+    .crm-sales-row.is-active td { background: #1f8f53; color: #fff; }
+    .crm-sales-summary-panel { border-left: 1px solid #e4e9e6; padding-left: 12px; }
+    .crm-sales-summary-name { font-size: 1.5rem; margin: 0 0 8px; }
+    .crm-sales-summary-item { margin-bottom: 8px; }
+    .crm-sales-summary-label { font-size: 11px; color: #6f776f; margin-bottom: 2px; }
+    .crm-sales-summary-value { font-size: 13px; color: #202420; word-break: break-word; }
+    .pagination .page-item.active .page-link { background: #1f8f53; border-color: #1f8f53; }
+
+    .crm-profile-modal-shell { border-radius: 18px; overflow: hidden; background: #f6f6f6; }
+    .crm-profile-modal-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 640px; }
+    .crm-profile-modal-nav { border-right: 1px solid #e4e4e4; background: #fbfbfb; padding: 20px 18px; }
+    .crm-profile-modal-content { padding: 22px 24px 24px; background: #f7f7f7; }
+    .crm-profile-nav-item {
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: transparent;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
         font-weight: 600;
     }
-    .crm-sales-profile-shell .nav-pills .nav-link.active {
-        color: #0d6efd;
-        background: #f1f5ff;
-        border-color: #d7e3ff;
-    }
+.crm-profile-nav-item.active { background: #e5f2ea; color: #1f8f53; }
+.crm-sales-history-attachments {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-top: 6px;
+    padding-bottom: 2px;
+}
+.crm-sales-history-attachment-card {
+    width: 130px;
+    min-width: 130px;
+    border: 1px solid #d8e4dc;
+    border-radius: 8px;
+    background: #f7fbf9;
+    padding: 6px;
+    text-decoration: none;
+    color: #1f2a22;
+}
+.crm-sales-history-attachment-name {
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.crm-sales-history-attachment-meta {
+    font-size: 10px;
+    color: #6b736d;
+}
+#crmSalesActivityPreviewWrap {
+    min-height: 116px;
+    max-width: 100%;
+    overflow: hidden;
+}
+#crmSalesActivityPreviewGrid {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+}
+.crm-upload-preview-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 96px;
+}
+.crm-upload-card {
+    width: 120px;
+    min-width: 120px;
+    height: 96px;
+    border: 1px solid #d7e6db;
+    border-radius: 10px;
+    background: #f8fbf9;
+    padding: 8px 8px 6px;
+    position: relative;
+    overflow: hidden;
+}
+.crm-upload-remove-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    border: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: #e25555;
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0;
+}
+.crm-upload-name {
+    font-size: 11px;
+    font-weight: 600;
+    max-width: 94px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.crm-upload-meta {
+    font-size: 10px;
+    color: #6b736d;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.crm-upload-progress {
+    height: 6px;
+    margin-top: 4px;
+    background: #e6ece8;
+    border-radius: 999px;
+    overflow: hidden;
+}
+.crm-upload-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #1f8f53;
+    transition: width .25s ease;
+}
+.crm-modal-dimmed-behind {
+    opacity: 0.35;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
     @media (max-width: 991.98px) {
-        .crm-client-profile-shell > .border-end,
-        .crm-sales-profile-shell > .border-end {
-            border-right: 0 !important;
-            border-bottom: 1px solid #dee2e6;
-        }
-    }
-    .crm-client-profile-shell .nav-pills .nav-link {
-        border: 1px solid #e9ecef;
-        color: #212529;
-        background: #fff;
-        border-radius: 0.75rem;
-        padding: 0.65rem 0.85rem;
-        font-weight: 600;
-    }
-    .crm-client-profile-shell .nav-pills .nav-link.active {
-        color: #0d6efd;
-        background: #f1f5ff;
-        border-color: #d7e3ff;
+        .crm-sales-split-layout { grid-template-columns: 1fr; }
+        .crm-sales-summary-panel { border-left: 0; border-top: 1px solid #e4e9e6; padding-left: 0; padding-top: 12px; }
+        .crm-profile-modal-layout { grid-template-columns: 1fr; }
+        .crm-profile-modal-nav { border-right: 0; border-bottom: 1px solid #e4e4e4; }
     }
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    var activeSalesRowId = null;
     var selectAll = document.getElementById('crmSalesSelectAll');
     var salesModalEl = document.getElementById('crmSalesInfoModal');
     var salesModal = (salesModalEl && window.bootstrap) ? new bootstrap.Modal(salesModalEl) : null;
+    var logSalesModalEl = document.getElementById('crmLogSalesActivityModal');
+    var logSalesModal = (logSalesModalEl && window.bootstrap) ? new bootstrap.Modal(logSalesModalEl) : null;
+    var assignSalesModalEl = document.getElementById('crmAssignSalesModal');
+    var assignSalesModal = (assignSalesModalEl && window.bootstrap) ? new bootstrap.Modal(assignSalesModalEl) : null;
+    var historyDetailModalEl = document.getElementById('crmSalesHistoryDetailModal');
+    var historyDetailModal = (historyDetailModalEl && window.bootstrap) ? new bootstrap.Modal(historyDetailModalEl, { backdrop: true }) : null;
+    var activityFileInput = document.getElementById('crmSalesActivityFiles');
+    var activityDropZone = document.getElementById('crmSalesActivityDropZone');
+    var activityPreviewGrid = document.getElementById('crmSalesActivityPreviewGrid');
+    var activityUploadFiles = [];
     var clientProfileModalEl = document.getElementById('crmSalesClientProfileModal');
     var clientProfileModal = (clientProfileModalEl && window.bootstrap) ? new bootstrap.Modal(clientProfileModalEl) : null;
+
+    function safeText(value) {
+        return value == null || String(value).trim() === '' ? '-' : String(value);
+    }
+
+    function renderSalesSummaryFromRow(row) {
+        if (!row) return;
+        document.getElementById('crmSalesSummaryClientName').textContent = safeText(row.dataset.clientName);
+        document.getElementById('crmSalesSummaryCustomerId').textContent = safeText(row.dataset.clientCustomerId);
+        document.getElementById('crmSalesSummaryAssignedSales').textContent = safeText(row.dataset.assignedSales);
+        document.getElementById('crmSalesSummaryProjectCost').textContent = safeText(row.dataset.projectCost);
+        document.getElementById('crmSalesSummaryStatus').textContent = safeText(row.dataset.salesStatus);
+        document.getElementById('crmSalesSummaryLeadSource').textContent = safeText(row.dataset.leadSource);
+        document.getElementById('crmSalesSummaryContact').textContent = safeText(row.dataset.clientContactNumber);
+    }
+
+    function setActiveSalesRow(row) {
+        if (!row) return;
+        document.querySelectorAll('.crm-sales-row.is-active').forEach(function (r) { r.classList.remove('is-active'); });
+        row.classList.add('is-active');
+        activeSalesRowId = row.dataset.clientId || null;
+        renderSalesSummaryFromRow(row);
+    }
+
+    function applySalesRowsUI() {
+        var rows = Array.from(document.querySelectorAll('.crm-sales-row'));
+        rows.forEach(function (row) {
+            row.setAttribute('tabindex', '0');
+            row.style.cursor = 'pointer';
+        });
+        if (!rows.length) return;
+        var preferred = activeSalesRowId ? rows.find(function (r) { return r.dataset.clientId === activeSalesRowId; }) : null;
+        setActiveSalesRow(preferred || rows[0]);
+    }
 
     function rowChecks() {
         return Array.from(document.querySelectorAll('.crm-sales-row-checkbox'));
@@ -408,11 +920,133 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('salesInfoROI').value = row.dataset.returnOnInvestment || '-';
         document.getElementById('salesInfoAssignedSales').value = row.dataset.assignedSales || '-';
         document.getElementById('salesInfoStatus').value = row.dataset.salesStatus || '-';
+        document.getElementById('salesInfoClientStatus').value = row.dataset.clientStatus || '-';
+        document.getElementById('salesInfoInteractionNotes').value = row.dataset.interactionNotes || '-';
+        var filesContainer = document.getElementById('salesInfoFilesContainer');
+        var filesTemplate = row.dataset.salesRecordId ? document.getElementById('crm-sales-files-' + row.dataset.salesRecordId) : null;
+        if (filesContainer) {
+            filesContainer.innerHTML = filesTemplate ? filesTemplate.innerHTML : '<p class="text-secondary mb-0">No uploaded files yet.</p>';
+        }
+        var historyContainer = document.getElementById('crmSalesHistoryContainer');
+        var historyTemplate = row.dataset.salesRecordId ? document.getElementById('crm-sales-history-' + row.dataset.salesRecordId) : null;
+        if (historyContainer) {
+            historyContainer.innerHTML = historyTemplate ? historyTemplate.innerHTML : '<p class="text-secondary mb-0">No activity history yet.</p>';
+        }
         var salesTab = document.getElementById('crm-sales-only-tab');
         if (salesTab && window.bootstrap && window.bootstrap.Tab) {
             window.bootstrap.Tab.getOrCreateInstance(salesTab).show();
         }
         salesModal.show();
+    }
+
+    function openLogSalesModalFromRow(row) {
+        if (!row || !logSalesModal) return;
+        var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
+        if (salesRecordIdInput) salesRecordIdInput.value = row.dataset.salesRecordId || '';
+        var leadSource = document.getElementById('logLeadSource');
+        var monthlyBill = document.getElementById('logMonthlyElectricBill');
+        var roofType = document.getElementById('logRoofType');
+        var ownership = document.getElementById('logOwnership');
+        var projectCost = document.getElementById('logProjectCost');
+        var roi = document.getElementById('logROI');
+        var salesStatus = document.getElementById('logSalesStatus');
+        var clientName = document.getElementById('logClientName');
+        var clientStatus = document.getElementById('logClientStatus');
+        var notes = document.getElementById('logInteractionNotes');
+        if (clientName) clientName.value = row.dataset.clientName || '';
+        if (leadSource) leadSource.value = (row.dataset.leadSource || '').toLowerCase() === '-' ? '' : (row.dataset.leadSource || '').toLowerCase();
+        if (monthlyBill) monthlyBill.value = row.dataset.monthlyElectricBillRaw || '';
+        if (roofType) roofType.value = row.dataset.roofType === '-' ? '' : (row.dataset.roofType || '');
+        if (ownership) ownership.value = (row.dataset.ownership || '').toLowerCase() === '-' ? '' : (row.dataset.ownership || '').toLowerCase();
+        if (projectCost) projectCost.value = row.dataset.projectCostRaw || '';
+        if (roi) roi.value = row.dataset.returnOnInvestment === '-' ? '' : (row.dataset.returnOnInvestment || '');
+        if (salesStatus) salesStatus.value = (row.dataset.salesStatus || '').toLowerCase() === '-' ? '' : (row.dataset.salesStatus || '').toLowerCase();
+        if (clientStatus) clientStatus.value = row.dataset.clientStatus === '-' ? '' : (row.dataset.clientStatus || '');
+        if (notes) notes.value = row.dataset.interactionNotes === '-' ? '' : (row.dataset.interactionNotes || '');
+        activityUploadFiles = [];
+        syncActivityFileInput();
+        renderActivityUploadPreview();
+        logSalesModal.show();
+    }
+
+    function openAssignSalesModalFromRow(row) {
+        if (!row || !assignSalesModal) return;
+        var salesRecordIdInput = document.getElementById('crmAssignSalesRecordId');
+        if (salesRecordIdInput) salesRecordIdInput.value = row.dataset.salesRecordId || '';
+        var assignedRaw = (row.dataset.assignedSales || '').trim();
+        var assignedItems = assignedRaw && assignedRaw !== '-' ? assignedRaw.split(',').map(function (item) { return item.trim(); }).filter(Boolean) : [];
+        var checks = Array.from(document.querySelectorAll('.js-assign-sales-check'));
+        checks.forEach(function (cb) {
+            cb.checked = assignedItems.indexOf(cb.value) !== -1;
+        });
+        assignSalesModal.show();
+    }
+
+    function humanFileSize(bytes) {
+        if (!bytes) return '0 B';
+        var units = ['B', 'KB', 'MB', 'GB'];
+        var size = Number(bytes);
+        var idx = 0;
+        while (size >= 1024 && idx < units.length - 1) {
+            size /= 1024;
+            idx += 1;
+        }
+        var rounded = idx === 0 ? String(Math.round(size)) : size.toFixed(1);
+        return rounded + ' ' + units[idx];
+    }
+
+    function shortFileType(file) {
+        var type = (file && file.type) ? String(file.type) : '';
+        if (type) return type;
+        var name = (file && file.name) ? String(file.name) : '';
+        var dotIndex = name.lastIndexOf('.');
+        return dotIndex > -1 ? ('*' + name.slice(dotIndex)) : 'unknown';
+    }
+
+    function syncActivityFileInput() {
+        if (!activityFileInput) return;
+        var dt = new DataTransfer();
+        activityUploadFiles.forEach(function (file) { dt.items.add(file); });
+        activityFileInput.files = dt.files;
+    }
+
+    function renderActivityUploadPreview() {
+        if (!activityPreviewGrid) return;
+        if (!activityUploadFiles.length) {
+            activityPreviewGrid.innerHTML = '<div class="crm-upload-preview-empty text-secondary small">No files selected.</div>';
+            return;
+        }
+        var html = '';
+        activityUploadFiles.forEach(function (file, index) {
+            html += ''
+                + '<div class="crm-upload-card">'
+                + '  <button type="button" class="crm-upload-remove-btn js-sales-activity-file-remove" data-index="' + index + '" aria-label="Remove file">x</button>'
+                + '  <div class="crm-upload-name" title="' + (file.name || '').replace(/"/g, '&quot;') + '">' + (file.name || '-') + '</div>'
+                + '  <div class="crm-upload-meta">' + humanFileSize(file.size) + '</div>'
+                + '  <div class="crm-upload-meta">' + shortFileType(file) + '</div>'
+                + '  <div class="crm-upload-progress"><div class="crm-upload-progress-bar" id="crmSalesActivityUploadBar' + index + '"></div></div>'
+                + '  <div class="crm-upload-meta" id="crmSalesActivityProgressText' + index + '">0%</div>'
+                + '</div>';
+        });
+        activityPreviewGrid.innerHTML = html;
+        activityUploadFiles.forEach(function (_, idx) {
+            var pct = 0;
+            var bar = document.getElementById('crmSalesActivityUploadBar' + idx);
+            var text = document.getElementById('crmSalesActivityProgressText' + idx);
+            var timer = setInterval(function () {
+                pct += 20;
+                if (bar) bar.style.width = Math.min(pct, 100) + '%';
+                if (text) text.textContent = Math.min(pct, 100) + '%';
+                if (pct >= 100) clearInterval(timer);
+            }, 35);
+        });
+    }
+
+    function addActivityFiles(files) {
+        if (!files || !files.length) return;
+        Array.from(files).forEach(function (file) { activityUploadFiles.push(file); });
+        syncActivityFileInput();
+        renderActivityUploadPreview();
     }
 
     if (selectAll) {
@@ -457,37 +1091,188 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     document.addEventListener('click', function (event) {
+        var historyRow = event.target.closest('.js-sales-history-row');
+        if (historyRow && historyDetailModal) {
+            document.getElementById('historyDetailName').value = historyRow.dataset.historyName || '-';
+            document.getElementById('historyDetailDate').value = historyRow.dataset.historyDate || '-';
+            document.getElementById('historyDetailClientStatus').value = historyRow.dataset.historyClientStatus || '-';
+            document.getElementById('historyDetailLeadSource').value = historyRow.dataset.historyLeadSource || '-';
+            document.getElementById('historyDetailMonthlyBill').value = historyRow.dataset.historyMonthlyBill || '-';
+            document.getElementById('historyDetailRoofType').value = historyRow.dataset.historyRoofType || '-';
+            document.getElementById('historyDetailOwnership').value = historyRow.dataset.historyOwnership || '-';
+            document.getElementById('historyDetailProjectCost').value = historyRow.dataset.historyProjectCost || '-';
+            document.getElementById('historyDetailRoi').value = historyRow.dataset.historyRoi || '-';
+            document.getElementById('historyDetailSalesStatus').value = historyRow.dataset.historySalesStatus || '-';
+            document.getElementById('historyDetailNotes').value = historyRow.dataset.historyNotes || '-';
+            var detailsAttachmentsContainer = document.getElementById('historyDetailAttachments');
+            var attachmentsTemplateId = historyRow.dataset.historyAttachmentsTemplateId || '';
+            var attachmentsTemplate = attachmentsTemplateId ? document.getElementById(attachmentsTemplateId) : null;
+            if (detailsAttachmentsContainer) {
+                detailsAttachmentsContainer.innerHTML = attachmentsTemplate ? attachmentsTemplate.innerHTML : '<p class="text-secondary mb-0">No attachments uploaded.</p>';
+            }
+            historyDetailModal.show();
+            return;
+        }
         var profileBtn = event.target.closest('.js-sales-action-view-profile');
         if (profileBtn) {
             var profileRow = profileBtn.closest('.crm-sales-row');
+            setActiveSalesRow(profileRow);
             openClientProfileModalFromRow(profileRow);
             return;
         }
         var updateBtn = event.target.closest('.js-sales-action-update');
         if (updateBtn) {
-            alert('Update action for sales record will be added next.');
+            var updateRow = updateBtn.closest('.crm-sales-row');
+            setActiveSalesRow(updateRow);
+            openLogSalesModalFromRow(updateRow);
             return;
         }
     });
 
-    document.querySelectorAll('.crm-sales-row').forEach(function (row) {
-        row.setAttribute('tabindex', '0');
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function (event) {
-            if (event.target.closest('input, button, a, label')) {
-                return;
+    var logSalesBtn = document.getElementById('crmLogSalesActivityBtn');
+    if (logSalesBtn) {
+        logSalesBtn.addEventListener('click', function () {
+            var row = document.querySelector('.crm-sales-row.is-active');
+            if (!row) return;
+            openLogSalesModalFromRow(row);
+        });
+    }
+
+    var exportBtn = document.getElementById('crmExportSalesReportBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function () {
+            alert('Export report will be added next.');
+        });
+    }
+    var assignSalesBtn = document.getElementById('crmAssignSalesBtn');
+    if (assignSalesBtn) {
+        assignSalesBtn.addEventListener('click', function () {
+            var row = document.querySelector('.crm-sales-row.is-active');
+            if (!row) return;
+            openAssignSalesModalFromRow(row);
+        });
+    }
+
+    if (activityFileInput && activityDropZone) {
+        ['dragenter', 'dragover'].forEach(function (eventName) {
+            activityDropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                activityDropZone.classList.add('bg-success-subtle');
+            });
+        });
+        ['dragleave', 'drop'].forEach(function (eventName) {
+            activityDropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                activityDropZone.classList.remove('bg-success-subtle');
+            });
+        });
+        activityDropZone.addEventListener('drop', function (event) {
+            var files = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : null;
+            addActivityFiles(files);
+        });
+        activityDropZone.addEventListener('click', function () {
+            activityFileInput.click();
+        });
+        activityDropZone.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                activityFileInput.click();
             }
-            openSalesModalFromRow(row);
+        });
+        activityFileInput.addEventListener('change', function () {
+            addActivityFiles(activityFileInput.files);
+        });
+        document.addEventListener('click', function (event) {
+            var removeBtn = event.target.closest('.js-sales-activity-file-remove');
+            if (!removeBtn) return;
+            var idx = Number(removeBtn.getAttribute('data-index'));
+            if (Number.isNaN(idx) || idx < 0 || idx >= activityUploadFiles.length) return;
+            activityUploadFiles.splice(idx, 1);
+            syncActivityFileInput();
+            renderActivityUploadPreview();
+        });
+        document.addEventListener('paste', function (event) {
+            if (!logSalesModalEl || !logSalesModalEl.classList.contains('show')) return;
+            var clipboardItems = event.clipboardData && event.clipboardData.items ? event.clipboardData.items : [];
+            if (!clipboardItems.length) return;
+            var pastedFiles = [];
+            for (var i = 0; i < clipboardItems.length; i += 1) {
+                var item = clipboardItems[i];
+                if (!item || item.kind !== 'file') continue;
+                var file = item.getAsFile ? item.getAsFile() : null;
+                if (!file) continue;
+                var needsName = !file.name || file.name === 'image.png' || file.name === 'blob';
+                if (needsName) {
+                    var mimeType = file.type || 'application/octet-stream';
+                    var ext = mimeType.split('/')[1] || 'bin';
+                    file = new File([file], 'clipboard-' + Date.now() + '.' + ext, { type: mimeType });
+                }
+                pastedFiles.push(file);
+            }
+            if (pastedFiles.length) {
+                event.preventDefault();
+                addActivityFiles(pastedFiles);
+            }
+        });
+        renderActivityUploadPreview();
+    }
+
+    if (historyDetailModalEl) {
+        historyDetailModalEl.addEventListener('show.bs.modal', function () {
+            document.querySelectorAll('.modal.show').forEach(function (modalEl) {
+                if (modalEl.id !== 'crmSalesHistoryDetailModal') {
+                    modalEl.classList.add('crm-modal-dimmed-behind');
+                }
+            });
+        });
+        historyDetailModalEl.addEventListener('shown.bs.modal', function () {
+            var backdropEls = document.querySelectorAll('.modal-backdrop.show');
+            var latestBackdrop = backdropEls.length ? backdropEls[backdropEls.length - 1] : null;
+            if (latestBackdrop) {
+                latestBackdrop.style.zIndex = '1080';
+                latestBackdrop.style.opacity = '0.6';
+            }
+            historyDetailModalEl.style.zIndex = '1085';
+        });
+        historyDetailModalEl.addEventListener('hidden.bs.modal', function () {
+            historyDetailModalEl.style.zIndex = '';
+            document.querySelectorAll('.modal.crm-modal-dimmed-behind').forEach(function (modalEl) {
+                modalEl.classList.remove('crm-modal-dimmed-behind');
+            });
+        });
+    }
+
+    document.querySelectorAll('.crm-sales-row').forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('input, button, a, label')) return;
+            setActiveSalesRow(row);
         });
         row.addEventListener('keydown', function (event) {
-            if (event.key !== 'Enter') {
-                return;
-            }
+            if (event.key !== 'Enter') return;
             event.preventDefault();
-            openSalesModalFromRow(row);
+            setActiveSalesRow(row);
         });
     });
 
+    document.addEventListener('dblclick', function (event) {
+        var row = event.target.closest('.crm-sales-row');
+        if (row && !event.target.closest('input, button, a, label')) {
+            setActiveSalesRow(row);
+            openSalesModalFromRow(row);
+        }
+    });
+
+    var summaryViewBtn = document.getElementById('crmSalesSummaryViewBtn');
+    if (summaryViewBtn) {
+        summaryViewBtn.addEventListener('click', function () {
+            var row = document.querySelector('.crm-sales-row.is-active');
+            if (row) openSalesModalFromRow(row);
+        });
+    }
+
+    applySalesRowsUI();
     syncSelectAllState();
 });
 </script>

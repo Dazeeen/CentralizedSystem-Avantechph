@@ -1,18 +1,218 @@
 {% extends 'base_app.html' %}
+{% load static %}
 
 {% block title %}Avantech Portal | CRM Dashboard{% endblock %}
 {% block page_heading %}CRM Dashboard{% endblock %}
 
 {% block content %}
-<div class="row g-3 mb-4">
-    <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Total Clients</div><div class="display-6 fw-bold">{{ total_clients }}</div></div></div></div>
-    <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New Leads</div><div class="display-6 fw-bold">{{ new_leads }}</div></div></div></div>
-    <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Converted</div><div class="display-6 fw-bold">{{ converted_clients }}</div></div></div></div>
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New Today</div><div class="display-6 fw-bold">{{ new_today }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New This Week</div><div class="display-6 fw-bold">{{ new_week }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New This Month</div><div class="display-6 fw-bold">{{ new_month }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New This Year</div><div class="display-6 fw-bold">{{ new_year }}</div></div></div></div>
 </div>
-<div class="card border-0 shadow-sm">
-    <div class="card-body">
-        <h2 class="h5 mb-2">Summary / Overview</h2>
-        <p class="text-secondary mb-0">Main CRM overview page. Report creation can be added here as next step.</p>
+
+<div class="row g-3">
+    <div class="col-xl-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <h2 class="h5 mb-0">Newly Added Clients Report</h2>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Report range">
+                        <button type="button" class="btn btn-outline-success active js-crm-report-mode" data-mode="today">Today</button>
+                        <button type="button" class="btn btn-outline-success js-crm-report-mode" data-mode="week">This Week</button>
+                        <button type="button" class="btn btn-outline-success js-crm-report-mode" data-mode="month">This Month</button>
+                        <button type="button" class="btn btn-outline-success js-crm-report-mode" data-mode="year">This Year</button>
+                    </div>
+                </div>
+                <div class="crm-chart-wrap">
+                    <canvas id="crmNewClientsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-7">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Philippines Client Geography (Municipality)</h2>
+                <p class="small text-secondary mb-2">Hover a pin to view municipality and client names.</p>
+                <div class="ph-map-wrap" id="phMapWrap">
+                    <div id="phVectorMap" class="ph-vector-map"></div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+
+{{ new_client_period_labels_json|json_script:"crm-new-client-labels" }}
+{{ new_client_period_values_json|json_script:"crm-new-client-values" }}
+{{ crm_new_clients_report_json|json_script:"crm-new-clients-report-data" }}
+{{ crm_map_pins_json|json_script:"crm-map-pins" }}
+
+<style>
+.crm-chart-wrap { position: relative; height: 280px; min-height: 280px; max-height: 280px; }
+.crm-chart-wrap canvas { width: 100% !important; height: 100% !important; display: block; }
+.js-crm-report-mode { cursor: pointer; }
+.ph-map-wrap { position: relative; border: 1px solid #1f4ea6; border-radius: 14px; overflow: hidden; min-height: 560px; background: linear-gradient(135deg, #08205a 0%, #0c3c8f 100%); }
+.ph-vector-map { width: 100%; height: 560px; min-height: 560px; }
+.leaflet-container { background: transparent !important; }
+.leaflet-popup-content-wrapper { border-radius: 10px; }
+.leaflet-control-zoom a { color: #0f1f4f; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    function parseNodeJson(node, fallback) {
+        if (!node) return fallback;
+        try {
+            var parsed = JSON.parse(node.textContent || '');
+            if (typeof parsed === 'string') {
+                try { parsed = JSON.parse(parsed); } catch (e) {}
+            }
+            return parsed == null ? fallback : parsed;
+        } catch (e) {
+            return fallback;
+        }
+    }
+    var reportNode = document.getElementById('crm-new-clients-report-data');
+    var reportData = parseNodeJson(reportNode, {});
+    var defaultPayload = (reportData && reportData.today) ? reportData.today : { labels: [], values: [] };
+    var labels = Array.isArray(defaultPayload.labels) ? defaultPayload.labels : [];
+    var values = Array.isArray(defaultPayload.values) ? defaultPayload.values : [];
+    var modeButtons = Array.from(document.querySelectorAll('.js-crm-report-mode'));
+    var chartCanvas = document.getElementById('crmNewClientsChart');
+    var reportChart = null;
+    if (chartCanvas && window.Chart) {
+        reportChart = new Chart(chartCanvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{ label: 'Clients', data: values, borderRadius: 8, backgroundColor: ['#2a6dde', '#1f8f53', '#f5a524', '#8b5cf6'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { display: false } } }
+        });
+    }
+
+    function setActiveModeButton(mode) {
+        modeButtons.forEach(function (btn) {
+            btn.classList.toggle('active', (btn.getAttribute('data-mode') || '') === mode);
+        });
+    }
+    function resolvePayload(mode) {
+        var m = String(mode || '').toLowerCase();
+        if (reportData && reportData[m]) return reportData[m];
+        if (reportData && reportData.today) return reportData.today;
+        return { labels: [], values: [] };
+    }
+    function applyReportMode(mode) {
+        var payload = resolvePayload(mode);
+        setActiveModeButton(String(mode || 'today').toLowerCase());
+        if (!reportChart || !payload) return;
+        reportChart.data.labels = Array.isArray(payload.labels) ? payload.labels : [];
+        reportChart.data.datasets[0].data = Array.isArray(payload.values) ? payload.values : [];
+        reportChart.data.datasets[0].backgroundColor = '#2a6dde';
+        reportChart.update('none');
+    }
+    modeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            applyReportMode(btn.getAttribute('data-mode') || 'today');
+        });
+    });
+    applyReportMode('today');
+
+    var pinsNode = document.getElementById('crm-map-pins');
+    var pinsData = parseNodeJson(pinsNode, []);
+    var mapEl = document.getElementById('phVectorMap');
+    if (!Array.isArray(pinsData)) pinsData = [];
+    if (!mapEl || !window.L) return;
+
+    function normalizeKey(value) {
+        return String(value || '')
+            .toLowerCase()
+            .replace(/\./g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+    }
+    var provinceNameMap = {
+        'metro-manila': 'metropolitan-manila',
+        'negros-occidental': 'negros-occidental',
+        'misamis-oriental': 'misamis-oriental',
+        'davao-del-sur': 'davao-del-sur',
+        'south-cotabato': 'south-cotabato',
+        'zamboanga-del-sur': 'zamboanga-del-sur',
+        'agusan-del-norte': 'agusan-del-norte',
+        'camarines-sur': 'camarines-sur'
+    };
+    var provinceCounts = {};
+    pinsData.forEach(function (pin) {
+        var raw = String(pin.province || '').toLowerCase();
+        var key = provinceNameMap[raw] || raw;
+        if (!key) return;
+        provinceCounts[key] = (provinceCounts[key] || 0) + Number(pin.count || 0);
+    });
+
+    var map = L.map('phVectorMap', {
+        zoomControl: true,
+        minZoom: 5,
+        maxZoom: 13,
+        attributionControl: false,
+        dragging: true,
+        scrollWheelZoom: true
+    }).setView([12.8797, 121.7740], 6);
+
+    function provinceColor(count) {
+        if (count >= 10) return '#69d084';
+        if (count >= 5) return '#4aa8ff';
+        if (count >= 1) return '#3a7be0';
+        return '#2b57ad';
+    }
+
+    fetch("{% static 'data/ph-provinces.min.geojson' %}")
+        .then(function (res) { return res.json(); })
+        .then(function (geojson) {
+            var provincesLayer = L.geoJSON(geojson, {
+                style: function (feature) {
+                    var provinceName = normalizeKey(feature && feature.properties ? (feature.properties.PROVINCE || feature.properties.NAME_1 || '') : '');
+                    var count = provinceCounts[provinceName] || 0;
+                    return {
+                        color: '#d8e8ff',
+                        weight: 1,
+                        fillColor: provinceColor(count),
+                        fillOpacity: 0.88
+                    };
+                },
+                onEachFeature: function (feature, layer) {
+                    var name = feature && feature.properties ? (feature.properties.PROVINCE || feature.properties.NAME_1 || 'Province') : 'Province';
+                    var key = normalizeKey(name);
+                    var count = provinceCounts[key] || 0;
+                    layer.bindTooltip(name + ' - Clients: ' + count, { sticky: true });
+                    layer.on('mouseover', function () { layer.setStyle({ fillColor: '#7edba0', weight: 1.5 }); });
+                    layer.on('mouseout', function () { provincesLayer.resetStyle(layer); });
+                }
+            }).addTo(map);
+            map.fitBounds(provincesLayer.getBounds(), { padding: [10, 10] });
+
+            pinsData.forEach(function (pin) {
+                if (typeof pin.lat !== 'number' || typeof pin.lng !== 'number') return;
+                var names = (pin.names || []).slice(0, 12);
+                var extra = (pin.names || []).length > names.length ? ('<br>+' + ((pin.names || []).length - names.length) + ' more') : '';
+                var popupHtml = '<b>' + (pin.city || 'Client Address') + ' (' + (pin.count || 1) + ')</b><br>' + names.join('<br>') + extra;
+                L.circleMarker([pin.lat, pin.lng], {
+                    radius: 7,
+                    color: '#ffffff',
+                    weight: 1.6,
+                    fillColor: '#ffcc00',
+                    fillOpacity: 0.95
+                }).addTo(map).bindPopup(popupHtml);
+            });
+        })
+        .catch(function () {
+            mapEl.innerHTML = '<div class="text-light p-3">Unable to load Philippine province vector map.</div>';
+        });
+});
+</script>
 {% endblock %}

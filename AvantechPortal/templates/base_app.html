@@ -77,7 +77,12 @@
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 11H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 16H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
                                     </span>
-                                    <span class="nav-label">Technicals</span>
+                                    <span class="nav-label d-inline-flex align-items-center gap-2">
+                                        <span>Technicals</span>
+                                        {% if technical_action_required_count %}
+                                            <span class="badge bg-danger">{{ technical_action_required_count }}</span>
+                                        {% endif %}
+                                    </span>
                                 </a>
                             </div>
                         {% endif %}
@@ -466,7 +471,7 @@
                             <span class="position-absolute bottom-0 end-0 user-status-badge" style="background-color: {{ request.user.profile.get_status_color }}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white;" title="{{ request.user.profile.get_status_display }}"></span>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end shadow user-dropdown-menu">
-                            <li><a class="dropdown-item" href="{% url 'profile_page' %}">Profile</a></li>
+                            <li><button type="button" class="dropdown-item" id="openMyProfileModalBtn">Profile</button></li>
                             <li>
                                 <button type="button" class="dropdown-item js-settings-action" data-action-title="Set Status" data-action-url="{% url 'update_user_status' %}">
                                     Set Status
@@ -577,7 +582,12 @@
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 11H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 16H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
                                 </span>
-                                <span class="nav-label">Technicals</span>
+                                <span class="nav-label d-inline-flex align-items-center gap-2">
+                                    <span>Technicals</span>
+                                    {% if technical_action_required_count %}
+                                        <span class="badge bg-danger">{{ technical_action_required_count }}</span>
+                                    {% endif %}
+                                </span>
                             </a>
                         </div>
                     {% endif %}
@@ -838,6 +848,66 @@
                 </div>
                 <div class="modal-body" id="userQuickProfileModalBody">
                     <div class="text-secondary">Loading profile...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="myProfileModal" tabindex="-1" aria-labelledby="myProfileModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-sm">
+                <div class="modal-header bg-white">
+                    <h5 class="modal-title" id="myProfileModalLabel">My Profile</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="myProfileForm">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">First Name</label>
+                                <input type="text" class="form-control js-my-profile-editable" id="myProfileFirstName" name="first_name" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Last Name</label>
+                                <input type="text" class="form-control js-my-profile-editable" id="myProfileLastName" name="last_name" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control js-my-profile-editable" id="myProfileEmail" name="email" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Branch</label>
+                                <input type="text" class="form-control js-my-profile-editable" id="myProfileBranch" name="branch" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" id="myProfileUsername" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Department</label>
+                                <input type="text" class="form-control" id="myProfileDepartment" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Status</label>
+                                <input type="text" class="form-control" id="myProfileStatus" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Last Activity</label>
+                                <input type="text" class="form-control" id="myProfileLastActivity" readonly>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Roles</label>
+                                <div id="myProfileRoles" class="border rounded-3 p-2 bg-light-subtle small text-secondary">-</div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" id="myProfileEditBtn">Edit Profile</button>
+                    <button type="button" class="btn btn-success d-none" id="myProfileSaveBtn">Save</button>
+                    <button type="button" class="btn btn-outline-secondary d-none" id="myProfileCancelBtn">Cancel</button>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
@@ -1722,6 +1792,127 @@
             settingsModal.addEventListener('hidden.bs.modal', () => {
                 showMenu();
             });
+        })();
+
+        (function () {
+            const profileModalElement = document.getElementById('myProfileModal');
+            const openProfileBtn = document.getElementById('openMyProfileModalBtn');
+            if (!profileModalElement || !openProfileBtn || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const profileModal = bootstrap.Modal.getOrCreateInstance(profileModalElement);
+            const profileForm = document.getElementById('myProfileForm');
+            const editBtn = document.getElementById('myProfileEditBtn');
+            const saveBtn = document.getElementById('myProfileSaveBtn');
+            const cancelBtn = document.getElementById('myProfileCancelBtn');
+            let isEditing = false;
+            let snapshot = null;
+
+            const readFields = () => ({
+                first_name: document.getElementById('myProfileFirstName').value || '',
+                last_name: document.getElementById('myProfileLastName').value || '',
+                email: document.getElementById('myProfileEmail').value || '',
+                branch: document.getElementById('myProfileBranch').value || '',
+            });
+
+            const setEditable = (editing) => {
+                isEditing = !!editing;
+                document.querySelectorAll('.js-my-profile-editable').forEach((el) => {
+                    el.readOnly = !isEditing;
+                });
+                if (editBtn) editBtn.classList.toggle('d-none', isEditing);
+                if (saveBtn) saveBtn.classList.toggle('d-none', !isEditing);
+                if (cancelBtn) cancelBtn.classList.toggle('d-none', !isEditing);
+            };
+
+            const applyProfileData = (user) => {
+                document.getElementById('myProfileFirstName').value = user.first_name || '';
+                document.getElementById('myProfileLastName').value = user.last_name || '';
+                document.getElementById('myProfileEmail').value = user.email || '';
+                document.getElementById('myProfileBranch').value = user.branch === 'Not assigned' ? '' : (user.branch || '');
+                document.getElementById('myProfileUsername').value = user.username || '-';
+                document.getElementById('myProfileDepartment').value = user.department || '-';
+                document.getElementById('myProfileStatus').value = user.status_display || '-';
+                document.getElementById('myProfileLastActivity').value = user.last_activity_label || '-';
+                const rolesWrap = document.getElementById('myProfileRoles');
+                if (rolesWrap) {
+                    if (Array.isArray(user.roles) && user.roles.length) {
+                        rolesWrap.innerHTML = user.roles.map((role) => `<span class="badge rounded-pill text-bg-success-subtle text-success-emphasis border me-1 mb-1">${role}</span>`).join('');
+                    } else {
+                        rolesWrap.textContent = 'No role assigned';
+                    }
+                }
+                const fullNameLabel = document.querySelector('.small.text-secondary.d-none.d-md-inline');
+                if (fullNameLabel) {
+                    fullNameLabel.textContent = user.full_name || user.username || fullNameLabel.textContent;
+                }
+            };
+
+            const loadProfile = async () => {
+                const response = await fetch('{% url "profile_page" %}', {
+                    method: 'GET',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) {
+                    throw new Error('Unable to load profile.');
+                }
+                applyProfileData(payload.user || {});
+                snapshot = readFields();
+            };
+
+            openProfileBtn.addEventListener('click', async function () {
+                setEditable(false);
+                profileModal.show();
+                try {
+                    await loadProfile();
+                } catch (error) {
+                    if (window.showToast) window.showToast('Unable to load profile.', 'danger');
+                }
+            });
+
+            if (editBtn) {
+                editBtn.addEventListener('click', function () {
+                    snapshot = readFields();
+                    setEditable(true);
+                });
+            }
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', function () {
+                    if (snapshot) {
+                        document.getElementById('myProfileFirstName').value = snapshot.first_name || '';
+                        document.getElementById('myProfileLastName').value = snapshot.last_name || '';
+                        document.getElementById('myProfileEmail').value = snapshot.email || '';
+                        document.getElementById('myProfileBranch').value = snapshot.branch || '';
+                    }
+                    setEditable(false);
+                });
+            }
+            if (saveBtn) {
+                saveBtn.addEventListener('click', async function () {
+                    const formData = new FormData(profileForm);
+                    try {
+                        const response = await fetch('{% url "profile_page" %}', {
+                            method: 'POST',
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                            body: formData,
+                            credentials: 'same-origin',
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || !payload.ok) {
+                            throw new Error(payload.message || 'Unable to save profile.');
+                        }
+                        applyProfileData(payload.user || {});
+                        snapshot = readFields();
+                        setEditable(false);
+                        if (window.showToast) window.showToast(payload.message || 'Profile updated.', 'success');
+                    } catch (error) {
+                        if (window.showToast) window.showToast(error.message || 'Unable to save profile.', 'danger');
+                    }
+                });
+            }
         })();
 
         (function () {
