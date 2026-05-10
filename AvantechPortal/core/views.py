@@ -649,31 +649,58 @@ def crm_dashboard(request):
 		'baguio': 'benguet',
 	}
 
-	city_clusters = {}
-	for client in clients_qs.exclude(city__isnull=True).exclude(city__exact=''):
+	ph_city_pin_coords = {
+		'manila': {'lat': 14.5995, 'lng': 120.9842},
+		'quezon city': {'lat': 14.6760, 'lng': 121.0437},
+		'makati': {'lat': 14.5547, 'lng': 121.0244},
+		'taguig': {'lat': 14.5176, 'lng': 121.0509},
+		'pasig': {'lat': 14.5764, 'lng': 121.0851},
+		'pasay': {'lat': 14.5378, 'lng': 121.0014},
+		'caloocan': {'lat': 14.7566, 'lng': 121.0453},
+		'antipolo': {'lat': 14.6255, 'lng': 121.1245},
+		'bacoor': {'lat': 14.4624, 'lng': 120.9645},
+		'imus': {'lat': 14.4297, 'lng': 120.9367},
+		'dasmarinas': {'lat': 14.3294, 'lng': 120.9367},
+		'cavite city': {'lat': 14.4791, 'lng': 120.8970},
+		'san pedro': {'lat': 14.3595, 'lng': 121.0472},
+		'santa rosa': {'lat': 14.3122, 'lng': 121.1110},
+		'cebu city': {'lat': 10.3157, 'lng': 123.8854},
+		'mandaue': {'lat': 10.3231, 'lng': 123.9220},
+		'lapu-lapu': {'lat': 10.3103, 'lng': 123.9494},
+		'iloilo city': {'lat': 10.7202, 'lng': 122.5621},
+		'bacolod': {'lat': 10.6765, 'lng': 122.9511},
+		'cagayan de oro': {'lat': 8.4542, 'lng': 124.6319},
+		'davao city': {'lat': 7.1907, 'lng': 125.4553},
+		'general santos': {'lat': 6.1164, 'lng': 125.1716},
+		'zamboanga city': {'lat': 6.9214, 'lng': 122.0790},
+		'butuan': {'lat': 8.9475, 'lng': 125.5406},
+		'naga': {'lat': 13.6218, 'lng': 123.1948},
+		'baguio': {'lat': 16.4023, 'lng': 120.5960},
+	}
+
+	map_pins = []
+	for client in clients_qs:
 		city_raw = (client.city or '').strip()
 		city_key = city_raw.casefold()
-		if client.geo_latitude is None or client.geo_longitude is None:
-			continue
-		coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
-		if not coord:
-			continue
+		coord = None
+		if client.geo_latitude is not None and client.geo_longitude is not None:
+			coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
+		elif city_key in ph_city_pin_coords:
+			coord = ph_city_pin_coords[city_key]
+		else:
+			# Fallback center point so every client is represented on the map.
+			coord = {'lat': 12.8797, 'lng': 121.7740}
 		client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
-		cluster = city_clusters.setdefault(
-			city_key,
+		map_pins.append(
 			{
-				'city': city_raw,
+				'city': city_raw or 'Philippines',
 				'lat': coord['lat'],
 				'lng': coord['lng'],
 				'province': city_to_province.get(city_key, ''),
-				'count': 0,
-				'names': [],
-			},
+				'count': 1,
+				'names': [client_name],
+			}
 		)
-		cluster['count'] += 1
-		cluster['names'].append(client_name)
-
-	map_pins = sorted(city_clusters.values(), key=lambda row: (-row['count'], row['city'].lower()))
 
 	context = {
 		'total_clients': clients_qs.count(),
