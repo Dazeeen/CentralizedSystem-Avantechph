@@ -22,6 +22,7 @@ from .ticketing_views import (
     support_ticket_update_support,
     support_tickets_bulk_archive,
     support_tickets_bulk_delete,
+    support_tickets_bulk_update_status,
     support_tickets_list,
 )
 
@@ -235,6 +236,7 @@ urlpatterns = [
     path('support/tickets/<int:ticket_id>/messages/<int:message_id>/delete/', support_ticket_message_delete, name='support_ticket_message_delete'),
     path('support/tickets/bulk/archive/', support_tickets_bulk_archive, name='support_tickets_bulk_archive'),
     path('support/tickets/bulk/delete/', support_tickets_bulk_delete, name='support_tickets_bulk_delete'),
+    path('support/tickets/bulk/status/', support_tickets_bulk_update_status, name='support_tickets_bulk_update_status'),
     path(
         'support/tickets/<int:ticket_id>/priority/requested/',
         support_ticket_update_requested_priority,

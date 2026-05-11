@@ -31,7 +31,15 @@
                 <a href="{% url 'file_manager_list' %}?node={{ node.id }}" class="list-group-item list-group-item-action {% if selected_node and selected_node.id == node.id %}active{% endif %}">
                     <div class="d-flex justify-content-between align-items-center">
                         <span>{{ node.name }}</span>
-                        <small>{{ node.node_type }}</small>
+                        <small>
+                            {% if node.node_type == 'shared_folder' %}
+                            Shared Folder
+                            {% elif node.node_type == 'folder' %}
+                            Folder
+                            {% else %}
+                            {{ node.get_node_type_display }}
+                            {% endif %}
+                        </small>
                     </div>
                 </a>
                 {% empty %}
@@ -104,6 +112,7 @@
                                     <th>Owner</th>
                                     <th>Storage</th>
                                     <th>Size</th>
+                                    <th>Modified</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
                             </thead>
@@ -127,6 +136,7 @@
                                     <td>{{ parent_node.owner.username }}</td>
                                     <td>{{ parent_node.storage_endpoint.name|default:'-' }}</td>
                                     <td>-</td>
+                                    <td><span title="{{ parent_node.modified_tooltip|default:'-' }}">{{ parent_node.modified_display|default:'-' }}</span></td>
                                     <td class="text-end"></td>
                                 </tr>
                                 {% endif %}
@@ -135,11 +145,19 @@
                                     <td><input type="checkbox" class="form-check-input node-checkbox" value="{{ node.id }}"></td>
                                     <td>
                                         <div class="d-flex align-items-center gap-2">
-                                            {% if node.node_type == 'folder' or node.node_type == 'shared_folder' %}
+                                            {% if node.node_type == 'folder' %}
                                             <span aria-hidden="true">
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                                     <path d="M3.5 7.5H10L12 9.5H20.5V18.5H3.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
                                                     <path d="M3.5 11.5H20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                </svg>
+                                            </span>
+                                            {% elif node.node_type == 'shared_folder' %}
+                                            <span aria-hidden="true" class="text-primary">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M3.5 7.5H10L12 9.5H20.5V18.5H3.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                    <path d="M3.5 11.5H20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                    <path d="M9 13.5L11 15.5L15.5 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                                                 </svg>
                                             </span>
                                             {% else %}
@@ -153,6 +171,9 @@
                                             {% endif %}
                                             {% if node.node_type == 'folder' or node.node_type == 'shared_folder' %}
                                             <a href="{% url 'file_manager_list' %}?node={{ node.id }}" class="text-decoration-none fw-semibold">{{ node.name }}</a>
+                                            {% if node.node_type == 'shared_folder' %}
+                                            <span class="badge text-bg-primary-subtle text-primary-emphasis border border-primary-subtle">Shared</span>
+                                            {% endif %}
                                             {% if node.is_role_folder %}
                                             <span class="badge text-bg-info-subtle text-info-emphasis border border-info-subtle">Role</span>
                                             {% endif %}
@@ -174,6 +195,11 @@
                                     <td>{{ node.owner.username }}</td>
                                     <td>{{ node.storage_endpoint.name|default:'-' }}</td>
                                     <td>{{ node.size_display|default:'-' }}</td>
+                                    <td>
+                                        <span title="{{ node.modified_tooltip|default:'-' }}">
+                                            {{ node.modified_display|default:'-' }}
+                                        </span>
+                                    </td>
                                     <td class="text-end">
                                         <div class="dropdown d-inline-block">
                                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="nodeActions{{ node.id }}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions"></button>
@@ -233,7 +259,7 @@
                                     </td>
                                 </tr>
                                 {% empty %}
-                                <tr><td colspan="6" class="text-center text-secondary py-3">This folder is empty.</td></tr>
+                                <tr><td colspan="8" class="text-center text-secondary py-3">This folder is empty.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -730,7 +756,10 @@
             link.href = `{% url 'file_manager_list' %}?node=${encodeURIComponent(targetId)}`;
             link.className = 'list-group-item list-group-item-action';
             const roleMarker = item.is_role_folder ? ' [Role]' : '';
-            link.textContent = `${item.name}${roleMarker} • ${item.label}`;
+            const typeLabel = item.node_type === 'shared_folder'
+                ? 'Shared Folder'
+                : (item.node_type === 'folder' ? 'Folder' : 'File');
+            link.textContent = `${item.name}${roleMarker} • ${typeLabel} • ${item.label}`;
             list.appendChild(link);
         });
         list.classList.remove('d-none');

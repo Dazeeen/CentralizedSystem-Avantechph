@@ -618,6 +618,81 @@ def support_tickets_bulk_archive(request):
 
 @login_required
 @require_POST
+def support_tickets_bulk_update_status(request):
+    can_manage = can_manage_support_tickets(request.user)
+    if not can_manage and not request.user.is_superuser:
+        return _permission_denied_response(request, 'You do not have permission to bulk update ticket status.')
+
+    selected_ids = _parse_selected_ticket_ids(request.POST)
+    if not selected_ids:
+        messages.warning(request, 'Select at least one ticket to update.')
+        return redirect('support_tickets_list')
+
+    status_value = (request.POST.get('status') or '').strip().lower()
+    allowed_statuses = {choice[0] for choice in SupportTicket.STATUS_CHOICES}
+    if status_value not in allowed_statuses:
+        messages.error(request, 'Select a valid ticket status.')
+        return redirect('support_tickets_list')
+
+    tickets = list(SupportTicket.objects.select_related('created_by', 'assigned_to').filter(id__in=selected_ids, is_archived=False))
+    if not tickets:
+        messages.info(request, 'No eligible tickets found.')
+        return redirect('support_tickets_list')
+
+    updated_count = 0
+    skipped_count = 0
+    now_value = timezone.now()
+    changed_ticket_ids = []
+    changed_ticket_numbers = []
+
+    for ticket in tickets:
+        if not (can_manage or request.user.id == ticket.assigned_to_id or request.user.is_superuser):
+            skipped_count += 1
+            continue
+        if ticket.status == status_value:
+            skipped_count += 1
+            continue
+
+        ticket.status = status_value
+        ticket.closed_at = now_value if status_value in {'resolved', 'closed'} else None
+        ticket.save(update_fields=['status', 'closed_at', 'updated_at'])
+        updated_count += 1
+        changed_ticket_ids.append(ticket.id)
+        changed_ticket_numbers.append(ticket.ticket_number)
+
+        detail_url = reverse('support_ticket_detail', args=[ticket.id])
+        create_notification(
+            ticket.created_by,
+            title=f'Ticket updated: {ticket.ticket_number}',
+            message=f'Status: {ticket.get_status_display()}',
+            link_url=detail_url,
+        )
+
+    if updated_count:
+        record_activity(
+            request,
+            'update',
+            'support',
+            f'Bulk updated {updated_count} support ticket(s) to {status_value}.',
+            metadata={
+                'ticket_ids': changed_ticket_ids,
+                'ticket_numbers': changed_ticket_numbers,
+                'status': status_value,
+                'updated_count': updated_count,
+                'skipped_count': skipped_count,
+            },
+        )
+        status_label = dict(SupportTicket.STATUS_CHOICES).get(status_value, status_value.title())
+        suffix = f' ({skipped_count} skipped).' if skipped_count else '.'
+        messages.success(request, f'{updated_count} ticket(s) updated to "{status_label}"{suffix}')
+    else:
+        messages.info(request, 'No ticket statuses were changed.')
+
+    return redirect('support_tickets_list')
+
+
+@login_required
+@require_POST
 def support_tickets_bulk_delete(request):
     if not request.user.is_superuser:
         return _permission_denied_response(request, 'Only admin can delete tickets.')

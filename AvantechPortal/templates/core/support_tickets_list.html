@@ -218,7 +218,49 @@
                                 </td>
                                 <td>{{ ticket.updated_at|date:'Y-m-d H:i' }}</td>
                                 <td class="text-end">
-                                    <a href="{% url 'support_ticket_detail' ticket.id %}" class="btn btn-sm btn-outline-success">Open</a>
+                                    <div class="dropdown d-inline-block">
+                                        <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" id="ticketActions{{ ticket.id }}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Ticket actions"></button>
+                                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="ticketActions{{ ticket.id }}">
+                                            <li>
+                                                <a class="dropdown-item" href="{% url 'support_ticket_detail' ticket.id %}">Open</a>
+                                            </li>
+                                            {% if can_manage_support_tickets %}
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <form method="post" action="{% url 'support_ticket_update_support' ticket.id %}">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="status" value="in_progress">
+                                                        <input type="hidden" name="support_priority" value="{{ ticket.support_priority|default:'' }}">
+                                                        <button type="submit" class="dropdown-item">Mark In Progress</button>
+                                                    </form>
+                                                </li>
+                                                <li>
+                                                    <form method="post" action="{% url 'support_ticket_update_support' ticket.id %}">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="status" value="waiting_user">
+                                                        <input type="hidden" name="support_priority" value="{{ ticket.support_priority|default:'' }}">
+                                                        <button type="submit" class="dropdown-item">Mark Waiting User</button>
+                                                    </form>
+                                                </li>
+                                                <li>
+                                                    <form method="post" action="{% url 'support_ticket_update_support' ticket.id %}">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="status" value="resolved">
+                                                        <input type="hidden" name="support_priority" value="{{ ticket.support_priority|default:'' }}">
+                                                        <button type="submit" class="dropdown-item">Mark Resolved (Completed)</button>
+                                                    </form>
+                                                </li>
+                                                <li>
+                                                    <form method="post" action="{% url 'support_ticket_update_support' ticket.id %}">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="status" value="closed">
+                                                        <input type="hidden" name="support_priority" value="{{ ticket.support_priority|default:'' }}">
+                                                        <button type="submit" class="dropdown-item">Mark Closed</button>
+                                                    </form>
+                                                </li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
                                 </td>
                             </tr>
                         {% empty %}
@@ -264,12 +306,24 @@
                 <span id="selectedTicketCount">0</span> ticket(s) selected
             </div>
             <div class="d-flex align-items-center gap-2">
+                {% if can_manage_support_tickets %}
+                    <div class="d-flex align-items-center gap-2">
+                        <select id="bulkStatusSelect" class="form-select form-select-sm" aria-label="Bulk ticket status">
+                            <option value="">Change status...</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="waiting_user">Waiting User</option>
+                            <option value="resolved">Resolved (Completed)</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                        <button type="button" id="bulkStatusApplyBtn" class="btn btn-sm btn-outline-success">Apply</button>
+                    </div>
+                {% endif %}
                 {% if is_admin %}
                     <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#archiveConfirmModal">
                         Archive Selected
                     </button>
                     <button type="button" id="bulkDeleteButton" class="btn btn-sm btn-outline-danger">Delete Selected</button>
-                {% else %}
+                {% elif not can_manage_support_tickets %}
                     <span class="small text-secondary">Only admin can archive or delete selected tickets.</span>
                 {% endif %}
                 <button type="button" id="clearSelectedTicketsBtn" class="btn btn-sm btn-outline-secondary">Clear</button>
@@ -286,6 +340,12 @@
 <form id="bulkDeleteForm" method="post" action="{% url 'support_tickets_bulk_delete' %}" class="d-none">
     {% csrf_token %}
     <div id="bulkDeleteInputs"></div>
+</form>
+
+<form id="bulkStatusForm" method="post" action="{% url 'support_tickets_bulk_update_status' %}" class="d-none">
+    {% csrf_token %}
+    <input type="hidden" name="status" id="bulkStatusValueInput" value="">
+    <div id="bulkStatusInputs"></div>
 </form>
 
 <div class="modal fade" id="pastTicketsModal" tabindex="-1" aria-hidden="true">
@@ -510,6 +570,11 @@
         var deleteInputs = document.getElementById('bulkDeleteInputs');
         var archiveConfirmButton = document.getElementById('archiveConfirmButton');
         var bulkDeleteButton = document.getElementById('bulkDeleteButton');
+        var bulkStatusForm = document.getElementById('bulkStatusForm');
+        var bulkStatusInputs = document.getElementById('bulkStatusInputs');
+        var bulkStatusValueInput = document.getElementById('bulkStatusValueInput');
+        var bulkStatusSelect = document.getElementById('bulkStatusSelect');
+        var bulkStatusApplyBtn = document.getElementById('bulkStatusApplyBtn');
 
         {% if should_open_past_modal %}
             var pastTicketsModalElement = document.getElementById('pastTicketsModal');
@@ -580,6 +645,7 @@
             updateSelectAllCheckbox(selectedCount);
             writeHiddenTicketInputs(archiveInputs, selectedIds);
             writeHiddenTicketInputs(deleteInputs, selectedIds);
+            writeHiddenTicketInputs(bulkStatusInputs, selectedIds);
         }
 
         function setAllSelection(isChecked) {
@@ -653,6 +719,21 @@
                 if (window.confirm('Delete ' + selectedCount + ' selected ticket(s)? This cannot be undone.')) {
                     deleteForm.submit();
                 }
+            });
+        }
+        if (bulkStatusApplyBtn && bulkStatusForm && bulkStatusSelect && bulkStatusValueInput) {
+            bulkStatusApplyBtn.addEventListener('click', function () {
+                var selectedCount = getSelectedIds().length;
+                if (!selectedCount) {
+                    return;
+                }
+                var selectedStatus = (bulkStatusSelect.value || '').trim();
+                if (!selectedStatus) {
+                    window.alert('Select a ticket status first.');
+                    return;
+                }
+                bulkStatusValueInput.value = selectedStatus;
+                bulkStatusForm.submit();
             });
         }
 

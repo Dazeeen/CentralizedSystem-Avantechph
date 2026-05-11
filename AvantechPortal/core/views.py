@@ -1064,6 +1064,15 @@ def crm_clients(request):
 					sales_record.assigned_sales = assignee_name
 					sales_record.save(update_fields=['assigned_sales', 'updated_at'])
 				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+				record_activity(
+					request,
+					'create',
+					'clients',
+					f'Created CRM client {record.customer_id}.',
+					target=record,
+					target_label=record.customer_id,
+					metadata={'crm_client_id': record.id, 'customer_id': record.customer_id},
+				)
 				message = 'CRM client record added successfully.'
 				messages.success(request, message)
 				if is_ajax:
@@ -1181,6 +1190,15 @@ def crm_client_update(request, client_id):
 		updated.created_by = client.created_by
 		updated.save()
 		form.save_media(updated)
+		record_activity(
+			request,
+			'update',
+			'clients',
+			f'Updated CRM client {updated.customer_id}.',
+			target=updated,
+			target_label=updated.customer_id,
+			metadata={'crm_client_id': updated.id, 'customer_id': updated.customer_id},
+		)
 		message = 'CRM client updated successfully.'
 		messages.success(request, message)
 		if is_ajax:
@@ -1220,6 +1238,15 @@ def crm_sales(request):
 			selected_sales = [item.strip() for item in request.POST.getlist('assigned_sales_values') if (item or '').strip()]
 			sales_record.assigned_sales = ', '.join(selected_sales)
 			sales_record.save(update_fields=['assigned_sales', 'updated_at'])
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated assigned sales for CRM sales record #{sales_record.id}.',
+				target=sales_record,
+				target_label=f'Sales #{sales_record.id}',
+				metadata={'sales_record_id': sales_record.id, 'assigned_sales': sales_record.assigned_sales},
+			)
 			messages.success(request, 'Assigned sales updated successfully.', extra_tags='toast')
 			return redirect('crm_sales')
 		if form_action == 'update_sales_aging_settings':
@@ -1246,6 +1273,19 @@ def crm_sales(request):
 			settings_obj.notify_remaining_days = notify_remaining_days
 			settings_obj.include_closed_won = include_closed_won
 			settings_obj.save(update_fields=['aging_days', 'notify_remaining_days', 'include_closed_won', 'updated_at'])
+			record_activity(
+				request,
+				'update',
+				'system',
+				'Updated CRM sales aging settings.',
+				target=settings_obj,
+				target_label='CRM Sales Aging Settings',
+				metadata={
+					'aging_days': settings_obj.aging_days,
+					'notify_remaining_days': settings_obj.notify_remaining_days,
+					'include_closed_won': settings_obj.include_closed_won,
+				},
+			)
 			messages.success(request, 'Sales aging settings updated.', extra_tags='toast')
 			return redirect('crm_sales')
 		if form_action == 'log_sales_activity':
@@ -1309,6 +1349,21 @@ def crm_sales(request):
 			)
 			for uploaded_file in request.FILES.getlist('activity_files'):
 				CRMSalesActivityAttachment.objects.create(activity_log=activity_log, file=uploaded_file)
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Logged CRM sales activity for sales record #{sales_record.id}.',
+				target=sales_record,
+				target_label=f'Sales #{sales_record.id}',
+				metadata={
+					'sales_record_id': sales_record.id,
+					'sales_status': sales_status,
+					'client_status': client_status,
+					'lead_source': lead_source,
+					'attachment_count': len(request.FILES.getlist('activity_files')),
+				},
+			)
 			messages.success(request, 'Sales activity logged successfully.', extra_tags='toast')
 			return redirect('crm_sales')
 
@@ -1582,6 +1637,18 @@ def crm_technicals(request):
 			if save_ok is None:
 				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 			else:
+				record_activity(
+					request,
+					'update',
+					'system',
+					'Updated CRM technical notification settings.',
+					target=setting,
+					target_label='CRM Technical Notification Settings',
+					metadata={
+						'notify_days_before': setting.notify_days_before,
+						'include_backlogs': setting.include_backlogs,
+					},
+				)
 				messages.success(request, 'Technical notification settings updated.', extra_tags='toast')
 			return redirect('crm_technicals')
 
@@ -1613,6 +1680,15 @@ def crm_technicals(request):
 				if member_update_ok is None:
 					messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 					return redirect('crm_technicals')
+			record_activity(
+				request,
+				'create',
+				'clients',
+				f'Created CRM technical team "{team.name}".',
+				target=team,
+				target_label=team.name,
+				metadata={'team_id': team.id, 'source_role_id': source_role.id if source_role else None},
+			)
 			messages.success(request, 'Technical team created.', extra_tags='toast')
 			return redirect('crm_technicals')
 
@@ -1631,6 +1707,19 @@ def crm_technicals(request):
 			if write_ok is None:
 				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 				return redirect('crm_technicals')
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated members for CRM technical team "{team.name}".',
+				target=team,
+				target_label=team.name,
+				metadata={
+					'team_id': team.id,
+					'member_count': members_qs.count(),
+					'source_role_id': team.source_role_id,
+				},
+			)
 			messages.success(request, f'Members updated for {team.name}.', extra_tags='toast')
 			return redirect('crm_technicals')
 
@@ -1701,6 +1790,21 @@ def crm_technicals(request):
 			if saved_ok is None:
 				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 				return redirect('crm_technicals')
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated CRM technical schedule for sales record #{sales_record.id}.',
+				target=tech_record,
+				target_label=f'Technical #{tech_record.id}',
+				metadata={
+					'sales_record_id': sales_record.id,
+					'installation_date': tech_record.installation_date.isoformat() if tech_record.installation_date else '',
+					'installation_time': tech_record.installation_time.strftime('%H:%M') if tech_record.installation_time else '',
+					'team_assigned': tech_record.team_assigned or '',
+					'installation_status': tech_record.installation_status or '',
+				},
+			)
 
 			if is_conflict or is_overdue or has_existing_schedule:
 				notify_title = 'Technical Schedule Needs Reschedule'
@@ -5197,6 +5301,31 @@ def _get_user_default_file_manager_node(user):
 	)
 
 
+def _format_file_manager_modified(dt_value, now_value=None):
+	if not dt_value:
+		return '-'
+	now_value = now_value or timezone.now()
+	delta = now_value - dt_value
+	if delta.total_seconds() < 0:
+		delta = timedelta(seconds=0)
+	if delta < timedelta(days=7):
+		total_seconds = int(delta.total_seconds())
+		if total_seconds < 60:
+			return 'just now'
+		if total_seconds < 3600:
+			minutes = total_seconds // 60
+			unit = 'minute' if minutes == 1 else 'minutes'
+			return f'{minutes} {unit} ago'
+		if total_seconds < 86400:
+			hours = total_seconds // 3600
+			unit = 'hour' if hours == 1 else 'hours'
+			return f'{hours} {unit} ago'
+		days = total_seconds // 86400
+		unit = 'day' if days == 1 else 'days'
+		return f'{days} {unit} ago'
+	return timezone.localtime(dt_value).strftime('%m/%d/%Y %H:%M')
+
+
 def _resolve_file_manager_parent_for_write(request, parent_id, allow_root=False):
 	parent = None
 	if parent_id.isdigit():
@@ -5796,6 +5925,9 @@ def file_manager_list(request):
 	if selected_node is None:
 		selected_node = root_nodes.order_by('name').first()
 
+	parent_node = selected_node.parent if selected_node and selected_node.parent_id else None
+	now_value = timezone.now()
+
 	children = ManagedFileNode.objects.none()
 	if selected_node:
 		children = selected_node.children.select_related('owner', 'storage_endpoint').order_by('node_type', 'name')
@@ -5805,6 +5937,12 @@ def file_manager_list(request):
 	for child in children:
 		child.size_display = _format_file_size(child.file_size_bytes) if child.node_type == 'file' else '-'
 		child.preview_kind = _get_file_manager_preview_kind(child) if child.node_type == 'file' else ''
+		child.modified_display = _format_file_manager_modified(child.updated_at, now_value=now_value)
+		child.modified_tooltip = timezone.localtime(child.updated_at).strftime('%m/%d/%Y %H:%M:%S') if child.updated_at else '-'
+
+	if parent_node:
+		parent_node.modified_display = _format_file_manager_modified(parent_node.updated_at, now_value=now_value)
+		parent_node.modified_tooltip = timezone.localtime(parent_node.updated_at).strftime('%m/%d/%Y %H:%M:%S') if parent_node.updated_at else '-'
 
 	trash_total_bytes = 0
 	if _is_file_manager_trash_context(selected_node):
@@ -5832,7 +5970,7 @@ def file_manager_list(request):
 	context = {
 		'root_nodes': root_nodes.order_by('name'),
 		'selected_node': selected_node,
-		'parent_node': selected_node.parent if selected_node and selected_node.parent_id else None,
+		'parent_node': parent_node,
 		'children': children,
 		'storage_endpoints': FileStorageEndpoint.objects.order_by('name'),
 		'users': User.objects.order_by('username'),
