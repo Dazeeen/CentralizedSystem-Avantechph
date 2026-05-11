@@ -10,9 +10,11 @@
         <div class="d-flex align-items-center justify-content-between mb-3">
             <h2 class="h4 mb-0">Technical Queue</h2>
             <div class="d-flex align-items-center gap-2">
+                {% if can_manage_crm_technicals %}
                 <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#technicalNotificationSettingsModal">Settings</button>
                 <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#manageTechnicalTeamsModal">Manage Teams</button>
                 <button type="button" class="btn btn-outline-success" id="setInstallationScheduleBtn">Set Installation Schedule</button>
+                {% endif %}
                 <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#technicalCalendarModal">View Calendar</button>
             </div>
         </div>
@@ -52,17 +54,17 @@
                                     <td>
                                         {% with status_value=tech.installation_status|default:"-" %}
                                             {% if status_value|lower == 'completed' %}
-                                                <span class="badge text-bg-success">{{ status_value }}</span>
+                                                <span class="badge text-bg-success">{{ status_value|title }}</span>
                                             {% elif status_value|lower == 'scheduled' %}
-                                                <span class="badge text-bg-primary">{{ status_value }}</span>
+                                                <span class="badge text-bg-primary">{{ status_value|title }}</span>
                                             {% elif status_value|lower == 'ongoing' %}
-                                                <span class="badge text-bg-warning">{{ status_value }}</span>
+                                                <span class="badge text-bg-warning">{{ status_value|title }}</span>
                                             {% elif status_value|lower == 'back jobs' %}
-                                                <span class="badge text-bg-danger">{{ status_value }}</span>
-                                            {% elif status_value|lower == 'reschedules' %}
-                                                <span class="badge text-bg-secondary">{{ status_value }}</span>
+                                                <span class="badge text-bg-danger">{{ status_value|title }}</span>
+                                            {% elif status_value|lower == 'rescheduled' %}
+                                                <span class="badge text-bg-secondary">{{ status_value|title }}</span>
                                             {% else %}
-                                                <span class="badge text-bg-light border text-dark">{{ status_value }}</span>
+                                                <span class="badge text-bg-light border text-dark">{{ status_value|title }}</span>
                                             {% endif %}
                                         {% endwith %}
                                     </td>
@@ -137,7 +139,7 @@
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" value="1" id="includeBacklogsSetting" name="include_backlogs" {% if technical_notification_setting.include_backlogs %}checked{% endif %}>
                         <label class="form-check-label" for="includeBacklogsSetting">
-                            Include backlog statuses (`back jobs` and `reschedules`) in action-required notifications.
+                            Include backlog statuses (`back jobs` and `rescheduled`) in action-required notifications.
                         </label>
                     </div>
                 </div>
@@ -540,15 +542,21 @@ document.addEventListener('DOMContentLoaded', function () {
         if (Number.isNaN(count) || count < 0) count = 0;
         badgeEl.textContent = count + ' member' + (count === 1 ? '' : 's');
     }
-    function getInstallationStatusBadgeHtml(rawStatus) {
+    function formatInstallationStatusLabel(rawStatus) {
         var status = String(rawStatus || '-').trim();
+        if (!status || status === '-') return '-';        return status.replace(/\w\S*/g, function (word) {
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        });
+    }
+    function getInstallationStatusBadgeHtml(rawStatus) {
+        var status = formatInstallationStatusLabel(rawStatus);
         var key = status.toLowerCase();
         var cls = 'text-bg-light border text-dark';
         if (key === 'completed') cls = 'text-bg-success';
         else if (key === 'scheduled') cls = 'text-bg-primary';
         else if (key === 'ongoing') cls = 'text-bg-warning';
         else if (key === 'back jobs') cls = 'text-bg-danger';
-        else if (key === 'reschedules') cls = 'text-bg-secondary';
+        else if (key === 'rescheduled') cls = 'text-bg-secondary';
         return '<span class="badge ' + cls + '">' + status + '</span>';
     }
     function setActiveRow(row) {
@@ -1145,8 +1153,8 @@ document.addEventListener('DOMContentLoaded', function () {
         setVal('techHistoryDetailOperator', item.actor || '-');
         setVal('techHistoryDetailAction', item.action || '-');
         setVal('techHistoryDetailDateTime', item.created_at || '-');
-        setVal('techHistoryDetailPrevStatus', item.previous_status || '-');
-        setVal('techHistoryDetailNewStatus', item.new_status || '-');
+        setVal('techHistoryDetailPrevStatus', formatInstallationStatusLabel(item.previous_status || '-'));
+        setVal('techHistoryDetailNewStatus', formatInstallationStatusLabel(item.new_status || '-'));
         setVal('techHistoryDetailPrevDateTime', (item.previous_date || '-') + ' ' + (item.previous_time || '-'));
         setVal('techHistoryDetailNewDateTime', (item.new_date || '-') + ' ' + (item.new_time || '-'));
         setVal('techHistoryDetailPrevTeam', item.previous_team || '-');

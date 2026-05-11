@@ -44,3 +44,5 @@ media/
 # OS/editor noise
 .DS_Store
 Thumbs.db
+.env.production.example
+.env.development.example

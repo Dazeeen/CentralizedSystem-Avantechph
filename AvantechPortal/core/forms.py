@@ -553,7 +553,14 @@ class CRMClientForm(forms.ModelForm):
         ]
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date', 'min': '1900-01-01'}),
-            'home_address': forms.Textarea(attrs={'rows': 3}),
+            'home_address': forms.TextInput(
+                attrs={
+                    'autocomplete': 'off',
+                    'placeholder': 'Search address/location in the Philippines',
+                    'data-address-autocomplete': '1',
+                    'data-country-code': 'ph',
+                }
+            ),
             'notes': forms.Textarea(attrs={'rows': 3}),
         }
 

@@ -176,17 +176,34 @@ ROLE_PREVIEW_DEFAULT_AUDIENCES = {
 	'Ticket participants',
 }
 
+CRM_VIEW_PERMISSIONS = {
+	'dashboard': ('core.view_crm_dashboard', 'core.view_client'),
+	'clients': ('core.view_crm_clients_section', 'core.view_client'),
+	'sales': ('core.view_crm_sales_section', 'core.view_client'),
+	'technicals': ('core.view_crm_technicals_section', 'core.view_client'),
+}
+CRM_MANAGE_PERMISSIONS = {
+	'clients': ('core.manage_crm_clients_section', 'core.change_client'),
+	'sales': ('core.manage_crm_sales_section', 'core.change_client'),
+	'technicals': ('core.manage_crm_technicals_section', 'core.change_client'),
+}
+
+def _has_any_permission(user, permission_names):
+	if user.is_superuser:
+		return True
+	return any(user.has_perm(permission_name) for permission_name in permission_names)
+
 
 def _geocode_ph_address(full_address):
 	address = (full_address or '').strip()
 	if not address:
 		return None
 	query = quote(address)
-	url = f'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ph&q={query}'
+	url = f'https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&countrycodes=ph&limit=1&q={query}'
 	req = Request(
 		url,
 		headers={
-			'User-Agent': 'AvantechCRM/1.0 (dashboard-map-geocoder)',
+			'User-Agent': 'AvantechCRM/1.0 (self-hosted-geocoder)',
 			'Accept': 'application/json',
 		},
 	)
@@ -195,15 +212,65 @@ def _geocode_ph_address(full_address):
 			payload = json.loads(response.read().decode('utf-8'))
 	except Exception:
 		return None
-	if not payload:
+	features = payload.get('features') if isinstance(payload, dict) else None
+	if not isinstance(features, list) or not features:
 		return None
-	first = payload[0]
+	first = features[0] or {}
+	center = first.get('center') if isinstance(first.get('center'), list) else None
+	if not center:
+		geometry = first.get('geometry') if isinstance(first.get('geometry'), dict) else {}
+		center = geometry.get('coordinates') if isinstance(geometry.get('coordinates'), list) else []
 	try:
-		lat = float(first.get('lat'))
-		lng = float(first.get('lon'))
+		lng = float(center[0])
+		lat = float(center[1])
 	except (TypeError, ValueError):
 		return None
-	return {'lat': lat, 'lng': lng}
+	properties = first.get('properties') if isinstance(first.get('properties'), dict) else {}
+	city = (
+		(properties.get('city') or '')
+		or (properties.get('town') or '')
+		or (properties.get('municipality') or '')
+		or (properties.get('village') or '')
+		or (properties.get('county') or '')
+		or (properties.get('state') or '')
+	).strip()
+	return {'lat': lat, 'lng': lng, 'city': city}
+
+
+def _sync_client_geolocation(client_record):
+	home_address = (client_record.home_address or '').strip()
+	if not home_address:
+		client_record.geo_latitude = None
+		client_record.geo_longitude = None
+		return
+	geo = _geocode_ph_address(home_address)
+	if not geo:
+		client_record.geo_latitude = None
+		client_record.geo_longitude = None
+		return
+	client_record.geo_latitude = geo.get('lat')
+	client_record.geo_longitude = geo.get('lng')
+	if not (client_record.city or '').strip() and geo.get('city'):
+		client_record.city = geo.get('city')
+
+
+def _find_crm_client_duplicates(first_name='', last_name='', home_address='', exclude_id=None):
+	first_name = (first_name or '').strip()
+	last_name = (last_name or '').strip()
+	home_address = (home_address or '').strip()
+	name_match = None
+	address_match = None
+	if first_name and last_name:
+		name_qs = CRMClient.objects.filter(first_name__iexact=first_name, last_name__iexact=last_name)
+		if exclude_id:
+			name_qs = name_qs.exclude(pk=exclude_id)
+		name_match = name_qs.order_by('-created_at').first()
+	if home_address:
+		address_qs = CRMClient.objects.filter(home_address__iexact=home_address)
+		if exclude_id:
+			address_qs = address_qs.exclude(pk=exclude_id)
+		address_match = address_qs.order_by('-created_at').first()
+	return name_match, address_match
 
 def _set_user_status(user, status):
 	profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -556,21 +623,111 @@ def dashboard(request):
 
 @login_required
 def crm_dashboard(request):
-	restricted_response = _require_permission(request, 'core.view_client')
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['dashboard']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
 	if restricted_response:
 		return restricted_response
 
-	clients_qs = CRMClient.objects.all()
-	can_view_all_clients = request.user.is_superuser or request.user.has_perm('core.change_client')
-	if not can_view_all_clients:
-		user_full_name = (request.user.get_full_name() or '').strip()
-		user_username = (request.user.username or '').strip()
-		ownership_filter = Q(created_by=request.user)
+	def _get_clients_queryset_for_dashboard(user):
+		queryset = CRMClient.objects.all()
+		can_view_all_clients = _has_any_permission(user, CRM_MANAGE_PERMISSIONS['clients'])
+		if can_view_all_clients:
+			return queryset
+		user_full_name = (user.get_full_name() or '').strip()
+		user_username = (user.username or '').strip()
+		ownership_filter = Q(created_by=user)
 		if user_full_name:
 			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
 		if user_username:
 			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
-		clients_qs = clients_qs.filter(ownership_filter).distinct()
+		return queryset.filter(ownership_filter).distinct()
+
+	def _build_map_pins(clients_queryset):
+		city_to_province = {
+			'manila': 'metro-manila',
+			'quezon city': 'metro-manila',
+			'makati': 'metro-manila',
+			'taguig': 'metro-manila',
+			'pasig': 'metro-manila',
+			'pasay': 'metro-manila',
+			'caloocan': 'metro-manila',
+			'bacoor': 'cavite',
+			'imus': 'cavite',
+			'dasmarinas': 'cavite',
+			'cavite city': 'cavite',
+			'antipolo': 'rizal',
+			'san pedro': 'laguna',
+			'santa rosa': 'laguna',
+			'cebu city': 'cebu',
+			'mandaue': 'cebu',
+			'lapu-lapu': 'cebu',
+			'iloilo city': 'iloilo',
+			'bacolod': 'negros-occidental',
+			'cagayan de oro': 'misamis-oriental',
+			'davao city': 'davao-del-sur',
+			'general santos': 'south-cotabato',
+			'zamboanga city': 'zamboanga-del-sur',
+			'butuan': 'agusan-del-norte',
+			'naga': 'camarines-sur',
+			'baguio': 'benguet',
+		}
+
+		ph_city_pin_coords = {
+			'manila': {'lat': 14.5995, 'lng': 120.9842},
+			'quezon city': {'lat': 14.6760, 'lng': 121.0437},
+			'makati': {'lat': 14.5547, 'lng': 121.0244},
+			'taguig': {'lat': 14.5176, 'lng': 121.0509},
+			'pasig': {'lat': 14.5764, 'lng': 121.0851},
+			'pasay': {'lat': 14.5378, 'lng': 121.0014},
+			'caloocan': {'lat': 14.7566, 'lng': 121.0453},
+			'antipolo': {'lat': 14.6255, 'lng': 121.1245},
+			'bacoor': {'lat': 14.4624, 'lng': 120.9645},
+			'imus': {'lat': 14.4297, 'lng': 120.9367},
+			'dasmarinas': {'lat': 14.3294, 'lng': 120.9367},
+			'cavite city': {'lat': 14.4791, 'lng': 120.8970},
+			'san pedro': {'lat': 14.3595, 'lng': 121.0472},
+			'santa rosa': {'lat': 14.3122, 'lng': 121.1110},
+			'cebu city': {'lat': 10.3157, 'lng': 123.8854},
+			'mandaue': {'lat': 10.3231, 'lng': 123.9220},
+			'lapu-lapu': {'lat': 10.3103, 'lng': 123.9494},
+			'iloilo city': {'lat': 10.7202, 'lng': 122.5621},
+			'bacolod': {'lat': 10.6765, 'lng': 122.9511},
+			'cagayan de oro': {'lat': 8.4542, 'lng': 124.6319},
+			'davao city': {'lat': 7.1907, 'lng': 125.4553},
+			'general santos': {'lat': 6.1164, 'lng': 125.1716},
+			'zamboanga city': {'lat': 6.9214, 'lng': 122.0790},
+			'butuan': {'lat': 8.9475, 'lng': 125.5406},
+			'naga': {'lat': 13.6218, 'lng': 123.1948},
+			'baguio': {'lat': 16.4023, 'lng': 120.5960},
+		}
+
+		map_pins = []
+		for client in clients_queryset:
+			city_raw = (client.city or '').strip()
+			city_key = city_raw.casefold()
+			coord = None
+			if client.geo_latitude is not None and client.geo_longitude is not None:
+				coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
+			elif city_key in ph_city_pin_coords:
+				coord = ph_city_pin_coords[city_key]
+			else:
+				coord = {'lat': 12.8797, 'lng': 121.7740}
+			client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
+			map_pins.append(
+				{
+					'city': city_raw or 'Philippines',
+					'lat': coord['lat'],
+					'lng': coord['lng'],
+					'province': city_to_province.get(city_key, ''),
+					'count': 1,
+					'names': [client_name],
+				}
+			)
+		return map_pins
+
+	clients_qs = _get_clients_queryset_for_dashboard(request.user)
 
 	today = timezone.localdate()
 	week_start = today - timedelta(days=today.weekday())
@@ -620,6 +777,53 @@ def crm_dashboard(request):
 			sum(1 for dt in created_datetimes if dt.year == today.year and dt.month == month_num)
 		)
 
+	map_pins = _build_map_pins(clients_qs)
+
+	context = {
+		'total_clients': clients_qs.count(),
+		# Dashboard counters are based on the CRM clients dataset itself.
+		'new_leads': new_month,
+		'converted_clients': new_year,
+		'new_today': new_today,
+		'new_week': new_week,
+		'new_month': new_month,
+		'new_year': new_year,
+		'new_client_period_labels_json': dumps(['Today', 'This Week', 'This Month', 'This Year']),
+		'new_client_period_values_json': dumps([new_today, new_week, new_month, new_year]),
+		'crm_new_clients_report_json': dumps(
+			{
+				'today': {'labels': today_labels, 'values': today_values},
+				'week': {'labels': week_labels, 'values': week_values},
+				'month': {'labels': month_labels, 'values': month_values},
+				'year': {'labels': year_labels, 'values': year_values},
+			}
+		),
+		'crm_map_pins_json': dumps(map_pins),
+	}
+	return render(request, 'core/crm_dashboard.html', context)
+
+
+@login_required
+def crm_dashboard_map_pins(request):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['dashboard']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
+	if restricted_response:
+		return restricted_response
+
+	queryset = CRMClient.objects.all()
+	can_view_all_clients = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients'])
+	if not can_view_all_clients:
+		user_full_name = (request.user.get_full_name() or '').strip()
+		user_username = (request.user.username or '').strip()
+		ownership_filter = Q(created_by=request.user)
+		if user_full_name:
+			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
+		if user_username:
+			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
+		queryset = queryset.filter(ownership_filter).distinct()
+
 	city_to_province = {
 		'manila': 'metro-manila',
 		'quezon city': 'metro-manila',
@@ -648,7 +852,6 @@ def crm_dashboard(request):
 		'naga': 'camarines-sur',
 		'baguio': 'benguet',
 	}
-
 	ph_city_pin_coords = {
 		'manila': {'lat': 14.5995, 'lng': 120.9842},
 		'quezon city': {'lat': 14.6760, 'lng': 121.0437},
@@ -679,16 +882,14 @@ def crm_dashboard(request):
 	}
 
 	map_pins = []
-	for client in clients_qs:
+	for client in queryset:
 		city_raw = (client.city or '').strip()
 		city_key = city_raw.casefold()
-		coord = None
 		if client.geo_latitude is not None and client.geo_longitude is not None:
 			coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
 		elif city_key in ph_city_pin_coords:
 			coord = ph_city_pin_coords[city_key]
 		else:
-			# Fallback center point so every client is represented on the map.
 			coord = {'lat': 12.8797, 'lng': 121.7740}
 		client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
 		map_pins.append(
@@ -701,34 +902,15 @@ def crm_dashboard(request):
 				'names': [client_name],
 			}
 		)
-
-	context = {
-		'total_clients': clients_qs.count(),
-		# Dashboard counters are based on the CRM clients dataset itself.
-		'new_leads': new_month,
-		'converted_clients': new_year,
-		'new_today': new_today,
-		'new_week': new_week,
-		'new_month': new_month,
-		'new_year': new_year,
-		'new_client_period_labels_json': dumps(['Today', 'This Week', 'This Month', 'This Year']),
-		'new_client_period_values_json': dumps([new_today, new_week, new_month, new_year]),
-		'crm_new_clients_report_json': dumps(
-			{
-				'today': {'labels': today_labels, 'values': today_values},
-				'week': {'labels': week_labels, 'values': week_values},
-				'month': {'labels': month_labels, 'values': month_values},
-				'year': {'labels': year_labels, 'values': year_values},
-			}
-		),
-		'crm_map_pins_json': dumps(map_pins),
-	}
-	return render(request, 'core/crm_dashboard.html', context)
+	return JsonResponse({'pins': map_pins})
 
 
 @login_required
 def crm_clients(request):
-	restricted_response = _require_permission(request, 'core.view_client')
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['clients']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
 	if restricted_response:
 		return restricted_response
 
@@ -748,7 +930,10 @@ def crm_clients(request):
 	if request.method == 'POST':
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'bulk_delete':
-			restricted_response = _require_permission(request, 'core.delete_client')
+			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.delete_client'):
+				restricted_response = _permission_denied_response(request)
+			else:
+				restricted_response = None
 			if restricted_response:
 				return restricted_response
 			raw_ids = request.POST.getlist('client_ids')
@@ -769,7 +954,10 @@ def crm_clients(request):
 				return JsonResponse({'ok': True, 'message': message, 'deleted_count': deleted_count})
 			return redirect('crm_clients')
 		if form_action == 'import_submit':
-			restricted_response = _require_permission(request, 'core.add_client')
+			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.add_client'):
+				restricted_response = _permission_denied_response(request)
+			else:
+				restricted_response = None
 			if restricted_response:
 				return restricted_response
 
@@ -927,6 +1115,7 @@ def crm_clients(request):
 					customer_type=customer_type,
 					created_by=request.user,
 				)
+				_sync_client_geolocation(record)
 				# Let model auto-generate when customer_id is empty.
 				if not customer_id:
 					record.customer_id = ''
@@ -1046,13 +1235,46 @@ def crm_clients(request):
 				)
 			return redirect('crm_clients')
 		else:
-			restricted_response = _require_permission(request, 'core.add_client')
+			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.add_client'):
+				restricted_response = _permission_denied_response(request)
+			else:
+				restricted_response = None
 			if restricted_response:
 				return restricted_response
 			form = CRMClientForm(request.POST, request.FILES, require_email_dob=True)
 			if form.is_valid():
+				first_name = (form.cleaned_data.get('first_name') or '').strip()
+				last_name = (form.cleaned_data.get('last_name') or '').strip()
+				home_address = (form.cleaned_data.get('home_address') or '').strip()
+				duplicate_name, duplicate_address = _find_crm_client_duplicates(
+					first_name=first_name,
+					last_name=last_name,
+					home_address=home_address,
+				)
+				if duplicate_name or duplicate_address:
+					if duplicate_name and duplicate_address:
+						message = (
+							f'Existing customer already found by name and address '
+							f'({duplicate_name.customer_id}: {duplicate_name.last_name}, {duplicate_name.first_name}). Not added.'
+						)
+					elif duplicate_name:
+						message = (
+							f'Existing customer already found by name '
+							f'({duplicate_name.customer_id}: {duplicate_name.last_name}, {duplicate_name.first_name}). Not added.'
+						)
+					else:
+						message = (
+							f'Existing customer already found by address '
+							f'({duplicate_address.customer_id}: {duplicate_address.last_name}, {duplicate_address.first_name}). Not added.'
+						)
+					messages.warning(request, message, extra_tags='toast')
+					if is_ajax:
+						return JsonResponse({'ok': False, 'message': message}, status=409)
+					return redirect('crm_clients')
+
 				record = form.save(commit=False)
 				record.created_by = request.user
+				_sync_client_geolocation(record)
 				record.save()
 				form.save_media(record)
 				assignee_name = (request.user.get_full_name() or request.user.username or '').strip()
@@ -1084,7 +1306,7 @@ def crm_clients(request):
 				return JsonResponse({'ok': False, 'message': message, 'errors': form.errors}, status=400)
 
 	clients_queryset = CRMClient.objects.prefetch_related('media_files', 'sales_records').order_by('-created_at')
-	can_view_all_clients = request.user.is_superuser or request.user.has_perm('core.change_client')
+	can_view_all_clients = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients'])
 	if not can_view_all_clients:
 		user_full_name = (request.user.get_full_name() or '').strip()
 		user_username = (request.user.username or '').strip()
@@ -1169,13 +1391,17 @@ def crm_clients(request):
 			'sort_urls': sort_urls,
 			'sort_indicators': sort_indicators,
 			'current_query_string': current_query_string,
+			'can_manage_crm_clients': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']),
 		},
 	)
 
 
 @login_required
 def crm_client_update(request, client_id):
-	restricted_response = _require_permission(request, 'core.change_client')
+	if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
 	if restricted_response:
 		return restricted_response
 
@@ -1188,6 +1414,7 @@ def crm_client_update(request, client_id):
 	if form.is_valid():
 		updated = form.save(commit=False)
 		updated.created_by = client.created_by
+		_sync_client_geolocation(updated)
 		updated.save()
 		form.save_media(updated)
 		record_activity(
@@ -1212,8 +1439,42 @@ def crm_client_update(request, client_id):
 
 
 @login_required
+def crm_client_duplicate_check(request):
+	if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.add_client'):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
+	if restricted_response:
+		return restricted_response
+	first_name = (request.GET.get('first_name') or '').strip()
+	last_name = (request.GET.get('last_name') or '').strip()
+	home_address = (request.GET.get('home_address') or '').strip()
+	duplicate_name, duplicate_address = _find_crm_client_duplicates(
+		first_name=first_name,
+		last_name=last_name,
+		home_address=home_address,
+	)
+	return JsonResponse(
+		{
+			'ok': True,
+			'duplicate_by_name': bool(duplicate_name),
+			'duplicate_by_address': bool(duplicate_address),
+			'duplicate_name_label': (
+				f'{duplicate_name.customer_id}: {duplicate_name.last_name}, {duplicate_name.first_name}' if duplicate_name else ''
+			),
+			'duplicate_address_label': (
+				f'{duplicate_address.customer_id}: {duplicate_address.last_name}, {duplicate_address.first_name}' if duplicate_address else ''
+			),
+		}
+	)
+
+
+@login_required
 def crm_client_profile(request, client_id):
-	restricted_response = _require_permission(request, 'core.view_client')
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['clients']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
 	if restricted_response:
 		return restricted_response
 
@@ -1226,11 +1487,16 @@ def crm_client_profile(request, client_id):
 
 @login_required
 def crm_sales(request):
-	restricted_response = _require_permission(request, 'core.view_client')
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['sales']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
 	if restricted_response:
 		return restricted_response
 
 	if request.method == 'POST':
+		if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']):
+			return _permission_denied_response(request)
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'assign_sales_to_client':
 			sales_id = (request.POST.get('sales_record_id') or '').strip()
@@ -1374,9 +1640,7 @@ def crm_sales(request):
 	cutoff = timezone.now() - timedelta(days=aging_settings.aging_days)
 	notify_cutoff_remaining = max(int(aging_settings.notify_remaining_days or 1), 1)
 	today = timezone.localdate()
-	notify_recipients = User.objects.filter(
-		Q(is_superuser=True) | Q(is_active=True, user_permissions__codename='view_client')
-	).distinct()
+	notify_recipients = User.objects.filter(is_active=True).distinct()
 	all_sales_for_aging = list(
 		CRMSalesRecord.objects.prefetch_related('activity_logs').select_related('client')
 	)
@@ -1397,6 +1661,8 @@ def crm_sales(request):
 			alert_title = 'CRM Sales Aging Alert'
 			alert_message = f'{client_label} has {days_remaining} day(s) remaining before auto closed lost.'
 			for recipient in notify_recipients:
+				if not _has_any_permission(recipient, CRM_VIEW_PERMISSIONS['sales']):
+					continue
 				exists_today = Notification.objects.filter(
 					user=recipient,
 					title=alert_title,
@@ -1447,7 +1713,7 @@ def crm_sales(request):
 		'activity_logs__created_by',
 		'activity_logs__attachments',
 	)
-	can_view_all_sales = request.user.is_superuser or request.user.has_perm('core.change_client')
+	can_view_all_sales = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales'])
 	if not can_view_all_sales:
 		user_full_name = (request.user.get_full_name() or '').strip()
 		user_username = (request.user.username or '').strip()
@@ -1524,7 +1790,7 @@ def crm_sales(request):
 	)
 	assignable_sales_users = []
 	for user in User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username'):
-		if user.is_superuser or user.has_perm('core.view_client'):
+		if _has_any_permission(user, CRM_VIEW_PERMISSIONS['sales']):
 			label = (user.get_full_name() or user.username or '').strip()
 			if label:
 				assignable_sales_users.append({'value': label, 'username': user.username, 'label': label})
@@ -1593,13 +1859,17 @@ def crm_sales(request):
 		'assigned_sales_options': assigned_sales_options,
 		'assignable_sales_users': assignable_sales_users,
 		'sales_aging_settings': aging_settings,
+		'can_manage_crm_sales': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']),
 	}
 	return render(request, 'core/crm_sales.html', context)
 
 
 @login_required
 def crm_technicals(request):
-	restricted_response = _require_permission(request, 'core.view_client')
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['technicals']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
 	if restricted_response:
 		return restricted_response
 
@@ -1619,6 +1889,8 @@ def crm_technicals(request):
 		return None
 
 	if request.method == 'POST':
+		if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals']):
+			return _permission_denied_response(request)
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'update_technical_notification_settings':
 			days_raw = (request.POST.get('notify_days_before') or '').strip()
@@ -1761,7 +2033,7 @@ def crm_technicals(request):
 					tech_record.team_assigned = team_assigned
 					tech_record.remarks = remarks
 					if is_conflict or is_overdue or has_existing_schedule:
-						tech_record.installation_status = 'reschedules'
+						tech_record.installation_status = 'rescheduled'
 					elif is_first_schedule:
 						tech_record.installation_status = 'scheduled'
 					elif not (tech_record.installation_status or '').strip():
@@ -1771,7 +2043,7 @@ def crm_technicals(request):
 					CRMTechnicalActionLog.objects.create(
 						technical_record=tech_record,
 						sales_record=sales_record,
-						action='schedule_rescheduled' if tech_record.installation_status == 'reschedules' else 'schedule_set',
+						action='schedule_rescheduled' if tech_record.installation_status == 'rescheduled' else 'schedule_set',
 						previous_installation_date=previous_installation_date,
 						previous_installation_time=previous_installation_time,
 						new_installation_date=tech_record.installation_date,
@@ -1817,7 +2089,7 @@ def crm_technicals(request):
 					reason = 'existing schedule updated'
 				else:
 					reason = 'overdue date'
-				notify_message = f'{client_label} marked as reschedules due to {reason}.'
+				notify_message = f'{client_label} marked as rescheduled due to {reason}.'
 				recipients = User.objects.filter(
 					Q(is_superuser=True) | Q(is_active=True, user_permissions__codename='view_client')
 				).distinct()
@@ -1831,7 +2103,7 @@ def crm_technicals(request):
 					).exists()
 					if not exists_today:
 						create_notification(recipient, notify_title, notify_message, link_url=reverse('crm_technicals'))
-				messages.warning(request, f'Schedule saved with status reschedules ({reason}).', extra_tags='toast')
+				messages.warning(request, f'Schedule saved with status rescheduled ({reason}).', extra_tags='toast')
 			else:
 				messages.success(request, 'Installation schedule updated successfully.', extra_tags='toast')
 			return redirect('crm_technicals')
@@ -1842,7 +2114,7 @@ def crm_technicals(request):
 		Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won')
 	)
 
-	can_view_all_sales = request.user.is_superuser or request.user.has_perm('core.change_client')
+	can_view_all_sales = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals'])
 	if not can_view_all_sales:
 		user_full_name = (request.user.get_full_name() or '').strip()
 		user_username = (request.user.username or '').strip()
@@ -1927,7 +2199,10 @@ def crm_technicals(request):
 	technical_notify_setting, _ = CRMTechnicalNotificationSetting.objects.get_or_create(pk=1)
 	today = timezone.localdate()
 	notify_before_date = today + timedelta(days=technical_notify_setting.notify_days_before)
-	actionable_q = Q(installation_status__iexact='back jobs') | Q(installation_status__iexact='reschedules')
+	actionable_q = (
+		Q(installation_status__iexact='back jobs')
+		| Q(installation_status__iexact='rescheduled')
+	)
 	actionable_q |= (
 		Q(installation_date__isnull=False, installation_date__lte=notify_before_date)
 		& ~Q(installation_status__iexact='completed')
@@ -1943,14 +2218,14 @@ def crm_technicals(request):
 	technical_action_required_count = actionable_records.count()
 
 	if technical_action_required_count:
-		recipients = User.objects.filter(
-			Q(is_superuser=True) | Q(is_active=True, user_permissions__codename='view_client')
-		).distinct()
+		recipients = User.objects.filter(is_active=True).distinct()
 		message = (
 			f'{technical_action_required_count} technical schedule(s) require action '
 			f'(<= {technical_notify_setting.notify_days_before} day(s) before schedule and/or backlogs).'
 		)
 		for recipient in recipients:
+			if not _has_any_permission(recipient, CRM_VIEW_PERMISSIONS['technicals']):
+				continue
 			exists_today = Notification.objects.filter(
 				user=recipient,
 				title='Technical Action Required',
@@ -1972,6 +2247,7 @@ def crm_technicals(request):
 			'technical_role_user_map': role_user_map,
 			'technical_notification_setting': technical_notify_setting,
 			'technical_action_required_count': technical_action_required_count,
+			'can_manage_crm_technicals': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals']),
 		},
 	)
 

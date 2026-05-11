@@ -166,6 +166,15 @@ class LoginEvent(models.Model):
 
 	class Meta:
 		ordering = ['-created_at']
+		permissions = (
+			('view_crm_dashboard', 'Can view CRM dashboard section'),
+			('view_crm_clients_section', 'Can view CRM clients section'),
+			('manage_crm_clients_section', 'Can manage CRM clients section'),
+			('view_crm_sales_section', 'Can view CRM sales section'),
+			('manage_crm_sales_section', 'Can manage CRM sales section'),
+			('view_crm_technicals_section', 'Can view CRM technicals section'),
+			('manage_crm_technicals_section', 'Can manage CRM technicals section'),
+		)
 
 	def __str__(self):
 		return f'LoginEvent<{self.username_attempt}:{self.reason}>'
@@ -715,7 +724,7 @@ class CRMTechnicalRecord(models.Model):
 		('ongoing', 'Ongoing'),
 		('completed', 'Completed'),
 		('back jobs', 'Back Jobs'),
-		('reschedules', 'Reschedules'),
+		('rescheduled', 'Rescheduled'),
 	]
 
 	sales_record = models.OneToOneField(CRMSalesRecord, on_delete=models.CASCADE, related_name='technical_record')
@@ -742,6 +751,20 @@ class CRMTechnicalRecord(models.Model):
 
 	class Meta:
 		ordering = ['-installation_date', '-created_at']
+
+	def _is_installation_completed(self):
+		status = (self.installation_status or '').strip().lower()
+		return status in {'completed', 'complete'}
+
+	def save(self, *args, **kwargs):
+		super().save(*args, **kwargs)
+		if not self.sales_record_id or not self._is_installation_completed():
+			return
+		sales_record = self.sales_record
+		sales_status = (sales_record.sales_status or '').strip().lower()
+		if sales_status != 'closed won':
+			sales_record.sales_status = 'closed won'
+			sales_record.save(update_fields=['sales_status', 'updated_at'])
 
 	def __str__(self):
 		return f'CRMTechnicalRecord<{self.sales_record_id}:{self.installation_status or "n/a"}>'

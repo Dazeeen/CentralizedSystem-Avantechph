@@ -148,12 +148,17 @@ document.addEventListener('DOMContentLoaded', function () {
         'camarines-sur': 'camarines-sur'
     };
     var provinceCounts = {};
-    pinsData.forEach(function (pin) {
-        var raw = String(pin.province || '').toLowerCase();
-        var key = provinceNameMap[raw] || raw;
-        if (!key) return;
-        provinceCounts[key] = (provinceCounts[key] || 0) + Number(pin.count || 0);
-    });
+    var provincesLayer = null;
+    var pinMarkersLayer = L.layerGroup();
+    function rebuildProvinceCounts(currentPins) {
+        provinceCounts = {};
+        (currentPins || []).forEach(function (pin) {
+            var raw = String(pin.province || '').toLowerCase();
+            var key = provinceNameMap[raw] || raw;
+            if (!key) return;
+            provinceCounts[key] = (provinceCounts[key] || 0) + Number(pin.count || 0);
+        });
+    }
 
     var map = L.map('phVectorMap', {
         zoomControl: true,
@@ -171,10 +176,33 @@ document.addEventListener('DOMContentLoaded', function () {
         return '#2b57ad';
     }
 
+    function renderPins(currentPins) {
+        pinMarkersLayer.clearLayers();
+        (currentPins || []).forEach(function (pin) {
+            if (typeof pin.lat !== 'number' || typeof pin.lng !== 'number') return;
+            var names = (pin.names || []).slice(0, 12);
+            var extra = (pin.names || []).length > names.length ? ('<br>+' + ((pin.names || []).length - names.length) + ' more') : '';
+            var popupHtml = '<b>' + (pin.city || 'Client Address') + ' (' + (pin.count || 1) + ')</b><br>' + names.join('<br>') + extra;
+            L.circleMarker([pin.lat, pin.lng], {
+                radius: 7,
+                color: '#ffffff',
+                weight: 1.6,
+                fillColor: '#ffcc00',
+                fillOpacity: 0.95
+            }).bindPopup(popupHtml).addTo(pinMarkersLayer);
+        });
+    }
+    function refreshMapVisuals(currentPins) {
+        rebuildProvinceCounts(currentPins);
+        renderPins(currentPins);
+        if (provincesLayer) provincesLayer.setStyle(provincesLayer.options.style);
+    }
+
     fetch("{% static 'data/ph-provinces.min.geojson' %}")
         .then(function (res) { return res.json(); })
         .then(function (geojson) {
-            var provincesLayer = L.geoJSON(geojson, {
+            rebuildProvinceCounts(pinsData);
+            provincesLayer = L.geoJSON(geojson, {
                 style: function (feature) {
                     var provinceName = normalizeKey(feature && feature.properties ? (feature.properties.PROVINCE || feature.properties.NAME_1 || '') : '');
                     var count = provinceCounts[provinceName] || 0;
@@ -195,20 +223,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }).addTo(map);
             map.fitBounds(provincesLayer.getBounds(), { padding: [10, 10] });
+            pinMarkersLayer.addTo(map);
+            renderPins(pinsData);
 
-            pinsData.forEach(function (pin) {
-                if (typeof pin.lat !== 'number' || typeof pin.lng !== 'number') return;
-                var names = (pin.names || []).slice(0, 12);
-                var extra = (pin.names || []).length > names.length ? ('<br>+' + ((pin.names || []).length - names.length) + ' more') : '';
-                var popupHtml = '<b>' + (pin.city || 'Client Address') + ' (' + (pin.count || 1) + ')</b><br>' + names.join('<br>') + extra;
-                L.circleMarker([pin.lat, pin.lng], {
-                    radius: 7,
-                    color: '#ffffff',
-                    weight: 1.6,
-                    fillColor: '#ffcc00',
-                    fillOpacity: 0.95
-                }).addTo(map).bindPopup(popupHtml);
-            });
+            var mapPinsUrl = "{% url 'crm_dashboard_map_pins' %}";
+            window.setInterval(function () {
+                fetch(mapPinsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function (response) {
+                        if (!response.ok) throw new Error('Map pins refresh failed');
+                        return response.json();
+                    })
+                    .then(function (payload) {
+                        var latestPins = (payload && Array.isArray(payload.pins)) ? payload.pins : [];
+                        refreshMapVisuals(latestPins);
+                    })
+                    .catch(function () {
+                        // Silent fail: keep last rendered data when refresh temporarily fails.
+                    });
+            }, 15000);
         })
         .catch(function () {
             mapEl.innerHTML = '<div class="text-light p-3">Unable to load Philippine province vector map.</div>';

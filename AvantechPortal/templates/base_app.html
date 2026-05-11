@@ -35,7 +35,7 @@
                             </span>
                             <span class="nav-label">Dashboard</span>
                         </a>
-                        {% if request.user.is_superuser or perms.core.view_client %}
+                        {% if request.user.is_superuser or perms.core.view_crm_dashboard or perms.core.view_crm_clients_section or perms.core.view_crm_sales_section or perms.core.view_crm_technicals_section or perms.core.view_client %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_crm_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_crm_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
                                     <span class="nav-logo" aria-hidden="true">
@@ -55,24 +55,31 @@
                                 </span>
                             </button>
                             <div class="nav-subgroup">
+                                {% if request.user.is_superuser or perms.core.view_crm_dashboard or perms.core.view_client %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_dashboard' %}active{% endif %}" href="{% url 'crm_dashboard' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="4" width="7" height="4" rx="1.2" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="10" width="7" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/></svg>
                                     </span>
                                     <span class="nav-label">Dashboard</span>
                                 </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_crm_clients_section or perms.core.view_client %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_clients' %}active{% endif %}" href="{% url 'crm_clients' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 18.5C5.8 15.9 7.5 14.5 9.5 14.5C11.5 14.5 13.2 15.9 14 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.5" cy="9" r="3" stroke="currentColor" stroke-width="1.8"/><circle cx="16.5" cy="10.5" r="2.2" stroke="currentColor" stroke-width="1.8"/></svg>
                                     </span>
                                     <span class="nav-label">Clients</span>
                                 </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_crm_sales_section or perms.core.view_client %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_sales' %}active{% endif %}" href="{% url 'crm_sales' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 16L10 12L13 14L18 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 12V9H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
                                     </span>
                                     <span class="nav-label">Sales</span>
                                 </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_crm_technicals_section or perms.core.view_client %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_technicals' %}active{% endif %}" href="{% url 'crm_technicals' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 11H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 16H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -84,6 +91,7 @@
                                         {% endif %}
                                     </span>
                                 </a>
+                                {% endif %}
                             </div>
                         {% endif %}
                         {% if request.user.is_superuser or perms.core.view_fundrequest %}
@@ -540,7 +548,7 @@
                         </span>
                         <span class="nav-label">Dashboard</span>
                     </a>
-                    {% if request.user.is_superuser or perms.core.view_client %}
+                    {% if request.user.is_superuser or perms.core.view_crm_dashboard or perms.core.view_crm_clients_section or perms.core.view_crm_sales_section or perms.core.view_crm_technicals_section or perms.core.view_client %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_crm_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_crm_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
@@ -560,24 +568,31 @@
                             </span>
                         </button>
                         <div class="nav-subgroup">
+                            {% if request.user.is_superuser or perms.core.view_crm_dashboard or perms.core.view_client %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_dashboard' %}active{% endif %}" href="{% url 'crm_dashboard' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="4" width="7" height="4" rx="1.2" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="10" width="7" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/></svg>
                                 </span>
                                 <span class="nav-label">Dashboard</span>
                             </a>
+                            {% endif %}
+                            {% if request.user.is_superuser or perms.core.view_crm_clients_section or perms.core.view_client %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_clients' %}active{% endif %}" href="{% url 'crm_clients' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 18.5C5.8 15.9 7.5 14.5 9.5 14.5C11.5 14.5 13.2 15.9 14 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.5" cy="9" r="3" stroke="currentColor" stroke-width="1.8"/><circle cx="16.5" cy="10.5" r="2.2" stroke="currentColor" stroke-width="1.8"/></svg>
                                 </span>
                                 <span class="nav-label">Clients</span>
                             </a>
+                            {% endif %}
+                            {% if request.user.is_superuser or perms.core.view_crm_sales_section or perms.core.view_client %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_sales' %}active{% endif %}" href="{% url 'crm_sales' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 16L10 12L13 14L18 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 12V9H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
                                 </span>
                                 <span class="nav-label">Sales</span>
                             </a>
+                            {% endif %}
+                            {% if request.user.is_superuser or perms.core.view_crm_technicals_section or perms.core.view_client %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_technicals' %}active{% endif %}" href="{% url 'crm_technicals' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 11H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 16H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -589,6 +604,7 @@
                                     {% endif %}
                                 </span>
                             </a>
+                            {% endif %}
                         </div>
                     {% endif %}
                     {% if request.user.is_superuser or perms.core.view_fundrequest %}

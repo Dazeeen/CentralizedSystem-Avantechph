@@ -8,10 +8,14 @@
 <div class="card border-0 shadow-sm">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 mb-3">
+            {% if can_manage_crm_sales %}
             <button type="button" class="btn btn-success" id="crmLogSalesActivityBtn">+ Log Sales Activity</button>
+            {% endif %}
             <button type="button" class="btn btn-outline-secondary" id="crmExportSalesReportBtn">Export Report</button>
+            {% if can_manage_crm_sales %}
             <button type="button" class="btn btn-outline-secondary" id="crmAssignSalesBtn">Assign Sales</button>
             <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#crmSalesAgingSettingsModal">Settings</button>
+            {% endif %}
         </div>
         <form method="get" class="row g-2 mb-3">
             <div class="col-lg-4 col-md-6">
@@ -149,7 +153,9 @@
                                 <div class="dropdown">
                                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
                                     <ul class="dropdown-menu dropdown-menu-end">
+                                        {% if can_manage_crm_sales %}
                                         <li><button type="button" class="dropdown-item js-sales-action-update">Update</button></li>
+                                        {% endif %}
                                         <li><button type="button" class="dropdown-item js-sales-action-view-profile">View Profile</button></li>
                                     </ul>
                                 </div>
