@@ -170,6 +170,19 @@
                                 </a>
                             </div>
                         {% endif %}
+                        {% if request.user.is_superuser or perms.core.view_assetaccountability %}
+                            <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'forms_list' %}active{% endif %}" href="{% url 'forms_list' %}">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="5" y="4" width="14" height="16" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M8 8H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8 16H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Forms</span>
+                            </a>
+                        {% endif %}
                         {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_consumableitem or perms.core.view_consumableitemtype or perms.core.view_consumablescategory or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
@@ -683,6 +696,19 @@
                             </a>
                         </div>
                     {% endif %}
+                    {% if request.user.is_superuser or perms.core.view_assetaccountability %}
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'forms_list' %}active{% endif %}" href="{% url 'forms_list' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="5" y="4" width="14" height="16" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8 8H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 16H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Forms</span>
+                        </a>
+                    {% endif %}
                     {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_consumableitem or perms.core.view_consumableitemtype or perms.core.view_consumablescategory or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
@@ -895,6 +921,10 @@
                             <div class="col-md-6">
                                 <label class="form-label">Branch</label>
                                 <input type="text" class="form-control js-my-profile-editable" id="myProfileBranch" name="branch" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Contact Number</label>
+                                <input type="text" class="form-control js-my-profile-editable" id="myProfileContactNumber" name="contact_number" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Username</label>
@@ -1257,6 +1287,137 @@
             messageEl.textContent = trigger.getAttribute('data-message') || 'You do not have permission to perform this action.';
             const modal = new window.bootstrap.Modal(modalEl);
             modal.show();
+        })();
+
+        (function () {
+            const storageKey = 'crm_import_active_job_v1';
+            const statusBaseUrl = '{% url "crm_clients" %}';
+            const toastContainer = document.getElementById('appBottomToastContainer');
+            if (!toastContainer) {
+                return;
+            }
+
+            let pollTimer = null;
+            let toastEl = null;
+
+            const readJobMeta = () => {
+                try {
+                    const raw = localStorage.getItem(storageKey);
+                    if (!raw) return null;
+                    const parsed = JSON.parse(raw);
+                    if (!parsed || !parsed.jobId) return null;
+                    return parsed;
+                } catch (error) {
+                    return null;
+                }
+            };
+
+            const clearJobMeta = () => {
+                try {
+                    localStorage.removeItem(storageKey);
+                } catch (error) {
+                }
+            };
+
+            const ensureToast = () => {
+                if (toastEl && toastEl.isConnected) return toastEl;
+                toastEl = document.createElement('div');
+                toastEl.className = 'toast align-items-center text-bg-dark border-0 mb-2 show d-block';
+                toastEl.setAttribute('role', 'status');
+                toastEl.setAttribute('aria-live', 'polite');
+                toastEl.setAttribute('aria-atomic', 'true');
+                toastEl.innerHTML = ''
+                    + '<div class="d-flex align-items-center">'
+                    + '  <div class="toast-body">'
+                    + '    <div class="fw-semibold" id="globalCrmImportToastTitle">CRM import in progress</div>'
+                    + '    <div class="small text-light-emphasis" id="globalCrmImportToastMessage">Import is running in background. You can continue navigating.</div>'
+                    + '  </div>'
+                    + '</div>';
+                toastContainer.appendChild(toastEl);
+                return toastEl;
+            };
+
+            const updateToast = (variant, title, message) => {
+                const node = ensureToast();
+                node.className = `toast align-items-center text-bg-${variant} border-0 mb-2 show d-block`;
+                const titleEl = document.getElementById('globalCrmImportToastTitle');
+                const messageEl = document.getElementById('globalCrmImportToastMessage');
+                if (titleEl) titleEl.textContent = title;
+                if (messageEl) messageEl.textContent = message;
+            };
+
+            const hideToastLater = (delay) => {
+                window.setTimeout(() => {
+                    if (toastEl && toastEl.parentNode) {
+                        toastEl.parentNode.removeChild(toastEl);
+                        toastEl = null;
+                    }
+                }, delay || 3200);
+            };
+
+            const stopPolling = () => {
+                if (pollTimer) {
+                    window.clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            };
+
+            const pollStatus = async () => {
+                const meta = readJobMeta();
+                if (!meta || !meta.jobId) {
+                    stopPolling();
+                    return;
+                }
+                try {
+                    const response = await fetch(`${statusBaseUrl}?import_job_id=${encodeURIComponent(meta.jobId)}`, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    const payload = await response.json().catch(() => ({}));
+                    if (!response.ok || payload.ok === false || payload.status === 'not_found') {
+                        window.dispatchEvent(new CustomEvent('crm-import-status', { detail: payload || {} }));
+                        updateToast('danger', 'CRM import failed', payload.message || 'Unable to read import status.');
+                        clearJobMeta();
+                        stopPolling();
+                        hideToastLater(5000);
+                        return;
+                    }
+
+                    if (payload.status === 'queued' || payload.status === 'running') {
+                        window.dispatchEvent(new CustomEvent('crm-import-status', { detail: payload || {} }));
+                        updateToast('dark', 'CRM import in progress', 'Import is running in background. You can continue navigating.');
+                        return;
+                    }
+
+                    if (payload.status === 'completed') {
+                        window.dispatchEvent(new CustomEvent('crm-import-status', { detail: payload || {} }));
+                        const message = payload.message || 'Import completed.';
+                        updateToast('success', 'CRM import complete', message);
+                        clearJobMeta();
+                        stopPolling();
+                        hideToastLater(4500);
+                        return;
+                    }
+
+                    if (payload.status === 'failed') {
+                        window.dispatchEvent(new CustomEvent('crm-import-status', { detail: payload || {} }));
+                        updateToast('danger', 'CRM import failed', payload.message || 'Import job failed.');
+                        clearJobMeta();
+                        stopPolling();
+                        hideToastLater(5000);
+                    }
+                } catch (error) {
+                    updateToast('warning', 'CRM import status delayed', 'Still trying to reconnect to import status...');
+                }
+            };
+
+            const meta = readJobMeta();
+            if (!meta || !meta.jobId) {
+                return;
+            }
+            updateToast('dark', 'CRM import in progress', 'Import is running in background. You can continue navigating.');
+            pollStatus();
+            pollTimer = window.setInterval(pollStatus, 2000);
         })();
 
         (function () {
@@ -1830,6 +1991,7 @@
                 last_name: document.getElementById('myProfileLastName').value || '',
                 email: document.getElementById('myProfileEmail').value || '',
                 branch: document.getElementById('myProfileBranch').value || '',
+                contact_number: document.getElementById('myProfileContactNumber').value || '',
             });
 
             const setEditable = (editing) => {
@@ -1847,6 +2009,7 @@
                 document.getElementById('myProfileLastName').value = user.last_name || '';
                 document.getElementById('myProfileEmail').value = user.email || '';
                 document.getElementById('myProfileBranch').value = user.branch === 'Not assigned' ? '' : (user.branch || '');
+                document.getElementById('myProfileContactNumber').value = user.contact_number === 'Not set' ? '' : (user.contact_number || '');
                 document.getElementById('myProfileUsername').value = user.username || '-';
                 document.getElementById('myProfileDepartment').value = user.department || '-';
                 document.getElementById('myProfileStatus').value = user.status_display || '-';
@@ -1902,6 +2065,7 @@
                         document.getElementById('myProfileLastName').value = snapshot.last_name || '';
                         document.getElementById('myProfileEmail').value = snapshot.email || '';
                         document.getElementById('myProfileBranch').value = snapshot.branch || '';
+                        document.getElementById('myProfileContactNumber').value = snapshot.contact_number || '';
                     }
                     setEditable(false);
                 });
@@ -1999,6 +2163,9 @@
                     <div class="row g-3">
                         <div class="col-12">
                             <div class="profile-detail-card"><span class="profile-detail-label">Email</span><span class="profile-detail-value">${user.email || '-'}</span></div>
+                        </div>
+                        <div class="col-12">
+                            <div class="profile-detail-card"><span class="profile-detail-label">Contact Number</span><span class="profile-detail-value">${user.contact_number || 'Not set'}</span></div>
                         </div>
                         <div class="col-6">
                             <div class="profile-detail-card"><span class="profile-detail-label">Branch</span><span class="profile-detail-value">${user.branch || 'Not assigned'}</span></div>

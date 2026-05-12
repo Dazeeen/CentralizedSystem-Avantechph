@@ -1,0 +1,522 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Forms{% endblock %}
+{% block page_heading %}Forms{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <h2 class="h4 mb-0">Forms</h2>
+            <div class="d-flex gap-2">
+                {% if can_manage_forms %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#formsManageModal">Manage</button>
+                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#formsUploadModal">Upload Form Files</button>
+                {% endif %}
+            </div>
+        </div>
+        <p class="text-secondary mb-0">Sections and subsections with uploaded form files.</p>
+    </div>
+</div>
+
+{% for group in forms_grouped_sections %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-success-subtle d-flex align-items-center justify-content-between">
+        <strong>{{ group.section.name }}</strong>
+    </div>
+    <div class="card-body">
+        {% if group.subsections %}
+            {% for sub in group.subsections %}
+                <div class="mb-3 pb-3 border-bottom last-border-0">
+                    <h6 class="mb-2">{% if sub.subsection %}{{ sub.subsection.name }}{% else %}Root (No Subsection){% endif %}</h6>
+                    {% if sub.uploads %}
+                        <div class="forms-upload-horizontal-grid" role="list" aria-label="Uploaded forms">
+                            {% for upload in sub.uploads %}
+                                <div class="forms-upload-square-item" role="listitem">
+                                    <div class="border rounded-3 p-2 h-100 d-flex flex-column gap-2 forms-upload-square-card">
+                                        <div class="d-flex align-items-start justify-content-between gap-2">
+                                            <div class="small fw-semibold text-truncate" title="{{ upload.original_name|default:upload.file.name }}">{{ upload.original_name|default:upload.file.name }}</div>
+                                            <button type="button" class="btn btn-sm btn-outline-primary px-2 py-0 forms-upload-print-btn" onclick="printUploadedForm('{{ upload.file.url|escapejs }}');" title="Print this file">
+                                                <span class="material-symbols-outlined forms-upload-print-icon" aria-hidden="true">print</span>
+                                            </button>
+                                        </div>
+                                        <div class="small text-secondary">{{ upload.file_size|filesizeformat }}</div>
+                                        <div class="form-file-preview-mini border rounded-2 d-flex align-items-center justify-content-center bg-light">
+                                            {% if upload.file.url|lower|slice:"-4:" == '.png' or upload.file.url|lower|slice:"-4:" == '.jpg' or upload.file.url|lower|slice:"-5:" == '.jpeg' or upload.file.url|lower|slice:"-4:" == '.gif' or upload.file.url|lower|slice:"-4:" == '.webp' %}
+                                                <img src="{{ upload.file.url }}" alt="{{ upload.original_name }}" class="img-fluid rounded-2" style="max-height: 90px; object-fit: cover;">
+                                            {% else %}
+                                                <span class="small text-secondary px-2 text-center">No inline preview</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="d-grid gap-1 mt-auto">
+                                            <a href="{{ upload.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary w-100">Preview</a>
+                                            <a href="{{ upload.file.url }}" download class="btn btn-sm btn-outline-success w-100">Download</a>
+                                            {% if can_manage_forms %}
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-outline-secondary js-rename-upload-btn w-100"
+                                                data-upload-id="{{ upload.id }}"
+                                                data-upload-name="{{ upload.original_name|default:upload.file.name }}"
+                                            >
+                                                Rename
+                                            </button>
+                                            <form method="post" class="m-0 w-100" onsubmit="return confirm('Remove this file?');">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="form_action" value="remove_upload">
+                                                <input type="hidden" name="upload_id" value="{{ upload.id }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger w-100">Delete</button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-secondary small">No files uploaded in this subsection yet.</div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-secondary small">No subsections yet.</div>
+        {% endif %}
+    </div>
+</div>
+{% empty %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-secondary">No sections yet. Use <strong>Manage</strong> to create sections and subsections.</div>
+</div>
+{% endfor %}
+
+{% if can_manage_forms %}
+<div class="modal fade" id="formsManageModal" tabindex="-1" aria-labelledby="formsManageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="formsManageModalLabel">Manage Sections and Subsections</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <h6>Sections</h6>
+                            <form method="post" class="d-flex gap-2 mb-3">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="create_section">
+                                <input class="form-control" name="section_name" placeholder="Section name" required>
+                                <button type="submit" class="btn btn-success">Add</button>
+                            </form>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>Name</th><th class="text-end">Actions</th></tr></thead>
+                                    <tbody>
+                                        {% for section in forms_sections %}
+                                        <tr>
+                                            <td>{{ section.name }}</td>
+                                            <td class="text-end">
+                                                <button type="button" class="btn btn-sm btn-outline-primary js-edit-section-btn" data-section-id="{{ section.id }}" data-section-name="{{ section.name }}">Edit</button>
+                                                <form method="post" class="d-inline" onsubmit="return confirm('Delete this section and all its subsections/files?');">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="form_action" value="delete_section">
+                                                    <input type="hidden" name="section_id" value="{{ section.id }}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr><td colspan="2" class="text-secondary">No sections yet.</td></tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <h6>Subsections</h6>
+                            <form method="post" class="row g-2 mb-3">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="create_subsection">
+                                <div class="col-md-5">
+                                    <select class="form-select" name="section_id" required>
+                                        <option value="">Select section</option>
+                                        {% for section in forms_sections %}
+                                        <option value="{{ section.id }}">{{ section.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-5"><input class="form-control" name="subsection_name" placeholder="Subsection name" required></div>
+                                <div class="col-md-2 d-grid"><button type="submit" class="btn btn-success">Add</button></div>
+                            </form>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>Section</th><th>Subsection</th><th class="text-end">Actions</th></tr></thead>
+                                    <tbody>
+                                        {% for subsection in forms_subsections %}
+                                        <tr>
+                                            <td>{{ subsection.section.name }}</td>
+                                            <td>{{ subsection.name }}</td>
+                                            <td class="text-end">
+                                                <button type="button" class="btn btn-sm btn-outline-primary js-edit-subsection-btn" data-subsection-id="{{ subsection.id }}" data-section-id="{{ subsection.section.id }}" data-subsection-name="{{ subsection.name }}">Edit</button>
+                                                <form method="post" class="d-inline" onsubmit="return confirm('Delete this subsection and all its files?');">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="form_action" value="delete_subsection">
+                                                    <input type="hidden" name="subsection_id" value="{{ subsection.id }}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr><td colspan="3" class="text-secondary">No subsections yet.</td></tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="formsUploadModal" tabindex="-1" aria-labelledby="formsUploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data" id="formsUploadForm">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="upload_form_files">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="formsUploadModalLabel">Upload Form Files</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Section</label>
+                            <select class="form-select" name="section_id" id="formsUploadSectionSelect" required>
+                                <option value="">Select section</option>
+                                {% for section in forms_sections %}
+                                <option value="{{ section.id }}">{{ section.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Subsection</label>
+                            <select class="form-select" name="subsection_id" id="formsUploadSubsectionSelect">
+                                <option value="">No subsection (Root)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <input type="file" class="d-none" id="formsUploadFileInput" name="files" multiple>
+                    <div class="border border-2 border-success-subtle rounded-3 p-3 text-center text-secondary mb-3" id="formsUploadDropZone" role="button" tabindex="0">
+                        Drag and drop files here or click to choose files
+                    </div>
+
+                    <div class="row g-2" id="formsUploadPreviewGrid">
+                        <div class="col-12 text-secondary small">No files selected yet.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="renameUploadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="rename_upload">
+                <input type="hidden" name="upload_id" id="renameUploadId">
+                <div class="modal-header">
+                    <h5 class="modal-title">Rename Card Name</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label" for="renameUploadName">Card Name</label>
+                    <input type="text" class="form-control" name="new_name" id="renameUploadName" maxlength="255" required>
+                    <div class="form-text">This updates the name shown at the top of the card.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editSectionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="update_section">
+                <input type="hidden" name="section_id" id="editSectionId">
+                <div class="modal-header"><h5 class="modal-title">Edit Section</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body"><input class="form-control" name="section_name" id="editSectionName" required></div>
+                <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editSubsectionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="update_subsection">
+                <input type="hidden" name="subsection_id" id="editSubsectionId">
+                <div class="modal-header"><h5 class="modal-title">Edit Subsection</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label">Section</label>
+                        <select class="form-select" name="section_id" id="editSubsectionSectionId" required>
+                            {% for section in forms_sections %}
+                            <option value="{{ section.id }}">{{ section.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label">Subsection Name</label>
+                        <input class="form-control" name="subsection_name" id="editSubsectionName" required>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{ forms_subsections_payload|json_script:"forms-subsections-data" }}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var subsectionsNode = document.getElementById('forms-subsections-data');
+    var subsections = [];
+    try { subsections = subsectionsNode ? JSON.parse(subsectionsNode.textContent || '[]') : []; } catch (e) { subsections = []; }
+
+    var sectionSelect = document.getElementById('formsUploadSectionSelect');
+    var subsectionSelect = document.getElementById('formsUploadSubsectionSelect');
+    function syncSubsections() {
+        if (!sectionSelect || !subsectionSelect) return;
+        var sectionId = String(sectionSelect.value || '');
+        var filtered = subsections.filter(function (s) { return String(s.section_id) === sectionId; });
+        var html = '<option value="">No subsection (Root)</option>';
+        filtered.forEach(function (s) {
+            html += '<option value="' + s.id + '">' + s.name + '</option>';
+        });
+        subsectionSelect.innerHTML = html;
+    }
+    if (sectionSelect) sectionSelect.addEventListener('change', syncSubsections);
+    syncSubsections();
+
+    var editSectionModalEl = document.getElementById('editSectionModal');
+    var editSectionModal = (editSectionModalEl && window.bootstrap) ? new bootstrap.Modal(editSectionModalEl) : null;
+    document.querySelectorAll('.js-edit-section-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.getElementById('editSectionId').value = btn.getAttribute('data-section-id') || '';
+            document.getElementById('editSectionName').value = btn.getAttribute('data-section-name') || '';
+            if (editSectionModal) editSectionModal.show();
+        });
+    });
+
+    var editSubsectionModalEl = document.getElementById('editSubsectionModal');
+    var editSubsectionModal = (editSubsectionModalEl && window.bootstrap) ? new bootstrap.Modal(editSubsectionModalEl) : null;
+    document.querySelectorAll('.js-edit-subsection-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.getElementById('editSubsectionId').value = btn.getAttribute('data-subsection-id') || '';
+            document.getElementById('editSubsectionSectionId').value = btn.getAttribute('data-section-id') || '';
+            document.getElementById('editSubsectionName').value = btn.getAttribute('data-subsection-name') || '';
+            if (editSubsectionModal) editSubsectionModal.show();
+        });
+    });
+
+    var renameUploadModalEl = document.getElementById('renameUploadModal');
+    var renameUploadModal = (renameUploadModalEl && window.bootstrap) ? new bootstrap.Modal(renameUploadModalEl) : null;
+    var renameUploadIdInput = document.getElementById('renameUploadId');
+    var renameUploadNameInput = document.getElementById('renameUploadName');
+    document.querySelectorAll('.js-rename-upload-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (renameUploadIdInput) renameUploadIdInput.value = btn.getAttribute('data-upload-id') || '';
+            if (renameUploadNameInput) renameUploadNameInput.value = btn.getAttribute('data-upload-name') || '';
+            if (renameUploadModal) renameUploadModal.show();
+        });
+    });
+
+    var fileInput = document.getElementById('formsUploadFileInput');
+    var dropZone = document.getElementById('formsUploadDropZone');
+    var previewGrid = document.getElementById('formsUploadPreviewGrid');
+    var selectedFiles = [];
+
+    function formatBytes(bytes) {
+        var size = Number(bytes || 0);
+        if (size < 1024) return size + ' B';
+        if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
+        return (size / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function syncInputFiles() {
+        if (!fileInput) return;
+        var dt = new DataTransfer();
+        selectedFiles.forEach(function (f) { dt.items.add(f); });
+        fileInput.files = dt.files;
+    }
+
+    function renderPreviewGrid() {
+        if (!previewGrid) return;
+        if (!selectedFiles.length) {
+            previewGrid.innerHTML = '<div class="col-12 text-secondary small">No files selected yet.</div>';
+            return;
+        }
+        var html = '';
+        selectedFiles.forEach(function (file, index) {
+            html += '<div class="col-md-6 col-12">';
+            html += '  <div class="border rounded-3 p-2 position-relative">';
+            html += '    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 js-remove-preview-file" data-index="' + index + '" style="width:22px;height:22px;line-height:1;padding:0;">x</button>';
+            html += '    <div class="small fw-semibold text-truncate" title="' + (file.name || '') + '">' + (file.name || '-') + '</div>';
+            html += '    <div class="small text-secondary">' + formatBytes(file.size) + '</div>';
+            html += '    <div class="progress mt-2" style="height:6px;"><div class="progress-bar progress-bar-striped progress-bar-animated" id="formsUploadProgressBar' + index + '" style="width:0%"></div></div>';
+            html += '    <div class="small text-secondary mt-1" id="formsUploadProgressText' + index + '">Queued</div>';
+            html += '  </div>';
+            html += '</div>';
+        });
+        previewGrid.innerHTML = html;
+
+        previewGrid.querySelectorAll('.js-remove-preview-file').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var idx = parseInt(btn.getAttribute('data-index') || '-1', 10);
+                if (Number.isNaN(idx) || idx < 0 || idx >= selectedFiles.length) return;
+                selectedFiles.splice(idx, 1);
+                syncInputFiles();
+                renderPreviewGrid();
+            });
+        });
+
+        selectedFiles.forEach(function (_file, idx) {
+            var pct = 0;
+            var bar = document.getElementById('formsUploadProgressBar' + idx);
+            var text = document.getElementById('formsUploadProgressText' + idx);
+            var timer = window.setInterval(function () {
+                pct += 20;
+                if (bar) bar.style.width = Math.min(pct, 100) + '%';
+                if (text) text.textContent = pct >= 100 ? 'Ready' : ('Preparing... ' + pct + '%');
+                if (pct >= 100) window.clearInterval(timer);
+            }, 120);
+        });
+    }
+
+    function addFiles(files) {
+        if (!files || !files.length) return;
+        Array.from(files).forEach(function (f) { selectedFiles.push(f); });
+        syncInputFiles();
+        renderPreviewGrid();
+    }
+
+    if (dropZone && fileInput) {
+        ['dragenter', 'dragover'].forEach(function (eventName) {
+            dropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                dropZone.classList.add('bg-success-subtle');
+            });
+        });
+        ['dragleave', 'drop'].forEach(function (eventName) {
+            dropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                dropZone.classList.remove('bg-success-subtle');
+            });
+        });
+        dropZone.addEventListener('drop', function (event) {
+            var files = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : null;
+            if (files && files.length) addFiles(files);
+        });
+        dropZone.addEventListener('click', function () { fileInput.click(); });
+        dropZone.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                fileInput.click();
+            }
+        });
+        fileInput.addEventListener('change', function () {
+            addFiles(fileInput.files);
+        });
+    }
+
+    var uploadForm = document.getElementById('formsUploadForm');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function () {
+            syncInputFiles();
+        });
+    }
+
+    var uploadModalEl = document.getElementById('formsUploadModal');
+    if (uploadModalEl) {
+        uploadModalEl.addEventListener('hidden.bs.modal', function () {
+            selectedFiles = [];
+            syncInputFiles();
+            renderPreviewGrid();
+        });
+    }
+});
+
+function printUploadedForm(fileUrl) {
+    if (!fileUrl) return;
+    var printWindow = window.open(fileUrl, '_blank', 'noopener');
+    if (!printWindow) return;
+    var triggerPrint = function () {
+        try {
+            printWindow.focus();
+            printWindow.print();
+        } catch (e) {}
+    };
+    printWindow.addEventListener('load', triggerPrint, { once: true });
+    window.setTimeout(triggerPrint, 900);
+}
+</script>
+{% endif %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0');
+.form-file-preview-mini { min-height: 100px; }
+.last-border-0:last-child { border-bottom: 0 !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }
+.forms-upload-print-icon {
+    font-size: 16px;
+    line-height: 1;
+    vertical-align: middle;
+}
+.forms-upload-horizontal-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(220px, 220px);
+    gap: 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.35rem;
+    overscroll-behavior-x: contain;
+}
+.forms-upload-square-item {
+    min-width: 0;
+}
+.forms-upload-square-card {
+    width: 100%;
+    min-height: 360px;
+}
+@media (max-width: 576px) {
+    .forms-upload-horizontal-grid {
+        grid-auto-columns: minmax(190px, 190px);
+    }
+}
+</style>
+{% endblock %}

@@ -190,9 +190,16 @@ class BaseUserFormMixin:
         selected_values = self._selected_field_values(field_name)
         return build_permission_groups(field.queryset, selected_values=selected_values)
 
+    @property
+    def selected_group_ids(self):
+        if 'groups' not in self.fields:
+            return set()
+        return self._selected_field_values('groups')
+
 
 class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
     branch = forms.CharField(required=False, max_length=120)
+    contact_number = forms.CharField(required=False, max_length=50)
 
     class Meta(UserCreationForm.Meta):
         model = User
@@ -202,6 +209,7 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
             'last_name',
             'email',
             'branch',
+            'contact_number',
             'is_active',
             'is_staff',
             'groups',
@@ -224,6 +232,8 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
         )
         self.fields['branch'].label = 'Branch'
         self.fields['branch'].help_text = 'Optional branch assignment (e.g., Main, North, South).'
+        self.fields['contact_number'].label = 'Contact Number'
+        self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
         self._style_fields()
 
     def save(self, commit=True):
@@ -231,7 +241,8 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
         if commit and user:
             profile, _ = UserProfile.objects.get_or_create(user=user)
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
-            profile.save(update_fields=['branch'])
+            profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
+            profile.save(update_fields=['branch', 'contact_number'])
         return user
 
     @property
@@ -241,6 +252,7 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
 
 class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
     branch = forms.CharField(required=False, max_length=120)
+    contact_number = forms.CharField(required=False, max_length=50)
 
     class Meta:
         model = User
@@ -250,6 +262,7 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
             'last_name',
             'email',
             'branch',
+            'contact_number',
             'is_active',
             'is_staff',
             'groups',
@@ -272,8 +285,11 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         )
         profile = getattr(self.instance, 'profile', None)
         self.fields['branch'].initial = profile.branch if profile else ''
+        self.fields['contact_number'].initial = profile.contact_number if profile else ''
         self.fields['branch'].label = 'Branch'
         self.fields['branch'].help_text = 'Optional branch assignment (e.g., Main, North, South).'
+        self.fields['contact_number'].label = 'Contact Number'
+        self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
         self._style_fields()
 
     def save(self, commit=True):
@@ -281,7 +297,8 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         if commit and user:
             profile, _ = UserProfile.objects.get_or_create(user=user)
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
-            profile.save(update_fields=['branch'])
+            profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
+            profile.save(update_fields=['branch', 'contact_number'])
         return user
 
     @property

@@ -858,15 +858,32 @@ document.addEventListener('DOMContentLoaded', function () {
         syncBulkSelectionState();
         applyClientRowsUI();
     }
+    var crmLiveImportRefreshRunning = false;
+    var crmLiveImportRefreshTimer = null;
+    var crmLiveImportLastRefreshAt = 0;
 
-    async function postFormAjax(form) {
+    async function refreshClientsListRootSafely() {
+        if (crmLiveImportRefreshRunning) {
+            return;
+        }
+        crmLiveImportRefreshRunning = true;
+        try {
+            await refreshClientsListRoot();
+            crmLiveImportLastRefreshAt = Date.now();
+        } catch (error) {
+        } finally {
+            crmLiveImportRefreshRunning = false;
+        }
+    }
+
+    async function postFormAjax(form, extraHeaders) {
         var formData = new FormData(form);
         var response = await fetch(form.action || window.location.href, {
             method: 'POST',
-            headers: {
+            headers: Object.assign({
                 'X-Requested-With': 'XMLHttpRequest',
                 'X-CSRFToken': getCsrfToken()
-            },
+            }, extraHeaders || {}),
             body: formData
         });
         var payload = await response.json().catch(function () { return { ok: false, message: 'Request failed.' }; });
@@ -1437,23 +1454,6 @@ document.addEventListener('DOMContentLoaded', function () {
             pendingRemoveForm = null;
         });
     }
-    if (importForm) {
-        importForm.addEventListener('submit', async function (event) {
-            event.preventDefault();
-            try {
-                await postFormAjax(importForm);
-                clearPreviewState();
-                renderPreviewPage(1);
-                if (importInput) {
-                    importInput.value = '';
-                }
-                renderSelectedFilePreview([]);
-                await refreshClientsListRoot();
-            } catch (error) {
-                alert(error.message || 'Import failed.');
-            }
-        });
-    }
     document.addEventListener('click', function (event) {
         var pageLink = event.target.closest('#crmClientsListRoot .pagination .page-link');
         if (!pageLink || pageLink.tagName !== 'A') {
@@ -1495,10 +1495,46 @@ document.addEventListener('DOMContentLoaded', function () {
     var importFilePreview = document.getElementById('crmImportFilePreview');
     var importPayloadInput = document.getElementById('crmImportPayloadInput');
     var importSubmitBtn = document.getElementById('crmImportSubmitBtn');
+    var isImportSubmitting = false;
+    var importJobStorageKey = 'crm_import_active_job_v1';
+    var importStatusToastEl = null;
+    var importStatusInterval = null;
+    var importStatusStartedAt = 0;
     var previewStorageKey = 'crm_import_preview_data_v1';
     var previewHeadersStorageKey = 'crm_import_selected_headers_v1';
-    var importPreviewState = { columns: [], rows: [], page: 1, selectedColumns: [], headersSelectionActive: false };
+    var importPreviewState = { columns: [], rows: [], page: 1, selectedColumns: [], headersSelectionActive: false, columnMappings: {} };
     var previewPageSize = 10;
+    var importTargetFieldOptions = [
+        { value: 'first_name', label: 'First Name' },
+        { value: 'last_name', label: 'Last Name' },
+        { value: 'contact_number', label: 'Contact Number' },
+        { value: 'email', label: 'Email' },
+        { value: 'date_of_birth', label: 'Date of Birth' },
+        { value: 'home_address', label: 'Home Address' },
+        { value: 'city', label: 'City' },
+        { value: 'notes', label: 'Notes' },
+        { value: 'customer_type', label: 'Customer Type' },
+        { value: 'lead_source', label: 'Lead Source' },
+        { value: 'date_created', label: 'Sales Date Created' },
+        { value: 'monthly_electric_bill', label: 'Monthly Electric Bill' },
+        { value: 'roof_type', label: 'Roof Type' },
+        { value: 'ownership', label: 'Ownership' },
+        { value: 'project_cost', label: 'Project Cost' },
+        { value: 'return_on_investment', label: 'Return on Investment' },
+        { value: 'assigned_sales', label: 'Assigned Sales' },
+        { value: 'sales_status', label: 'Sales Status' },
+        { value: 'installation_date', label: 'Installation Date' },
+        { value: 'team_assigned', label: 'Technical Team Assigned' },
+        { value: 'system_size_kwh', label: 'System Size KWH' },
+        { value: 'panel_units', label: 'Panel Units' },
+        { value: 'inverter_model', label: 'Inverter Model' },
+        { value: 'battery_model', label: 'Battery Model' },
+        { value: 'net_metering', label: 'Net Metering' },
+        { value: 'net_metering_status', label: 'Net Metering Status' },
+        { value: 'installation_status', label: 'Installation Status' },
+        { value: 'po_number', label: 'PO Number' },
+        { value: 'technical_remarks', label: 'Technical Remarks' }
+    ];
 
     function escapeHtml(value) {
         var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
@@ -1513,7 +1549,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (importPayloadInput) {
             importPayloadInput.value = JSON.stringify({
                 columns: importPreviewState.headersSelectionActive ? (importPreviewState.selectedColumns || []) : (importPreviewState.columns || []),
-                rows: importPreviewState.rows || []
+                rows: importPreviewState.rows || [],
+                column_mappings: importPreviewState.columnMappings || {}
             });
         }
         if (importSubmitBtn) {
@@ -1536,13 +1573,17 @@ document.addEventListener('DOMContentLoaded', function () {
             importPreviewState.page = parsed.page || 1;
             importPreviewState.selectedColumns = Array.isArray(parsed.selectedColumns) ? parsed.selectedColumns : [];
             importPreviewState.headersSelectionActive = !!parsed.headersSelectionActive;
+            importPreviewState.columnMappings = parsed.columnMappings && typeof parsed.columnMappings === 'object' ? parsed.columnMappings : {};
         } catch (error) {
         }
     }
 
     function saveHeadersState() {
         try {
-            sessionStorage.setItem(previewHeadersStorageKey, JSON.stringify(importPreviewState.selectedColumns || []));
+            sessionStorage.setItem(previewHeadersStorageKey, JSON.stringify({
+                selectedColumns: importPreviewState.selectedColumns || [],
+                columnMappings: importPreviewState.columnMappings || {}
+            }));
         } catch (error) {
         }
     }
@@ -1555,6 +1596,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (Array.isArray(parsed)) {
                     importPreviewState.selectedColumns = parsed;
                     importPreviewState.headersSelectionActive = true;
+                } else if (parsed && typeof parsed === 'object') {
+                    importPreviewState.selectedColumns = Array.isArray(parsed.selectedColumns) ? parsed.selectedColumns : [];
+                    importPreviewState.columnMappings = parsed.columnMappings && typeof parsed.columnMappings === 'object' ? parsed.columnMappings : {};
+                    importPreviewState.headersSelectionActive = true;
                 }
             }
         } catch (error) {
@@ -1562,7 +1607,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function clearPreviewState() {
-        importPreviewState = { columns: [], rows: [], page: 1, selectedColumns: [], headersSelectionActive: false };
+        importPreviewState = { columns: [], rows: [], page: 1, selectedColumns: [], headersSelectionActive: false, columnMappings: {} };
         try {
             sessionStorage.removeItem(previewStorageKey);
             sessionStorage.removeItem(previewHeadersStorageKey);
@@ -1593,6 +1638,106 @@ document.addEventListener('DOMContentLoaded', function () {
             return [];
         }
         return Array.from(importInput.files);
+    }
+
+    function ensureImportStatusToast() {
+        if (importStatusToastEl) {
+            return importStatusToastEl;
+        }
+        var host = document.getElementById('appBottomToastContainer');
+        if (!host) {
+            host = document.createElement('div');
+            host.className = 'position-fixed bottom-0 end-0 p-3';
+            host.style.zIndex = '1090';
+            host.setAttribute('aria-live', 'polite');
+            host.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(host);
+        }
+
+        var toast = document.createElement('div');
+        toast.className = 'toast text-bg-dark border-0 d-block';
+        toast.style.display = 'block';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+        toast.setAttribute('aria-atomic', 'true');
+        toast.innerHTML = ''
+            + '<div class="toast-body">'
+            + '  <div class="fw-semibold" id="crmImportToastTitle">Import in progress</div>'
+            + '  <div class="small text-light-emphasis mt-1" id="crmImportToastMessage">Uploading client file. You can continue using other parts of CRM.</div>'
+            + '  <div class="small text-light-emphasis mt-1" id="crmImportToastElapsed">Started just now</div>'
+            + '  <div class="progress mt-2" style="height: 6px;">'
+            + '    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" id="crmImportToastBar" style="width: 100%"></div>'
+            + '  </div>'
+            + '</div>';
+
+        host.appendChild(toast);
+        importStatusToastEl = toast;
+        return importStatusToastEl;
+    }
+
+    function updateImportToastElapsed() {
+        var elapsedEl = document.getElementById('crmImportToastElapsed');
+        if (!elapsedEl || !importStatusStartedAt) {
+            return;
+        }
+        var seconds = Math.max(1, Math.floor((Date.now() - importStatusStartedAt) / 1000));
+        elapsedEl.textContent = 'Running for ' + seconds + 's';
+    }
+
+    function showImportStatusToast() {
+        var toastEl = ensureImportStatusToast();
+        var titleEl = document.getElementById('crmImportToastTitle');
+        var messageEl = document.getElementById('crmImportToastMessage');
+        var elapsedEl = document.getElementById('crmImportToastElapsed');
+        var barEl = document.getElementById('crmImportToastBar');
+
+        if (titleEl) titleEl.textContent = 'Import in progress';
+        if (messageEl) messageEl.textContent = 'Uploading client file. You can continue using other parts of CRM.';
+        if (elapsedEl) elapsedEl.textContent = 'Started just now';
+        if (barEl) {
+            barEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-info';
+            barEl.style.width = '100%';
+        }
+
+        importStatusStartedAt = Date.now();
+        if (importStatusInterval) {
+            window.clearInterval(importStatusInterval);
+        }
+        importStatusInterval = window.setInterval(updateImportToastElapsed, 1000);
+
+        toastEl.classList.add('show');
+        toastEl.classList.add('d-block');
+        toastEl.style.display = 'block';
+    }
+
+    function finishImportStatusToast(ok, message) {
+        var titleEl = document.getElementById('crmImportToastTitle');
+        var messageEl = document.getElementById('crmImportToastMessage');
+        var elapsedEl = document.getElementById('crmImportToastElapsed');
+        var barEl = document.getElementById('crmImportToastBar');
+
+        if (importStatusInterval) {
+            window.clearInterval(importStatusInterval);
+            importStatusInterval = null;
+        }
+        if (titleEl) titleEl.textContent = ok ? 'Import complete' : 'Import failed';
+        if (messageEl) messageEl.textContent = message || (ok ? 'Client records were imported successfully.' : 'Unable to import file.');
+        if (elapsedEl && importStatusStartedAt) {
+            var totalSeconds = Math.max(1, Math.floor((Date.now() - importStatusStartedAt) / 1000));
+            elapsedEl.textContent = 'Finished in ' + totalSeconds + 's';
+        }
+        if (barEl) {
+            barEl.className = 'progress-bar ' + (ok ? 'bg-success' : 'bg-danger');
+            barEl.style.width = '100%';
+        }
+
+        window.setTimeout(function () {
+            if (importStatusToastEl) {
+                importStatusToastEl.classList.remove('show');
+                importStatusToastEl.classList.remove('d-block');
+                importStatusToastEl.style.display = 'none';
+            }
+        }, ok ? 2500 : 5000);
     }
 
     function renderSelectedFilePreview(files) {
@@ -1704,18 +1849,81 @@ document.addEventListener('DOMContentLoaded', function () {
             importHeadersContainer.innerHTML = '<div class="small text-secondary">No detected headers yet. Upload a file to detect headers automatically.</div>';
             return;
         }
+        function normalizeKey(value) {
+            return String(value || '').trim().toLowerCase().replace(/[\s_\-./]+/g, ' ');
+        }
+        var targetByAlias = {
+            'first name': 'first_name',
+            'fname': 'first_name',
+            'last name': 'last_name',
+            'lname': 'last_name',
+            'contact number': 'contact_number',
+            'phone': 'contact_number',
+            'mobile': 'contact_number',
+            'email': 'email',
+            'date of birth': 'date_of_birth',
+            'dob': 'date_of_birth',
+            'home address': 'home_address',
+            'address': 'home_address',
+            'city': 'city',
+            'notes': 'notes',
+            'remarks': 'notes',
+            'customer type': 'customer_type',
+            'lead source': 'lead_source',
+            'date created': 'date_created',
+            'monthly electric bill': 'monthly_electric_bill',
+            'roof type': 'roof_type',
+            'ownership': 'ownership',
+            'project cost': 'project_cost',
+            'return on investment': 'return_on_investment',
+            'assigned sales': 'assigned_sales',
+            'sales status': 'sales_status',
+            'installation date': 'installation_date',
+            'team assigned': 'team_assigned',
+            'system size kwh': 'system_size_kwh',
+            'panel units': 'panel_units',
+            'inverter model': 'inverter_model',
+            'battery model': 'battery_model',
+            'net metering': 'net_metering',
+            'net metering status': 'net_metering_status',
+            'installation status': 'installation_status',
+            'po number': 'po_number',
+            'technical remarks': 'technical_remarks'
+        };
+        function guessTargetField(column) {
+            var normalized = normalizeKey(column);
+            if (Object.prototype.hasOwnProperty.call(targetByAlias, normalized)) {
+                return targetByAlias[normalized];
+            }
+            return '';
+        }
         var selected = importPreviewState.headersSelectionActive
             ? (importPreviewState.selectedColumns || []).slice()
             : columns.slice();
         importPreviewState.selectedColumns = selected;
+        if (!importPreviewState.columnMappings || typeof importPreviewState.columnMappings !== 'object') {
+            importPreviewState.columnMappings = {};
+        }
         var html = '<div class="row g-2">';
         columns.forEach(function (column, index) {
             var checked = selected.indexOf(column) !== -1 ? 'checked' : '';
             var id = 'crmImportHeaderCheck' + index;
-            html += '<div class="col-md-4 col-sm-6">';
-            html += '<div class="form-check">';
+            var mappedValue = importPreviewState.columnMappings[column] || guessTargetField(column);
+            importPreviewState.columnMappings[column] = mappedValue;
+            html += '<div class="col-md-6 col-12">';
+            html += '<div class="border rounded-2 p-2 bg-white">';
+            html += '<div class="form-check mb-2">';
             html += '<input class="form-check-input js-import-header-check" type="checkbox" value="' + escapeHtml(column) + '" id="' + id + '" ' + checked + '>';
-            html += '<label class="form-check-label" for="' + id + '">' + escapeHtml(column) + '</label>';
+            html += '<label class="form-check-label fw-semibold" for="' + id + '">' + escapeHtml(column) + '</label>';
+            html += '</div>';
+            html += '<div class="small text-secondary mb-1">Import to column</div>';
+            html += '<select class="form-select form-select-sm js-import-target-select" data-source-column="' + escapeHtml(column) + '">';
+            html += '<option value="">Do not map</option>';
+            importTargetFieldOptions.forEach(function (target) {
+                var selectedAttr = mappedValue === target.value ? 'selected' : '';
+                html += '<option value="' + escapeHtml(target.value) + '" ' + selectedAttr + '>' + escapeHtml(target.label) + '</option>';
+            });
+            html += '</select>';
             html += '</div></div>';
         });
         html += '</div>';
@@ -1728,6 +1936,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 savePreviewState();
                 saveHeadersState();
                 renderPreviewPage(importPreviewState.page || 1);
+            });
+        });
+        importHeadersContainer.querySelectorAll('.js-import-target-select').forEach(function (select) {
+            select.addEventListener('change', function () {
+                var sourceColumn = select.getAttribute('data-source-column') || '';
+                importPreviewState.columnMappings[sourceColumn] = select.value || '';
+                importPreviewState.headersSelectionActive = true;
+                savePreviewState();
+                saveHeadersState();
             });
         });
     }
@@ -2006,6 +2223,50 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    if (importForm) {
+        importForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            if (isImportSubmitting) {
+                return;
+            }
+
+            isImportSubmitting = true;
+            if (importSubmitBtn) {
+                importSubmitBtn.disabled = true;
+            }
+            showImportStatusToast();
+            if (importModalEl && window.bootstrap) {
+                bootstrap.Modal.getOrCreateInstance(importModalEl).hide();
+            }
+
+            try {
+                var startPayload = await postFormAjax(importForm, { 'X-CRM-Import-Async': '1' });
+                if (!startPayload || !startPayload.job_id) {
+                    throw new Error('Unable to start import job.');
+                }
+                try {
+                    localStorage.setItem(importJobStorageKey, JSON.stringify({
+                        jobId: startPayload.job_id,
+                        startedAt: Date.now()
+                    }));
+                } catch (storageError) {
+                }
+                clearPreviewState();
+                renderPreviewPage(1);
+                if (importInput) {
+                    importInput.value = '';
+                }
+                renderSelectedFilePreview([]);
+                finishImportStatusToast(true, 'Import started in background. You can continue across pages.');
+            } catch (error) {
+                finishImportStatusToast(false, error.message || 'Import failed.');
+            } finally {
+                isImportSubmitting = false;
+                savePreviewState();
+            }
+        });
+    }
+
     if (clearPreviewBtn) {
         clearPreviewBtn.addEventListener('click', function () {
             clearPreviewState();
@@ -2020,6 +2281,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var importModalEl = document.getElementById('crmImportModal');
     if (importModalEl) {
         importModalEl.addEventListener('hidden.bs.modal', function () {
+            if (isImportSubmitting) {
+                return;
+            }
             clearPreviewState();
             renderPreviewPage(1);
             if (importInput) {
@@ -2031,6 +2295,34 @@ document.addEventListener('DOMContentLoaded', function () {
 
     window.addEventListener('beforeunload', function () {
         clearPreviewState();
+    });
+
+    window.addEventListener('crm-import-status', function (event) {
+        var detail = event && event.detail ? event.detail : {};
+        var status = String(detail.status || '').toLowerCase();
+        var pageRoot = document.getElementById('crmClientsListRoot');
+        if (!pageRoot) {
+            return;
+        }
+        if (status === 'queued' || status === 'running') {
+            if (!crmLiveImportRefreshTimer) {
+                crmLiveImportRefreshTimer = window.setInterval(function () {
+                    refreshClientsListRootSafely();
+                }, 2500);
+            }
+            var now = Date.now();
+            if (!crmLiveImportLastRefreshAt || (now - crmLiveImportLastRefreshAt) > 1500) {
+                refreshClientsListRootSafely();
+            }
+            return;
+        }
+        if (crmLiveImportRefreshTimer) {
+            window.clearInterval(crmLiveImportRefreshTimer);
+            crmLiveImportRefreshTimer = null;
+        }
+        if (status === 'completed') {
+            refreshClientsListRootSafely();
+        }
     });
 
     renderHeaderSelection();

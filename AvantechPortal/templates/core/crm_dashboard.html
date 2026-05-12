@@ -6,10 +6,30 @@
 
 {% block content %}
 <div class="row g-3 mb-3">
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New Today</div><div class="display-6 fw-bold">{{ new_today }}</div></div></div></div>
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New This Week</div><div class="display-6 fw-bold">{{ new_week }}</div></div></div></div>
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New This Month</div><div class="display-6 fw-bold">{{ new_month }}</div></div></div></div>
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">New This Year</div><div class="display-6 fw-bold">{{ new_year }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Total Leads</div><div class="display-6 fw-bold">{{ total_leads }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Active Sales Pipeline</div><div class="display-6 fw-bold">{{ active_sales_pipeline }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Closed Won Sales</div><div class="display-6 fw-bold">{{ closed_won_sales }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Technical Active Jobs</div><div class="display-6 fw-bold">{{ technical_active_jobs }}</div></div></div></div>
+</div>
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="small text-secondary">Monthly Milestone</div><div class="display-6 fw-bold">{{ monthly_milestone_pct }}%</div><div class="small text-secondary">Quota: {{ monthly_quota_display }}</div></div></div></div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                    <div class="small text-secondary mb-0">Quota Progress</div>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Quota range">
+                        <button type="button" class="btn btn-outline-success active js-quota-mode" data-mode="monthly">Monthly</button>
+                        <button type="button" class="btn btn-outline-success js-quota-mode" data-mode="quarterly">Quarterly</button>
+                        <button type="button" class="btn btn-outline-success js-quota-mode" data-mode="yearly">Yearly</button>
+                    </div>
+                </div>
+                <div class="display-6 fw-bold" id="crmQuotaRevenue">{{ monthly_revenue_display }}</div>
+                <div class="small text-secondary" id="crmQuotaTarget">Target: {{ monthly_quota_display }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="small text-secondary">Total Revenue</div><div class="display-6 fw-bold">{{ total_revenue_display }}</div><div class="small text-secondary">Closed-won sales only</div></div></div></div>
 </div>
 
 <div class="row g-3">
@@ -34,7 +54,13 @@
     <div class="col-xl-7">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
-                <h2 class="h5 mb-2">Philippines Client Geography (Municipality)</h2>
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                    <h2 class="h5 mb-0">Philippines Client Geography (Municipality)</h2>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Map style">
+                        <button type="button" class="btn btn-outline-primary active js-ph-map-style" data-map-style="vector">Vector</button>
+                        <button type="button" class="btn btn-outline-primary js-ph-map-style" data-map-style="realistic">Realistic</button>
+                    </div>
+                </div>
                 <p class="small text-secondary mb-2">Hover a pin to view municipality and client names.</p>
                 <div class="ph-map-wrap" id="phMapWrap">
                     <div id="phVectorMap" class="ph-vector-map"></div>
@@ -54,6 +80,7 @@
 .crm-chart-wrap canvas { width: 100% !important; height: 100% !important; display: block; }
 .js-crm-report-mode { cursor: pointer; }
 .ph-map-wrap { position: relative; border: 1px solid #1f4ea6; border-radius: 14px; overflow: hidden; min-height: 560px; background: linear-gradient(135deg, #08205a 0%, #0c3c8f 100%); }
+.ph-map-wrap.is-realistic { background: #0d1d38; }
 .ph-vector-map { width: 100%; height: 560px; min-height: 560px; }
 .leaflet-container { background: transparent !important; }
 .leaflet-popup-content-wrapper { border-radius: 10px; }
@@ -123,6 +150,31 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     applyReportMode('today');
 
+    var quotaRevenueEl = document.getElementById('crmQuotaRevenue');
+    var quotaTargetEl = document.getElementById('crmQuotaTarget');
+    var quotaModeButtons = Array.from(document.querySelectorAll('.js-quota-mode'));
+    var quotaPayload = {
+        monthly: { revenue: '{{ monthly_revenue_display|escapejs }}', target: '{{ monthly_quota_display|escapejs }}' },
+        quarterly: { revenue: '{{ quarterly_revenue_display|escapejs }}', target: '{{ quarterly_quota_display|escapejs }}' },
+        yearly: { revenue: '{{ annual_revenue_display|escapejs }}', target: '{{ annual_quota_display|escapejs }}' }
+    };
+    function applyQuotaMode(mode) {
+        var resolvedMode = quotaPayload[mode] ? mode : 'monthly';
+        var payload = quotaPayload[resolvedMode];
+        if (quotaRevenueEl) quotaRevenueEl.textContent = payload.revenue;
+        if (quotaTargetEl) quotaTargetEl.textContent = 'Target: ' + payload.target;
+        quotaModeButtons.forEach(function (btn) {
+            btn.classList.toggle('active', (btn.getAttribute('data-mode') || '') === resolvedMode);
+        });
+    }
+    quotaModeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            applyQuotaMode(btn.getAttribute('data-mode') || 'monthly');
+        });
+    });
+    applyQuotaMode('monthly');
+
     var pinsNode = document.getElementById('crm-map-pins');
     var pinsData = parseNodeJson(pinsNode, []);
     var mapEl = document.getElementById('phVectorMap');
@@ -150,6 +202,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var provinceCounts = {};
     var provincesLayer = null;
     var pinMarkersLayer = L.layerGroup();
+    var mapStyleButtons = Array.from(document.querySelectorAll('.js-ph-map-style'));
+    var mapWrap = document.getElementById('phMapWrap');
+    var currentMapStyle = 'vector';
     function rebuildProvinceCounts(currentPins) {
         provinceCounts = {};
         (currentPins || []).forEach(function (pin) {
@@ -176,6 +231,11 @@ document.addEventListener('DOMContentLoaded', function () {
         return '#2b57ad';
     }
 
+    var realisticBaseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18,
+        attribution: 'Tiles &copy; Esri'
+    });
+
     function renderPins(currentPins) {
         pinMarkersLayer.clearLayers();
         (currentPins || []).forEach(function (pin) {
@@ -198,6 +258,31 @@ document.addEventListener('DOMContentLoaded', function () {
         if (provincesLayer) provincesLayer.setStyle(provincesLayer.options.style);
     }
 
+    function syncMapStyleButtons(styleName) {
+        mapStyleButtons.forEach(function (button) {
+            button.classList.toggle('active', (button.getAttribute('data-map-style') || '') === styleName);
+        });
+    }
+    function applyMapStyle(styleName) {
+        currentMapStyle = (styleName === 'realistic') ? 'realistic' : 'vector';
+        syncMapStyleButtons(currentMapStyle);
+        if (mapWrap) {
+            mapWrap.classList.toggle('is-realistic', currentMapStyle === 'realistic');
+        }
+        if (currentMapStyle === 'realistic') {
+            if (!map.hasLayer(realisticBaseLayer)) realisticBaseLayer.addTo(map);
+        } else if (map.hasLayer(realisticBaseLayer)) {
+            map.removeLayer(realisticBaseLayer);
+        }
+        if (provincesLayer) provincesLayer.setStyle(provincesLayer.options.style);
+    }
+    mapStyleButtons.forEach(function (button) {
+        button.addEventListener('click', function (event) {
+            event.preventDefault();
+            applyMapStyle(button.getAttribute('data-map-style') || 'vector');
+        });
+    });
+
     fetch("{% static 'data/ph-provinces.min.geojson' %}")
         .then(function (res) { return res.json(); })
         .then(function (geojson) {
@@ -208,9 +293,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     var count = provinceCounts[provinceName] || 0;
                     return {
                         color: '#d8e8ff',
-                        weight: 1,
+                        weight: currentMapStyle === 'realistic' ? 1.2 : 1,
                         fillColor: provinceColor(count),
-                        fillOpacity: 0.88
+                        fillOpacity: currentMapStyle === 'realistic' ? 0.3 : 0.88
                     };
                 },
                 onEachFeature: function (feature, layer) {
@@ -225,6 +310,7 @@ document.addEventListener('DOMContentLoaded', function () {
             map.fitBounds(provincesLayer.getBounds(), { padding: [10, 10] });
             pinMarkersLayer.addTo(map);
             renderPins(pinsData);
+            applyMapStyle('vector');
 
             var mapPinsUrl = "{% url 'crm_dashboard_map_pins' %}";
             window.setInterval(function () {

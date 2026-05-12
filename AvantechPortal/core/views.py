@@ -1,5 +1,6 @@
 from datetime import timedelta, datetime
 from decimal import Decimal, InvalidOperation
+from concurrent.futures import ThreadPoolExecutor
 import base64
 import csv
 import json
@@ -150,6 +151,9 @@ from .models import (
 	ManagedFilePermission,
 	ManagedUserStorageQuota,
 	FileStorageEndpoint,
+	FormSection,
+	FormSubsection,
+	FormUpload,
 	Notification,
 	PatchNote,
 	PatchNoteAttachment,
@@ -727,12 +731,22 @@ def crm_dashboard(request):
 			)
 		return map_pins
 
+	def _format_currency(value):
+		try:
+			return f'P {Decimal(value or 0):,.2f}'
+		except Exception:
+			return 'P 0.00'
+
 	clients_qs = _get_clients_queryset_for_dashboard(request.user)
+	sales_qs = CRMSalesRecord.objects.filter(client__in=clients_qs).distinct()
+	technical_qs = CRMTechnicalRecord.objects.filter(sales_record__client__in=clients_qs).distinct()
 
 	today = timezone.localdate()
 	week_start = today - timedelta(days=today.weekday())
 	month_start = today.replace(day=1)
 	year_start = today.replace(month=1, day=1)
+	quarter_start_month = ((today.month - 1) // 3) * 3 + 1
+	quarter_start = today.replace(month=quarter_start_month, day=1)
 
 	new_today = clients_qs.filter(created_at__date=today).count()
 	new_week = clients_qs.filter(created_at__date__gte=week_start).count()
@@ -779,8 +793,53 @@ def crm_dashboard(request):
 
 	map_pins = _build_map_pins(clients_qs)
 
+	total_leads = clients_qs.count()
+	active_sales_pipeline = sales_qs.exclude(
+		Q(sales_status__iexact='close won')
+		| Q(sales_status__iexact='closed won')
+		| Q(sales_status__iexact='close lost')
+		| Q(sales_status__iexact='closed lost')
+	).count()
+	closed_won_sales_qs = sales_qs.filter(
+		Q(sales_status__iexact='close won') | Q(sales_status__iexact='closed won')
+	)
+	closed_won_sales = closed_won_sales_qs.count()
+	technical_active_jobs = technical_qs.filter(
+		Q(installation_status__iexact='scheduled')
+		| Q(installation_status__iexact='ongoing')
+		| Q(installation_status__iexact='rescheduled')
+		| Q(installation_status__iexact='back jobs')
+	).count()
+	monthly_quota = Decimal('5000000')
+	quarterly_quota = monthly_quota * Decimal('3')
+	annual_quota = monthly_quota * Decimal('12')
+	monthly_revenue = sales_qs.filter(created_at__date__gte=month_start).aggregate(total=Sum('project_cost')).get('total') or Decimal('0')
+	quarterly_revenue = sales_qs.filter(created_at__date__gte=quarter_start).aggregate(total=Sum('project_cost')).get('total') or Decimal('0')
+	annual_revenue = sales_qs.filter(created_at__date__gte=year_start).aggregate(total=Sum('project_cost')).get('total') or Decimal('0')
+	total_revenue = sales_qs.aggregate(total=Sum('project_cost')).get('total') or Decimal('0')
+	monthly_milestone_pct = int((monthly_revenue / monthly_quota) * 100) if monthly_quota else 0
+
 	context = {
-		'total_clients': clients_qs.count(),
+		'total_clients': total_leads,
+		'total_leads': total_leads,
+		'active_sales_pipeline': active_sales_pipeline,
+		'closed_won_sales': closed_won_sales,
+		'technical_active_jobs': technical_active_jobs,
+		'monthly_milestone_pct': monthly_milestone_pct,
+		'monthly_revenue': monthly_revenue,
+		'quarterly_revenue': quarterly_revenue,
+		'annual_revenue': annual_revenue,
+		'total_revenue': total_revenue,
+		'monthly_quota': monthly_quota,
+		'quarterly_quota': quarterly_quota,
+		'annual_quota': annual_quota,
+		'monthly_quota_display': _format_currency(monthly_quota),
+		'monthly_revenue_display': _format_currency(monthly_revenue),
+		'quarterly_quota_display': _format_currency(quarterly_quota),
+		'annual_quota_display': _format_currency(annual_quota),
+		'quarterly_revenue_display': _format_currency(quarterly_revenue),
+		'annual_revenue_display': _format_currency(annual_revenue),
+		'total_revenue_display': _format_currency(total_revenue),
 		# Dashboard counters are based on the CRM clients dataset itself.
 		'new_leads': new_month,
 		'converted_clients': new_year,
@@ -905,6 +964,282 @@ def crm_dashboard_map_pins(request):
 	return JsonResponse({'pins': map_pins})
 
 
+_CRM_IMPORT_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_CRM_IMPORT_JOB_TIMEOUT_SECONDS = 60 * 60 * 2
+
+
+def _crm_import_job_cache_key(job_id):
+	return f'crm_clients_import_job:{job_id}'
+
+
+def _crm_import_job_get(job_id):
+	return cache.get(_crm_import_job_cache_key(job_id))
+
+
+def _crm_import_job_set(job_id, payload):
+	cache.set(_crm_import_job_cache_key(job_id), payload, timeout=_CRM_IMPORT_JOB_TIMEOUT_SECONDS)
+
+
+def _process_crm_import_payload(rows, columns, user, column_mappings=None):
+	def _key(value):
+		return str(value or '').strip().lower().replace(' ', '_')
+	column_mappings = column_mappings if isinstance(column_mappings, dict) else {}
+
+	normalized_columns = {_key(col) for col in columns}
+	required_client_headers = {
+		'last_name',
+		'first_name',
+	}
+	missing_headers = sorted(required_client_headers - normalized_columns)
+	if missing_headers:
+		raise ValueError(f'Invalid headers. Missing required client headers: {", ".join(missing_headers)}.')
+
+	type_map = {
+		'residential': 'residential',
+		'commercial': 'commercial',
+		'industrial': 'industrial',
+	}
+	lead_source_allowed = {'facebook ads', 'referral', 'walkin', 'website', 'developer', 'event', 'telemarketing'}
+	ownership_allowed = {'owner', 'tenant'}
+	sales_status_allowed = {'new', 'contacted', 'for survey', 'forproposal', 'negotiation', 'close won', 'close lost', 'closed won', 'closed lost'}
+
+	def _norm_text(value):
+		return str(value or '').strip().lower()
+
+	def _find_existing_client(*, customer_id, first_name, last_name):
+		if customer_id:
+			match = CRMClient.objects.filter(customer_id=customer_id).first()
+			if match:
+				return match
+		if first_name and last_name:
+			match = CRMClient.objects.filter(
+				first_name__iexact=first_name,
+				last_name__iexact=last_name,
+			).first()
+			if match:
+				return match
+		return None
+
+	def _pick(item, *names):
+		for name in names:
+			value = item.get(name)
+			if value is not None and str(value).strip() != '':
+				return str(value).strip()
+		return ''
+
+	def _money(raw):
+		text = str(raw or '').strip().replace(',', '').replace(' ', '')
+		if not text:
+			return None
+		try:
+			return Decimal(text)
+		except Exception:
+			return None
+
+	created_count = 0
+	skipped_count = 0
+	sales_created_count = 0
+	seen_import_keys = set()
+	skipped_duplicate_labels = []
+	for item in rows:
+		if not isinstance(item, dict):
+			skipped_count += 1
+			continue
+
+		normalized = {}
+		for k, v in item.items():
+			source_label = str(k or '').strip()
+			if not source_label:
+				continue
+			target_key = _key(column_mappings.get(source_label) or source_label)
+			if not target_key:
+				continue
+			normalized[target_key] = v if v is not None else ''
+		customer_id = ''
+		first_name = str(normalized.get('first_name', '')).strip()
+		last_name = str(normalized.get('last_name', '')).strip()
+		contact_number = str(normalized.get('contact_number', '')).strip()
+		email = str(normalized.get('email', '')).strip()
+		date_of_birth_raw = str(normalized.get('date_of_birth', '') or normalized.get('dob', '')).strip()
+		home_address = str(normalized.get('home_address', '')).strip()
+		city = str(normalized.get('city', '')).strip()
+		notes = str(
+			normalized.get('notes', '')
+			or normalized.get('note', '')
+			or normalized.get('comment', '')
+			or normalized.get('remarks', '')
+		).strip()
+		customer_type_raw = str(normalized.get('customer_type', '')).strip().lower()
+		customer_type = type_map.get(customer_type_raw, 'residential')
+		date_of_birth = parse_date(date_of_birth_raw) if date_of_birth_raw else None
+
+		if first_name and last_name:
+			dedupe_key = (_norm_text(first_name), _norm_text(last_name))
+			duplicate_label = f'{last_name}, {first_name}'
+			if dedupe_key in seen_import_keys:
+				skipped_count += 1
+				skipped_duplicate_labels.append(f'{duplicate_label} (duplicate in import file)')
+				continue
+			seen_import_keys.add(dedupe_key)
+
+			existing_client = _find_existing_client(
+				customer_id=customer_id,
+				first_name=first_name,
+				last_name=last_name,
+			)
+			if existing_client:
+				skipped_count += 1
+				skipped_duplicate_labels.append(f'{duplicate_label} (already exists)')
+				continue
+
+		record = CRMClient(
+			customer_id=customer_id,
+			first_name=first_name,
+			last_name=last_name,
+			contact_number=contact_number,
+			email=email,
+			date_of_birth=date_of_birth,
+			home_address=home_address,
+			city=city,
+			notes=notes,
+			customer_type=customer_type,
+			created_by=user,
+		)
+		_sync_client_geolocation(record)
+		if not customer_id:
+			record.customer_id = ''
+		record.save()
+		created_count += 1
+
+		lead_source_raw = _pick(normalized, 'lead_source').lower()
+		ownership_raw = _pick(normalized, 'ownership').lower()
+		sales_status_raw = _pick(normalized, 'sales_status').lower()
+		lead_source = lead_source_raw if lead_source_raw in lead_source_allowed else ''
+		ownership = ownership_raw if ownership_raw in ownership_allowed else ''
+		sales_status = sales_status_raw if sales_status_raw in sales_status_allowed else ''
+		sales_date = parse_date(_pick(normalized, 'date_created'))
+		monthly_electric_bill = _money(_pick(normalized, 'monthly_electric_bill'))
+		project_cost = _money(_pick(normalized, 'project_cost'))
+		roof_type = _pick(normalized, 'roof_type')
+		return_on_investment = _pick(normalized, 'return_on_investment')
+		assigned_sales = _pick(normalized, 'assigned_sales')
+		installation_date = parse_date(_pick(normalized, 'installation_date', 'installation-date'))
+		team_assigned = _pick(normalized, 'team_assigned', 'team-assigned')
+		system_size_kwh = _pick(normalized, 'system_size_kwh', 'system-size-kwh', 'system_size_kwp', 'system_size')
+		panel_units = _pick(normalized, 'panel_units', 'panel-units')
+		inverter_model = _pick(normalized, 'inverter_model', 'inverter-model')
+		battery_model = _pick(normalized, 'battery_model', 'battery-model')
+		net_metering = _pick(normalized, 'net_metering', 'net-metering', 'netmetering')
+		net_metering_status = _pick(normalized, 'net_metering_status', 'net-metering status', 'net metering status')
+		installation_status = _pick(normalized, 'installation_status', 'installation-status')
+		po_number = _pick(normalized, 'po_number', 'po-number', 'po', 'po#')
+		technical_remarks = _pick(normalized, 'technical_remarks', 'technical-remarks', 'remarks')
+
+		has_sales_values = any(
+			[
+				sales_date,
+				lead_source,
+				monthly_electric_bill is not None,
+				roof_type,
+				ownership,
+				project_cost is not None,
+				return_on_investment,
+				assigned_sales,
+				sales_status,
+			]
+		)
+		if has_sales_values:
+			sales_record = CRMSalesRecord.objects.create(
+				client=record,
+				date_created=sales_date,
+				lead_source=lead_source,
+				monthly_electric_bill=monthly_electric_bill,
+				roof_type=roof_type,
+				ownership=ownership,
+				project_cost=project_cost,
+				return_on_investment=return_on_investment,
+				assigned_sales=assigned_sales,
+				sales_status=sales_status,
+				created_by=user,
+			)
+		else:
+			sales_record = CRMSalesRecord.objects.create(client=record, created_by=user)
+		has_technical_values = any(
+			[
+				installation_date,
+				team_assigned,
+				system_size_kwh,
+				panel_units,
+				inverter_model,
+				battery_model,
+				net_metering,
+				net_metering_status,
+				installation_status,
+				po_number,
+				technical_remarks,
+			]
+		)
+		if has_technical_values:
+			CRMTechnicalRecord.objects.create(
+				sales_record=sales_record,
+				installation_date=installation_date,
+				team_assigned=team_assigned,
+				system_size_kwh=system_size_kwh,
+				panel_units=panel_units,
+				inverter_model=inverter_model,
+				battery_model=battery_model,
+				net_metering=net_metering,
+				net_metering_status=net_metering_status,
+				installation_status=installation_status,
+				po_number=po_number,
+				remarks=technical_remarks,
+				created_by=user,
+			)
+		else:
+			CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': user})
+		sales_created_count += 1
+
+	return {
+		'created_count': created_count,
+		'sales_created_count': sales_created_count,
+		'skipped_count': skipped_count,
+		'skipped_duplicate_labels': skipped_duplicate_labels,
+		'message': f'Imported {created_count} client row(s), created {sales_created_count} sales row(s), skipped {skipped_count} row(s).',
+	}
+
+
+def _run_crm_import_job(job_id, rows, columns, column_mappings, user_id):
+	_crm_import_job_set(
+		job_id,
+		{
+			'job_id': job_id,
+			'status': 'running',
+			'started_at': timezone.now().isoformat(),
+		},
+	)
+	try:
+		user = User.objects.get(pk=user_id)
+		result = _process_crm_import_payload(rows, columns, user, column_mappings=column_mappings)
+		payload = {
+			'job_id': job_id,
+			'status': 'completed',
+			'finished_at': timezone.now().isoformat(),
+			'ok': True,
+		}
+		payload.update(result)
+		_crm_import_job_set(job_id, payload)
+	except Exception as exc:
+		_crm_import_job_set(
+			job_id,
+			{
+				'job_id': job_id,
+				'status': 'failed',
+				'finished_at': timezone.now().isoformat(),
+				'ok': False,
+				'message': str(exc) or 'Import job failed.',
+			},
+		)
+
 @login_required
 def crm_clients(request):
 	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['clients']):
@@ -925,6 +1260,12 @@ def crm_clients(request):
 	sort_dir = (request.GET.get('dir') or 'desc').strip().lower()
 	if sort_dir not in {'asc', 'desc'}:
 		sort_dir = 'desc'
+	import_job_id = (request.GET.get('import_job_id') or '').strip()
+	if request.method == 'GET' and is_ajax and import_job_id:
+		job_state = _crm_import_job_get(import_job_id)
+		if not job_state:
+			return JsonResponse({'ok': False, 'status': 'not_found', 'message': 'Import job not found.'}, status=404)
+		return JsonResponse({'ok': True, **job_state})
 
 	form = CRMClientForm(require_email_dob=True)
 	if request.method == 'POST':
@@ -980,6 +1321,7 @@ def crm_clients(request):
 
 			columns = payload.get('columns') if isinstance(payload, dict) else None
 			rows = payload.get('rows') if isinstance(payload, dict) else None
+			column_mappings = payload.get('column_mappings') if isinstance(payload, dict) else None
 			if not isinstance(rows, list) or not rows:
 				message = 'No rows available to import.'
 				messages.warning(request, message)
@@ -993,223 +1335,42 @@ def crm_clients(request):
 					return JsonResponse({'ok': False, 'message': message}, status=400)
 				return redirect('crm_clients')
 
-			def _key(value):
-				return str(value or '').strip().lower().replace(' ', '_')
-			normalized_columns = {_key(col) for col in columns}
-			required_client_headers = {
-				'last_name',
-				'first_name',
-			}
-			missing_headers = sorted(required_client_headers - normalized_columns)
-			if missing_headers:
-				message = f'Invalid headers. Missing required client headers: {", ".join(missing_headers)}.'
+			if is_ajax and request.headers.get('X-CRM-Import-Async') == '1':
+				job_id = uuid.uuid4().hex
+				_crm_import_job_set(
+					job_id,
+					{
+						'job_id': job_id,
+						'status': 'queued',
+						'ok': True,
+						'queued_at': timezone.now().isoformat(),
+					},
+				)
+				_CRM_IMPORT_EXECUTOR.submit(_run_crm_import_job, job_id, rows, columns, column_mappings, request.user.id)
+				return JsonResponse(
+					{
+						'ok': True,
+						'started': True,
+						'job_id': job_id,
+						'message': 'Import started in background.',
+					}
+				)
+
+			try:
+				result = _process_crm_import_payload(rows, columns, request.user, column_mappings=column_mappings)
+			except ValueError as error:
+				message = str(error) or 'Invalid import payload.'
 				messages.error(request, message)
 				if is_ajax:
 					return JsonResponse({'ok': False, 'message': message}, status=400)
 				return redirect('crm_clients')
 
-			type_map = {
-				'residential': 'residential',
-				'commercial': 'commercial',
-				'industrial': 'industrial',
-			}
-			lead_source_allowed = {'facebook ads', 'referral', 'walkin', 'website', 'developer', 'event', 'telemarketing'}
-			ownership_allowed = {'owner', 'tenant'}
-			sales_status_allowed = {'new', 'contacted', 'for survey', 'forproposal', 'negotiation', 'close won', 'close lost', 'closed won', 'closed lost'}
-
-			def _norm_text(value):
-				return str(value or '').strip().lower()
-
-			def _find_existing_client(*, customer_id, first_name, last_name):
-				if customer_id:
-					match = CRMClient.objects.filter(customer_id=customer_id).first()
-					if match:
-						return match
-				if first_name and last_name:
-					match = CRMClient.objects.filter(
-						first_name__iexact=first_name,
-						last_name__iexact=last_name,
-					).first()
-					if match:
-						return match
-				return None
-
-			def _pick(item, *names):
-				for name in names:
-					value = item.get(name)
-					if value is not None and str(value).strip() != '':
-						return str(value).strip()
-				return ''
-
-			def _money(raw):
-				text = str(raw or '').strip().replace(',', '').replace(' ', '')
-				if not text:
-					return None
-				try:
-					return Decimal(text)
-				except Exception:
-					return None
-
-			created_count = 0
-			skipped_count = 0
-			sales_created_count = 0
-			seen_import_keys = set()
-			skipped_duplicate_labels = []
-			for item in rows:
-				if not isinstance(item, dict):
-					skipped_count += 1
-					continue
-
-				normalized = {_key(k): (v if v is not None else '') for k, v in item.items()}
-				# Always auto-generate CRM customer_id from model save().
-				customer_id = ''
-				first_name = str(normalized.get('first_name', '')).strip()
-				last_name = str(normalized.get('last_name', '')).strip()
-				contact_number = str(normalized.get('contact_number', '')).strip()
-				email = str(normalized.get('email', '')).strip()
-				date_of_birth_raw = str(normalized.get('date_of_birth', '') or normalized.get('dob', '')).strip()
-				home_address = str(normalized.get('home_address', '')).strip()
-				city = str(normalized.get('city', '')).strip()
-				notes = str(
-					normalized.get('notes', '')
-					or normalized.get('note', '')
-					or normalized.get('comment', '')
-					or normalized.get('remarks', '')
-				).strip()
-				customer_type_raw = str(normalized.get('customer_type', '')).strip().lower()
-				customer_type = type_map.get(customer_type_raw, 'residential')
-				date_of_birth = parse_date(date_of_birth_raw) if date_of_birth_raw else None
-
-				if first_name and last_name:
-					dedupe_key = (
-						_norm_text(first_name),
-						_norm_text(last_name),
-					)
-					duplicate_label = f'{last_name}, {first_name}'
-					if dedupe_key in seen_import_keys:
-						skipped_count += 1
-						skipped_duplicate_labels.append(f'{duplicate_label} (duplicate in import file)')
-						continue
-					seen_import_keys.add(dedupe_key)
-
-					existing_client = _find_existing_client(
-						customer_id=customer_id,
-						first_name=first_name,
-						last_name=last_name,
-					)
-					if existing_client:
-						skipped_count += 1
-						skipped_duplicate_labels.append(f'{duplicate_label} (already exists)')
-						continue
-
-				record = CRMClient(
-					customer_id=customer_id,
-					first_name=first_name,
-					last_name=last_name,
-					contact_number=contact_number,
-					email=email,
-					date_of_birth=date_of_birth,
-					home_address=home_address,
-					city=city,
-					notes=notes,
-					customer_type=customer_type,
-					created_by=request.user,
-				)
-				_sync_client_geolocation(record)
-				# Let model auto-generate when customer_id is empty.
-				if not customer_id:
-					record.customer_id = ''
-				record.save()
-				created_count += 1
-
-				lead_source_raw = _pick(normalized, 'lead_source').lower()
-				ownership_raw = _pick(normalized, 'ownership').lower()
-				sales_status_raw = _pick(normalized, 'sales_status').lower()
-				lead_source = lead_source_raw if lead_source_raw in lead_source_allowed else ''
-				ownership = ownership_raw if ownership_raw in ownership_allowed else ''
-				sales_status = sales_status_raw if sales_status_raw in sales_status_allowed else ''
-				sales_date = parse_date(_pick(normalized, 'date_created'))
-				monthly_electric_bill = _money(_pick(normalized, 'monthly_electric_bill'))
-				project_cost = _money(_pick(normalized, 'project_cost'))
-				roof_type = _pick(normalized, 'roof_type')
-				return_on_investment = _pick(normalized, 'return_on_investment')
-				assigned_sales = _pick(normalized, 'assigned_sales')
-				installation_date = parse_date(_pick(normalized, 'installation_date', 'installation-date'))
-				team_assigned = _pick(normalized, 'team_assigned', 'team-assigned')
-				system_size_kwh = _pick(normalized, 'system_size_kwh', 'system-size-kwh', 'system_size_kwp', 'system_size')
-				panel_units = _pick(normalized, 'panel_units', 'panel-units')
-				inverter_model = _pick(normalized, 'inverter_model', 'inverter-model')
-				battery_model = _pick(normalized, 'battery_model', 'battery-model')
-				net_metering = _pick(normalized, 'net_metering', 'net-metering', 'netmetering')
-				installation_status = _pick(normalized, 'installation_status', 'installation-status')
-				po_number = _pick(normalized, 'po_number', 'po-number', 'po', 'po#')
-				technical_remarks = _pick(normalized, 'technical_remarks', 'technical-remarks', 'remarks')
-
-				has_sales_values = any(
-					[
-						sales_date,
-						lead_source,
-						monthly_electric_bill is not None,
-						roof_type,
-						ownership,
-						project_cost is not None,
-						return_on_investment,
-						assigned_sales,
-						sales_status,
-					]
-				)
-				if has_sales_values:
-					sales_record = CRMSalesRecord.objects.create(
-						client=record,
-						date_created=sales_date,
-						lead_source=lead_source,
-						monthly_electric_bill=monthly_electric_bill,
-						roof_type=roof_type,
-						ownership=ownership,
-						project_cost=project_cost,
-						return_on_investment=return_on_investment,
-						assigned_sales=assigned_sales,
-						sales_status=sales_status,
-						created_by=request.user,
-					)
-				else:
-					sales_record = CRMSalesRecord.objects.create(client=record, created_by=request.user)
-				has_technical_values = any(
-					[
-						installation_date,
-						team_assigned,
-						system_size_kwh,
-						panel_units,
-						inverter_model,
-						battery_model,
-						net_metering,
-						installation_status,
-						po_number,
-						technical_remarks,
-					]
-				)
-				if has_technical_values:
-					CRMTechnicalRecord.objects.create(
-						sales_record=sales_record,
-						installation_date=installation_date,
-						team_assigned=team_assigned,
-						system_size_kwh=system_size_kwh,
-						panel_units=panel_units,
-						inverter_model=inverter_model,
-						battery_model=battery_model,
-						net_metering=net_metering,
-						installation_status=installation_status,
-						po_number=po_number,
-						remarks=technical_remarks,
-						created_by=request.user,
-					)
-				else:
-					CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
-				sales_created_count += 1
-
+			created_count = result['created_count']
+			skipped_count = result['skipped_count']
+			sales_created_count = result['sales_created_count']
+			skipped_duplicate_labels = result['skipped_duplicate_labels']
 			if created_count:
-				success_message = f'Imported {created_count} CRM client record(s).'
-				messages.success(request, success_message, extra_tags='toast')
+				messages.success(request, f'Imported {created_count} CRM client record(s).', extra_tags='toast')
 			if sales_created_count:
 				messages.success(request, f'Created {sales_created_count} linked CRM sales record(s).', extra_tags='toast')
 			if skipped_count:
@@ -1221,18 +1382,9 @@ def crm_clients(request):
 					warn_message = f'{warn_message} Duplicates: {details}.'
 				messages.warning(request, warn_message, extra_tags='toast')
 			if not created_count and not skipped_count:
-				info_message = 'No rows were processed.'
-				messages.info(request, info_message, extra_tags='toast')
+				messages.info(request, 'No rows were processed.', extra_tags='toast')
 			if is_ajax:
-				return JsonResponse(
-					{
-						'ok': True,
-						'created_count': created_count,
-						'sales_created_count': sales_created_count,
-						'skipped_count': skipped_count,
-						'message': f'Imported {created_count} client row(s), created {sales_created_count} sales row(s), skipped {skipped_count} row(s).',
-					}
-				)
+				return JsonResponse({'ok': True, **result})
 			return redirect('crm_clients')
 		else:
 			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.add_client'):
@@ -2108,11 +2260,105 @@ def crm_technicals(request):
 				messages.success(request, 'Installation schedule updated successfully.', extra_tags='toast')
 			return redirect('crm_technicals')
 
+		if form_action == 'update_technical_info':
+			sales_record_id = (request.POST.get('sales_record_id') or '').strip()
+			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
+			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+			previous_installation_date = tech_record.installation_date
+			previous_installation_time = tech_record.installation_time
+			previous_team_assigned = tech_record.team_assigned or ''
+			previous_status = tech_record.installation_status or ''
+			previous_remarks = tech_record.remarks or ''
+
+			installation_date = parse_date((request.POST.get('installation_date') or '').strip())
+			team_assigned = (request.POST.get('team_assigned') or '').strip()
+			system_size_kwh = (request.POST.get('system_size_kwh') or '').strip()
+			panel_units = (request.POST.get('panel_units') or '').strip()
+			inverter_model = (request.POST.get('inverter_model') or '').strip()
+			battery_model = (request.POST.get('battery_model') or '').strip()
+			net_metering = (request.POST.get('net_metering') or '').strip()
+			net_metering_status_raw = (request.POST.get('net_metering_status') or '').strip()
+			allowed_net_metering_statuses = {'WITH NET-METERING', 'WITHOUT NET-METERING'}
+			net_metering_status = net_metering_status_raw if net_metering_status_raw in allowed_net_metering_statuses else ''
+			installation_status_raw = (request.POST.get('installation_status') or '').strip().lower()
+			po_number = (request.POST.get('po_number') or '').strip()
+			remarks = (request.POST.get('remarks') or '').strip()
+			if installation_status_raw == 'backjob':
+				installation_status_raw = 'back jobs'
+			allowed_installation_statuses = {'ongoing', 'completed', 'back jobs'}
+			installation_status = installation_status_raw if installation_status_raw in allowed_installation_statuses else ''
+
+			def _save_technical_info_write():
+				with transaction.atomic():
+					tech_record.installation_date = installation_date
+					tech_record.team_assigned = team_assigned
+					tech_record.system_size_kwh = system_size_kwh
+					tech_record.panel_units = panel_units
+					tech_record.inverter_model = inverter_model
+					tech_record.battery_model = battery_model
+					tech_record.net_metering = net_metering
+					tech_record.net_metering_status = net_metering_status
+					tech_record.installation_status = installation_status
+					tech_record.po_number = po_number
+					tech_record.remarks = remarks
+					tech_record.save()
+
+					CRMTechnicalActionLog.objects.create(
+						technical_record=tech_record,
+						sales_record=sales_record,
+						action='installation_updated',
+						previous_installation_date=previous_installation_date,
+						previous_installation_time=previous_installation_time,
+						new_installation_date=tech_record.installation_date,
+						new_installation_time=tech_record.installation_time,
+						previous_team_assigned=previous_team_assigned,
+						new_team_assigned=tech_record.team_assigned or '',
+						previous_status=previous_status,
+						new_status=tech_record.installation_status or '',
+						previous_remarks=previous_remarks,
+						new_remarks=tech_record.remarks or '',
+						created_by=request.user,
+					)
+				return True
+
+			saved_ok = _run_with_sqlite_retry(_save_technical_info_write)
+			if saved_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated CRM technical installation info for sales record #{sales_record.id}.',
+				target=tech_record,
+				target_label=f'Technical #{tech_record.id}',
+				metadata={
+					'sales_record_id': sales_record.id,
+					'team_assigned': tech_record.team_assigned or '',
+					'installation_status': tech_record.installation_status or '',
+				},
+			)
+			messages.success(request, 'Technical installation info updated.', extra_tags='toast')
+			return redirect('crm_technicals')
+
 	queryset = CRMSalesRecord.objects.select_related('client', 'technical_record').filter(
 		project_cost__isnull=False
 	).filter(
 		Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won')
 	)
+	technical_query = (request.GET.get('q') or '').strip()
+	filter_team_assigned = (request.GET.get('team_assigned') or '').strip()
+	filter_installation_status = (request.GET.get('installation_status') or '').strip()
+	filter_po_number_range = (request.GET.get('po_number_range') or '').strip()
+	filter_installation_date_from = parse_date((request.GET.get('installation_date_from') or '').strip())
+	filter_installation_date_to = parse_date((request.GET.get('installation_date_to') or '').strip())
+	filter_net_metering_status = (request.GET.get('net_metering_status') or '').strip()
+	filter_panel_units_range = (request.GET.get('panel_units_range') or '').strip()
+	sort_field = (request.GET.get('sort') or 'updated_at').strip()
+	sort_dir = (request.GET.get('dir') or 'desc').strip().lower()
+	if sort_dir not in {'asc', 'desc'}:
+		sort_dir = 'desc'
 
 	can_view_all_sales = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals'])
 	if not can_view_all_sales:
@@ -2125,7 +2371,144 @@ def crm_technicals(request):
 			ownership_filter |= Q(assigned_sales__icontains=user_username)
 		queryset = queryset.filter(ownership_filter).distinct()
 
-	technical_page = Paginator(queryset.order_by('-updated_at', '-created_at'), 20).get_page(request.GET.get('page'))
+	team_assigned_options = list(
+		CRMTechnicalTeam.objects.exclude(name__isnull=True)
+		.exclude(name__exact='')
+		.order_by('name')
+		.values_list('name', flat=True)
+		.distinct()
+	)
+
+	if technical_query:
+		search_terms = [segment.strip() for segment in re.split(r'\s+', technical_query) if segment.strip()]
+		for term in search_terms:
+			queryset = queryset.filter(
+				Q(client__first_name__icontains=term)
+				| Q(client__last_name__icontains=term)
+				| Q(technical_record__team_assigned__icontains=term)
+				| Q(technical_record__installation_status__icontains=term)
+				| Q(technical_record__po_number__icontains=term)
+				| Q(technical_record__net_metering_status__icontains=term)
+				| Q(technical_record__panel_units__icontains=term)
+			)
+
+	def _parse_po_number(po_value):
+		match = re.match(r'^\s*(\d{4})-(\d{4})\s*$', str(po_value or ''))
+		if not match:
+			return None
+		return (int(match.group(1)), int(match.group(2)))
+
+	def _parse_po_range(range_value):
+		raw = str(range_value or '').strip()
+		if not raw:
+			return None
+		# Accept noisy input and extract the first two PO-like values (YYYY-XXXX).
+		found = re.findall(r'(\d{4}-\d{4})', raw)
+		if len(found) < 2:
+			return None
+		start_po = _parse_po_number(found[0])
+		end_po = _parse_po_number(found[1])
+		if not start_po or not end_po:
+			return None
+		if start_po > end_po:
+			start_po, end_po = end_po, start_po
+		return (start_po, end_po)
+
+	if filter_team_assigned:
+		queryset = queryset.filter(technical_record__team_assigned__iexact=filter_team_assigned)
+	if filter_installation_status:
+		queryset = queryset.filter(technical_record__installation_status__iexact=filter_installation_status)
+	if filter_installation_date_from:
+		queryset = queryset.filter(technical_record__installation_date__gte=filter_installation_date_from)
+	if filter_installation_date_to:
+		queryset = queryset.filter(technical_record__installation_date__lte=filter_installation_date_to)
+	if filter_net_metering_status:
+		queryset = queryset.filter(technical_record__net_metering_status__iexact=filter_net_metering_status)
+
+	sortable_fields = {
+		'client_name': 'client__last_name',
+		'team_assigned': 'technical_record__team_assigned',
+		'installation_status': 'technical_record__installation_status',
+		'po_number': 'technical_record__po_number',
+		'updated_at': 'updated_at',
+	}
+	order_field = sortable_fields.get(sort_field, 'updated_at')
+	order_prefix = '' if sort_dir == 'asc' else '-'
+	queryset = queryset.order_by(f'{order_prefix}{order_field}', '-created_at')
+
+	panel_units_min = None
+	panel_units_max = None
+	if filter_panel_units_range:
+		range_match = re.match(r'^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$', filter_panel_units_range)
+		if range_match:
+			try:
+				panel_units_min = Decimal(range_match.group(1))
+				panel_units_max = Decimal(range_match.group(2))
+			except (InvalidOperation, TypeError, ValueError):
+				panel_units_min = None
+				panel_units_max = None
+	if panel_units_min is not None or panel_units_max is not None:
+		filtered_rows = []
+		for sales_row in queryset:
+			panel_raw = (getattr(getattr(sales_row, 'technical_record', None), 'panel_units', '') or '').strip()
+			try:
+				panel_value = Decimal(panel_raw)
+			except (InvalidOperation, TypeError, ValueError):
+				continue
+			if panel_units_min is not None and panel_value < panel_units_min:
+				continue
+			if panel_units_max is not None and panel_value > panel_units_max:
+				continue
+			filtered_rows.append(sales_row)
+		queryset = filtered_rows
+
+	po_range = _parse_po_range(filter_po_number_range)
+	if po_range is not None:
+		po_start, po_end = po_range
+		filtered_rows = []
+		for sales_row in queryset:
+			po_value = getattr(getattr(sales_row, 'technical_record', None), 'po_number', '')
+			parsed_po = _parse_po_number(po_value)
+			if not parsed_po:
+				continue
+			if po_start <= parsed_po <= po_end:
+				filtered_rows.append(sales_row)
+		queryset = filtered_rows
+
+	has_active_technical_filters = any(
+		[
+			technical_query,
+			filter_team_assigned,
+			filter_installation_status,
+			filter_po_number_range,
+			request.GET.get('installation_date_from', '').strip(),
+			request.GET.get('installation_date_to', '').strip(),
+			filter_net_metering_status,
+			filter_panel_units_range,
+		]
+	)
+	technical_page = Paginator(queryset, 20).get_page(request.GET.get('page'))
+	base_query_params = request.GET.copy()
+	base_query_params.pop('page', None)
+	base_query_string = base_query_params.urlencode()
+	technical_page_qs_prefix = f'{base_query_string}&' if base_query_string else ''
+
+	def _build_sort_url(field_name):
+		params = request.GET.copy()
+		params.pop('page', None)
+		current_sort = (params.get('sort') or '').strip()
+		current_dir = (params.get('dir') or 'desc').strip().lower()
+		next_dir = 'asc'
+		if current_sort == field_name and current_dir == 'asc':
+			next_dir = 'desc'
+		params['sort'] = field_name
+		params['dir'] = next_dir
+		return f'?{params.urlencode()}'
+
+	sort_urls = {key: _build_sort_url(key) for key in sortable_fields.keys()}
+	sort_indicators = {key: '↕' for key in sortable_fields.keys()}
+	if sort_field in sort_indicators:
+		sort_indicators[sort_field] = '↑' if sort_dir == 'asc' else '↓'
 	schedule_slots = []
 	for tech in CRMTechnicalRecord.objects.select_related('sales_record__client').exclude(installation_date__isnull=True).exclude(installation_time__isnull=True):
 		client_label = '-'
@@ -2139,6 +2522,7 @@ def crm_technicals(request):
 				'time': tech.installation_time.strftime('%H:%M'),
 				'client': client_label,
 				'team_assigned': tech.team_assigned or '',
+				'net_metering_status': tech.net_metering_status or '',
 			}
 		)
 	visible_sales_record_ids = [row.id for row in technical_page.object_list]
@@ -2150,18 +2534,8 @@ def crm_technicals(request):
 		for log in history_qs:
 			technical_history_map.setdefault(str(log.sales_record_id), []).append(
 				{
-					'action': log.get_action_display(),
-					'previous_date': log.previous_installation_date.strftime('%Y-%m-%d') if log.previous_installation_date else '-',
-					'previous_time': log.previous_installation_time.strftime('%H:%M') if log.previous_installation_time else '-',
-					'new_date': log.new_installation_date.strftime('%Y-%m-%d') if log.new_installation_date else '-',
-					'new_time': log.new_installation_time.strftime('%H:%M') if log.new_installation_time else '-',
-					'previous_team': log.previous_team_assigned or '-',
-					'new_team': log.new_team_assigned or '-',
-					'previous_status': log.previous_status or '-',
-					'new_status': log.new_status or '-',
-					'previous_remarks': log.previous_remarks or '-',
-					'new_remarks': log.new_remarks or '-',
-					'actor': (log.created_by.get_full_name() or log.created_by.username) if log.created_by_id else 'System',
+					'team_assigned': log.new_team_assigned or '-',
+					'installation_status': log.new_status or '-',
 					'created_at': timezone.localtime(log.created_at).strftime('%Y-%m-%d %I:%M %p'),
 				}
 			)
@@ -2247,6 +2621,19 @@ def crm_technicals(request):
 			'technical_role_user_map': role_user_map,
 			'technical_notification_setting': technical_notify_setting,
 			'technical_action_required_count': technical_action_required_count,
+			'technical_query': technical_query,
+			'filter_team_assigned': filter_team_assigned,
+			'filter_installation_status': filter_installation_status,
+			'filter_po_number_range': filter_po_number_range,
+			'filter_installation_date_from': request.GET.get('installation_date_from', ''),
+			'filter_installation_date_to': request.GET.get('installation_date_to', ''),
+			'filter_net_metering_status': filter_net_metering_status,
+			'filter_panel_units_range': filter_panel_units_range,
+			'has_active_technical_filters': has_active_technical_filters,
+			'team_assigned_options': team_assigned_options,
+			'sort_urls': sort_urls,
+			'sort_indicators': sort_indicators,
+			'technical_page_qs_prefix': technical_page_qs_prefix,
 			'can_manage_crm_technicals': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals']),
 		},
 	)
@@ -2619,6 +3006,7 @@ def profile_page(request):
 	role_names = list(request.user.groups.values_list('name', flat=True))
 	department = role_names[0] if role_names else 'Not assigned'
 	branch = profile.branch or 'Not assigned'
+	contact_number = profile.contact_number or 'Not set'
 	presence_status = request.session.get('presence_status') or profile.status
 	last_event_ms = request.session.get('presence_last_event_ms')
 	last_activity_label = _format_last_activity_label(last_event_ms)
@@ -2629,6 +3017,7 @@ def profile_page(request):
 		last_name = (request.POST.get('last_name') or '').strip()
 		email = (request.POST.get('email') or '').strip()
 		branch_raw = (request.POST.get('branch') or '').strip()
+		contact_number_raw = (request.POST.get('contact_number') or '').strip()
 
 		request.user.first_name = first_name
 		request.user.last_name = last_name
@@ -2636,7 +3025,8 @@ def profile_page(request):
 		request.user.save(update_fields=['first_name', 'last_name', 'email'])
 
 		profile.branch = branch_raw
-		profile.save(update_fields=['branch'])
+		profile.contact_number = contact_number_raw
+		profile.save(update_fields=['branch', 'contact_number'])
 
 		full_name = request.user.get_full_name() or request.user.username
 		payload = {
@@ -2649,6 +3039,7 @@ def profile_page(request):
 				'username': request.user.username,
 				'email': request.user.email or '',
 				'branch': profile.branch or 'Not assigned',
+				'contact_number': profile.contact_number or 'Not set',
 				'department': department,
 				'presence_status': str(presence_status).title(),
 				'last_activity_label': last_activity_label,
@@ -2674,6 +3065,7 @@ def profile_page(request):
 					'username': request.user.username,
 					'email': request.user.email or '',
 					'branch': profile.branch or 'Not assigned',
+					'contact_number': profile.contact_number or 'Not set',
 					'department': department,
 					'presence_status': str(presence_status).title(),
 					'last_activity_label': last_activity_label,
@@ -2689,6 +3081,7 @@ def profile_page(request):
 		'role_names': role_names,
 		'department': department,
 		'branch': branch,
+		'contact_number': contact_number,
 		'presence_status': str(presence_status).title(),
 		'last_activity_label': last_activity_label,
 	}
@@ -2714,6 +3107,7 @@ def users_quick_profile(request, user_id):
 				'full_name': full_name,
 				'email': managed_user.email or '-',
 				'branch': profile.branch if profile and profile.branch else 'Not assigned',
+				'contact_number': profile.contact_number if profile and profile.contact_number else 'Not set',
 				'status': profile.get_status_display() if profile else 'Active',
 				'roles': [group.name for group in managed_user.groups.all()],
 				'avatar_url': avatar_url,
@@ -5141,6 +5535,7 @@ def users_list(request):
 			'email': managed_user.email or '-',
 			'roles': ', '.join(group_names) if group_names else 'No role',
 			'branch': profile.branch if profile and profile.branch else 'Not assigned',
+			'contact_number': profile.contact_number if profile and profile.contact_number else 'Not set',
 			'avatar_url': profile.avatar.url if profile and profile.avatar else '',
 			'active_label': 'Active' if managed_user.is_active else 'Inactive',
 			'staff_label': 'Yes' if managed_user.is_staff else 'No',
@@ -9286,6 +9681,212 @@ def clients_bulk_update_status(request):
 
 
 @login_required
+def forms_list(request):
+	restricted_response = _require_permission(request, 'core.view_assetaccountability')
+	if restricted_response:
+		return restricted_response
+
+	can_manage_forms = (
+		request.user.is_superuser
+		or request.user.has_perm('core.add_assetaccountability')
+		or request.user.has_perm('core.change_assetaccountability')
+		or request.user.has_perm('core.delete_assetaccountability')
+	)
+
+	if request.method == 'POST':
+		if not can_manage_forms:
+			return _permission_denied_response(request)
+		form_action = (request.POST.get('form_action') or '').strip()
+
+		if form_action == 'create_section':
+			section_name = (request.POST.get('section_name') or '').strip()
+			if not section_name:
+				messages.error(request, 'Section name is required.', extra_tags='toast')
+			elif FormSection.objects.filter(name__iexact=section_name).exists():
+				messages.warning(request, 'Section already exists.', extra_tags='toast')
+			else:
+				FormSection.objects.create(name=section_name, created_by=request.user)
+				messages.success(request, 'Section created.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'update_section':
+			section_id = (request.POST.get('section_id') or '').strip()
+			section_name = (request.POST.get('section_name') or '').strip()
+			section = FormSection.objects.filter(pk=section_id).first()
+			if not section:
+				messages.error(request, 'Section not found.', extra_tags='toast')
+			elif not section_name:
+				messages.error(request, 'Section name is required.', extra_tags='toast')
+			elif FormSection.objects.filter(name__iexact=section_name).exclude(pk=section.pk).exists():
+				messages.warning(request, 'Section name already exists.', extra_tags='toast')
+			else:
+				section.name = section_name
+				section.save(update_fields=['name', 'updated_at'])
+				messages.success(request, 'Section updated.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'delete_section':
+			section_id = (request.POST.get('section_id') or '').strip()
+			section = FormSection.objects.filter(pk=section_id).first()
+			if not section:
+				messages.error(request, 'Section not found.', extra_tags='toast')
+			else:
+				section.delete()
+				messages.success(request, 'Section deleted.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'create_subsection':
+			section_id = (request.POST.get('section_id') or '').strip()
+			subsection_name = (request.POST.get('subsection_name') or '').strip()
+			section = FormSection.objects.filter(pk=section_id).first()
+			if not section:
+				messages.error(request, 'Select a valid section.', extra_tags='toast')
+			elif not subsection_name:
+				messages.error(request, 'Subsection name is required.', extra_tags='toast')
+			elif FormSubsection.objects.filter(section=section, name__iexact=subsection_name).exists():
+				messages.warning(request, 'Subsection already exists under this section.', extra_tags='toast')
+			else:
+				FormSubsection.objects.create(section=section, name=subsection_name, created_by=request.user)
+				messages.success(request, 'Subsection created.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'update_subsection':
+			subsection_id = (request.POST.get('subsection_id') or '').strip()
+			section_id = (request.POST.get('section_id') or '').strip()
+			subsection_name = (request.POST.get('subsection_name') or '').strip()
+			subsection = FormSubsection.objects.select_related('section').filter(pk=subsection_id).first()
+			section = FormSection.objects.filter(pk=section_id).first()
+			if not subsection or not section:
+				messages.error(request, 'Subsection not found.', extra_tags='toast')
+			elif not subsection_name:
+				messages.error(request, 'Subsection name is required.', extra_tags='toast')
+			elif FormSubsection.objects.filter(section=section, name__iexact=subsection_name).exclude(pk=subsection.pk).exists():
+				messages.warning(request, 'Subsection name already exists under this section.', extra_tags='toast')
+			else:
+				subsection.section = section
+				subsection.name = subsection_name
+				subsection.save(update_fields=['section', 'name', 'updated_at'])
+				messages.success(request, 'Subsection updated.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'delete_subsection':
+			subsection_id = (request.POST.get('subsection_id') or '').strip()
+			subsection = FormSubsection.objects.filter(pk=subsection_id).first()
+			if not subsection:
+				messages.error(request, 'Subsection not found.', extra_tags='toast')
+			else:
+				subsection.delete()
+				messages.success(request, 'Subsection deleted.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'upload_form_files':
+			section_id = (request.POST.get('section_id') or '').strip()
+			subsection_id = (request.POST.get('subsection_id') or '').strip()
+			section = FormSection.objects.filter(pk=section_id).first()
+			subsection = FormSubsection.objects.filter(pk=subsection_id, section_id=section_id).first() if subsection_id else None
+			files = request.FILES.getlist('files')
+			if not section:
+				messages.error(request, 'Select a valid section.', extra_tags='toast')
+				return redirect('forms_list')
+			if not files:
+				messages.error(request, 'Please select file(s) to upload.', extra_tags='toast')
+				return redirect('forms_list')
+			created_count = 0
+			for uploaded_file in files:
+				FormUpload.objects.create(
+					section=section,
+					subsection=subsection,
+					file=uploaded_file,
+					original_name=(uploaded_file.name or '').strip(),
+					file_size=int(uploaded_file.size or 0),
+					uploaded_by=request.user,
+				)
+				created_count += 1
+			messages.success(request, f'Uploaded {created_count} file(s).', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'remove_upload':
+			upload_id = (request.POST.get('upload_id') or '').strip()
+			upload = FormUpload.objects.filter(pk=upload_id).first()
+			if not upload:
+				messages.error(request, 'File record not found.', extra_tags='toast')
+			else:
+				if upload.file:
+					upload.file.delete(save=False)
+				upload.delete()
+				messages.success(request, 'File removed.', extra_tags='toast')
+			return redirect('forms_list')
+
+		if form_action == 'rename_upload':
+			upload_id = (request.POST.get('upload_id') or '').strip()
+			new_name = (request.POST.get('new_name') or '').strip()
+			upload = FormUpload.objects.filter(pk=upload_id).first()
+			if not upload:
+				messages.error(request, 'File record not found.', extra_tags='toast')
+				return redirect('forms_list')
+			if not new_name:
+				messages.error(request, 'File name is required.', extra_tags='toast')
+				return redirect('forms_list')
+			if len(new_name) > 255:
+				messages.error(request, 'File name is too long (max 255 characters).', extra_tags='toast')
+				return redirect('forms_list')
+			upload.original_name = new_name
+			upload.save(update_fields=['original_name', 'updated_at'])
+			messages.success(request, 'File renamed.', extra_tags='toast')
+			return redirect('forms_list')
+
+	sections = list(
+		FormSection.objects.prefetch_related('subsections').all().order_by('name')
+	)
+	subsections = list(FormSubsection.objects.select_related('section').all().order_by('section__name', 'name'))
+	uploads = list(
+		FormUpload.objects.select_related('section', 'subsection', 'uploaded_by').all().order_by('section__name', 'subsection__name', '-created_at')
+	)
+	grouped_sections = []
+	uploads_by_subsection = {}
+	for upload in uploads:
+		uploads_by_subsection.setdefault(upload.subsection_id, []).append(upload)
+	for section in sections:
+		section_subsections = []
+		root_uploads = [u for u in uploads if u.section_id == section.id and not u.subsection_id]
+		section_subsections.append(
+			{
+				'subsection': None,
+				'uploads': root_uploads,
+			}
+		)
+		for subsection in [s for s in subsections if s.section_id == section.id]:
+			section_subsections.append(
+				{
+					'subsection': subsection,
+					'uploads': uploads_by_subsection.get(subsection.id, []),
+				}
+			)
+		grouped_sections.append({'section': section, 'subsections': section_subsections})
+
+	subsections_payload = [
+		{
+			'id': subsection.id,
+			'name': subsection.name,
+			'section_id': subsection.section_id,
+		}
+		for subsection in subsections
+	]
+
+	return render(
+		request,
+		'core/forms_list.html',
+		{
+			'can_manage_forms': can_manage_forms,
+			'forms_sections': sections,
+			'forms_subsections': subsections,
+			'forms_subsections_payload': subsections_payload,
+			'forms_grouped_sections': grouped_sections,
+		},
+	)
+
+
+@login_required
 def assets_list(request):
 	restricted_response = _require_permission(request, 'core.view_assetitem')
 	if restricted_response:
@@ -9357,17 +9958,22 @@ def assets_list(request):
 			parent_id = root_item_map.get(borrowing.item_id)
 			if not parent_id:
 				continue
-			holder_name = borrowing.borrowed_by.get_full_name() or borrowing.borrowed_by.username
+			holder_name = (borrowing.accountable_name or '').strip()
+			if not holder_name and borrowing.borrowed_by_id:
+				holder_name = borrowing.borrowed_by.get_full_name() or borrowing.borrowed_by.username
+			if not holder_name:
+				holder_name = '-'
 			existing = holder_names_map.setdefault(parent_id, [])
 			if holder_name not in existing:
 				existing.append(holder_name)
-				profile = getattr(borrowing.borrowed_by, 'profile', None)
+				profile = getattr(borrowing.borrowed_by, 'profile', None) if borrowing.borrowed_by_id else None
+				fallback_initial = (borrowing.borrowed_by.username[:1] if borrowing.borrowed_by_id and borrowing.borrowed_by and borrowing.borrowed_by.username else 'U')
 				holder_entries_map.setdefault(parent_id, []).append(
 					{
 						'user_id': borrowing.borrowed_by_id,
 						'name': holder_name,
 						'avatar_url': profile.avatar.url if profile and profile.avatar else '',
-						'avatar_initial': (holder_name[:1] or borrowing.borrowed_by.username[:1] or 'U').upper(),
+						'avatar_initial': (holder_name[:1] or fallback_initial or 'U').upper(),
 					},
 				)
 
@@ -9648,7 +10254,11 @@ def assets_item_variants_modal(request, item_id):
 	holders_by_item = {}
 	for borrowing in active_borrowings:
 		key = borrowing.item_id
-		holder_name = borrowing.borrowed_by.get_full_name() or borrowing.borrowed_by.username
+		holder_name = (borrowing.accountable_name or '').strip()
+		if not holder_name and borrowing.borrowed_by_id:
+			holder_name = borrowing.borrowed_by.get_full_name() or borrowing.borrowed_by.username
+		if not holder_name:
+			holder_name = '-'
 		holder_entry = f'{holder_name} ({borrowing.quantity_borrowed}x)'
 		holders_by_item.setdefault(key, [])
 		if holder_entry not in holders_by_item[key]:
@@ -10793,7 +11403,20 @@ def roles_create(request):
 	if request.method == 'POST':
 		form = RoleForm(request.POST)
 		if form.is_valid():
-			role = form.save()
+			role = None
+			max_attempts = 3
+			for attempt in range(1, max_attempts + 1):
+				try:
+					with transaction.atomic():
+						role = form.save()
+					break
+				except OperationalError as exc:
+					if 'database is locked' not in str(exc).lower() or attempt == max_attempts:
+						raise
+					time.sleep(0.3 * attempt)
+			if role is None:
+				messages.error(request, 'Database is busy. Please try creating the role again.')
+				return redirect('roles_create')
 			record_activity(
 				request,
 				'create',
