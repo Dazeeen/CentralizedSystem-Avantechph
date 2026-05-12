@@ -132,6 +132,7 @@ class UserProfile(models.Model):
 	email_verified = models.BooleanField(default=False)
 	status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
 	branch = models.CharField(max_length=120, blank=True, default='')
+	contact_number = models.CharField(max_length=50, blank=True, default='')
 	avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
 	last_login_ip = models.GenericIPAddressField(blank=True, null=True)
 	last_login_user_agent = models.CharField(max_length=255, blank=True)
@@ -166,6 +167,15 @@ class LoginEvent(models.Model):
 
 	class Meta:
 		ordering = ['-created_at']
+		permissions = (
+			('view_crm_dashboard', 'Can view CRM dashboard section'),
+			('view_crm_clients_section', 'Can view CRM clients section'),
+			('manage_crm_clients_section', 'Can manage CRM clients section'),
+			('view_crm_sales_section', 'Can view CRM sales section'),
+			('manage_crm_sales_section', 'Can manage CRM sales section'),
+			('view_crm_technicals_section', 'Can view CRM technicals section'),
+			('manage_crm_technicals_section', 'Can manage CRM technicals section'),
+		)
 
 	def __str__(self):
 		return f'LoginEvent<{self.username_attempt}:{self.reason}>'
@@ -715,7 +725,7 @@ class CRMTechnicalRecord(models.Model):
 		('ongoing', 'Ongoing'),
 		('completed', 'Completed'),
 		('back jobs', 'Back Jobs'),
-		('reschedules', 'Reschedules'),
+		('rescheduled', 'Rescheduled'),
 	]
 
 	sales_record = models.OneToOneField(CRMSalesRecord, on_delete=models.CASCADE, related_name='technical_record')
@@ -727,6 +737,7 @@ class CRMTechnicalRecord(models.Model):
 	inverter_model = models.CharField(max_length=150, blank=True)
 	battery_model = models.CharField(max_length=150, blank=True)
 	net_metering = models.CharField(max_length=80, blank=True)
+	net_metering_status = models.CharField(max_length=80, blank=True)
 	installation_status = models.CharField(max_length=50, blank=True)
 	po_number = models.CharField(max_length=80, blank=True)
 	remarks = models.TextField(blank=True)
@@ -743,6 +754,20 @@ class CRMTechnicalRecord(models.Model):
 	class Meta:
 		ordering = ['-installation_date', '-created_at']
 
+	def _is_installation_completed(self):
+		status = (self.installation_status or '').strip().lower()
+		return status in {'completed', 'complete'}
+
+	def save(self, *args, **kwargs):
+		super().save(*args, **kwargs)
+		if not self.sales_record_id or not self._is_installation_completed():
+			return
+		sales_record = self.sales_record
+		sales_status = (sales_record.sales_status or '').strip().lower()
+		if sales_status != 'closed won':
+			sales_record.sales_status = 'closed won'
+			sales_record.save(update_fields=['sales_status', 'updated_at'])
+
 	def __str__(self):
 		return f'CRMTechnicalRecord<{self.sales_record_id}:{self.installation_status or "n/a"}>'
 
@@ -751,6 +776,7 @@ class CRMTechnicalActionLog(models.Model):
 	ACTION_CHOICES = [
 		('schedule_set', 'Schedule Set'),
 		('schedule_rescheduled', 'Schedule Rescheduled'),
+		('installation_updated', 'Installation Updated'),
 	]
 
 	technical_record = models.ForeignKey(CRMTechnicalRecord, on_delete=models.CASCADE, related_name='action_logs')
@@ -2202,6 +2228,16 @@ def file_manager_upload_to(instance, filename):
 	)
 
 
+def forms_file_upload_to(instance, filename):
+	original_name = filename or 'form-file.bin'
+	extension = Path(original_name).suffix or '.bin'
+	section_slug = slugify(getattr(instance.section, 'name', '') or 'section') or 'section'
+	subsection_slug = slugify(getattr(instance.subsection, 'name', '') or 'subsection') or 'subsection'
+	date_prefix = timezone.localtime(timezone.now()).strftime('%Y/%m')
+	random_suffix = uuid.uuid4().hex[:10]
+	return f'forms/{date_prefix}/{section_slug}/{subsection_slug}/{random_suffix}{extension.lower()}'
+
+
 class DevelopmentFeedback(models.Model):
 	CATEGORY_CHOICES = [
 		('suggestion', 'Suggestion'),
@@ -2476,6 +2512,81 @@ class ManagedFileNode(models.Model):
 
 	def __str__(self):
 		return f'ManagedFileNode<{self.node_type}:{self.name}>'
+
+
+class FormSection(models.Model):
+	name = models.CharField(max_length=120, unique=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='forms_sections_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['name']
+
+	def __str__(self):
+		return self.name
+
+
+class FormSubsection(models.Model):
+	section = models.ForeignKey(FormSection, on_delete=models.CASCADE, related_name='subsections')
+	name = models.CharField(max_length=120)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='forms_subsections_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['section__name', 'name']
+		constraints = [
+			models.UniqueConstraint(fields=['section', 'name'], name='unique_form_subsection_per_section'),
+		]
+
+	def __str__(self):
+		return f'{self.section.name} / {self.name}'
+
+
+class FormUpload(models.Model):
+	section = models.ForeignKey(FormSection, on_delete=models.CASCADE, related_name='uploads')
+	subsection = models.ForeignKey(FormSubsection, on_delete=models.CASCADE, related_name='uploads', null=True, blank=True)
+	file = models.FileField(upload_to=forms_file_upload_to)
+	original_name = models.CharField(max_length=255, blank=True)
+	file_size = models.PositiveBigIntegerField(default=0)
+	uploaded_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='forms_uploads',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['section__name', 'subsection__name', '-created_at']
+
+	def save(self, *args, **kwargs):
+		if self.file and not self.original_name:
+			self.original_name = (self.file.name or '').split('/')[-1]
+		if self.file and not self.file_size:
+			try:
+				self.file_size = int(self.file.size or 0)
+			except Exception:
+				self.file_size = 0
+		super().save(*args, **kwargs)
+
+	def __str__(self):
+		return f'FormUpload<{self.section.name}/{self.subsection.name}:{self.original_name}>'
 
 
 class ManagedFilePermission(models.Model):

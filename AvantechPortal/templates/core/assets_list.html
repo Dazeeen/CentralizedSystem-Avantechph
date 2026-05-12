@@ -141,13 +141,17 @@
                                                 {% else %}
                                                     <span class="list-user-avatar-fallback">{{ holder.avatar_initial }}</span>
                                                 {% endif %}
-                                                <button
-                                                    type="button"
-                                                    class="user-name-link js-user-profile-trigger"
-                                                    data-user-id="{{ holder.user_id }}"
-                                                >
-                                                    {{ holder.name }}
-                                                </button>
+                                                {% if holder.user_id %}
+                                                    <button
+                                                        type="button"
+                                                        class="user-name-link js-user-profile-trigger"
+                                                        data-user-id="{{ holder.user_id }}"
+                                                    >
+                                                        {{ holder.name }}
+                                                    </button>
+                                                {% else %}
+                                                    <span>{{ holder.name }}</span>
+                                                {% endif %}
                                             </span>
                                         {% endfor %}
                                     </div>

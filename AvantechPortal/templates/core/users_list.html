@@ -257,6 +257,12 @@
                     </div>
                     <div class="col-12 col-md-6">
                         <div class="profile-detail-card">
+                            <span class="profile-detail-label">Contact Number</span>
+                            <span class="profile-detail-value" id="userProfileContactNumber">-</span>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="profile-detail-card">
                             <span class="profile-detail-label">Roles</span>
                             <span class="profile-detail-value" id="userProfileRoles">-</span>
                         </div>
@@ -366,6 +372,7 @@
                 username: document.getElementById('userProfileUsername'),
                 fullName: document.getElementById('userProfileFullName'),
                 email: document.getElementById('userProfileEmail'),
+                contactNumber: document.getElementById('userProfileContactNumber'),
                 roles: document.getElementById('userProfileRoles'),
                 branch: document.getElementById('userProfileBranch'),
                 status: document.getElementById('userProfileStatus'),
@@ -434,6 +441,7 @@
                     fields.username.textContent = userData.username || '-';
                     fields.fullName.textContent = userData.full_name || '-';
                     fields.email.textContent = userData.email || '-';
+                    fields.contactNumber.textContent = userData.contact_number || 'Not set';
                     fields.roles.textContent = userData.roles || '-';
                     fields.branch.textContent = userData.branch || 'Not assigned';
                     fields.status.textContent = userData.active_label || '-';

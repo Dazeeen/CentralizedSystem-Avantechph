@@ -10,23 +10,90 @@
         <div class="d-flex align-items-center justify-content-between mb-3">
             <h2 class="h4 mb-0">Technical Queue</h2>
             <div class="d-flex align-items-center gap-2">
+                {% if can_manage_crm_technicals %}
                 <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#technicalNotificationSettingsModal">Settings</button>
                 <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#manageTechnicalTeamsModal">Manage Teams</button>
                 <button type="button" class="btn btn-outline-success" id="setInstallationScheduleBtn">Set Installation Schedule</button>
+                <button type="button" class="btn btn-success" id="updateTechnicalInfoBtn">Update</button>
+                {% endif %}
                 <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#technicalCalendarModal">View Calendar</button>
             </div>
         </div>
 
         <div class="crm-tech-split-layout">
             <div>
+                <div class="d-flex justify-content-end mb-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#technicalQueueFiltersCollapse" aria-expanded="false" aria-controls="technicalQueueFiltersCollapse">
+                        Search & Filters
+                    </button>
+                </div>
+                <div class="collapse mb-3 {% if has_active_technical_filters %}show{% endif %}" id="technicalQueueFiltersCollapse">
+                    <form method="get" class="border rounded-3 p-3 bg-light-subtle" id="technicalQueueFiltersForm">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Search</label>
+                                <input type="text" name="q" value="{{ technical_query }}" class="form-control form-control-sm js-tech-filter-input" placeholder="Fuzzy search name, team, status, PO#, net-metering, panel units">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Team Assigned</label>
+                                <select name="team_assigned" class="form-select form-select-sm js-tech-filter-input">
+                                    <option value="">All teams</option>
+                                    {% for team_name in team_assigned_options %}
+                                        <option value="{{ team_name }}" {% if filter_team_assigned == team_name %}selected{% endif %}>{{ team_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Installation Status</label>
+                                <select name="installation_status" class="form-select form-select-sm js-tech-filter-input">
+                                    <option value="">All statuses</option>
+                                    <option value="scheduled" {% if filter_installation_status == 'scheduled' %}selected{% endif %}>Scheduled</option>
+                                    <option value="ongoing" {% if filter_installation_status == 'ongoing' %}selected{% endif %}>Ongoing</option>
+                                    <option value="completed" {% if filter_installation_status == 'completed' %}selected{% endif %}>Completed</option>
+                                    <option value="back jobs" {% if filter_installation_status == 'back jobs' %}selected{% endif %}>Back Jobs</option>
+                                    <option value="rescheduled" {% if filter_installation_status == 'rescheduled' %}selected{% endif %}>Rescheduled</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">PO# Range</label>
+                                <input type="text" name="po_number_range" value="{{ filter_po_number_range }}" class="form-control form-control-sm js-tech-filter-input" placeholder="2026-0001 - 2026-0026">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small mb-1">Installation Date From</label>
+                                <input type="date" name="installation_date_from" value="{{ filter_installation_date_from }}" class="form-control form-control-sm js-tech-filter-input">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small mb-1">Installation Date To</label>
+                                <input type="date" name="installation_date_to" value="{{ filter_installation_date_to }}" class="form-control form-control-sm js-tech-filter-input">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Net-Metering Status</label>
+                                <select name="net_metering_status" class="form-select form-select-sm js-tech-filter-input">
+                                    <option value="">All</option>
+                                    <option value="WITH NET-METERING" {% if filter_net_metering_status == 'WITH NET-METERING' %}selected{% endif %}>WITH NET-METERING</option>
+                                    <option value="WITHOUT NET-METERING" {% if filter_net_metering_status == 'WITHOUT NET-METERING' %}selected{% endif %}>WITHOUT NET-METERING</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Panel Units Range</label>
+                                <input type="text" name="panel_units_range" value="{{ filter_panel_units_range }}" class="form-control form-control-sm js-tech-filter-input" placeholder="n-N (e.g. 8-14)">
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 justify-content-end mt-3">
+                            <a href="{% url 'crm_technicals' %}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                            <button type="submit" class="btn btn-success btn-sm">Apply Filters</button>
+                        </div>
+                    </form>
+                </div>
+
                 <div class="table-responsive crm-tech-table-wrap">
                     <table class="table table-sm align-middle mb-0 crm-tech-table">
                         <thead class="table-light">
                             <tr>
-                                <th>Client's Full Name</th>
-                                <th>Team Assigned</th>
-                                <th>Installation Status</th>
-                                <th>PO#</th>
+                                <th><a class="text-decoration-none text-dark" href="{{ sort_urls.client_name }}">Client's Full Name <span class="ms-1">{{ sort_indicators.client_name }}</span></a></th>
+                                <th><a class="text-decoration-none text-dark" href="{{ sort_urls.team_assigned }}">Team Assigned <span class="ms-1">{{ sort_indicators.team_assigned }}</span></a></th>
+                                <th><a class="text-decoration-none text-dark" href="{{ sort_urls.installation_status }}">Installation Status <span class="ms-1">{{ sort_indicators.installation_status }}</span></a></th>
+                                <th><a class="text-decoration-none text-dark" href="{{ sort_urls.po_number }}">PO# <span class="ms-1">{{ sort_indicators.po_number }}</span></a></th>
                                 <th style="width: 72px;">Action</th>
                             </tr>
                         </thead>
@@ -44,6 +111,7 @@
                                     data-inverter-model="{{ tech.inverter_model|default:'-' }}"
                                     data-battery-model="{{ tech.battery_model|default:'-' }}"
                                     data-net-metering="{{ tech.net_metering|default:'-' }}"
+                                    data-net-metering-status="{{ tech.net_metering_status|default:'-' }}"
                                     data-installation-status="{{ tech.installation_status|default:'-' }}"
                                     data-po-number="{{ tech.po_number|default:'-' }}"
                                     data-remarks="{{ tech.remarks|default:'-' }}">
@@ -52,17 +120,17 @@
                                     <td>
                                         {% with status_value=tech.installation_status|default:"-" %}
                                             {% if status_value|lower == 'completed' %}
-                                                <span class="badge text-bg-success">{{ status_value }}</span>
+                                                <span class="badge text-bg-success">{{ status_value|title }}</span>
                                             {% elif status_value|lower == 'scheduled' %}
-                                                <span class="badge text-bg-primary">{{ status_value }}</span>
+                                                <span class="badge text-bg-primary">{{ status_value|title }}</span>
                                             {% elif status_value|lower == 'ongoing' %}
-                                                <span class="badge text-bg-warning">{{ status_value }}</span>
+                                                <span class="badge text-bg-warning">{{ status_value|title }}</span>
                                             {% elif status_value|lower == 'back jobs' %}
-                                                <span class="badge text-bg-danger">{{ status_value }}</span>
-                                            {% elif status_value|lower == 'reschedules' %}
-                                                <span class="badge text-bg-secondary">{{ status_value }}</span>
+                                                <span class="badge text-bg-danger">{{ status_value|title }}</span>
+                                            {% elif status_value|lower == 'rescheduled' %}
+                                                <span class="badge text-bg-secondary">{{ status_value|title }}</span>
                                             {% else %}
-                                                <span class="badge text-bg-light border text-dark">{{ status_value }}</span>
+                                                <span class="badge text-bg-light border text-dark">{{ status_value|title }}</span>
                                             {% endif %}
                                         {% endwith %}
                                     </td>
@@ -72,6 +140,9 @@
                                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
                                             <ul class="dropdown-menu dropdown-menu-end">
                                                 <li><button type="button" class="dropdown-item js-tech-view-btn">View Technical Info</button></li>
+                                                {% if can_manage_crm_technicals %}
+                                                <li><button type="button" class="dropdown-item js-tech-update-btn">Update Installation Info</button></li>
+                                                {% endif %}
                                             </ul>
                                         </div>
                                     </td>
@@ -88,17 +159,17 @@
                     <nav class="mt-3" aria-label="CRM technical pagination">
                         <ul class="pagination pagination-sm mb-0 justify-content-end">
                             {% if technical_page.has_previous %}
-                                <li class="page-item"><a class="page-link" href="?page={{ technical_page.previous_page_number }}">Previous</a></li>
+                                <li class="page-item"><a class="page-link" href="?{{ technical_page_qs_prefix }}page={{ technical_page.previous_page_number }}">Previous</a></li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">Previous</span></li>
                             {% endif %}
                             {% for page_num in technical_page.paginator.page_range %}
                                 <li class="page-item {% if technical_page.number == page_num %}active{% endif %}">
-                                    <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                                    <a class="page-link" href="?{{ technical_page_qs_prefix }}page={{ page_num }}">{{ page_num }}</a>
                                 </li>
                             {% endfor %}
                             {% if technical_page.has_next %}
-                                <li class="page-item"><a class="page-link" href="?page={{ technical_page.next_page_number }}">Next</a></li>
+                                <li class="page-item"><a class="page-link" href="?{{ technical_page_qs_prefix }}page={{ technical_page.next_page_number }}">Next</a></li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">Next</span></li>
                             {% endif %}
@@ -137,7 +208,7 @@
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" value="1" id="includeBacklogsSetting" name="include_backlogs" {% if technical_notification_setting.include_backlogs %}checked{% endif %}>
                         <label class="form-check-label" for="includeBacklogsSetting">
-                            Include backlog statuses (`back jobs` and `reschedules`) in action-required notifications.
+                            Include backlog statuses (`back jobs` and `rescheduled`) in action-required notifications.
                         </label>
                     </div>
                 </div>
@@ -180,6 +251,7 @@
                                 <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" id="techInfoInverterModel" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control" id="techInfoBatteryModel" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Net-Metering</label><input class="form-control" id="techInfoNetMetering" readonly></div>
+                                <div class="col-md-6"><label class="form-label">Net-Metering Status</label><input class="form-control" id="techInfoNetMeteringStatus" readonly></div>
                                 <div class="col-md-6">
                                     <label class="form-label">Installation Status</label>
                                     <div class="form-control d-flex align-items-center" id="techInfoInstallationStatusWrap">
@@ -196,8 +268,8 @@
                                 <table class="table table-sm align-middle mb-0">
                                     <thead>
                                         <tr>
-                                            <th>Operation (User)</th>
-                                            <th>Action</th>
+                                            <th>Team Assigned</th>
+                                            <th>Installation Status</th>
                                             <th>Date and Time</th>
                                         </tr>
                                     </thead>
@@ -213,6 +285,60 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="technicalUpdateModal" tabindex="-1" aria-labelledby="technicalUpdateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="update_technical_info">
+                <input type="hidden" name="sales_record_id" id="technicalUpdateSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="technicalUpdateModalLabel">Update Technical Installation Info</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Client's Full Name</label>
+                        <input class="form-control" id="technicalUpdateClientName" readonly disabled>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6"><label class="form-label">Installation Date</label><input type="date" class="form-control" name="installation_date" id="technicalUpdateInstallationDate"></div>
+                        <div class="col-md-6"><label class="form-label">Team Assigned</label><input class="form-control" name="team_assigned" id="technicalUpdateTeamAssigned"></div>
+                        <div class="col-md-6"><label class="form-label">System Size Kwh</label><input class="form-control" name="system_size_kwh" id="technicalUpdateSystemSizeKwh"></div>
+                        <div class="col-md-6"><label class="form-label">Panel Units</label><input class="form-control" name="panel_units" id="technicalUpdatePanelUnits"></div>
+                        <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" name="inverter_model" id="technicalUpdateInverterModel"></div>
+                        <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control" name="battery_model" id="technicalUpdateBatteryModel"></div>
+                        <div class="col-md-6"><label class="form-label">Net-Metering</label><input class="form-control" name="net_metering" id="technicalUpdateNetMetering"></div>
+                        <div class="col-md-6">
+                            <label class="form-label">Net-Metering Status</label>
+                            <select class="form-select" name="net_metering_status" id="technicalUpdateNetMeteringStatus">
+                                <option value="">Select status</option>
+                                <option value="WITH NET-METERING">WITH NET-METERING</option>
+                                <option value="WITHOUT NET-METERING">WITHOUT NET-METERING</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Installation Status</label>
+                            <select class="form-select" name="installation_status" id="technicalUpdateInstallationStatus">
+                                <option value="">Select status</option>
+                                <option value="ongoing">Ongoing</option>
+                                <option value="completed">Completed</option>
+                                <option value="back jobs">Back Jobs</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6"><label class="form-label">PO#</label><input class="form-control" name="po_number" id="technicalUpdatePoNumber"></div>
+                        <div class="col-12"><label class="form-label">Remarks</label><textarea class="form-control" name="remarks" id="technicalUpdateRemarks" rows="3"></textarea></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Update</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -501,13 +627,114 @@
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    function normalizeText(value) {
+        return String(value || '').toLowerCase().trim();
+    }
+    function parsePanelRange(value) {
+        var raw = String(value || '').trim();
+        var match = raw.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+        if (!match) return null;
+        var min = Number(match[1]);
+        var max = Number(match[2]);
+        if (Number.isNaN(min) || Number.isNaN(max)) return null;
+        return { min: min, max: max };
+    }
+    function parsePoNumber(value) {
+        var match = String(value || '').trim().match(/^(\d{4})-(\d{4})$/);
+        if (!match) return null;
+        return { year: Number(match[1]), serial: Number(match[2]) };
+    }
+    function parsePoRange(value) {
+        var raw = String(value || '').trim();
+        var found = raw.match(/\d{4}-\d{4}/g);
+        if (!found || found.length < 2) return null;
+        var start = parsePoNumber(found[0]);
+        var end = parsePoNumber(found[1]);
+        if (!start || !end) return null;
+        var startKey = start.year * 10000 + start.serial;
+        var endKey = end.year * 10000 + end.serial;
+        if (startKey > endKey) {
+            var temp = start;
+            start = end;
+            end = temp;
+        }
+        return { start: start, end: end };
+    }
+    function applyRealtimeTechnicalFilters() {
+        var form = document.getElementById('technicalQueueFiltersForm');
+        if (!form) return;
+        var rows = Array.from(document.querySelectorAll('.crm-tech-row'));
+        if (!rows.length) return;
+        var q = normalizeText(form.querySelector('[name=\"q\"]') ? form.querySelector('[name=\"q\"]').value : '');
+        var teamAssigned = normalizeText(form.querySelector('[name=\"team_assigned\"]') ? form.querySelector('[name=\"team_assigned\"]').value : '');
+        var installationStatus = normalizeText(form.querySelector('[name=\"installation_status\"]') ? form.querySelector('[name=\"installation_status\"]').value : '');
+        var poRange = parsePoRange(form.querySelector('[name=\"po_number_range\"]') ? form.querySelector('[name=\"po_number_range\"]').value : '');
+        var dateFrom = normalizeText(form.querySelector('[name=\"installation_date_from\"]') ? form.querySelector('[name=\"installation_date_from\"]').value : '');
+        var dateTo = normalizeText(form.querySelector('[name=\"installation_date_to\"]') ? form.querySelector('[name=\"installation_date_to\"]').value : '');
+        var netMeteringStatus = normalizeText(form.querySelector('[name=\"net_metering_status\"]') ? form.querySelector('[name=\"net_metering_status\"]').value : '');
+        var panelRange = parsePanelRange(form.querySelector('[name=\"panel_units_range\"]') ? form.querySelector('[name=\"panel_units_range\"]').value : '');
+
+        rows.forEach(function (row) {
+            var clientName = normalizeText(row.dataset.clientName || '');
+            var team = normalizeText(row.dataset.teamAssigned || '');
+            var status = normalizeText(row.dataset.installationStatus || '');
+            var poNumber = normalizeText(row.dataset.poNumber || '');
+            var installDate = normalizeText(row.dataset.installationDate || '');
+            var netStatus = normalizeText(row.dataset.netMeteringStatus || '');
+            var panelUnitsRaw = normalizeText(row.dataset.panelUnits || '');
+            var panelUnitsNum = Number(panelUnitsRaw);
+            var searchable = [clientName, team, status, poNumber, netStatus, panelUnitsRaw].join(' ');
+
+            var visible = true;
+            if (q && searchable.indexOf(q) === -1) visible = false;
+            if (visible && teamAssigned && team !== teamAssigned) visible = false;
+            if (visible && installationStatus && status !== installationStatus) visible = false;
+            if (visible && poRange) {
+                var parsedPo = parsePoNumber(poNumber);
+                if (!parsedPo) {
+                    visible = false;
+                } else {
+                    var rowKey = parsedPo.year * 10000 + parsedPo.serial;
+                    var startKey = poRange.start.year * 10000 + poRange.start.serial;
+                    var endKey = poRange.end.year * 10000 + poRange.end.serial;
+                    if (rowKey < startKey || rowKey > endKey) visible = false;
+                }
+            }
+            if (visible && dateFrom && installDate && installDate < dateFrom) visible = false;
+            if (visible && dateTo && installDate && installDate > dateTo) visible = false;
+            if (visible && netMeteringStatus && netStatus !== netMeteringStatus) visible = false;
+            if (visible && panelRange) {
+                if (Number.isNaN(panelUnitsNum) || panelUnitsNum < panelRange.min || panelUnitsNum > panelRange.max) {
+                    visible = false;
+                }
+            }
+            row.classList.toggle('d-none', !visible);
+        });
+    }
+
+    Array.from(document.querySelectorAll('.js-tech-filter-input')).forEach(function (el) {
+        el.addEventListener('input', applyRealtimeTechnicalFilters);
+        el.addEventListener('change', applyRealtimeTechnicalFilters);
+        el.addEventListener('focus', function () {
+            var collapseEl = document.getElementById('technicalQueueFiltersCollapse');
+            if (!collapseEl) return;
+            if (window.bootstrap && window.bootstrap.Collapse) {
+                window.bootstrap.Collapse.getOrCreateInstance(collapseEl, { toggle: false }).show();
+            }
+        });
+    });
+    applyRealtimeTechnicalFilters();
+
     var technicalInfoModalEl = document.getElementById('technicalInfoModal');
     var technicalInfoModal = (technicalInfoModalEl && window.bootstrap) ? new bootstrap.Modal(technicalInfoModalEl) : null;
     var technicalHistoryDetailModalEl = document.getElementById('technicalHistoryDetailModal');
     var technicalHistoryDetailModal = (technicalHistoryDetailModalEl && window.bootstrap) ? new bootstrap.Modal(technicalHistoryDetailModalEl) : null;
+    var technicalUpdateModalEl = document.getElementById('technicalUpdateModal');
+    var technicalUpdateModal = (technicalUpdateModalEl && window.bootstrap) ? new bootstrap.Modal(technicalUpdateModalEl) : null;
     var scheduleModalEl = document.getElementById('setInstallationScheduleModal');
     var scheduleModal = (scheduleModalEl && window.bootstrap) ? new bootstrap.Modal(scheduleModalEl) : null;
     var scheduleButton = document.getElementById('setInstallationScheduleBtn');
+    var updateTechnicalInfoButton = document.getElementById('updateTechnicalInfoBtn');
     var scheduleSlotsNode = document.getElementById('technical-schedule-slots-data');
     var scheduleSlots = [];
     try { scheduleSlots = scheduleSlotsNode ? JSON.parse(scheduleSlotsNode.textContent || '[]') : []; } catch (e) { scheduleSlots = []; }
@@ -540,15 +767,21 @@ document.addEventListener('DOMContentLoaded', function () {
         if (Number.isNaN(count) || count < 0) count = 0;
         badgeEl.textContent = count + ' member' + (count === 1 ? '' : 's');
     }
-    function getInstallationStatusBadgeHtml(rawStatus) {
+    function formatInstallationStatusLabel(rawStatus) {
         var status = String(rawStatus || '-').trim();
+        if (!status || status === '-') return '-';        return status.replace(/\w\S*/g, function (word) {
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        });
+    }
+    function getInstallationStatusBadgeHtml(rawStatus) {
+        var status = formatInstallationStatusLabel(rawStatus);
         var key = status.toLowerCase();
         var cls = 'text-bg-light border text-dark';
         if (key === 'completed') cls = 'text-bg-success';
         else if (key === 'scheduled') cls = 'text-bg-primary';
         else if (key === 'ongoing') cls = 'text-bg-warning';
         else if (key === 'back jobs') cls = 'text-bg-danger';
-        else if (key === 'reschedules') cls = 'text-bg-secondary';
+        else if (key === 'rescheduled') cls = 'text-bg-secondary';
         return '<span class="badge ' + cls + '">' + status + '</span>';
     }
     function setActiveRow(row) {
@@ -1033,12 +1266,44 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('techInfoInverterModel').value = row.dataset.inverterModel || '-';
         document.getElementById('techInfoBatteryModel').value = row.dataset.batteryModel || '-';
         document.getElementById('techInfoNetMetering').value = row.dataset.netMetering || '-';
+        document.getElementById('techInfoNetMeteringStatus').value = row.dataset.netMeteringStatus || '-';
         var infoStatusEl = document.getElementById('techInfoInstallationStatusBadge');
         if (infoStatusEl) infoStatusEl.outerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-').replace('<span', '<span id="techInfoInstallationStatusBadge"');
         document.getElementById('techInfoPoNumber').value = row.dataset.poNumber || '-';
         document.getElementById('techInfoRemarks').value = row.dataset.remarks || '-';
         renderTechnicalHistory(row.dataset.salesRecordId || '');
         technicalInfoModal.show();
+    }
+
+    function openTechnicalUpdateModalFromRow(row) {
+        if (!row || !technicalUpdateModal) return;
+        var setVal = function (id, value) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.value = (value && value !== '-') ? value : '';
+        };
+        var normalizeNetMeteringStatus = function (value) {
+            var raw = String(value || '').trim();
+            if (!raw || raw === '-') return '';
+            var normalized = raw.toLowerCase().replace(/[_\s]+/g, '-');
+            if (normalized === 'with-net-metering' || normalized === 'with-netmetering') return 'WITH NET-METERING';
+            if (normalized === 'without-net-metering' || normalized === 'without-netmetering') return 'WITHOUT NET-METERING';
+            return raw;
+        };
+        setVal('technicalUpdateClientName', row.dataset.clientName || '');
+        setVal('technicalUpdateSalesRecordId', row.dataset.salesRecordId || '');
+        setVal('technicalUpdateInstallationDate', row.dataset.installationDate || '');
+        setVal('technicalUpdateTeamAssigned', row.dataset.teamAssigned || '');
+        setVal('technicalUpdateSystemSizeKwh', row.dataset.systemSizeKwh || '');
+        setVal('technicalUpdatePanelUnits', row.dataset.panelUnits || '');
+        setVal('technicalUpdateInverterModel', row.dataset.inverterModel || '');
+        setVal('technicalUpdateBatteryModel', row.dataset.batteryModel || '');
+        setVal('technicalUpdateNetMetering', row.dataset.netMetering || '');
+        setVal('technicalUpdateNetMeteringStatus', normalizeNetMeteringStatus(row.dataset.netMeteringStatus || ''));
+        setVal('technicalUpdateInstallationStatus', (row.dataset.installationStatus || '').toLowerCase());
+        setVal('technicalUpdatePoNumber', row.dataset.poNumber || '');
+        setVal('technicalUpdateRemarks', row.dataset.remarks || '');
+        technicalUpdateModal.show();
     }
 
     function setTechModalTab(tabName) {
@@ -1061,9 +1326,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         var html = '';
         rows.forEach(function (item, index) {
-            html += '<tr class="js-tech-history-row" data-history-index="' + index + '" style="cursor:pointer;">';
-            html += '<td>' + (item.actor || '-') + '</td>';
-            html += '<td>' + (item.action || '-') + '</td>';
+            html += '<tr>';
+            html += '<td>' + (item.team_assigned || '-') + '</td>';
+            html += '<td>' + formatInstallationStatusLabel(item.installation_status || '-') + '</td>';
             html += '<td>' + (item.created_at || '-') + '</td>';
             html += '</tr>';
         });
@@ -1145,8 +1410,8 @@ document.addEventListener('DOMContentLoaded', function () {
         setVal('techHistoryDetailOperator', item.actor || '-');
         setVal('techHistoryDetailAction', item.action || '-');
         setVal('techHistoryDetailDateTime', item.created_at || '-');
-        setVal('techHistoryDetailPrevStatus', item.previous_status || '-');
-        setVal('techHistoryDetailNewStatus', item.new_status || '-');
+        setVal('techHistoryDetailPrevStatus', formatInstallationStatusLabel(item.previous_status || '-'));
+        setVal('techHistoryDetailNewStatus', formatInstallationStatusLabel(item.new_status || '-'));
         setVal('techHistoryDetailPrevDateTime', (item.previous_date || '-') + ' ' + (item.previous_time || '-'));
         setVal('techHistoryDetailNewDateTime', (item.new_date || '-') + ' ' + (item.new_time || '-'));
         setVal('techHistoryDetailPrevTeam', item.previous_team || '-');
@@ -1161,11 +1426,21 @@ document.addEventListener('DOMContentLoaded', function () {
         if (row && !event.target.closest('input, button, a, label')) setActiveRow(row);
 
         var viewBtn = event.target.closest('.js-tech-view-btn');
-        if (!viewBtn || !technicalInfoModal) return;
-        var viewRow = viewBtn.closest('.crm-tech-row');
-        if (!viewRow) return;
-        setActiveRow(viewRow);
-        openTechnicalModalFromRow(viewRow);
+        if (viewBtn && technicalInfoModal) {
+            var viewRow = viewBtn.closest('.crm-tech-row');
+            if (!viewRow) return;
+            setActiveRow(viewRow);
+            openTechnicalModalFromRow(viewRow);
+            return;
+        }
+        var updateBtn = event.target.closest('.js-tech-update-btn');
+        if (updateBtn && technicalUpdateModal) {
+            var updateRow = updateBtn.closest('.crm-tech-row');
+            if (!updateRow) return;
+            setActiveRow(updateRow);
+            openTechnicalUpdateModalFromRow(updateRow);
+            return;
+        }
     });
 
     document.addEventListener('dblclick', function (event) {
@@ -1181,11 +1456,6 @@ document.addEventListener('DOMContentLoaded', function () {
             setTechModalTab(tabBtn.getAttribute('data-tech-tab') || 'technical');
             return;
         }
-        var historyRow = event.target.closest('.js-tech-history-row');
-        if (!historyRow) return;
-        var index = parseInt(historyRow.getAttribute('data-history-index') || '-1', 10);
-        if (Number.isNaN(index) || index < 0) return;
-        openTechnicalHistoryDetail(index);
     });
     document.addEventListener('click', function (event) {
         var teamItem = event.target.closest('.js-tech-team-item');
@@ -1220,6 +1490,13 @@ document.addEventListener('DOMContentLoaded', function () {
             var activeRow = document.querySelector('.crm-tech-row.is-active');
             if (!activeRow) return;
             openScheduleModalFromRow(activeRow);
+        });
+    }
+    if (updateTechnicalInfoButton) {
+        updateTechnicalInfoButton.addEventListener('click', function () {
+            var activeRow = document.querySelector('.crm-tech-row.is-active');
+            if (!activeRow) return;
+            openTechnicalUpdateModalFromRow(activeRow);
         });
     }
     ['scheduleInstallationDate', 'scheduleInstallationTime', 'scheduleTeamAssigned', 'scheduleRemarks'].forEach(function (id) {

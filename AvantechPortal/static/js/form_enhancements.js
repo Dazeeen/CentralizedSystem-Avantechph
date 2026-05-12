@@ -139,11 +139,254 @@
         button.dataset.captchaRefreshBound = '1';
     }
 
+    function extractCityFromAddressObject(addressObject) {
+        if (!addressObject) {
+            return '';
+        }
+        if (Array.isArray(addressObject)) {
+            for (var i = 0; i < addressObject.length; i += 1) {
+                var item = addressObject[i];
+                if (!item || typeof item !== 'object') continue;
+                var id = String(item.id || '');
+                if (id.indexOf('place.') === 0) {
+                    return String(item.text || item.name || '').trim();
+                }
+            }
+            return '';
+        }
+        if (typeof addressObject === 'object') {
+            return (
+                addressObject.city
+                || addressObject.town
+                || addressObject.municipality
+                || addressObject.village
+                || addressObject.county
+                || addressObject.state
+                || ''
+            );
+        }
+        return '';
+    }
+
+    function extractCityFromFeature(feature) {
+        var properties = (feature && feature.properties && typeof feature.properties === 'object') ? feature.properties : {};
+        return String(
+            properties.city
+            || properties.town
+            || properties.municipality
+            || properties.village
+            || properties.county
+            || properties.state
+            || ''
+        ).trim();
+    }
+
+    function buildFeatureLabel(feature) {
+        if (!feature || typeof feature !== 'object') return '';
+        var properties = (feature.properties && typeof feature.properties === 'object') ? feature.properties : {};
+        return String(properties.display_name || properties.name || feature.name || properties.street || '').trim();
+    }
+
+    function findCompanionCityField(addressField) {
+        var root = addressField.closest('form, .modal, .crm-profile-pane, .row, .col-12, .col-md-8, .col-md-6') || document;
+        return root.querySelector('input[name="city"], textarea[name="city"], #infoCity, #editCity, #id_city');
+    }
+
+    function ensureDatalistForAddressField(field) {
+        var listId = field.getAttribute('list');
+        if (listId) {
+            var existingList = document.getElementById(listId);
+            if (existingList) {
+                return existingList;
+            }
+        }
+        listId = 'home-address-list-' + (field.id || Math.random().toString(36).slice(2, 10));
+        var datalist = document.createElement('datalist');
+        datalist.id = listId;
+        field.setAttribute('list', listId);
+        document.body.appendChild(datalist);
+        return datalist;
+    }
+
+    function wireFreeAddressAutocompleteField(field) {
+        if (!field || field.dataset.freeAddressAutocompleteBound === '1') {
+            return;
+        }
+        if ((field.tagName || '').toLowerCase() !== 'input') {
+            return;
+        }
+
+        field.dataset.freeAddressAutocompleteBound = '1';
+        var datalist = ensureDatalistForAddressField(field);
+        var suggestionMetaByAddress = {};
+        var debounceTimer = null;
+        var requestToken = 0;
+        var abortController = null;
+        var defaultAddressSuggestions = [
+            'Quezon City, Metro Manila, Philippines',
+            'Manila, Metro Manila, Philippines',
+            'Makati, Metro Manila, Philippines',
+            'Taguig, Metro Manila, Philippines',
+            'Pasig, Metro Manila, Philippines',
+            'Cebu City, Cebu, Philippines',
+        ];
+
+        function renderSimpleSuggestions(labels) {
+            suggestionMetaByAddress = {};
+            datalist.innerHTML = '';
+            (labels || []).forEach(function (label) {
+                var value = String(label || '').trim();
+                if (!value) return;
+                suggestionMetaByAddress[value] = { display_name: value, address: {} };
+                var opt = document.createElement('option');
+                opt.value = value;
+                datalist.appendChild(opt);
+            });
+        }
+
+        function ensureDefaultSuggestionsVisible() {
+            if (!datalist.options || datalist.options.length === 0) {
+                renderSimpleSuggestions(defaultAddressSuggestions);
+            }
+        }
+
+        function applySelectedSuggestionCity() {
+            var selected = suggestionMetaByAddress[field.value || ''];
+            if (!selected) {
+                return;
+            }
+            var tryApplyCity = function (candidate) {
+                var cityValue = String(candidate || '').trim();
+                if (!cityValue) return false;
+                var cityField = findCompanionCityField(field);
+                if (!cityField || cityField.readOnly || cityField.disabled) {
+                    return false;
+                }
+                cityField.value = cityValue;
+                cityField.dispatchEvent(new Event('input', { bubbles: true }));
+                cityField.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            };
+
+            var fallbackCity = String(selected.__derived_city || '').trim()
+                || extractCityFromAddressObject(selected.context || selected.address || selected.properties || {});
+            if (tryApplyCity(fallbackCity)) {
+                return;
+            }
+
+            var properties = (selected && selected.properties && typeof selected.properties === 'object') ? selected.properties : {};
+            var osmTypeRaw = String(properties.osm_type || '').toLowerCase();
+            var osmId = String(properties.osm_id || '').trim();
+            var osmPrefix = '';
+            if (osmTypeRaw === 'node') osmPrefix = 'N';
+            else if (osmTypeRaw === 'way') osmPrefix = 'W';
+            else if (osmTypeRaw === 'relation') osmPrefix = 'R';
+            if (!osmPrefix || !osmId) {
+                return;
+            }
+
+            var lookupUrl = 'https://nominatim.openstreetmap.org/lookup?format=jsonv2&addressdetails=1&osm_ids=' + encodeURIComponent(osmPrefix + osmId);
+            fetch(lookupUrl, { headers: { 'Accept': 'application/json' } })
+                .then(function (response) {
+                    if (!response.ok) throw new Error('Lookup failed');
+                    return response.json();
+                })
+                .then(function (rows) {
+                    var first = Array.isArray(rows) && rows.length ? rows[0] : null;
+                    var addr = first && typeof first.address === 'object' ? first.address : {};
+                    var cityValue = extractCityFromAddressObject(addr);
+                    tryApplyCity(cityValue);
+                })
+                .catch(function () {
+                    return;
+                });
+        }
+
+        field.addEventListener('change', applySelectedSuggestionCity);
+        field.addEventListener('blur', applySelectedSuggestionCity);
+
+        function fetchSuggestionsForField(forceIfFocused) {
+            var query = (field.value || '').trim();
+            var countryCode = String(field.getAttribute('data-country-code') || 'ph').trim().toLowerCase() || 'ph';
+            if (query.length < 2) {
+                if (forceIfFocused) {
+                    ensureDefaultSuggestionsVisible();
+                } else {
+                    ensureDefaultSuggestionsVisible();
+                }
+                return;
+            }
+            if (abortController) {
+                abortController.abort();
+            }
+            abortController = new AbortController();
+            requestToken += 1;
+            var token = requestToken;
+            var endpoint = 'https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&countrycodes=' + encodeURIComponent(countryCode) + '&limit=6&q=' + encodeURIComponent(query);
+            fetch(endpoint, {
+                headers: {
+                    'Accept': 'application/json',
+                },
+                signal: abortController.signal,
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Address lookup failed');
+                    }
+                    return response.json();
+                })
+                .then(function (payload) {
+                    if (token !== requestToken) return;
+                    if (forceIfFocused && document.activeElement !== field) return;
+                    var rows = (payload && Array.isArray(payload.features)) ? payload.features : [];
+                    suggestionMetaByAddress = {};
+                    datalist.innerHTML = '';
+                    rows.forEach(function (row) {
+                        var label = buildFeatureLabel(row);
+                        if (!label) return;
+                        row.__derived_city = extractCityFromFeature(row);
+                        suggestionMetaByAddress[label] = row;
+                        var opt = document.createElement('option');
+                        opt.value = label;
+                        datalist.appendChild(opt);
+                    });
+                    if (!rows.length) {
+                        ensureDefaultSuggestionsVisible();
+                    }
+                })
+                .catch(function () {
+                    ensureDefaultSuggestionsVisible();
+                });
+        }
+
+        field.addEventListener('focus', function () {
+            ensureDefaultSuggestionsVisible();
+            fetchSuggestionsForField(true);
+        });
+
+        field.addEventListener('input', function () {
+            if (debounceTimer) {
+                window.clearTimeout(debounceTimer);
+            }
+            debounceTimer = window.setTimeout(function () {
+                fetchSuggestionsForField(false);
+            }, 120);
+        });
+    }
+
+    function wireFreeAddressAutocomplete(scope) {
+        var root = scope || document;
+        root.querySelectorAll('input[name="home_address"], #id_home_address, #editHomeAddress, #infoHomeAddress, [data-address-autocomplete="1"]').forEach(function (field) {
+            wireFreeAddressAutocompleteField(field);
+        });
+    }
+
     function enhance(root) {
         var scope = root || document;
         scope.querySelectorAll('form').forEach(wireFormValidation);
         scope.querySelectorAll('input[type="password"]').forEach(wirePasswordToggle);
         scope.querySelectorAll('.js-captcha-refresh').forEach(wireCaptchaRefresh);
+        wireFreeAddressAutocomplete(scope);
     }
 
     document.addEventListener('DOMContentLoaded', function () {

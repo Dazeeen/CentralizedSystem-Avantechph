@@ -27,7 +27,6 @@
                         <label class="form-label fw-semibold mb-0">{{ form.permissions.label }}</label>
                         <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0">
                             <input type="checkbox" class="form-check-input js-toggle-all" data-target-field="permissions" id="toggleAllRolePermissions">
-                            <span>Select all / Unselect all</span>
                         </label>
                     </div>
                     <div class="input-group input-group-sm mb-2">
@@ -40,7 +39,12 @@
                             <details class="permission-category js-role-permission-category" data-category-label="{{ group.app_label|lower }}" {% if group.selected_count > 0 or forloop.first %}open{% endif %}>
                                 <summary class="permission-category-summary d-flex justify-content-between align-items-center">
                                     <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
-                                    <span class="badge text-bg-light border js-category-count">{{ group.selected_count }}/{{ group.total_count }} selected</span>
+                                    <span class="d-inline-flex align-items-center gap-2">
+                                        <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0">
+                                            <input type="checkbox" class="form-check-input js-category-toggle" aria-label="Select or unselect all permissions under {{ group.app_label }}">
+                                        </label>
+                                        <span class="badge text-bg-light border js-category-count">{{ group.selected_count }}/{{ group.total_count }} selected</span>
+                                    </span>
                                 </summary>
                                 <div class="table-responsive mt-2">
                                     <table class="table table-sm align-middle mb-0">
@@ -93,6 +97,9 @@
         const getFieldCheckboxes = (fieldKind) => document.querySelectorAll(
             `[data-field-kind="${fieldKind}"] input[type="checkbox"]:not(.js-toggle-all):not(.js-category-toggle)`
         );
+        const getCategoryPermissionCheckboxes = (category) => category
+            ? Array.from(category.querySelectorAll('input[type="checkbox"][name="permissions"]'))
+            : [];
         const permissionPanel = document.querySelector('[data-field-kind="permissions"]');
         const permissionSearchInput = document.getElementById('rolePermissionSearch');
         const permissionSearchClear = document.getElementById('rolePermissionSearchClear');
@@ -108,11 +115,16 @@
 
         const syncCategoryCounts = () => {
             document.querySelectorAll('.js-role-permission-category').forEach((category) => {
-                const checkboxes = Array.from(category.querySelectorAll('input[type="checkbox"]'));
+                const checkboxes = getCategoryPermissionCheckboxes(category);
                 const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
                 const countBadge = category.querySelector('.js-category-count');
+                const categoryToggle = category.querySelector('.js-category-toggle');
                 if (countBadge) {
                     countBadge.textContent = `${selectedCount}/${checkboxes.length} selected`;
+                }
+                if (categoryToggle) {
+                    categoryToggle.checked = checkboxes.length > 0 && selectedCount === checkboxes.length;
+                    categoryToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
                 }
             });
         };
@@ -154,6 +166,18 @@
         document.querySelectorAll('.js-toggle-all').forEach((toggle) => {
             toggle.addEventListener('change', () => {
                 setCheckboxState(toggle.dataset.targetField, toggle.checked);
+                syncCategoryCounts();
+                syncToggle();
+            });
+        });
+        document.querySelectorAll('.js-category-toggle').forEach((categoryToggle) => {
+            categoryToggle.addEventListener('change', (event) => {
+                event.preventDefault();
+                const category = categoryToggle.closest('.js-role-permission-category');
+                const checkboxes = getCategoryPermissionCheckboxes(category);
+                checkboxes.forEach((checkbox) => {
+                    checkbox.checked = categoryToggle.checked;
+                });
                 syncCategoryCounts();
                 syncToggle();
             });

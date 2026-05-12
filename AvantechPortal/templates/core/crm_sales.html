@@ -8,10 +8,14 @@
 <div class="card border-0 shadow-sm">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 mb-3">
+            {% if can_manage_crm_sales %}
             <button type="button" class="btn btn-success" id="crmLogSalesActivityBtn">+ Log Sales Activity</button>
+            {% endif %}
             <button type="button" class="btn btn-outline-secondary" id="crmExportSalesReportBtn">Export Report</button>
+            {% if can_manage_crm_sales %}
             <button type="button" class="btn btn-outline-secondary" id="crmAssignSalesBtn">Assign Sales</button>
             <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#crmSalesAgingSettingsModal">Settings</button>
+            {% endif %}
         </div>
         <form method="get" class="row g-2 mb-3">
             <div class="col-lg-4 col-md-6">
@@ -149,7 +153,9 @@
                                 <div class="dropdown">
                                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
                                     <ul class="dropdown-menu dropdown-menu-end">
+                                        {% if can_manage_crm_sales %}
                                         <li><button type="button" class="dropdown-item js-sales-action-update">Update</button></li>
+                                        {% endif %}
                                         <li><button type="button" class="dropdown-item js-sales-action-view-profile">View Profile</button></li>
                                     </ul>
                                 </div>
@@ -245,7 +251,7 @@
             </nav>
         {% endif %}
         <div class="mt-3 small text-secondary">Lead Source: `facebook ads`, `referral`, `walkin`, `website`, `developer`, `event`, `telemarketing`</div>
-        <div class="small text-secondary">Ownership: `owner`, `tenant` | Sales Status: `new`, `contacted`, `for survey`, `forproposal`, `negotiation`, `close won`, `close lost`</div>
+        <div class="small text-secondary">Ownership: `owner`, `tenant` | Sales Status: `new`, `contacted`, `for survey`, `forproposal`, `negotiation`, `closed won`, `closed lost`</div>
         </div>
         <aside class="crm-sales-summary-panel">
             <h3 class="crm-sales-summary-name" id="crmSalesSummaryClientName">Select a sales record</h3>
@@ -540,8 +546,8 @@
                                 <option value="for survey">for survey</option>
                                 <option value="forproposal">for proposal</option>
                                 <option value="negotiation">negotiation</option>
-                                <option value="close won">close won</option>
-                                <option value="close lost">close lost</option>
+                                <option value="closed won">closed won</option>
+                                <option value="closed lost">closed lost</option>
                             </select>
                         </div>
                         <div class="col-12">

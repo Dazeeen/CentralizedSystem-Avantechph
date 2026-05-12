@@ -19,6 +19,19 @@ from .ticketing_services import (
     effective_priority_filter,
 )
 
+CRM_VIEW_PERMISSIONS = {
+    'dashboard': ('core.view_crm_dashboard', 'core.view_client'),
+    'clients': ('core.view_crm_clients_section', 'core.view_client'),
+    'sales': ('core.view_crm_sales_section', 'core.view_client'),
+    'technicals': ('core.view_crm_technicals_section', 'core.view_client'),
+}
+
+CRM_MANAGE_PERMISSIONS = {
+    'clients': ('core.manage_crm_clients_section', 'core.change_client'),
+    'sales': ('core.manage_crm_sales_section', 'core.change_client'),
+    'technicals': ('core.manage_crm_technicals_section', 'core.change_client'),
+}
+
 
 PAGE_ACCESS_RULES = {
     'dashboard': {'label': 'Dashboard', 'audience': 'All signed-in users'},
@@ -80,10 +93,10 @@ PAGE_ACCESS_RULES = {
     'clients_delete': {'label': 'Delete Client', 'perms': ['core.delete_client']},
     'clients_quote': {'label': 'Client Quotation', 'perms': ['core.change_clientquotation']},
     'clients_quotation_document': {'label': 'Client Quotation Document', 'perms': ['core.view_clientquotation']},
-    'crm_dashboard': {'label': 'CRM Dashboard', 'perms': ['core.view_client']},
-    'crm_clients': {'label': 'CRM Clients', 'perms': ['core.view_client']},
-    'crm_sales': {'label': 'CRM Sales', 'perms': ['core.view_client']},
-    'crm_technicals': {'label': 'CRM Technicals', 'perms': ['core.view_client']},
+    'crm_dashboard': {'label': 'CRM Dashboard', 'perms': ['core.view_crm_dashboard', 'core.view_client']},
+    'crm_clients': {'label': 'CRM Clients', 'perms': ['core.view_crm_clients_section', 'core.view_client']},
+    'crm_sales': {'label': 'CRM Sales', 'perms': ['core.view_crm_sales_section', 'core.view_client']},
+    'crm_technicals': {'label': 'CRM Technicals', 'perms': ['core.view_crm_technicals_section', 'core.view_client']},
     'finance_dashboard': {'label': 'Finance Dashboard', 'perms': ['core.view_fundrequest']},
     'fund_requests_list': {'label': 'Payment Request', 'perms': ['core.view_fundrequest']},
     'fund_request_records': {'label': 'Payment Request Records', 'perms': ['core.view_fundrequest']},
@@ -153,6 +166,11 @@ def _permissions_for_names(permission_names):
 
 def _display_user(user):
     return user.get_full_name() or user.username
+
+def _has_any_perm(user, permission_names):
+    if user.is_superuser:
+        return True
+    return any(user.has_perm(permission_name) for permission_name in permission_names)
 
 
 def _build_permission_access(rule):
@@ -312,7 +330,12 @@ def finance_navigation_state(request):
         else:
             important_ticket_count = important_query.filter(created_by=request.user).count()
 
-        can_view_crm = request.user.is_superuser or request.user.has_perm('core.view_client')
+        can_view_crm = (
+            _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['dashboard'])
+            or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['clients'])
+            or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['sales'])
+            or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['technicals'])
+        )
         if can_view_crm:
             setting = CRMTechnicalNotificationSetting.objects.order_by('id').first()
             notify_days_before = getattr(setting, 'notify_days_before', 3)
@@ -324,12 +347,16 @@ def finance_navigation_state(request):
                 & ~Q(installation_status__iexact='completed')
             )
             if include_backlogs:
-                actionable_q = actionable_q | Q(installation_status__iexact='back jobs') | Q(installation_status__iexact='reschedules')
+                actionable_q = (
+                    actionable_q
+                    | Q(installation_status__iexact='back jobs')
+                    | Q(installation_status__iexact='rescheduled')
+                )
 
             actionable_q &= Q(sales_record__project_cost__isnull=False) & (
                 Q(sales_record__sales_status__iexact='closed won') | Q(sales_record__sales_status__iexact='close won')
             )
-            if not (request.user.is_superuser or request.user.has_perm('core.change_client')):
+            if not _has_any_perm(request.user, CRM_MANAGE_PERMISSIONS['technicals']):
                 user_full_name = (request.user.get_full_name() or '').strip()
                 user_username = (request.user.username or '').strip()
                 ownership_filter = Q(sales_record__client__created_by=request.user)

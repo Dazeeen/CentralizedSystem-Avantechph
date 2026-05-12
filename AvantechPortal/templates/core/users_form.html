@@ -35,7 +35,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% with selected_values=field.value %}
+                                        {% with selected_values=form.selected_group_ids %}
                                             {% for role in field.field.queryset %}
                                                 <tr class="role-row-clickable js-role-preview-row" data-role-id="{{ role.pk }}" role="button" tabindex="0" title="View role permissions">
                                                     <td>{{ role.name }}</td>
