@@ -7,6 +7,36 @@
     <title>{% block title %}Avantech Portal{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="{% static 'css/site.css' %}">
+    <style>
+        .attendance-assist-fab {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            width: 62px;
+            height: 62px;
+            border-radius: 50%;
+            border: 0;
+            background: radial-gradient(circle at 30% 30%, #63e6be, #0ca678 60%, #087f5b 100%);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+            z-index: 1080;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .attendance-assist-fab-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8);
+            animation: attendancePulse 1.8s infinite;
+        }
+        @keyframes attendancePulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
+            70% { box-shadow: 0 0 0 14px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+    </style>
 </head>
 <body class="app-body">
     <div class="app-shell" id="appShell">
@@ -35,6 +65,52 @@
                             </span>
                             <span class="nav-label">Dashboard</span>
                         </a>
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'attendance_page' %}active{% endif %}" href="{% url 'attendance_page' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M15.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M5 9H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8.5 12.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8.5 16H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Attendance</span>
+                        </a>
+                        <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent" aria-expanded="false">
+                            <span class="d-inline-flex align-items-center gap-2">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M8 10.5C8 9.1 9.1 8 10.5 8C11.9 8 13 9.1 13 10.5C13 11.9 11.9 13 10.5 13C9.1 13 8 11.9 8 10.5Z" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M14.5 10C14.5 9 15.3 8.2 16.3 8.2C17.3 8.2 18.1 9 18.1 10C18.1 11 17.3 11.8 16.3 11.8C15.3 11.8 14.5 11 14.5 10Z" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M7.5 16.5C8 14.8 9.2 13.8 10.6 13.8C12 13.8 13.2 14.8 13.7 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M14.2 16.2C14.5 15.3 15.2 14.8 16.1 14.8C17 14.8 17.7 15.3 18 16.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Human Resource</span>
+                            </span>
+                            <span class="nav-group-caret" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                        </button>
+                        <div class="nav-subgroup">
+                            <a class="nav-link app-nav-link ms-4" href="#" style="font-size: 0.9rem;">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="5" y="4.5" width="14" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M8.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M15.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M5 9H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <circle cx="12" cy="13" r="2.3" stroke="currentColor" stroke-width="1.8"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Timekeeping</span>
+                            </a>
+                        </div>
                         {% if request.user.is_superuser or perms.core.view_crm_dashboard or perms.core.view_crm_clients_section or perms.core.view_crm_sales_section or perms.core.view_crm_technicals_section or perms.core.view_client %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_crm_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_crm_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
@@ -541,6 +617,42 @@
         </div>
     </div>
 
+    <button
+        type="button"
+        id="attendanceAssistFab"
+        class="attendance-assist-fab d-none"
+        aria-label="Attendance Assistant"
+        title="Attendance Assistant"
+    >
+        <span class="attendance-assist-fab-dot"></span>
+    </button>
+
+    <div class="modal fade" id="attendanceAssistModal" tabindex="-1" aria-labelledby="attendanceAssistModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5 mb-0" id="attendanceAssistModalLabel">Attendance Capture</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="attendanceAssistCaptureStep">
+                        <video id="attendanceAssistVideo" class="w-100 rounded border" autoplay playsinline muted></video>
+                        <div class="small text-secondary mt-2" id="attendanceAssistHint">Allow camera and location to continue.</div>
+                    </div>
+                    <div id="attendanceAssistPreviewStep" class="d-none">
+                        <img id="attendanceAssistPreviewImage" class="w-100 rounded border" alt="Attendance preview">
+                    </div>
+                    <canvas id="attendanceAssistCanvas" class="d-none"></canvas>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" id="attendanceAssistRetakeBtn">Retake</button>
+                    <button type="button" class="btn btn-outline-primary" id="attendanceAssistCaptureBtn">Capture</button>
+                    <button type="button" class="btn btn-success d-none" id="attendanceAssistSubmitBtn">Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel">
         <div class="offcanvas-header">
             <h2 class="offcanvas-title h5 mb-0" id="mobileSidebarLabel">Avantech Portal</h2>
@@ -561,6 +673,52 @@
                         </span>
                         <span class="nav-label">Dashboard</span>
                     </a>
+                    <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'attendance_page' %}active{% endif %}" href="{% url 'attendance_page' %}">
+                        <span class="nav-logo" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                <path d="M8.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M15.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M5 9H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M8.5 12.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                <path d="M8.5 16H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            </svg>
+                        </span>
+                        <span class="nav-label">Attendance</span>
+                    </a>
+                    <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent" aria-expanded="false">
+                        <span class="d-inline-flex align-items-center gap-2">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8 10.5C8 9.1 9.1 8 10.5 8C11.9 8 13 9.1 13 10.5C13 11.9 11.9 13 10.5 13C9.1 13 8 11.9 8 10.5Z" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M14.5 10C14.5 9 15.3 8.2 16.3 8.2C17.3 8.2 18.1 9 18.1 10C18.1 11 17.3 11.8 16.3 11.8C15.3 11.8 14.5 11 14.5 10Z" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M7.5 16.5C8 14.8 9.2 13.8 10.6 13.8C12 13.8 13.2 14.8 13.7 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M14.2 16.2C14.5 15.3 15.2 14.8 16.1 14.8C17 14.8 17.7 15.3 18 16.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Human Resource</span>
+                        </span>
+                        <span class="nav-group-caret" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </span>
+                    </button>
+                    <div class="nav-subgroup">
+                        <a class="nav-link app-nav-link ms-4" href="#" style="font-size: 0.9rem;">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="5" y="4.5" width="14" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M15.5 3.8V6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M5 9H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <circle cx="12" cy="13" r="2.3" stroke="currentColor" stroke-width="1.8"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Timekeeping</span>
+                        </a>
+                    </div>
                     {% if request.user.is_superuser or perms.core.view_crm_dashboard or perms.core.view_crm_clients_section or perms.core.view_crm_sales_section or perms.core.view_crm_technicals_section or perms.core.view_client %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_crm_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_crm_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
@@ -2253,6 +2411,480 @@
             window.setInterval(refreshSuperUserChatUnreadCount, 30000);
         })();
         {% endif %}
+
+        (function () {
+            if (!window.fetch || typeof bootstrap === 'undefined') return;
+
+            const fab = document.getElementById('attendanceAssistFab');
+            const modalEl = document.getElementById('attendanceAssistModal');
+            const videoEl = document.getElementById('attendanceAssistVideo');
+            const canvasEl = document.getElementById('attendanceAssistCanvas');
+            const previewEl = document.getElementById('attendanceAssistPreviewImage');
+            const captureStepEl = document.getElementById('attendanceAssistCaptureStep');
+            const previewStepEl = document.getElementById('attendanceAssistPreviewStep');
+            const hintEl = document.getElementById('attendanceAssistHint');
+            const captureBtn = document.getElementById('attendanceAssistCaptureBtn');
+            const retakeBtn = document.getElementById('attendanceAssistRetakeBtn');
+            const submitBtn = document.getElementById('attendanceAssistSubmitBtn');
+            if (!fab || !modalEl || !videoEl || !canvasEl || !previewEl || !captureBtn || !retakeBtn || !submitBtn) return;
+
+            const statusUrl = "{% url 'attendance_assist_status' %}";
+            const submitUrl = "{% url 'attendance_assist_submit' %}";
+            const logoUrl = "{% static 'img/avantech-logo.png' %}";
+            const timemarkSettingsKey = 'attendance_timemark_settings_v1';
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+            let stream = null;
+            let mode = 'time_in';
+            let geo = { latitude: '', longitude: '', locationLabel: 'Location unavailable' };
+            let preparedImageData = '';
+
+            const getTimemarkSettings = () => {
+                const normalizeLayoutEntry = (entry, fallback) => {
+                    const e = entry && typeof entry === 'object' ? entry : {};
+                    const clampNum = (n, min, max, fb) => {
+                        const v = (typeof n === 'number' && Number.isFinite(n)) ? n : fb;
+                        return Math.min(max, Math.max(min, v));
+                    };
+                    return {
+                        x: clampNum(e.x, 0, 0.97, fallback.x),
+                        y: clampNum(e.y, 0, 0.97, fallback.y),
+                        w: clampNum(e.w, 0.08, 0.95, fallback.w),
+                        h: clampNum(e.h, 0.06, 0.95, fallback.h),
+                    };
+                };
+                const normalizeLayoutSet = (setObj, defaults) => {
+                    const out = {};
+                    Object.keys(defaults).forEach((k) => {
+                        out[k] = normalizeLayoutEntry(setObj ? setObj[k] : null, defaults[k]);
+                    });
+                    return out;
+                };
+                try {
+                    const raw = localStorage.getItem(timemarkSettingsKey);
+                    const defaults = {
+                        companyName: 'Avantech Attendance',
+                        location: '',
+                        logoData: '',
+                        layout: {
+                            company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
+                            type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
+                            time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
+                            location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
+                            logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.18 },
+                        },
+                    };
+                    if (!raw) return defaults;
+                    const parsed = JSON.parse(raw);
+                    const landscape = normalizeLayoutSet(parsed.layout && parsed.layout.landscape, defaults.layout);
+                    const portrait = normalizeLayoutSet(parsed.layout && parsed.layout.portrait, defaults.layout);
+                    return {
+                        companyName: (parsed.company_name || '').trim() || defaults.companyName,
+                        location: (parsed.location || '').trim(),
+                        logoData: (parsed.logo_data || '').trim(),
+                        layout: { landscape, portrait },
+                    };
+                } catch (error) {
+                    return {
+                        companyName: 'Avantech Attendance',
+                        location: '',
+                        logoData: '',
+                        layout: { landscape: {
+                            company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
+                            type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
+                            time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
+                            location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
+                            logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.18 },
+                        }, portrait: {
+                            company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
+                            type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
+                            time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
+                            location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
+                            logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.18 },
+                        } },
+                    };
+                }
+            };
+
+            const getCsrfToken = () => {
+                const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                if (input && input.value) return input.value;
+                const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+                return match ? decodeURIComponent(match[1]) : '';
+            };
+
+            const stopCamera = () => {
+                if (stream) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    stream = null;
+                }
+                videoEl.srcObject = null;
+            };
+
+            const resetSteps = () => {
+                captureStepEl.classList.remove('d-none');
+                previewStepEl.classList.add('d-none');
+                captureBtn.classList.remove('d-none');
+                submitBtn.classList.add('d-none');
+                preparedImageData = '';
+            };
+
+            const refreshStatus = async () => {
+                try {
+                    const response = await fetch(statusUrl, {
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) return;
+                    const payload = await response.json();
+                    if (!payload || !payload.ok) return;
+                    mode = payload.mode || 'time_in';
+                    fab.classList.toggle('d-none', mode === 'done');
+                    fab.style.opacity = payload.visible ? '1' : '0.55';
+                    fab.setAttribute('title', payload.message || 'Attendance Assistant');
+                } catch (error) {
+                    return;
+                }
+            };
+
+            const getLocation = () => new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    resolve({ latitude: '', longitude: '', locationLabel: 'GPS unavailable' });
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const lat = Number(pos.coords.latitude || 0);
+                        const lng = Number(pos.coords.longitude || 0);
+                        resolve({
+                            latitude: lat ? lat.toFixed(7) : '',
+                            longitude: lng ? lng.toFixed(7) : '',
+                            locationLabel: lat && lng ? `Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}` : 'Location unavailable',
+                        });
+                    },
+                    () => resolve({ latitude: '', longitude: '', locationLabel: 'Location permission denied' }),
+                    { enableHighAccuracy: true, timeout: 7000 }
+                );
+            });
+
+            const loadImage = (url) => new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = url;
+            });
+
+            const drawOverlay = async () => {
+                const vw = videoEl.videoWidth || 1280;
+                const vh = videoEl.videoHeight || 720;
+                canvasEl.width = vw;
+                canvasEl.height = vh;
+                const ctx = canvasEl.getContext('2d');
+                ctx.drawImage(videoEl, 0, 0, vw, vh);
+                const timemark = getTimemarkSettings();
+                const finalLocation = timemark.location || geo.locationLabel || 'N/A';
+                const orientationKey = vw >= vh ? 'landscape' : 'portrait';
+                const activeLayout = (timemark.layout && timemark.layout[orientationKey]) ? timemark.layout[orientationKey] : (timemark.layout && timemark.layout.landscape ? timemark.layout.landscape : {});
+                const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+                const mapPoint = (pt) => ({
+                    x: Math.round(clamp((pt && typeof pt.x === 'number') ? pt.x : 0.06, 0, 0.95) * vw),
+                    y: Math.round(clamp((pt && typeof pt.y === 'number') ? pt.y : 0.68, 0, 0.95) * vh),
+                });
+                const mapSize = (pt, fallbackW, fallbackH) => ({
+                    w: Math.round(clamp((pt && typeof pt.w === 'number') ? pt.w : fallbackW, 0.08, 0.95) * vw),
+                    h: Math.round(clamp((pt && typeof pt.h === 'number') ? pt.h : fallbackH, 0.06, 0.95) * vh),
+                });
+                const drawWrappedText = (text, x, y, maxWidth, lineHeight, fontPx, weight = 'normal', bg = true) => {
+                    ctx.font = `${weight} ${fontPx}px Arial`;
+                    const words = String(text || '').split(/\s+/).filter(Boolean);
+                    const lines = [];
+                    let line = '';
+                    words.forEach((word) => {
+                        const test = line ? `${line} ${word}` : word;
+                        if (ctx.measureText(test).width <= maxWidth || !line) {
+                            line = test;
+                        } else {
+                            lines.push(line);
+                            line = word;
+                        }
+                    });
+                    if (line) lines.push(line);
+                    if (!lines.length) lines.push('');
+                    const blockHeight = lines.length * lineHeight + 12;
+                    const safeX = clamp(x, 6, vw - maxWidth - 10);
+                    const safeY = clamp(y, 6, vh - blockHeight - 6);
+                    if (bg) {
+                        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+                        ctx.fillRect(safeX - 6, safeY - 6, maxWidth + 12, blockHeight);
+                    }
+                    ctx.fillStyle = '#ffffff';
+                    lines.forEach((ln, idx) => ctx.fillText(ln, safeX, safeY + (idx + 1) * lineHeight));
+                };
+
+                const companyPt = mapPoint(activeLayout.company);
+                const typePt = mapPoint(activeLayout.type);
+                const timePt = mapPoint(activeLayout.time);
+                const locationPt = mapPoint(activeLayout.location);
+                const logoPt = mapPoint(activeLayout.logo);
+                const companySz = mapSize(activeLayout.company, 0.42, 0.10);
+                const typeSz = mapSize(activeLayout.type, 0.32, 0.08);
+                const timeSz = mapSize(activeLayout.time, 0.38, 0.08);
+                const locationSz = mapSize(activeLayout.location, 0.56, 0.10);
+                const logoSz = mapSize(activeLayout.logo, 0.16, 0.18);
+                if (orientationKey === 'portrait') {
+                    const square = Math.max(60, Math.min(logoSz.w, logoSz.h));
+                    logoSz.w = square;
+                    logoSz.h = square;
+                }
+                const companyFont = clamp(Math.round(companySz.h * 0.32), 12, 40);
+                const typeFont = clamp(Math.round(typeSz.h * 0.32), 11, 34);
+                const timeFont = clamp(Math.round(timeSz.h * 0.32), 11, 34);
+                const locationFont = clamp(Math.round(locationSz.h * 0.28), 10, 30);
+                drawWrappedText(`company: ${timemark.companyName}`, companyPt.x, companyPt.y, companySz.w, Math.round(companyFont * 1.2), companyFont, 'bold');
+                drawWrappedText(`type: ${mode === 'time_out' ? 'Time Out' : 'Time In'}`, typePt.x, typePt.y, typeSz.w, Math.round(typeFont * 1.2), typeFont);
+                drawWrappedText(`time: ${new Date().toLocaleString()}`, timePt.x, timePt.y, timeSz.w, Math.round(timeFont * 1.2), timeFont);
+                drawWrappedText(`location: ${finalLocation}`, locationPt.x, locationPt.y, locationSz.w, Math.round(locationFont * 1.2), locationFont);
+
+                try {
+                    const logoSource = timemark.logoData || logoUrl;
+                    const logo = await loadImage(logoSource);
+                    const logoW = Math.max(60, logoSz.w);
+                    const logoH = Math.max(42, logoSz.h);
+                    const lx = clamp(logoPt.x, 4, vw - logoW - 4);
+                    const ly = clamp(logoPt.y, 4, vh - logoH - 4);
+                    ctx.drawImage(logo, lx, ly, logoW, logoH);
+                } catch (error) {
+                    // Continue even if logo fails to load.
+                }
+
+                preparedImageData = canvasEl.toDataURL('image/jpeg', 0.92);
+                previewEl.src = preparedImageData;
+            };
+
+            const startCamera = async () => {
+                resetSteps();
+                hintEl.textContent = 'Allow camera and location to continue.';
+                geo = await getLocation();
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+                    videoEl.srcObject = stream;
+                    await videoEl.play();
+                    hintEl.textContent = `${mode === 'time_out' ? 'Time Out' : 'Time In'} ready. ${geo.locationLabel}`;
+                } catch (error) {
+                    hintEl.textContent = 'Unable to open camera. Please allow camera permission.';
+                    throw error;
+                }
+            };
+
+            fab.addEventListener('click', async () => {
+                modal.show();
+                try {
+                    await startCamera();
+                } catch (error) {
+                    return;
+                }
+            });
+
+            captureBtn.addEventListener('click', async () => {
+                if (!stream) return;
+                await drawOverlay();
+                stopCamera();
+                captureStepEl.classList.add('d-none');
+                previewStepEl.classList.remove('d-none');
+                captureBtn.classList.add('d-none');
+                submitBtn.classList.remove('d-none');
+            });
+
+            retakeBtn.addEventListener('click', async () => {
+                try {
+                    await startCamera();
+                } catch (error) {
+                    return;
+                }
+            });
+
+            submitBtn.addEventListener('click', async () => {
+                if (!preparedImageData) return;
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+                try {
+                    const form = new FormData();
+                    form.append('mode', mode);
+                    form.append('image_data', preparedImageData);
+                    form.append('latitude', geo.latitude || '');
+                    form.append('longitude', geo.longitude || '');
+                    form.append('location_label', geo.locationLabel || '');
+
+                    const response = await fetch(submitUrl, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': getCsrfToken(),
+                        },
+                        body: form,
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || !payload.ok) {
+                        throw new Error((payload && payload.message) || 'Unable to submit attendance.');
+                    }
+                    if (window.showToast) {
+                        window.showToast(payload.message || 'Attendance submitted.', 'success');
+                    }
+                    modal.hide();
+                    await refreshStatus();
+                } catch (error) {
+                    if (window.showToast) {
+                        window.showToast(error.message || 'Unable to submit attendance.', 'danger');
+                    }
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit';
+                }
+            });
+
+            modalEl.addEventListener('hidden.bs.modal', () => {
+                stopCamera();
+                resetSteps();
+            });
+
+            refreshStatus();
+            window.setInterval(refreshStatus, 60000);
+            document.addEventListener('app:page-swapped', () => { refreshStatus(); });
+            window.addEventListener('popstate', () => { refreshStatus(); });
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) refreshStatus();
+            });
+        })();
+
+        (function () {
+            if (!window.fetch || !window.history || !window.DOMParser) {
+                return;
+            }
+
+            const samePathAndQuery = (a, b) => {
+                const ua = new URL(a, window.location.origin);
+                const ub = new URL(b, window.location.origin);
+                return ua.pathname === ub.pathname && ua.search === ub.search;
+            };
+
+            const shouldHandleLink = (link) => {
+                if (!link || !link.href) return false;
+                if (link.target && link.target !== '_self') return false;
+                if (link.hasAttribute('download')) return false;
+                if (link.dataset.bsToggle) return false;
+                const href = link.getAttribute('href') || '';
+                if (!href || href.startsWith('#')) return false;
+                if (href.startsWith('mailto:') || href.startsWith('tel:')) return false;
+                const url = new URL(link.href, window.location.origin);
+                return url.origin === window.location.origin;
+            };
+
+            const runScripts = (container) => {
+                if (!container) return;
+                const scripts = Array.from(container.querySelectorAll('script'));
+                scripts.forEach((oldScript) => {
+                    const newScript = document.createElement('script');
+                    Array.from(oldScript.attributes).forEach((attr) => {
+                        newScript.setAttribute(attr.name, attr.value);
+                    });
+                    if (!oldScript.src) {
+                        newScript.textContent = oldScript.textContent;
+                    }
+                    oldScript.replaceWith(newScript);
+                });
+            };
+
+            const refreshActiveNavLinks = (nextUrl) => {
+                const next = new URL(nextUrl, window.location.origin);
+                const links = document.querySelectorAll('.app-nav-link[href]');
+                links.forEach((link) => {
+                    const rawHref = link.getAttribute('href') || '';
+                    if (!rawHref || rawHref === '#') return;
+                    const linkUrl = new URL(rawHref, window.location.origin);
+                    link.classList.toggle('active', samePathAndQuery(linkUrl.href, next.href));
+                });
+            };
+
+            const swapPageFromHtml = (html, nextUrl, pushState) => {
+                const parser = new DOMParser();
+                const nextDoc = parser.parseFromString(html, 'text/html');
+                const nextWrap = nextDoc.querySelector('.app-content-wrap');
+                const nextHeading = nextDoc.querySelector('.app-topbar h1');
+                const currWrap = document.querySelector('.app-content-wrap');
+                const currHeading = document.querySelector('.app-topbar h1');
+
+                if (!nextWrap || !currWrap) {
+                    window.location.href = nextUrl;
+                    return;
+                }
+
+                if (typeof window.__appPageCleanup === 'function') {
+                    try {
+                        window.__appPageCleanup();
+                    } catch (e) {
+                        // Ignore cleanup errors and continue navigation.
+                    }
+                    window.__appPageCleanup = null;
+                }
+
+                currWrap.innerHTML = nextWrap.innerHTML;
+                if (nextHeading && currHeading) {
+                    currHeading.textContent = nextHeading.textContent;
+                }
+                if (nextDoc.title) {
+                    document.title = nextDoc.title;
+                }
+
+                refreshActiveNavLinks(nextUrl);
+                runScripts(currWrap);
+                document.dispatchEvent(new CustomEvent('app:page-swapped', { detail: { url: nextUrl } }));
+                window.scrollTo({ top: 0, behavior: 'auto' });
+
+                if (pushState) {
+                    window.history.pushState({ appNav: true }, '', nextUrl);
+                }
+            };
+
+            const loadPage = async (nextUrl, pushState) => {
+                document.body.classList.add('app-nav-loading');
+                try {
+                    const response = await fetch(nextUrl, {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) {
+                        window.location.href = nextUrl;
+                        return;
+                    }
+                    const html = await response.text();
+                    swapPageFromHtml(html, nextUrl, pushState);
+                } catch (error) {
+                    window.location.href = nextUrl;
+                } finally {
+                    document.body.classList.remove('app-nav-loading');
+                }
+            };
+
+            document.addEventListener('click', (event) => {
+                if (event.defaultPrevented) return;
+                if (event.button !== 0) return;
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+                const link = event.target.closest('a');
+                if (!shouldHandleLink(link)) return;
+
+                event.preventDefault();
+                if (samePathAndQuery(link.href, window.location.href)) return;
+                loadPage(link.href, true);
+            });
+
+            window.addEventListener('popstate', () => {
+                loadPage(window.location.href, false);
+            });
+        })();
     </script>
 </body>
 </html>

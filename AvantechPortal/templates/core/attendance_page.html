@@ -1,0 +1,457 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Attendance{% endblock %}
+{% block page_heading %}Attendance{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+            <h2 class="h5 mb-0">Today's Attendance</h2>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge text-bg-light border">{{ attendance_date|date:'F d, Y' }}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#attendanceSettingsModal">Settings</button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Employee ID</th><th>Name</th><th>Department</th><th>Time In</th><th>Time Out</th><th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in attendance_rows %}
+                    <tr>
+                        <td>{{ row.employee_id }}</td><td>{{ row.name }}</td><td>{{ row.department }}</td><td>{{ row.time_in }}</td><td>{{ row.time_out }}</td><td>{{ row.status }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center text-secondary py-3">No attendance records for today.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attendanceSettingsModal" tabindex="-1" aria-labelledby="attendanceSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="attendanceSettingsModalLabel">Attendance Settings</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-3 border-end">
+                        <div class="list-group">
+                            <button type="button" class="list-group-item list-group-item-action active js-att-settings-tab" data-target="timemarkPane">Timemark</button>
+                            <button type="button" class="list-group-item list-group-item-action js-att-settings-tab" data-target="layoutPane">Layout</button>
+                        </div>
+                    </div>
+                    <div class="col-md-9">
+                        <div id="timemarkPane" class="js-att-settings-pane">
+                            <div class="mb-4">
+                                <label class="form-label fw-semibold d-block">Logo</label>
+                                <div class="d-flex align-items-center gap-3 flex-wrap">
+                                    <div id="timemarkLogoPreview" class="border rounded bg-light d-flex align-items-center justify-content-center text-secondary" style="width:92px;height:92px;overflow:hidden;">No Logo</div>
+                                    <input class="form-control form-control-sm" type="file" id="timemarkLogoInput" accept="image/*" style="max-width:280px;">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="timemarkCompanyName" class="form-label">Company name</label>
+                                <input type="text" class="form-control" id="timemarkCompanyName" placeholder="Enter company name">
+                            </div>
+                            <div>
+                                <label for="timemarkLocation" class="form-label">Location</label>
+                                <input type="text" class="form-control" id="timemarkLocation" placeholder="Enter full address">
+                            </div>
+                        </div>
+
+                        <div id="layoutPane" class="js-att-settings-pane d-none">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="small text-secondary">Layout Mode:</span>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Layout orientation">
+                                    <button type="button" class="btn btn-outline-primary active js-layout-orientation" data-orientation="landscape">Landscape</button>
+                                    <button type="button" class="btn btn-outline-primary js-layout-orientation" data-orientation="portrait">Portrait</button>
+                                </div>
+                            </div>
+                            <p class="small text-secondary mb-2">Drag to move. Drag corner handles to resize. Values preview in <code>key: value</code> format.</p>
+                            <div id="overlayLayoutEditor" class="position-relative border rounded overflow-hidden bg-dark-subtle" style="max-width:100%; margin:auto;">
+                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="company" style="left:6%;top:68%;width:42%;height:10%;cursor:move;">
+                                    <span>company: Avantech Centralized System</span>
+                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
+                                </div>
+                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="type" style="left:6%;top:79%;width:32%;height:8%;cursor:move;">
+                                    <span>type: Time In</span>
+                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
+                                </div>
+                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="time" style="left:6%;top:87%;width:38%;height:8%;cursor:move;">
+                                    <span>time: 2026-05-12 08:01:00</span>
+                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
+                                </div>
+                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="location" style="left:6%;top:94%;width:56%;height:10%;cursor:move;">
+                                    <span>location: 123 Sample St, City, PH</span>
+                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
+                                </div>
+                                <div class="position-absolute js-overlay-item bg-light border rounded d-flex align-items-center justify-content-center" data-key="logo" style="left:78%;top:5%;width:16%;height:18%;cursor:move;">
+                                    <span class="small">logo: image</span>
+                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
+                                </div>
+                            </div>
+                            <div class="small text-secondary mt-2">Landscape canvas: 16:9, Portrait canvas: 9:16</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-success" id="timemarkSaveBtn">Save</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+#overlayLayoutEditor.landscape { width: 100%; aspect-ratio: 16 / 9; background: linear-gradient(140deg, #202a43, #2f4f7f); }
+#overlayLayoutEditor.portrait { width: min(360px, 100%); aspect-ratio: 9 / 16; background: linear-gradient(160deg, #243b55, #141e30); }
+.js-overlay-item { user-select: none; overflow: hidden; }
+.js-overlay-item > span:first-child { display:block; font-size:12px; line-height:1.2; white-space:normal; word-break:break-word; }
+.js-overlay-item[data-key="logo"] { background: rgba(255,255,255,0.92) !important; border: 1px solid #0f172a; }
+.js-overlay-item[data-key="logo"] > span:first-child { color: #0f172a; font-weight: 600; }
+.resize-handle { position:absolute; width:12px; height:12px; background:#fff; border:1px solid #333; z-index:2; }
+.resize-handle.nw { left:-6px; top:-6px; cursor:nwse-resize; }
+.resize-handle.ne { right:-6px; top:-6px; cursor:nesw-resize; }
+.resize-handle.sw { left:-6px; bottom:-6px; cursor:nesw-resize; }
+.resize-handle.se { right:-6px; bottom:-6px; cursor:nwse-resize; }
+</style>
+
+<script>
+(function () {
+    const tabs = Array.from(document.querySelectorAll('.js-att-settings-tab'));
+    const panes = Array.from(document.querySelectorAll('.js-att-settings-pane'));
+    const logoInput = document.getElementById('timemarkLogoInput');
+    const logoPreview = document.getElementById('timemarkLogoPreview');
+    const companyNameInput = document.getElementById('timemarkCompanyName');
+    const locationInput = document.getElementById('timemarkLocation');
+    const saveBtn = document.getElementById('timemarkSaveBtn');
+    const editor = document.getElementById('overlayLayoutEditor');
+    const overlayItems = Array.from(document.querySelectorAll('.js-overlay-item'));
+    const orientationButtons = Array.from(document.querySelectorAll('.js-layout-orientation'));
+    const STORAGE_KEY = 'attendance_timemark_settings_v1';
+    const defaultBox = {
+        company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
+        type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
+        time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
+        location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
+        logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.16 },
+    };
+    let logoData = '';
+    let currentOrientation = 'landscape';
+    let layoutState = { landscape: JSON.parse(JSON.stringify(defaultBox)), portrait: JSON.parse(JSON.stringify(defaultBox)) };
+    if (!logoInput || !logoPreview || !companyNameInput || !locationInput || !saveBtn || !editor || !overlayItems.length || !orientationButtons.length) return;
+
+    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+    const showPane = (id) => { tabs.forEach((t) => t.classList.toggle('active', t.dataset.target === id)); panes.forEach((p) => p.classList.toggle('d-none', p.id !== id)); };
+    const renderLogo = (src) => { if (!src) { logoPreview.textContent = 'No Logo'; return; } logoPreview.innerHTML=''; const i=document.createElement('img'); i.src=src; i.style.width='100%'; i.style.height='100%'; i.style.objectFit='cover'; logoPreview.appendChild(i); };
+
+    const setEditorOrientation = () => {
+        editor.classList.toggle('landscape', currentOrientation === 'landscape');
+        editor.classList.toggle('portrait', currentOrientation === 'portrait');
+    };
+
+    const normalizeBox = (box, fallback) => {
+        const safe = box && typeof box === 'object' ? box : {};
+        return {
+            x: clamp(typeof safe.x === 'number' ? safe.x : fallback.x, 0, 0.97),
+            y: clamp(typeof safe.y === 'number' ? safe.y : fallback.y, 0, 0.97),
+            w: clamp(typeof safe.w === 'number' ? safe.w : fallback.w, 0.08, 0.95),
+            h: clamp(typeof safe.h === 'number' ? safe.h : fallback.h, 0.06, 0.95),
+        };
+    };
+
+    const normalizeLayoutSet = (setObj) => {
+        const out = {};
+        Object.keys(defaultBox).forEach((key) => {
+            out[key] = normalizeBox(setObj ? setObj[key] : null, defaultBox[key]);
+        });
+        return out;
+    };
+
+    const syncItemTypography = (item, fitToContent = false, recalcFromHeight = false) => {
+        const key = item.dataset.key || '';
+        if (key === 'logo') return;
+        const label = item.querySelector('span:first-child');
+        if (!label) return;
+        const itemH = parseFloat(item.style.height || '0') || item.getBoundingClientRect().height;
+        const itemW = parseFloat(item.style.width || '0') || item.getBoundingClientRect().width;
+        const byHeight = itemH * 0.24;
+        const byWidth = itemW * 0.020;
+        let fontSize = parseFloat(item.dataset.fontPx || '');
+        if (!Number.isFinite(fontSize)) {
+            fontSize = clamp(Math.round((byHeight * 0.7) + (byWidth * 0.3)), 10, 24);
+        } else {
+            fontSize = clamp(Math.round(fontSize), 10, 48);
+        }
+        item.dataset.fontPx = String(fontSize);
+        label.style.fontSize = `${fontSize}px`;
+        label.style.lineHeight = '1';
+        label.style.whiteSpace = 'nowrap';
+        if (fitToContent) {
+            const targetHeight = Math.max(18, Math.ceil(fontSize * 1.05) + 2);
+            item.style.height = `${targetHeight}px`;
+            const targetWidth = Math.max(48, Math.ceil(label.scrollWidth + 10));
+            item.style.width = `${targetWidth}px`;
+        }
+    };
+
+    const applyLayoutToEditor = () => {
+        const rect = editor.getBoundingClientRect();
+        const active = layoutState[currentOrientation] || layoutState.landscape;
+        overlayItems.forEach((item) => {
+            const key = item.dataset.key || '';
+            const pt = active[key] || defaultBox[key];
+            if (!pt) return;
+            const wPx = clamp(pt.w, 0.08, 0.95) * rect.width;
+            const hPx = clamp(pt.h, 0.06, 0.95) * rect.height;
+            const xPx = clamp(pt.x * rect.width, 0, Math.max(0, rect.width - wPx));
+            const yPx = clamp(pt.y * rect.height, 0, Math.max(0, rect.height - hPx));
+            item.style.left = `${xPx}px`;
+            item.style.top = `${yPx}px`;
+            item.style.width = `${wPx}px`;
+            item.style.height = `${hPx}px`;
+            if (key === 'logo') {
+                if (currentOrientation === 'portrait') {
+                    const square = Math.max(54, Math.min(wPx, hPx));
+                    item.style.width = `${square}px`;
+                    item.style.height = `${square}px`;
+                }
+                // Ensure the logo placeholder always stays visible in the editor.
+                const currentW = parseFloat(item.style.width || '0') || wPx;
+                const currentH = parseFloat(item.style.height || '0') || hPx;
+                const safeW = Math.max(54, currentW);
+                const safeH = Math.max(54, currentH);
+                const safeX = clamp(xPx, 0, Math.max(0, rect.width - safeW));
+                const safeY = clamp(yPx, 0, Math.max(0, rect.height - safeH));
+                item.style.left = `${safeX}px`;
+                item.style.top = `${safeY}px`;
+                item.style.width = `${safeW}px`;
+                item.style.height = `${safeH}px`;
+                item.style.zIndex = '5';
+                item.style.display = 'flex';
+                item.style.visibility = 'visible';
+                item.style.opacity = '1';
+            }
+            syncItemTypography(item, false);
+        });
+    };
+
+    const readLayoutFromEditor = () => {
+        const rect = editor.getBoundingClientRect();
+        const next = {};
+        overlayItems.forEach((item) => {
+            const key = item.dataset.key || '';
+            if (!key) return;
+            const x = parseFloat(item.style.left || '0') / (rect.width || 1);
+            const y = parseFloat(item.style.top || '0') / (rect.height || 1);
+            const w = parseFloat(item.style.width || '0') / (rect.width || 1);
+            const h = parseFloat(item.style.height || '0') / (rect.height || 1);
+            next[key] = { x: clamp(x,0,0.97), y: clamp(y,0,0.97), w: clamp(w,0.08,0.95), h: clamp(h,0.06,0.95) };
+        });
+        layoutState[currentOrientation] = normalizeLayoutSet({ ...layoutState[currentOrientation], ...next });
+    };
+
+    const enableDragResize = () => {
+        overlayItems.forEach((item) => {
+            let mode = '';
+            let handleDir = '';
+            let didResize = false;
+            let dx = 0; let dy = 0; let startW = 0; let startH = 0;
+            let startX = 0; let startY = 0; let startL = 0; let startT = 0;
+            let aspect = 1;
+            let startFontPx = 14;
+
+            item.addEventListener('pointerdown', (event) => {
+                const handle = event.target.closest('.resize-handle');
+                mode = handle ? 'resize' : 'drag';
+                handleDir = handle ? (handle.getAttribute('data-handle') || 'se') : '';
+                didResize = false;
+                item.setPointerCapture(event.pointerId);
+                const r = item.getBoundingClientRect();
+                dx = event.clientX - r.left;
+                dy = event.clientY - r.top;
+                startW = r.width;
+                startH = r.height;
+                startX = event.clientX;
+                startY = event.clientY;
+                startL = parseFloat(item.style.left || '0');
+                startT = parseFloat(item.style.top || '0');
+                aspect = startW / Math.max(1, startH);
+                if ((item.dataset.key || '') !== 'logo') {
+                    const label = item.querySelector('span:first-child');
+                    const computed = label ? window.getComputedStyle(label) : null;
+                    startFontPx = clamp(parseFloat((computed && computed.fontSize) || item.dataset.fontPx || '14') || 14, 10, 48);
+                    item.dataset.fontPx = String(startFontPx);
+                }
+            });
+
+            item.addEventListener('pointermove', (event) => {
+                if (!mode) return;
+                const rect = editor.getBoundingClientRect();
+                if (mode === 'drag') {
+                    const r = item.getBoundingClientRect();
+                    const left = clamp(event.clientX - rect.left - dx, 0, rect.width - r.width);
+                    const top = clamp(event.clientY - rect.top - dy, 0, rect.height - r.height);
+                    item.style.left = `${left}px`;
+                    item.style.top = `${top}px`;
+                } else {
+                    didResize = true;
+                    const key = item.dataset.key || '';
+                    const isLogo = key === 'logo';
+                    const label = item.querySelector('span:first-child');
+                    const deltaX = event.clientX - startX;
+                    const deltaY = event.clientY - startY;
+                    let newL = startL;
+                    let newT = startT;
+                    let newW = startW;
+                    let newH = startH;
+                    const minW = 48;
+                    const minH = 18;
+                    let minTextW = minW;
+                    let minTextH = minH;
+                    if (!isLogo && label) {
+                        const computed = window.getComputedStyle(label);
+                        const fontPx = parseFloat(computed.fontSize || '14') || 14;
+                        const tmp = document.createElement('canvas').getContext('2d');
+                        tmp.font = `${fontPx}px Arial`;
+                        const textW = Math.ceil(tmp.measureText(label.textContent || '').width);
+                        minTextW = Math.max(minW, textW + 12);
+                        minTextH = Math.max(minH, Math.ceil(fontPx * 1.35) + 6);
+                    }
+
+                    if (handleDir === 'se') {
+                        newW = startW + deltaX;
+                        newH = startH + deltaY;
+                    } else if (handleDir === 'sw') {
+                        newW = startW - deltaX;
+                        newH = startH + deltaY;
+                        newL = startL + deltaX;
+                    } else if (handleDir === 'ne') {
+                        newW = startW + deltaX;
+                        newH = startH - deltaY;
+                        newT = startT + deltaY;
+                    } else if (handleDir === 'nw') {
+                        newW = startW - deltaX;
+                        newH = startH - deltaY;
+                        newL = startL + deltaX;
+                        newT = startT + deltaY;
+                    }
+
+                    if (isLogo) {
+                        if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+                            newH = newW / Math.max(0.1, aspect);
+                        } else {
+                            newW = newH * Math.max(0.1, aspect);
+                        }
+                        if (handleDir === 'sw' || handleDir === 'nw') {
+                            newL = (startL + startW) - newW;
+                        }
+                        if (handleDir === 'ne' || handleDir === 'nw') {
+                            newT = (startT + startH) - newH;
+                        }
+                    } else {
+                        // Canva-like: scale box and font proportionally during corner resize.
+                        const scaleX = newW / Math.max(1, startW);
+                        const scaleY = newH / Math.max(1, startH);
+                        const scale = clamp(Math.max(scaleX, scaleY), 0.25, 5);
+                        newW = startW * scale;
+                        newH = startH * scale;
+                        if (handleDir === 'sw' || handleDir === 'nw') {
+                            newL = (startL + startW) - newW;
+                        }
+                        if (handleDir === 'ne' || handleDir === 'nw') {
+                            newT = (startT + startH) - newH;
+                        }
+                        item.dataset.fontPx = String(clamp(startFontPx * scale, 10, 48));
+                    }
+
+                    const maxW = Math.max(1, rect.width - newL);
+                    const maxH = Math.max(1, rect.height - newT);
+                    newW = clamp(newW, isLogo ? minW : minTextW, maxW);
+                    newH = clamp(newH, isLogo ? minH : minTextH, maxH);
+                    newL = clamp(newL, 0, rect.width - newW);
+                    newT = clamp(newT, 0, rect.height - newH);
+
+                    item.style.left = `${newL}px`;
+                    item.style.top = `${newT}px`;
+                    item.style.width = `${newW}px`;
+                    item.style.height = `${newH}px`;
+                }
+                if (mode === 'resize') {
+                    syncItemTypography(item, false, false);
+                }
+            });
+
+            item.addEventListener('pointerup', () => {
+                if (didResize) syncItemTypography(item, false, false);
+                mode = ''; handleDir = ''; readLayoutFromEditor();
+            });
+            item.addEventListener('pointercancel', () => { mode = ''; handleDir = ''; readLayoutFromEditor(); });
+        });
+    };
+
+    const loadSettings = () => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                const d = JSON.parse(raw);
+                companyNameInput.value = d.company_name || '';
+                locationInput.value = d.location || '';
+                logoData = d.logo_data || '';
+                if (d.layout && d.layout.landscape) layoutState.landscape = normalizeLayoutSet({ ...layoutState.landscape, ...d.layout.landscape });
+                if (d.layout && d.layout.portrait) layoutState.portrait = normalizeLayoutSet({ ...layoutState.portrait, ...d.layout.portrait });
+                renderLogo(logoData);
+            }
+        } catch (e) {}
+        layoutState.landscape = normalizeLayoutSet(layoutState.landscape);
+        layoutState.portrait = normalizeLayoutSet(layoutState.portrait);
+        setEditorOrientation();
+        applyLayoutToEditor();
+    };
+
+    tabs.forEach((t) => t.addEventListener('click', () => showPane(t.dataset.target || 'timemarkPane')));
+    orientationButtons.forEach((btn) => btn.addEventListener('click', () => {
+        readLayoutFromEditor();
+        currentOrientation = btn.dataset.orientation === 'portrait' ? 'portrait' : 'landscape';
+        orientationButtons.forEach((b) => b.classList.toggle('active', b === btn));
+        setEditorOrientation();
+        applyLayoutToEditor();
+    }));
+
+    logoInput.addEventListener('change', () => {
+        const file = logoInput.files && logoInput.files[0];
+        if (!file) { logoData = ''; renderLogo(''); return; }
+        const reader = new FileReader();
+        reader.onload = (ev) => { logoData = String(ev.target && ev.target.result ? ev.target.result : ''); renderLogo(logoData); };
+        reader.readAsDataURL(file);
+    });
+
+    saveBtn.addEventListener('click', () => {
+        readLayoutFromEditor();
+        const payload = { company_name: companyNameInput.value.trim(), location: locationInput.value.trim(), logo_data: logoData || '', layout: layoutState };
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            if (window.showToast) window.showToast('Attendance settings saved and applied to overlay.', 'success');
+            else alert('Attendance settings saved and applied to overlay.');
+        } catch (e) {
+            if (window.showToast) window.showToast('Unable to save attendance settings on this browser.', 'danger');
+            else alert('Unable to save attendance settings on this browser.');
+        }
+    });
+
+    window.addEventListener('resize', applyLayoutToEditor);
+    enableDragResize();
+    loadSettings();
+})();
+</script>
+{% endblock %}

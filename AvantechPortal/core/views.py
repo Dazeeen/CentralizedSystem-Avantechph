@@ -32,6 +32,7 @@ from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import PasswordChangeView, PasswordResetConfirmView, PasswordResetView
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -119,6 +120,7 @@ from .models import (
 	AssetReturnProof,
 	AssetTagBatch,
 	AssetTagEntry,
+	AttendanceLog,
 	Client,
 	CRMClient,
 	CRMSalesRecord,
@@ -623,6 +625,165 @@ def dashboard(request):
 		)
 
 	return render(request, 'core/dashboard.html', context)
+
+
+@login_required
+def attendance_page(request):
+	today = timezone.localdate()
+	dummy_attendance_rows = [
+		{'employee_id': 'EMP-001', 'name': 'Juan Dela Cruz', 'department': 'Sales', 'time_in': '08:02 AM', 'time_out': '05:11 PM', 'status': 'Present'},
+		{'employee_id': 'EMP-002', 'name': 'Maria Santos', 'department': 'Finance', 'time_in': '08:15 AM', 'time_out': '05:06 PM', 'status': 'Present'},
+		{'employee_id': 'EMP-003', 'name': 'Carlo Reyes', 'department': 'Operations', 'time_in': '08:40 AM', 'time_out': '-', 'status': 'Late'},
+		{'employee_id': 'EMP-004', 'name': 'Anne Villanueva', 'department': 'HR', 'time_in': '-', 'time_out': '-', 'status': 'Absent'},
+	]
+	context = {
+		'attendance_date': today,
+		'attendance_rows': dummy_attendance_rows,
+	}
+	return render(request, 'core/attendance_page.html', context)
+
+
+def _attendance_shift_window(now_dt):
+	shift_start = now_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+	shift_end = now_dt.replace(hour=17, minute=0, second=0, microsecond=0)
+	time_in_open = shift_start - timedelta(minutes=5)
+	time_out_close = shift_end + timedelta(minutes=30)
+	return {
+		'shift_start': shift_start,
+		'shift_end': shift_end,
+		'time_in_open': time_in_open,
+		'time_out_close': time_out_close,
+	}
+
+
+@login_required
+def attendance_assist_status(request):
+	now_dt = timezone.localtime()
+	today = now_dt.date()
+	window = _attendance_shift_window(now_dt)
+	record, _ = AttendanceLog.objects.get_or_create(user=request.user, attendance_date=today)
+
+	mode = None
+	visible = False
+	message = ''
+
+	if not record.time_in_at:
+		mode = 'time_in'
+		visible = window['time_in_open'] <= now_dt <= window['shift_end']
+		message = 'Time In window is open.' if visible else 'Time In is available 5 minutes before shift start.'
+	elif not record.time_out_at:
+		mode = 'time_out'
+		visible = window['shift_end'] <= now_dt <= window['time_out_close']
+		message = 'Time Out window is open until 30 minutes after shift end.' if visible else 'Time Out opens at shift end.'
+	else:
+		mode = 'done'
+		visible = False
+		message = 'Attendance completed for today.'
+
+	return JsonResponse({
+		'ok': True,
+		'visible': visible,
+		'mode': mode,
+		'message': message,
+		'shift_start': window['shift_start'].strftime('%I:%M %p'),
+		'shift_end': window['shift_end'].strftime('%I:%M %p'),
+		'time_in_open': window['time_in_open'].strftime('%I:%M %p'),
+		'time_out_close': window['time_out_close'].strftime('%I:%M %p'),
+		'time_in_at': timezone.localtime(record.time_in_at).strftime('%I:%M %p') if record.time_in_at else '',
+		'time_out_at': timezone.localtime(record.time_out_at).strftime('%I:%M %p') if record.time_out_at else '',
+	})
+
+
+@login_required
+@require_POST
+def attendance_assist_submit(request):
+	now_dt = timezone.localtime()
+	today = now_dt.date()
+	window = _attendance_shift_window(now_dt)
+	record, _ = AttendanceLog.objects.get_or_create(user=request.user, attendance_date=today)
+
+	mode = (request.POST.get('mode') or '').strip().lower()
+	image_data = (request.POST.get('image_data') or '').strip()
+	location_label = (request.POST.get('location_label') or '').strip()
+	lat_raw = (request.POST.get('latitude') or '').strip()
+	lng_raw = (request.POST.get('longitude') or '').strip()
+
+	if mode not in ('time_in', 'time_out'):
+		return JsonResponse({'ok': False, 'message': 'Invalid attendance mode.'}, status=400)
+	if not image_data.startswith('data:image/'):
+		return JsonResponse({'ok': False, 'message': 'Missing or invalid photo data.'}, status=400)
+
+	if mode == 'time_in':
+		if record.time_in_at:
+			return JsonResponse({'ok': False, 'message': 'Time In already recorded.'}, status=400)
+		if not (window['time_in_open'] <= now_dt <= window['shift_end']):
+			return JsonResponse({'ok': False, 'message': 'Time In window is not open.'}, status=400)
+	else:
+		if not record.time_in_at:
+			return JsonResponse({'ok': False, 'message': 'Time In is required before Time Out.'}, status=400)
+		if record.time_out_at:
+			return JsonResponse({'ok': False, 'message': 'Time Out already recorded.'}, status=400)
+		if not (window['shift_end'] <= now_dt <= window['time_out_close']):
+			return JsonResponse({'ok': False, 'message': 'Time Out window is not open.'}, status=400)
+
+	try:
+		header, encoded = image_data.split(',', 1)
+		image_bytes = base64.b64decode(encoded)
+	except Exception:
+		return JsonResponse({'ok': False, 'message': 'Unable to decode photo data.'}, status=400)
+
+	ext = 'jpg'
+	if 'image/png' in header:
+		ext = 'png'
+	filename = f'{request.user.id}_{today.isoformat()}_{mode}.{ext}'
+	image_file = ContentFile(image_bytes, name=filename)
+
+	lat = None
+	lng = None
+	try:
+		if lat_raw:
+			lat = Decimal(lat_raw)
+		if lng_raw:
+			lng = Decimal(lng_raw)
+	except (InvalidOperation, ValueError):
+		lat = None
+		lng = None
+
+	if mode == 'time_in':
+		record.time_in_at = now_dt
+		record.time_in_photo = image_file
+		record.time_in_latitude = lat
+		record.time_in_longitude = lng
+		record.time_in_location_label = location_label[:255]
+		record.save(update_fields=[
+			'time_in_at',
+			'time_in_photo',
+			'time_in_latitude',
+			'time_in_longitude',
+			'time_in_location_label',
+			'updated_at',
+		])
+	else:
+		record.time_out_at = now_dt
+		record.time_out_photo = image_file
+		record.time_out_latitude = lat
+		record.time_out_longitude = lng
+		record.time_out_location_label = location_label[:255]
+		record.save(update_fields=[
+			'time_out_at',
+			'time_out_photo',
+			'time_out_latitude',
+			'time_out_longitude',
+			'time_out_location_label',
+			'updated_at',
+		])
+
+	return JsonResponse({
+		'ok': True,
+		'message': 'Attendance submitted successfully.',
+		'mode': mode,
+		'timestamp': now_dt.strftime('%I:%M %p'),
+	})
 
 
 @login_required

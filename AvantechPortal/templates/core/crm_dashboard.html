@@ -86,11 +86,73 @@
 .leaflet-popup-content-wrapper { border-radius: 10px; }
 .leaflet-control-zoom a { color: #0f1f4f; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+    var CHART_JS_SRC = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js';
+    var LEAFLET_CSS_HREF = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    var LEAFLET_JS_SRC = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+
+    function ensureStyle(href) {
+        if (!href) return;
+        var existing = document.querySelector('link[rel="stylesheet"][href="' + href + '"]');
+        if (existing) return;
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        link.crossOrigin = 'anonymous';
+        document.head.appendChild(link);
+    }
+
+    function ensureScript(src) {
+        return new Promise(function (resolve, reject) {
+            if (!src) {
+                resolve();
+                return;
+            }
+            var existing = Array.from(document.querySelectorAll('script[src]')).find(function (script) {
+                return script.getAttribute('src') === src;
+            });
+            if (existing) {
+                if (existing.dataset.loaded === '1') {
+                    resolve();
+                    return;
+                }
+                existing.addEventListener('load', function () {
+                    existing.dataset.loaded = '1';
+                    resolve();
+                }, { once: true });
+                existing.addEventListener('error', reject, { once: true });
+                return;
+            }
+
+            var script = document.createElement('script');
+            script.src = src;
+            script.async = false;
+            script.addEventListener('load', function () {
+                script.dataset.loaded = '1';
+                resolve();
+            }, { once: true });
+            script.addEventListener('error', reject, { once: true });
+            document.head.appendChild(script);
+        });
+    }
+
+    async function ensureDashboardDeps() {
+        ensureStyle(LEAFLET_CSS_HREF);
+        await ensureScript(CHART_JS_SRC);
+        await ensureScript(LEAFLET_JS_SRC);
+    }
+
+    async function initCrmDashboard() {
+    if (typeof window.__appPageCleanup === 'function') {
+        try { window.__appPageCleanup(); } catch (e) {}
+        window.__appPageCleanup = null;
+    }
+
+    var mapPinsIntervalId = null;
+    var reportChart = null;
+    var map = null;
+
     function parseNodeJson(node, fallback) {
         if (!node) return fallback;
         try {
@@ -110,7 +172,6 @@ document.addEventListener('DOMContentLoaded', function () {
     var values = Array.isArray(defaultPayload.values) ? defaultPayload.values : [];
     var modeButtons = Array.from(document.querySelectorAll('.js-crm-report-mode'));
     var chartCanvas = document.getElementById('crmNewClientsChart');
-    var reportChart = null;
     if (chartCanvas && window.Chart) {
         reportChart = new Chart(chartCanvas.getContext('2d'), {
             type: 'bar',
@@ -215,7 +276,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    var map = L.map('phVectorMap', {
+    map = L.map('phVectorMap', {
         zoomControl: true,
         minZoom: 5,
         maxZoom: 13,
@@ -313,7 +374,7 @@ document.addEventListener('DOMContentLoaded', function () {
             applyMapStyle('vector');
 
             var mapPinsUrl = "{% url 'crm_dashboard_map_pins' %}";
-            window.setInterval(function () {
+            mapPinsIntervalId = window.setInterval(function () {
                 fetch(mapPinsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                     .then(function (response) {
                         if (!response.ok) throw new Error('Map pins refresh failed');
@@ -331,6 +392,33 @@ document.addEventListener('DOMContentLoaded', function () {
         .catch(function () {
             mapEl.innerHTML = '<div class="text-light p-3">Unable to load Philippine province vector map.</div>';
         });
-});
+
+    window.__appPageCleanup = function () {
+        if (mapPinsIntervalId) {
+            window.clearInterval(mapPinsIntervalId);
+            mapPinsIntervalId = null;
+        }
+        if (reportChart && typeof reportChart.destroy === 'function') {
+            reportChart.destroy();
+            reportChart = null;
+        }
+        if (map && typeof map.remove === 'function') {
+            map.remove();
+            map = null;
+        }
+    };
+    }
+
+    ensureDashboardDeps()
+        .then(function () {
+            return initCrmDashboard();
+        })
+        .catch(function () {
+            var mapEl = document.getElementById('phVectorMap');
+            if (mapEl) {
+                mapEl.innerHTML = '<div class="text-light p-3">Unable to load dashboard visual dependencies.</div>';
+            }
+        });
+})();
 </script>
 {% endblock %}

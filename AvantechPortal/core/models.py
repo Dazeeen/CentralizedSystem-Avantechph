@@ -150,6 +150,36 @@ class UserProfile(models.Model):
 		return status_colors.get(self.status, '#198754')
 
 
+class AttendanceLog(models.Model):
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='attendance_logs',
+	)
+	attendance_date = models.DateField(db_index=True)
+	time_in_at = models.DateTimeField(blank=True, null=True)
+	time_out_at = models.DateTimeField(blank=True, null=True)
+	time_in_photo = models.ImageField(upload_to='attendance/time_in/', blank=True, null=True)
+	time_out_photo = models.ImageField(upload_to='attendance/time_out/', blank=True, null=True)
+	time_in_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+	time_in_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+	time_out_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+	time_out_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+	time_in_location_label = models.CharField(max_length=255, blank=True, default='')
+	time_out_location_label = models.CharField(max_length=255, blank=True, default='')
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-attendance_date', '-updated_at']
+		constraints = [
+			models.UniqueConstraint(fields=['user', 'attendance_date'], name='unique_user_attendance_day'),
+		]
+
+	def __str__(self):
+		return f'AttendanceLog<{self.user_id}:{self.attendance_date}>'
+
+
 class LoginEvent(models.Model):
 	user = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
