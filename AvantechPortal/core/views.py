@@ -121,6 +121,8 @@ from .models import (
 	AssetTagBatch,
 	AssetTagEntry,
 	AttendanceLog,
+	AttendanceGlobalTimemarkSetting,
+	AttendanceTimemarkSetting,
 	Client,
 	CRMClient,
 	CRMSalesRecord,
@@ -641,6 +643,116 @@ def attendance_page(request):
 		'attendance_rows': dummy_attendance_rows,
 	}
 	return render(request, 'core/attendance_page.html', context)
+
+
+def _attendance_timemark_default_layout():
+	return {
+		'company': {'x': 0.06, 'y': 0.68, 'w': 0.42, 'h': 0.10},
+		'type': {'x': 0.06, 'y': 0.79, 'w': 0.32, 'h': 0.08},
+		'time': {'x': 0.06, 'y': 0.87, 'w': 0.38, 'h': 0.08},
+		'location': {'x': 0.06, 'y': 0.94, 'w': 0.56, 'h': 0.10},
+		'logo': {'x': 0.78, 'y': 0.05, 'w': 0.16, 'h': 0.18},
+	}
+
+
+def _normalize_attendance_layout(layout_raw):
+	default_layout = _attendance_timemark_default_layout()
+
+	def clamp(value, lower, upper, fallback):
+		try:
+			num = float(value)
+		except (TypeError, ValueError):
+			num = fallback
+		return min(upper, max(lower, num))
+
+	def normalize_entry(entry, fallback):
+		safe = entry if isinstance(entry, dict) else {}
+		return {
+			'x': clamp(safe.get('x'), 0.0, 0.97, fallback['x']),
+			'y': clamp(safe.get('y'), 0.0, 0.97, fallback['y']),
+			'w': clamp(safe.get('w'), 0.08, 0.95, fallback['w']),
+			'h': clamp(safe.get('h'), 0.06, 0.95, fallback['h']),
+		}
+
+	def normalize_set(layout_set):
+		layout_set = layout_set if isinstance(layout_set, dict) else {}
+		return {k: normalize_entry(layout_set.get(k), v) for k, v in default_layout.items()}
+
+	layout_raw = layout_raw if isinstance(layout_raw, dict) else {}
+	if 'landscape' in layout_raw or 'portrait' in layout_raw:
+		landscape_source = layout_raw.get('landscape')
+		portrait_source = layout_raw.get('portrait')
+	else:
+		landscape_source = layout_raw
+		portrait_source = layout_raw
+
+	landscape = normalize_set(landscape_source)
+	portrait = normalize_set(portrait_source)
+	return {
+		'landscape': landscape,
+		'portrait': portrait,
+	}
+
+
+@login_required
+def attendance_assist_settings(request):
+	if request.method == 'GET':
+		global_setting, _ = AttendanceGlobalTimemarkSetting.objects.get_or_create(key='global')
+		effective_setting = global_setting
+		if not request.user.is_staff and not request.user.is_superuser:
+			user_setting = AttendanceTimemarkSetting.objects.filter(user=request.user).first()
+			if user_setting:
+				effective_setting = user_setting
+		layout = _normalize_attendance_layout(getattr(effective_setting, 'layout', {}) or {})
+		response = JsonResponse({
+			'ok': True,
+			'settings': {
+				'company_name': (getattr(effective_setting, 'company_name', '') or '').strip(),
+				'location': (getattr(effective_setting, 'location', '') or '').strip(),
+				'logo_data': (getattr(effective_setting, 'logo_data', '') or '').strip(),
+				'layout': layout,
+			},
+		})
+		response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+		response['Pragma'] = 'no-cache'
+		response['Expires'] = '0'
+		return response
+
+	if request.method != 'POST':
+		return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
+	try:
+		payload = json.loads(request.body.decode('utf-8'))
+	except (TypeError, ValueError, json.JSONDecodeError):
+		return JsonResponse({'ok': False, 'message': 'Invalid settings payload.'}, status=400)
+
+	company_name = str((payload or {}).get('company_name') or '').strip()[:255]
+	location = str((payload or {}).get('location') or '').strip()[:255]
+	logo_data = str((payload or {}).get('logo_data') or '').strip()
+	layout = _normalize_attendance_layout((payload or {}).get('layout') or {})
+
+	if request.user.is_staff or request.user.is_superuser:
+		setting, _ = AttendanceGlobalTimemarkSetting.objects.get_or_create(key='global')
+		setting.company_name = company_name
+		setting.location = location
+		setting.logo_data = logo_data
+		setting.layout = layout
+		setting.updated_by = request.user
+		setting.save(update_fields=['company_name', 'location', 'logo_data', 'layout', 'updated_by', 'updated_at'])
+	else:
+		setting, _ = AttendanceTimemarkSetting.objects.get_or_create(user=request.user)
+		setting.company_name = company_name
+		setting.location = location
+		setting.logo_data = logo_data
+		setting.layout = layout
+		setting.save(update_fields=['company_name', 'location', 'logo_data', 'layout', 'updated_at'])
+
+	return JsonResponse({'ok': True, 'settings': {
+		'company_name': company_name,
+		'location': location,
+		'logo_data': logo_data,
+		'layout': layout,
+	}})
 
 
 def _attendance_shift_window(now_dt):

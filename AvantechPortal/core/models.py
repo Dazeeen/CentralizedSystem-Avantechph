@@ -180,6 +180,47 @@ class AttendanceLog(models.Model):
 		return f'AttendanceLog<{self.user_id}:{self.attendance_date}>'
 
 
+class AttendanceTimemarkSetting(models.Model):
+	user = models.OneToOneField(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='attendance_timemark_setting',
+	)
+	company_name = models.CharField(max_length=255, blank=True, default='')
+	location = models.CharField(max_length=255, blank=True, default='')
+	logo_data = models.TextField(blank=True, default='')
+	layout = models.JSONField(default=dict, blank=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-updated_at']
+
+	def __str__(self):
+		return f'AttendanceTimemarkSetting<{self.user_id}>'
+
+
+class AttendanceGlobalTimemarkSetting(models.Model):
+	key = models.CharField(max_length=32, unique=True, default='global')
+	company_name = models.CharField(max_length=255, blank=True, default='')
+	location = models.CharField(max_length=255, blank=True, default='')
+	logo_data = models.TextField(blank=True, default='')
+	layout = models.JSONField(default=dict, blank=True)
+	updated_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='attendance_global_timemark_updates',
+	)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-updated_at']
+
+	def __str__(self):
+		return f'AttendanceGlobalTimemarkSetting<{self.key}>'
+
+
 class LoginEvent(models.Model):
 	user = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
