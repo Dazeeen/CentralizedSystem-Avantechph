@@ -2,6 +2,7 @@ import uuid
 import re
 import base64
 import hashlib
+from datetime import time as dt_time
 from pathlib import Path
 
 from django.conf import settings
@@ -131,6 +132,7 @@ class UserProfile(models.Model):
 	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
 	email_verified = models.BooleanField(default=False)
 	status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+	employee_id = models.CharField(max_length=120, blank=True, default='', db_index=True)
 	branch = models.CharField(max_length=120, blank=True, default='')
 	contact_number = models.CharField(max_length=50, blank=True, default='')
 	avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
@@ -150,6 +152,35 @@ class UserProfile(models.Model):
 		return status_colors.get(self.status, '#198754')
 
 
+def _attendance_capture_upload_to(instance, filename, mode_label):
+	original_name = filename or 'capture.jpg'
+	ext = Path(original_name).suffix.lower() or '.jpg'
+	user_obj = getattr(instance, 'user', None)
+	user_id = getattr(user_obj, 'id', '') or 'unknown'
+	full_name = ''
+	if user_obj is not None:
+		full_name = (user_obj.get_full_name() or '').strip() or (getattr(user_obj, 'username', '') or '').strip()
+	person_slug = slugify(f'{user_id}-{full_name}') or f'{user_id}-user'
+	attendance_date = getattr(instance, 'attendance_date', None) or timezone.localdate()
+	date_folder = attendance_date.strftime('%d%m%Y')
+	last_name = ''
+	if user_obj is not None:
+		last_name = (getattr(user_obj, 'last_name', '') or '').strip()
+	if not last_name:
+		last_name = full_name.split(' ')[-1] if full_name else f'user{user_id}'
+	last_name_slug = slugify(last_name) or f'user{user_id}'
+	file_name = f'{last_name_slug}-{mode_label}-{date_folder}{ext}'
+	return f'images/attendance/{person_slug}/{date_folder}/{file_name}'
+
+
+def attendance_time_in_upload_to(instance, filename):
+	return _attendance_capture_upload_to(instance, filename, 'time-in')
+
+
+def attendance_time_out_upload_to(instance, filename):
+	return _attendance_capture_upload_to(instance, filename, 'time-out')
+
+
 class AttendanceLog(models.Model):
 	user = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
@@ -159,8 +190,8 @@ class AttendanceLog(models.Model):
 	attendance_date = models.DateField(db_index=True)
 	time_in_at = models.DateTimeField(blank=True, null=True)
 	time_out_at = models.DateTimeField(blank=True, null=True)
-	time_in_photo = models.ImageField(upload_to='attendance/time_in/', blank=True, null=True)
-	time_out_photo = models.ImageField(upload_to='attendance/time_out/', blank=True, null=True)
+	time_in_photo = models.ImageField(upload_to=attendance_time_in_upload_to, blank=True, null=True)
+	time_out_photo = models.ImageField(upload_to=attendance_time_out_upload_to, blank=True, null=True)
 	time_in_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
 	time_in_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
 	time_out_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
@@ -178,6 +209,106 @@ class AttendanceLog(models.Model):
 
 	def __str__(self):
 		return f'AttendanceLog<{self.user_id}:{self.attendance_date}>'
+
+
+class AttendanceTimemarkSetting(models.Model):
+	user = models.OneToOneField(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='attendance_timemark_setting',
+	)
+	company_name = models.CharField(max_length=255, blank=True, default='')
+	location = models.CharField(max_length=255, blank=True, default='')
+	logo_data = models.TextField(blank=True, default='')
+	layout = models.JSONField(default=dict, blank=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-updated_at']
+
+	def __str__(self):
+		return f'AttendanceTimemarkSetting<{self.user_id}>'
+
+
+class AttendanceGlobalTimemarkSetting(models.Model):
+	key = models.CharField(max_length=32, unique=True, default='global')
+	company_name = models.CharField(max_length=255, blank=True, default='')
+	location = models.CharField(max_length=255, blank=True, default='')
+	logo_data = models.TextField(blank=True, default='')
+	layout = models.JSONField(default=dict, blank=True)
+	updated_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='attendance_global_timemark_updates',
+	)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-updated_at']
+
+	def __str__(self):
+		return f'AttendanceGlobalTimemarkSetting<{self.key}>'
+
+
+class AttendancePolicySetting(models.Model):
+	key = models.CharField(max_length=32, unique=True, default='global')
+	shift_start_time = models.TimeField(default=dt_time(8, 0))
+	time_in_open_minutes_before = models.PositiveSmallIntegerField(default=5)
+	late_grace_minutes = models.PositiveSmallIntegerField(default=15)
+	lunch_start_time = models.TimeField(default=dt_time(12, 0))
+	lunch_end_time = models.TimeField(default=dt_time(13, 0))
+	lunch_return_grace_minutes = models.PositiveSmallIntegerField(default=10)
+	time_out_start_time = models.TimeField(default=dt_time(17, 0))
+	time_out_close_minutes_after = models.PositiveSmallIntegerField(default=180)
+	updated_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='attendance_policy_updates',
+	)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-updated_at']
+
+	def __str__(self):
+		return f'AttendancePolicySetting<{self.key}>'
+
+
+class TimekeepingImportBatch(models.Model):
+	source_filename = models.CharField(max_length=255, blank=True, default='')
+	imported_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='timekeeping_import_batches',
+	)
+	imported_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-imported_at']
+
+	def __str__(self):
+		return f'TimekeepingImportBatch<{self.id}:{self.source_filename}>'
+
+
+class TimekeepingImportEntry(models.Model):
+	batch = models.ForeignKey(TimekeepingImportBatch, on_delete=models.CASCADE, related_name='entries')
+	row_number = models.PositiveIntegerField(default=0)
+	employee_id = models.CharField(max_length=120, blank=True, default='')
+	employee_name = models.CharField(max_length=255, blank=True, default='')
+	row_payload = models.JSONField(default=dict, blank=True)
+	imported_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['row_number', 'id']
+
+	def __str__(self):
+		return f'TimekeepingImportEntry<{self.employee_id}:{self.employee_name}>'
 
 
 class LoginEvent(models.Model):

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Timekeeping Batch {{ batch.id }} Print</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; color: #1f2937; }
+        h1 { margin: 0 0 8px; font-size: 22px; }
+        .meta { margin-bottom: 14px; font-size: 14px; }
+        .meta div { margin-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #d1d5db; padding: 6px 8px; vertical-align: top; text-align: left; }
+        th { background: #f3f4f6; }
+        .small { font-size: 11px; color: #4b5563; }
+        @media print {
+            body { margin: 10mm; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Biometric Timekeeping Record</h1>
+    <div class="meta">
+        <div><strong>Record ID:</strong> {{ batch.id }}</div>
+        <div><strong>File:</strong> {{ batch.source_filename|default:"-" }}</div>
+        <div><strong>Imported By:</strong> {% if batch.imported_by %}{{ batch.imported_by.get_full_name|default:batch.imported_by.username }}{% else %}-{% endif %}</div>
+        <div><strong>Date:</strong> {{ batch.imported_at|date:"F d, Y" }}</div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 60px;">#</th>
+                <th style="width: 120px;">Employee ID</th>
+                <th style="width: 220px;">Employee Name</th>
+                <th>Attendance Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in entries %}
+            <tr>
+                <td>{{ row.row_number }}</td>
+                <td>{{ row.employee_id|default:"-" }}</td>
+                <td>{{ row.employee_name|default:"-" }}</td>
+                <td>{{ row.attendance_date_range|default:"-" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="4" class="small">No rows found in this imported batch.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <script>
+        window.addEventListener('load', function () {
+            window.print();
+        });
+    </script>
+</body>
+</html>

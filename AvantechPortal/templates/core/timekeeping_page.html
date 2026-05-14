@@ -1,0 +1,665 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Timekeeping{% endblock %}
+{% block page_heading %}Timekeeping{% endblock %}
+
+{% block content %}
+<style>
+#timekeepingImportedTable .js-imported-row,
+#timekeepingEmployeesTable .js-timekeeping-row,
+#impDetailBody .js-imported-detail-row {
+    cursor: pointer;
+}
+#tkDailyRecordBody tr {
+    cursor: pointer;
+}
+</style>
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+            <div>
+                <h2 class="h5 mb-0">Timekeeping</h2>
+                <div class="small text-secondary mt-1">Import biometric .xls files and review employee DTR + attendance verification.</div>
+            </div>
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#timekeepingImportModal">Import</button>
+        </div>
+
+        <h3 class="h6 mb-2">Imported List</h3>
+        <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle mb-0" id="timekeepingImportedTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Record ID</th>
+                        <th>Name</th>
+                        <th>Imported By</th>
+                        <th>Date</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in imported_batches %}
+                    <tr class="js-imported-row" data-batch-id="{{ batch.id }}" data-detail-url="{% url 'timekeeping_batch_detail' batch.id %}">
+                        <td>{{ batch.id }}</td>
+                        <td>{{ batch.source_filename|default:'-' }}</td>
+                        <td>{% if batch.imported_by %}{{ batch.imported_by.get_full_name|default:batch.imported_by.username }}{% else %}-{% endif %}</td>
+                        <td>{{ batch.imported_at|date:'M d, Y h:i A' }}</td>
+                        <td>
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">Action</button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'timekeeping_batch_download' batch.id %}">Download</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'timekeeping_batch_print' batch.id %}" target="_blank" rel="noopener">Print</a></li>
+                                    <li>
+                                        <form method="post" class="m-0" onsubmit="return confirm('Delete this imported record?');">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="delete_batch">
+                                            <input type="hidden" name="batch_id" value="{{ batch.id }}">
+                                            <button type="submit" class="dropdown-item text-danger">Delete</button>
+                                        </form>
+                                    </li>
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center text-secondary py-3">No imported records yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <h3 class="h6 mb-2">Employees / Users</h3>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" id="timekeepingEmployeesTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Biometrics</th>
+                        <th>System Users Info</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in timekeeping_rows %}
+                    <tr class="js-timekeeping-row" data-employee-id="{{ row.employee_id }}" data-employee-name="{{ row.employee_name }}" data-system-user-id="{{ row.system_user_id }}" data-system-user-name="{{ row.system_user_name }}" data-system-username="{{ row.system_username }}" data-user-match-status="{{ row.user_match_status }}" data-batch-name="{{ row.batch_name }}" data-imported-at="{{ row.imported_at }}" data-payload='{{ row.payload_json|escapejs }}' data-time-in-image="{{ row.time_in_image_url|default:'' }}" data-time-out-image="{{ row.time_out_image_url|default:'' }}">
+                        <td>
+                            <div class="fw-semibold">{{ row.employee_name }}</div>
+                            <div class="small text-secondary">Biometric ID: {{ row.employee_id }}</div>
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ row.system_user_name }}</div>
+                            <div class="small text-secondary">System ID: {{ row.system_user_id }} | Username: {{ row.system_username }}</div>
+                            {% if row.user_match_status == 'Matched in System' %}
+                                <span class="badge text-bg-success mt-1">Matched in System</span>
+                            {% else %}
+                                <span class="badge text-bg-danger mt-1">Not Found in System</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="2" class="text-center text-secondary py-3">No employee rows yet. Import a biometric file first.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="timekeepingImportModal" tabindex="-1" aria-labelledby="timekeepingImportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="import_biometrics">
+                <div class="modal-header">
+                    <h2 class="modal-title h5 mb-0" id="timekeepingImportModalLabel">Import Biometric File</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="biometricFileInput" class="form-label">Select biometric report (.xls)</label>
+                    <input id="biometricFileInput" name="biometric_file" class="form-control" type="file" accept=".xls" required>
+                    <div class="small text-secondary mt-2">Expected source: biometric exported legacy Excel file (.xls).</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-success">Import</button>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="timekeepingImportedModal" tabindex="-1" aria-labelledby="timekeepingImportedModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="timekeepingImportedModalLabel">Imported Record Details</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3"><div class="small text-secondary">Record ID</div><div class="fw-semibold" id="impInfoId">-</div></div>
+                    <div class="col-md-3"><div class="small text-secondary">Name</div><div class="fw-semibold" id="impInfoName">-</div></div>
+                    <div class="col-md-3"><div class="small text-secondary">Imported By</div><div class="fw-semibold" id="impInfoBy">-</div></div>
+                    <div class="col-md-3"><div class="small text-secondary">Date</div><div class="fw-semibold" id="impInfoDate">-</div></div>
+                    <div class="col-md-6"><div class="small text-secondary">Attendance Date</div><div class="fw-semibold" id="impAttendanceDateRange">-</div></div>
+                    <div class="col-md-6"><div class="small text-secondary">Tabling Date</div><div class="fw-semibold" id="impTablingDate">-</div></div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>User ID / Employee ID</th><th>Name</th><th>Verification Status</th></tr></thead>
+                        <tbody id="impDetailBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="timekeepingRowModal" tabindex="-1" aria-labelledby="timekeepingRowModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header d-flex align-items-center justify-content-between gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="tkPrevBtn">← Previous</button>
+                <h2 class="modal-title h5 mb-0" id="timekeepingRowModalLabel">Employee DTR</h2>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="tkNextBtn">Next →</button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="list-group" id="tkCategoryList">
+                            <button type="button" class="list-group-item list-group-item-action active js-tk-category" data-target="tkDailyRecordPane">Daily Time Record</button>
+                            <button type="button" class="list-group-item list-group-item-action js-tk-category" data-target="tkRawFilePane">Raw Data</button>
+                        </div>
+                    </div>
+                    <div class="col-md-9">
+                        <div id="tkDailyRecordPane" class="js-tk-pane">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6"><div class="small text-secondary">Employee ID</div><div class="fw-semibold" id="tkInfoEmployeeId">-</div></div>
+                                <div class="col-md-6"><div class="small text-secondary">Employee Name</div><div class="fw-semibold" id="tkInfoEmployeeName">-</div></div>
+                                <div class="col-md-6"><div class="small text-secondary">File</div><div class="fw-semibold" id="tkInfoBatch">-</div></div>
+                                <div class="col-md-6"><div class="small text-secondary">Imported At</div><div class="fw-semibold" id="tkInfoImportedAt">-</div></div>
+                            </div>
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm table-bordered align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Absence (Day)</th>
+                                            <th>Leave (Day)</th>
+                                            <th>Trip (Day)</th>
+                                            <th>Work (Day)</th>
+                                            <th>Overtime (hrs.) Normal</th>
+                                            <th>Overtime (hrs.) Special</th>
+                                            <th>Late (Times)</th>
+                                            <th>Late (Minute)</th>
+                                            <th>Early (Times)</th>
+                                            <th>Early (Minute)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td id="tkSummaryAbsence">0</td>
+                                            <td id="tkSummaryLeave">0</td>
+                                            <td id="tkSummaryTrip">0</td>
+                                            <td id="tkSummaryWork">0</td>
+                                            <td id="tkSummaryOtNormal">0.00</td>
+                                            <td id="tkSummaryOtSpecial">0.00</td>
+                                            <td id="tkSummaryLateTimes">0</td>
+                                            <td id="tkSummaryLateMinute">0</td>
+                                            <td id="tkSummaryEarlyTimes">0</td>
+                                            <td id="tkSummaryEarlyMinute">0</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th rowspan="2">Date/Weekday</th>
+                                            <th colspan="2">Before Noon</th>
+                                            <th colspan="2">After Noon</th>
+                                            <th colspan="2">Overtime</th>
+                                        </tr>
+                                        <tr>
+                                            <th>In</th>
+                                            <th>Out</th>
+                                            <th>In</th>
+                                            <th>Out</th>
+                                            <th>In</th>
+                                            <th>Out</th>
+                                            <th>Verification</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tkDailyRecordBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div id="tkRawFilePane" class="js-tk-pane d-none">
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light"><tr><th>Field</th><th>Value</th></tr></thead>
+                                    <tbody id="tkPayloadBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="timekeepingCompareModal" tabindex="-1" aria-labelledby="timekeepingCompareModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="timekeepingCompareModalLabel">Employee Comparison</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="small text-secondary mb-2">Biometrics</div>
+                            <div class="mb-2"><span class="small text-secondary d-block">Employee ID</span><span class="fw-semibold" id="tkCmpBioId">-</span></div>
+                            <div class="mb-2"><span class="small text-secondary d-block">Employee Name</span><span class="fw-semibold" id="tkCmpBioName">-</span></div>
+                            <div><span class="small text-secondary d-block">Source File</span><span class="fw-semibold" id="tkCmpBatch">-</span></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="small text-secondary mb-2">System User Info</div>
+                            <div class="mb-2"><span class="small text-secondary d-block">User ID</span><span class="fw-semibold" id="tkCmpSysId">-</span></div>
+                            <div class="mb-2"><span class="small text-secondary d-block">Full Name</span><span class="fw-semibold" id="tkCmpSysName">-</span></div>
+                            <div class="mb-2"><span class="small text-secondary d-block">Username</span><span class="fw-semibold" id="tkCmpSysUsername">-</span></div>
+                            <div><span class="small text-secondary d-block">Match Status</span><span id="tkCmpMatchBadge">-</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tkDtrVerificationModal" tabindex="-1" aria-labelledby="tkDtrVerificationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="tkDtrVerificationModalLabel">DTR Verification Details</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="small text-secondary">Date/Weekday</div>
+                        <div class="fw-semibold" id="tkDtrVerifyDate">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small text-secondary">Status</div>
+                        <div id="tkDtrVerifyStatus">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small text-secondary">Biometric Time In</div>
+                        <div class="fw-semibold" id="tkDtrVerifyBioIn">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small text-secondary">DB Time In</div>
+                        <div class="fw-semibold" id="tkDtrVerifyDbIn">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small text-secondary">Biometric Time Out</div>
+                        <div class="fw-semibold" id="tkDtrVerifyBioOut">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small text-secondary">DB Time Out</div>
+                        <div class="fw-semibold" id="tkDtrVerifyDbOut">-</div>
+                    </div>
+                    <div class="col-12">
+                        <div class="small text-secondary">Rule</div>
+                        <div class="fw-semibold">Date + time match with tolerance window.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const importedTable = document.getElementById('timekeepingImportedTable');
+    const importedModalEl = document.getElementById('timekeepingImportedModal');
+    const impInfoId = document.getElementById('impInfoId');
+    const impInfoName = document.getElementById('impInfoName');
+    const impInfoBy = document.getElementById('impInfoBy');
+    const impInfoDate = document.getElementById('impInfoDate');
+    const impAttendanceDateRange = document.getElementById('impAttendanceDateRange');
+    const impTablingDate = document.getElementById('impTablingDate');
+    const impDetailBody = document.getElementById('impDetailBody');
+
+    const employeeTable = document.getElementById('timekeepingEmployeesTable');
+    const rowModalEl = document.getElementById('timekeepingRowModal');
+    const compareModalEl = document.getElementById('timekeepingCompareModal');
+    const cmpBioId = document.getElementById('tkCmpBioId');
+    const cmpBioName = document.getElementById('tkCmpBioName');
+    const cmpBatch = document.getElementById('tkCmpBatch');
+    const cmpSysId = document.getElementById('tkCmpSysId');
+    const cmpSysName = document.getElementById('tkCmpSysName');
+    const cmpSysUsername = document.getElementById('tkCmpSysUsername');
+    const cmpMatchBadge = document.getElementById('tkCmpMatchBadge');
+    const infoEmployeeId = document.getElementById('tkInfoEmployeeId');
+    const infoEmployeeName = document.getElementById('tkInfoEmployeeName');
+    const infoBatch = document.getElementById('tkInfoBatch');
+    const infoImportedAt = document.getElementById('tkInfoImportedAt');
+    const payloadBody = document.getElementById('tkPayloadBody');
+    const dtrBody = document.getElementById('tkDailyRecordBody');
+    const sumAbsence = document.getElementById('tkSummaryAbsence');
+    const sumLeave = document.getElementById('tkSummaryLeave');
+    const sumTrip = document.getElementById('tkSummaryTrip');
+    const sumWork = document.getElementById('tkSummaryWork');
+    const sumOtNormal = document.getElementById('tkSummaryOtNormal');
+    const sumOtSpecial = document.getElementById('tkSummaryOtSpecial');
+    const sumLateTimes = document.getElementById('tkSummaryLateTimes');
+    const sumLateMinute = document.getElementById('tkSummaryLateMinute');
+    const sumEarlyTimes = document.getElementById('tkSummaryEarlyTimes');
+    const sumEarlyMinute = document.getElementById('tkSummaryEarlyMinute');
+    const prevBtn = document.getElementById('tkPrevBtn');
+    const nextBtn = document.getElementById('tkNextBtn');
+    const dtrVerificationModalEl = document.getElementById('tkDtrVerificationModal');
+    const dtrVerifyDate = document.getElementById('tkDtrVerifyDate');
+    const dtrVerifyStatus = document.getElementById('tkDtrVerifyStatus');
+    const dtrVerifyBioIn = document.getElementById('tkDtrVerifyBioIn');
+    const dtrVerifyDbIn = document.getElementById('tkDtrVerifyDbIn');
+    const dtrVerifyBioOut = document.getElementById('tkDtrVerifyBioOut');
+    const dtrVerifyDbOut = document.getElementById('tkDtrVerifyDbOut');
+    const categoryButtons = Array.from(document.querySelectorAll('.js-tk-category'));
+    const panes = Array.from(document.querySelectorAll('.js-tk-pane'));
+
+    if (!importedTable || !importedModalEl || !impInfoId || !impInfoName || !impInfoBy || !impInfoDate || !impAttendanceDateRange || !impTablingDate || !impDetailBody || !employeeTable || !rowModalEl || !compareModalEl || !cmpBioId || !cmpBioName || !cmpBatch || !cmpSysId || !cmpSysName || !cmpSysUsername || !cmpMatchBadge || !infoEmployeeId || !infoEmployeeName || !infoBatch || !infoImportedAt || !payloadBody || !dtrBody || !prevBtn || !nextBtn || !sumAbsence || !sumLeave || !sumTrip || !sumWork || !sumOtNormal || !sumOtSpecial || !sumLateTimes || !sumLateMinute || !sumEarlyTimes || !sumEarlyMinute || !dtrVerificationModalEl || !dtrVerifyDate || !dtrVerifyStatus || !dtrVerifyBioIn || !dtrVerifyDbIn || !dtrVerifyBioOut || !dtrVerifyDbOut) return;
+
+    const esc = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;');
+    const statusBadge = (status) => {
+        const s = String(status || 'Pending Verification');
+        if (s === 'Verified') return `<span class="badge text-bg-success">${esc(s)}</span>`;
+        if (s === 'Partially Verified') return `<span class="badge text-bg-warning text-dark">${esc(s)}</span>`;
+        if (s === 'Time Mismatch') return `<span class="badge text-bg-danger">${esc(s)}</span>`;
+        if (s === 'No Capture') return `<span class="badge text-bg-secondary">${esc(s)}</span>`;
+        if (s === 'No Biometric Time') return `<span class="badge text-bg-info text-dark">${esc(s)}</span>`;
+        return `<span class="badge text-bg-secondary">${esc(s)}</span>`;
+    };
+    const matchBadge = (status) => String(status || '') === 'Matched in System'
+        ? '<span class="badge text-bg-success">Matched in System</span>'
+        : '<span class="badge text-bg-danger">Not Found in System</span>';
+
+    const showCategory = (targetId) => {
+        categoryButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.target === targetId));
+        panes.forEach((pane) => pane.classList.toggle('d-none', pane.id !== targetId));
+    };
+    categoryButtons.forEach((btn) => btn.addEventListener('click', () => showCategory(btn.dataset.target)));
+
+    const closeOpenTimekeepingModals = () => {
+        if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+        [importedModalEl, rowModalEl].forEach((el) => {
+            if (!el) return;
+            const modal = bootstrap.Modal.getOrCreateInstance(el);
+            modal.hide();
+        });
+    };
+
+    let modalRows = [];
+    let currentIndex = -1;
+    const dayMap = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    let importedDetailRowsCache = [];
+
+    const parsePayloadSafe = (raw) => {
+        if (raw && typeof raw === 'object') return raw;
+        try { return JSON.parse(String(raw || '{}')); } catch (e) { return {}; }
+    };
+
+    const normalizeRowData = (source) => {
+        const ds = source && source.dataset ? source.dataset : (source || {});
+        return {
+            employeeId: String(ds.employeeId || ds.employee_id || '-'),
+            employeeName: String(ds.employeeName || ds.employee_name || '-'),
+            systemUserId: String(ds.systemUserId || ds.system_user_id || '-'),
+            systemUserName: String(ds.systemUserName || ds.system_user_name || '-'),
+            systemUsername: String(ds.systemUsername || ds.system_username || '-'),
+            userMatchStatus: String(ds.userMatchStatus || ds.user_match_status || ''),
+            batchName: String(ds.batchName || ds.batch_name || '-'),
+            importedAt: String(ds.importedAt || ds.imported_at || '-'),
+            payload: parsePayloadSafe(ds.payload || ds.row_payload || {}),
+            timeInImage: String(ds.timeInImage || ds.time_in_image_url || ''),
+            timeOutImage: String(ds.timeOutImage || ds.time_out_image_url || ''),
+        };
+    };
+
+    const asTimeValue = (val) => {
+        const raw = String(val == null ? '' : val).trim();
+        if (!raw) return '';
+        const m24 = raw.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+        if (m24) return `${m24[1].padStart(2, '0')}:${m24[2]}`;
+        const m12 = raw.match(/^(1[0-2]|0?\d):([0-5]\d)\s*([AaPp][Mm])$/);
+        if (m12) {
+            let h = Number(m12[1]) % 12;
+            if (m12[3].toUpperCase() === 'PM') h += 12;
+            return `${String(h).padStart(2, '0')}:${m12[2]}`;
+        }
+        return '';
+    };
+
+    const buildDailyTimeCardRows = (payload) => {
+        const p = payload || {};
+        if (Array.isArray(p['DTR Rows']) && p['DTR Rows'].length) {
+            return p['DTR Rows'].map((row) => ({
+                label: String(row.date_label || '').trim(),
+                beforeIn: String(row.before_noon_in || '').trim(),
+                beforeOut: String(row.before_noon_out || '').trim(),
+                afterIn: String(row.after_noon_in || '').trim(),
+                afterOut: String(row.after_noon_out || '').trim(),
+                otIn: String(row.overtime_in || '').trim(),
+                otOut: String(row.overtime_out || '').trim(),
+                present: 0,
+            }));
+        }
+        const dayKeys = Object.keys(p).filter((k) => /^\d{1,2}$/.test(String(k).trim())).sort((a, b) => Number(a) - Number(b));
+        const rows = [];
+        dayKeys.forEach((k) => {
+            const dayNum = Number(k);
+            if (Number.isNaN(dayNum) || dayNum < 1 || dayNum > 31) return;
+            const cellVal = String(p[k] == null ? '' : p[k]).trim();
+            const marker = cellVal && cellVal !== '0';
+            rows.push({
+                label: `${String(dayNum).padStart(2, '0')} ${dayMap[rows.length % 7]}`,
+                beforeIn: asTimeValue(p[`${k}_am_in`] || p[`day_${k}_am_in`]) || '',
+                beforeOut: asTimeValue(p[`${k}_am_out`] || p[`day_${k}_am_out`]) || '',
+                afterIn: asTimeValue(p[`${k}_pm_in`] || p[`day_${k}_pm_in`]) || '',
+                afterOut: asTimeValue(p[`${k}_pm_out`] || p[`day_${k}_pm_out`]) || '',
+                otIn: asTimeValue(p[`${k}_ot_in`] || p[`day_${k}_ot_in`]) || '',
+                otOut: asTimeValue(p[`${k}_ot_out`] || p[`day_${k}_ot_out`]) || '',
+                present: marker ? 1 : 0,
+            });
+        });
+        return rows;
+    };
+
+    const renderRowDetails = (rowData) => {
+        if (!rowData) return;
+        const row = normalizeRowData(rowData);
+        infoEmployeeId.textContent = row.employeeId || '-';
+        infoEmployeeName.textContent = row.employeeName || '-';
+        infoBatch.textContent = row.batchName || '-';
+        infoImportedAt.textContent = row.importedAt || '-';
+
+        const payload = row.payload || {};
+        const items = Object.entries(payload);
+        payloadBody.innerHTML = items.length
+            ? items.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')
+            : '<tr><td colspan="2" class="text-center text-secondary">No raw data.</td></tr>';
+        const dtrRows = buildDailyTimeCardRows(payload);
+        const summary = payload && typeof payload === 'object' ? (payload['Summary'] || {}) : {};
+        if (summary && Object.keys(summary).length) {
+            sumAbsence.textContent = String(summary.absence_day ?? 0);
+            sumLeave.textContent = String(summary.leave_day ?? 0);
+            sumTrip.textContent = String(summary.trip_day ?? 0);
+            sumWork.textContent = String(summary.work_day ?? 0);
+            sumOtNormal.textContent = Number(summary.ot_normal ?? 0).toFixed(2);
+            sumOtSpecial.textContent = Number(summary.ot_special ?? 0).toFixed(2);
+            sumLateTimes.textContent = String(summary.late_times ?? 0);
+            sumLateMinute.textContent = String(summary.late_minute ?? 0);
+            sumEarlyTimes.textContent = String(summary.early_times ?? 0);
+            sumEarlyMinute.textContent = String(summary.early_minute ?? 0);
+        } else {
+            const workDays = dtrRows.reduce((acc, r) => acc + (r.present ? 1 : 0), 0);
+            const totalDays = dtrRows.length;
+            const absenceDays = Math.max(totalDays - workDays, 0);
+            sumAbsence.textContent = String(absenceDays);
+            sumLeave.textContent = '0';
+            sumTrip.textContent = '0';
+            sumWork.textContent = String(workDays);
+            sumOtNormal.textContent = '0.00';
+            sumOtSpecial.textContent = '0.00';
+            sumLateTimes.textContent = '0';
+            sumLateMinute.textContent = '0';
+            sumEarlyTimes.textContent = '0';
+            sumEarlyMinute.textContent = '0';
+        }
+
+        const verifications = Array.isArray(payload['DTR Verification']) ? payload['DTR Verification'] : [];
+        const verificationByLabel = new Map(verifications.map((v) => [String(v.date_label || '').trim(), v || {}]));
+        dtrBody.innerHTML = dtrRows.length
+            ? dtrRows.map((r) => {
+                const found = verificationByLabel.get(String(r.label || '').trim()) || {};
+                const status = String(found.status || 'Pending Verification');
+                return `<tr data-date-label="${esc(r.label)}" data-verification="${esc(status)}" data-bio-in="${esc(r.beforeIn || '')}" data-bio-out="${esc(r.otOut || r.afterOut || '')}" data-db-in="${esc(found.db_time_in || '')}" data-db-out="${esc(found.db_time_out || '')}"><td>${esc(r.label)}</td><td>${esc(r.beforeIn)}</td><td>${esc(r.beforeOut)}</td><td>${esc(r.afterIn)}</td><td>${esc(r.afterOut)}</td><td>${esc(r.otIn)}</td><td>${esc(r.otOut)}</td><td>${statusBadge(status)}</td></tr>`;
+            }).join('')
+            : '<tr><td colspan="8" class="text-center text-secondary">No DTR day rows found in imported file.</td></tr>';
+        if (!dtrBody.innerHTML.trim()) {
+            dtrBody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary">No DTR day rows found in imported file.</td></tr>';
+        }
+
+        prevBtn.disabled = currentIndex <= 0;
+        nextBtn.disabled = currentIndex < 0 || currentIndex >= (modalRows.length - 1);
+        prevBtn.classList.toggle('d-none', currentIndex <= 0);
+        nextBtn.classList.toggle('d-none', currentIndex < 0 || currentIndex >= (modalRows.length - 1));
+    };
+
+    const openRowModalFromEmployeeRow = (row) => {
+        closeOpenTimekeepingModals();
+        modalRows = Array.from(employeeTable.querySelectorAll('.js-timekeeping-row')).map((entryRow) => normalizeRowData(entryRow));
+        const selected = normalizeRowData(row);
+        currentIndex = modalRows.findIndex((entry) => String(entry.employeeId).trim() === String(selected.employeeId).trim());
+        renderRowDetails(selected);
+        showCategory('tkDailyRecordPane');
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) bootstrap.Modal.getOrCreateInstance(rowModalEl).show();
+    };
+
+    const openCompareModalFromEmployeeRow = (row) => {
+        closeOpenTimekeepingModals();
+        const item = normalizeRowData(row);
+        cmpBioId.textContent = item.employeeId || '-';
+        cmpBioName.textContent = item.employeeName || '-';
+        cmpBatch.textContent = item.batchName || '-';
+        cmpSysId.textContent = item.systemUserId || '-';
+        cmpSysName.textContent = item.systemUserName || '-';
+        cmpSysUsername.textContent = item.systemUsername || '-';
+        cmpMatchBadge.innerHTML = matchBadge(item.userMatchStatus);
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) bootstrap.Modal.getOrCreateInstance(compareModalEl).show();
+    };
+
+    const openRowModalFromImportedDetail = (row) => {
+        closeOpenTimekeepingModals();
+        modalRows = importedDetailRowsCache.length ? importedDetailRowsCache.slice() : Array.from(impDetailBody.querySelectorAll('.js-imported-detail-row')).map((r) => normalizeRowData(r));
+        const selected = normalizeRowData(row);
+        currentIndex = modalRows.findIndex((entry) => String(entry.employeeId).trim() === String(selected.employeeId).trim());
+        renderRowDetails(selected);
+        showCategory('tkDailyRecordPane');
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) bootstrap.Modal.getOrCreateInstance(rowModalEl).show();
+    };
+
+    importedTable.addEventListener('dblclick', async (event) => {
+        const row = event.target.closest('.js-imported-row');
+        if (!row) return;
+        closeOpenTimekeepingModals();
+        const detailUrl = row.dataset.detailUrl || '';
+        if (!detailUrl) return;
+        const response = await fetch(detailUrl, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!payload || !payload.ok) return;
+        const b = payload.batch || {};
+        impInfoId.textContent = b.id || '-';
+        impInfoName.textContent = b.name || '-';
+        impInfoBy.textContent = b.imported_by || '-';
+        impInfoDate.textContent = b.imported_at || '-';
+        impAttendanceDateRange.textContent = b.attendance_date_range || '-';
+        impTablingDate.textContent = b.tabling_date || '-';
+        const rows = Array.isArray(payload.entries) ? payload.entries : [];
+        importedDetailRowsCache = rows.map((r) => normalizeRowData({
+            employeeId: r.employee_id || '',
+            employeeName: r.employee_name || '',
+            batchName: b.name || '-',
+            importedAt: b.imported_at || '-',
+            payload: r.row_payload || {},
+            timeInImage: r.time_in_image_url || '',
+            timeOutImage: r.time_out_image_url || '',
+        }));
+        impDetailBody.innerHTML = rows.length
+            ? rows.map((r) => `<tr class="js-imported-detail-row" data-employee-id="${esc(r.employee_id || '')}" data-employee-name="${esc(r.employee_name || '')}" data-batch-name="${esc(b.name || '-') }" data-imported-at="${esc(b.imported_at || '-') }" data-payload="${esc(JSON.stringify(r.row_payload || {}))}" data-time-in-image="${esc(r.time_in_image_url || '')}" data-time-out-image="${esc(r.time_out_image_url || '')}"><td>${esc(r.employee_id || '-')}</td><td>${esc(r.employee_name || '-')}</td><td><span class="badge ${r.verification_status === 'Verified' ? 'text-bg-success' : 'text-bg-secondary'}">${esc(r.verification_status || '-')}</span></td></tr>`).join('')
+            : '<tr><td colspan="3" class="text-center text-secondary">No imported rows.</td></tr>';
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) bootstrap.Modal.getOrCreateInstance(importedModalEl).show();
+    });
+
+    impDetailBody.addEventListener('click', (event) => {
+        const row = event.target.closest('.js-imported-detail-row');
+        if (!row) return;
+        openRowModalFromImportedDetail(row);
+    });
+
+    employeeTable.addEventListener('click', (event) => {
+        const row = event.target.closest('.js-timekeeping-row');
+        if (!row) return;
+        openCompareModalFromEmployeeRow(row);
+    });
+
+    employeeTable.addEventListener('dblclick', (event) => {
+        const row = event.target.closest('.js-timekeeping-row');
+        if (!row) return;
+        openRowModalFromEmployeeRow(row);
+    });
+
+    prevBtn.addEventListener('click', () => {
+        if (currentIndex <= 0) return;
+        currentIndex -= 1;
+        renderRowDetails(modalRows[currentIndex]);
+        showCategory('tkDailyRecordPane');
+    });
+
+    nextBtn.addEventListener('click', () => {
+        if (currentIndex >= modalRows.length - 1) return;
+        currentIndex += 1;
+        renderRowDetails(modalRows[currentIndex]);
+        showCategory('tkDailyRecordPane');
+    });
+
+    dtrBody.addEventListener('click', (event) => {
+        const row = event.target.closest('tr');
+        if (!row) return;
+        const dateLabel = row.dataset.dateLabel || '-';
+        const verification = row.dataset.verification || 'Pending Verification';
+        dtrVerifyDate.textContent = dateLabel;
+        dtrVerifyStatus.innerHTML = statusBadge(verification);
+        dtrVerifyBioIn.textContent = row.dataset.bioIn || '-';
+        dtrVerifyDbIn.textContent = row.dataset.dbIn || '-';
+        dtrVerifyBioOut.textContent = row.dataset.bioOut || '-';
+        dtrVerifyDbOut.textContent = row.dataset.dbOut || '-';
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) bootstrap.Modal.getOrCreateInstance(dtrVerificationModalEl).show();
+    });
+})();
+</script>
+{% endblock %}

@@ -22,7 +22,12 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
+        .attendance-assist-fab.is-dragging { cursor: grabbing; }
         .attendance-assist-fab-dot {
             width: 16px;
             height: 16px;
@@ -98,7 +103,7 @@
                             </span>
                         </button>
                         <div class="nav-subgroup">
-                            <a class="nav-link app-nav-link ms-4" href="#" style="font-size: 0.9rem;">
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'timekeeping_page' %}active{% endif %}" href="{% url 'timekeeping_page' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <rect x="5" y="4.5" width="14" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -635,9 +640,12 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
+                    <div id="attendanceAssistCurrentClue" class="small text-secondary mb-2">Current Mode: -- | Server Time: --</div>
                     <div id="attendanceAssistCaptureStep">
                         <video id="attendanceAssistVideo" class="w-100 rounded border" autoplay playsinline muted></video>
+                        <input type="file" id="attendanceAssistMobileCameraInput" class="d-none" accept="image/*" capture="environment">
                         <div class="small text-secondary mt-2" id="attendanceAssistHint">Allow camera and location to continue.</div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2 d-none" id="attendanceAssistRequestBtn">Enable Camera Access</button>
                     </div>
                     <div id="attendanceAssistPreviewStep" class="d-none">
                         <img id="attendanceAssistPreviewImage" class="w-100 rounded border" alt="Attendance preview">
@@ -646,6 +654,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" id="attendanceAssistRetakeBtn">Retake</button>
+                    <button type="button" class="btn btn-outline-dark d-none" id="attendanceAssistDownloadBtn">Download</button>
                     <button type="button" class="btn btn-outline-primary" id="attendanceAssistCaptureBtn">Capture</button>
                     <button type="button" class="btn btn-success d-none" id="attendanceAssistSubmitBtn">Submit</button>
                 </div>
@@ -706,7 +715,7 @@
                         </span>
                     </button>
                     <div class="nav-subgroup">
-                        <a class="nav-link app-nav-link ms-4" href="#" style="font-size: 0.9rem;">
+                        <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'timekeeping_page' %}active{% endif %}" href="{% url 'timekeeping_page' %}" style="font-size: 0.9rem;">
                             <span class="nav-logo" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <rect x="5" y="4.5" width="14" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
@@ -2418,26 +2427,166 @@
             const fab = document.getElementById('attendanceAssistFab');
             const modalEl = document.getElementById('attendanceAssistModal');
             const videoEl = document.getElementById('attendanceAssistVideo');
+            const mobileCameraInput = document.getElementById('attendanceAssistMobileCameraInput');
             const canvasEl = document.getElementById('attendanceAssistCanvas');
             const previewEl = document.getElementById('attendanceAssistPreviewImage');
             const captureStepEl = document.getElementById('attendanceAssistCaptureStep');
             const previewStepEl = document.getElementById('attendanceAssistPreviewStep');
             const hintEl = document.getElementById('attendanceAssistHint');
+            const currentClueEl = document.getElementById('attendanceAssistCurrentClue');
+            const requestBtn = document.getElementById('attendanceAssistRequestBtn');
             const captureBtn = document.getElementById('attendanceAssistCaptureBtn');
             const retakeBtn = document.getElementById('attendanceAssistRetakeBtn');
+            const downloadBtn = document.getElementById('attendanceAssistDownloadBtn');
             const submitBtn = document.getElementById('attendanceAssistSubmitBtn');
-            if (!fab || !modalEl || !videoEl || !canvasEl || !previewEl || !captureBtn || !retakeBtn || !submitBtn) return;
+            if (!fab || !modalEl || !videoEl || !mobileCameraInput || !canvasEl || !previewEl || !requestBtn || !captureBtn || !retakeBtn || !downloadBtn || !submitBtn || !currentClueEl) return;
 
             const statusUrl = "{% url 'attendance_assist_status' %}";
             const submitUrl = "{% url 'attendance_assist_submit' %}";
+            const settingsUrl = "{% url 'attendance_assist_settings' %}";
             const logoUrl = "{% static 'img/avantech-logo.png' %}";
             const timemarkSettingsKey = 'attendance_timemark_settings_v1';
+            const fabPositionKey = 'attendance_assist_fab_position_v1';
             const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
             let stream = null;
             let mode = 'time_in';
             let geo = { latitude: '', longitude: '', locationLabel: 'Location unavailable' };
             let preparedImageData = '';
+            const employeeName = "{{ request.user.get_full_name|default:request.user.username|escapejs }}";
+            let geoPromise = null;
+            const isMobileAssist = /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+            let settingsSyncPromise = null;
+            let isFabDragging = false;
+            let suppressFabClickUntil = 0;
+
+            const clampFabPosition = (x, y) => {
+                const pad = 8;
+                const w = Math.max(1, fab.offsetWidth || 62);
+                const h = Math.max(1, fab.offsetHeight || 62);
+                const maxX = Math.max(pad, window.innerWidth - w - pad);
+                const maxY = Math.max(pad, window.innerHeight - h - pad);
+                return {
+                    x: Math.min(maxX, Math.max(pad, x)),
+                    y: Math.min(maxY, Math.max(pad, y)),
+                };
+            };
+
+            const applyFabPosition = (x, y) => {
+                const p = clampFabPosition(x, y);
+                fab.style.left = `${p.x}px`;
+                fab.style.top = `${p.y}px`;
+                fab.style.right = 'auto';
+                fab.style.bottom = 'auto';
+            };
+
+            const saveFabPosition = () => {
+                const left = parseFloat(fab.style.left);
+                const top = parseFloat(fab.style.top);
+                if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+                try { localStorage.setItem(fabPositionKey, JSON.stringify({ x: left, y: top })); } catch (e) {}
+            };
+
+            const loadFabPosition = () => {
+                try {
+                    const raw = localStorage.getItem(fabPositionKey);
+                    if (!raw) return;
+                    const parsed = JSON.parse(raw);
+                    if (!parsed || typeof parsed !== 'object') return;
+                    if (!Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) return;
+                    applyFabPosition(parsed.x, parsed.y);
+                } catch (e) {}
+            };
+
+            const setupFabDrag = () => {
+                const getPoint = (event) => {
+                    if (event.touches && event.touches[0]) return event.touches[0];
+                    if (event.changedTouches && event.changedTouches[0]) return event.changedTouches[0];
+                    return event;
+                };
+                let startPointerX = 0;
+                let startPointerY = 0;
+                let startFabX = 0;
+                let startFabY = 0;
+                let moved = false;
+
+                const onMove = (event) => {
+                    if (!isFabDragging) return;
+                    const point = getPoint(event);
+                    const dx = point.clientX - startPointerX;
+                    const dy = point.clientY - startPointerY;
+                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+                    applyFabPosition(startFabX + dx, startFabY + dy);
+                    if (event.cancelable) event.preventDefault();
+                };
+
+                const onEnd = () => {
+                    if (!isFabDragging) return;
+                    isFabDragging = false;
+                    fab.classList.remove('is-dragging');
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onEnd);
+                    window.removeEventListener('touchmove', onMove);
+                    window.removeEventListener('touchend', onEnd);
+                    window.removeEventListener('touchcancel', onEnd);
+                    if (moved) suppressFabClickUntil = Date.now() + 350;
+                    saveFabPosition();
+                };
+
+                const onStart = (event) => {
+                    if ((event.type === 'mousedown' && event.button !== 0)) return;
+                    const point = getPoint(event);
+                    const rect = fab.getBoundingClientRect();
+                    startPointerX = point.clientX;
+                    startPointerY = point.clientY;
+                    startFabX = rect.left;
+                    startFabY = rect.top;
+                    moved = false;
+                    isFabDragging = true;
+                    fab.classList.add('is-dragging');
+                    window.addEventListener('mousemove', onMove, { passive: false });
+                    window.addEventListener('mouseup', onEnd);
+                    window.addEventListener('touchmove', onMove, { passive: false });
+                    window.addEventListener('touchend', onEnd);
+                    window.addEventListener('touchcancel', onEnd);
+                };
+
+                fab.addEventListener('mousedown', onStart);
+                fab.addEventListener('touchstart', onStart, { passive: false });
+                window.addEventListener('resize', () => {
+                    const left = parseFloat(fab.style.left);
+                    const top = parseFloat(fab.style.top);
+                    if (Number.isFinite(left) && Number.isFinite(top)) {
+                        applyFabPosition(left, top);
+                        saveFabPosition();
+                    }
+                });
+            };
+
+            loadFabPosition();
+            setupFabDrag();
+
+            const syncTimemarkSettingsFromServer = async () => {
+                try {
+                    const response = await fetch(settingsUrl, {
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) return;
+                    const payload = await response.json();
+                    if (!payload || !payload.ok || !payload.settings) return;
+                    localStorage.setItem(timemarkSettingsKey, JSON.stringify(payload.settings));
+                } catch (error) {
+                    return;
+                }
+            };
+
+            const ensureTimemarkSettingsSynced = async () => {
+                if (!settingsSyncPromise) {
+                    settingsSyncPromise = syncTimemarkSettingsFromServer();
+                }
+                await settingsSyncPromise;
+            };
 
             const getTimemarkSettings = () => {
                 const normalizeLayoutEntry = (entry, fallback) => {
@@ -2476,13 +2625,21 @@
                     };
                     if (!raw) return defaults;
                     const parsed = JSON.parse(raw);
-                    const landscape = normalizeLayoutSet(parsed.layout && parsed.layout.landscape, defaults.layout);
-                    const portrait = normalizeLayoutSet(parsed.layout && parsed.layout.portrait, defaults.layout);
+                    const hasNestedLayout = !!(parsed.layout && (parsed.layout.landscape || parsed.layout.portrait));
+                    const landscapeSource = hasNestedLayout ? parsed.layout.landscape : parsed.layout;
+                    const portraitSource = hasNestedLayout ? parsed.layout.portrait : parsed.layout;
+                    const landscape = normalizeLayoutSet(landscapeSource, defaults.layout);
+                    const portrait = normalizeLayoutSet(portraitSource, defaults.layout);
+                    const hasLandscape = !!(landscapeSource && typeof landscapeSource === 'object');
+                    const hasPortrait = !!(portraitSource && typeof portraitSource === 'object');
                     return {
-                        companyName: (parsed.company_name || '').trim() || defaults.companyName,
+                        companyName: (parsed.company_name || parsed.companyName || '').trim() || defaults.companyName,
                         location: (parsed.location || '').trim(),
-                        logoData: (parsed.logo_data || '').trim(),
-                        layout: { landscape, portrait },
+                        logoData: (parsed.logo_data || parsed.logoData || '').trim(),
+                        layout: {
+                            landscape: hasLandscape ? landscape : portrait,
+                            portrait: hasPortrait ? portrait : landscape,
+                        },
                     };
                 } catch (error) {
                     return {
@@ -2506,6 +2663,42 @@
                 }
             };
 
+            const isSameLayoutValue = (a, b) => Math.abs(Number(a || 0) - Number(b || 0)) < 0.0005;
+
+            const isLayoutDefaultLike = (layoutSet) => {
+                const defaults = {
+                    company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
+                    type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
+                    time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
+                    location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
+                    logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.18 },
+                };
+                if (!layoutSet || typeof layoutSet !== 'object') return true;
+                const keys = Object.keys(defaults);
+                return keys.every((key) => {
+                    const cur = layoutSet[key] || {};
+                    const def = defaults[key];
+                    return (
+                        isSameLayoutValue(cur.x, def.x) &&
+                        isSameLayoutValue(cur.y, def.y) &&
+                        isSameLayoutValue(cur.w, def.w) &&
+                        isSameLayoutValue(cur.h, def.h)
+                    );
+                });
+            };
+
+            const chooseBestLayout = (timemark, preferredOrientation) => {
+                const landscape = timemark && timemark.layout ? timemark.layout.landscape : null;
+                const portrait = timemark && timemark.layout ? timemark.layout.portrait : null;
+                const preferred = preferredOrientation === 'portrait' ? portrait : landscape;
+                const alternate = preferredOrientation === 'portrait' ? landscape : portrait;
+                const preferredDefaultLike = isLayoutDefaultLike(preferred);
+                const alternateDefaultLike = isLayoutDefaultLike(alternate);
+
+                if (preferredDefaultLike && !alternateDefaultLike) return alternate || preferred || {};
+                return preferred || alternate || {};
+            };
+
             const getCsrfToken = () => {
                 const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
                 if (input && input.value) return input.value;
@@ -2519,14 +2712,25 @@
                     stream = null;
                 }
                 videoEl.srcObject = null;
+                geoPromise = null;
             };
 
             const resetSteps = () => {
                 captureStepEl.classList.remove('d-none');
                 previewStepEl.classList.add('d-none');
-                captureBtn.classList.remove('d-none');
+                captureBtn.classList.toggle('d-none', isMobileAssist);
                 submitBtn.classList.add('d-none');
+                downloadBtn.classList.add('d-none');
+                requestBtn.classList.remove('d-none');
+                requestBtn.textContent = isMobileAssist ? 'Open System Camera' : 'Enable Camera Access';
                 preparedImageData = '';
+                mobileCameraInput.value = '';
+            };
+
+            const showRequestButton = (message) => {
+                stopCamera();
+                hintEl.textContent = message || 'Camera permission is required to continue.';
+                requestBtn.classList.remove('d-none');
             };
 
             const refreshStatus = async () => {
@@ -2539,9 +2743,16 @@
                     const payload = await response.json();
                     if (!payload || !payload.ok) return;
                     mode = payload.mode || 'time_in';
-                    fab.classList.toggle('d-none', mode === 'done');
-                    fab.style.opacity = payload.visible ? '1' : '0.55';
+                    const shouldShowFab = !!payload.visible && mode !== 'done';
+                    fab.classList.toggle('d-none', !shouldShowFab);
+                    fab.style.opacity = '1';
                     fab.setAttribute('title', payload.message || 'Attendance Assistant');
+                    const prettyMode = mode === 'time_out' ? 'Time Out' : (mode === 'time_in' ? 'Time In' : 'Done');
+                    const serverTime = payload.server_time || '--';
+                    const hint = payload.is_late_time_in_hint ? 'Late' : 'On Time';
+                    currentClueEl.textContent = mode === 'time_in'
+                        ? `Current Mode: ${prettyMode} | Server Time: ${serverTime} | Status Hint: ${hint}`
+                        : `Current Mode: ${prettyMode} | Server Time: ${serverTime}`;
                 } catch (error) {
                     return;
                 }
@@ -2575,88 +2786,229 @@
                 img.src = url;
             });
 
-            const drawOverlay = async () => {
-                const vw = videoEl.videoWidth || 1280;
-                const vh = videoEl.videoHeight || 720;
+            const pickLayoutByCanvasRatio = (width, height) => {
+                const w = Number(width) || 1;
+                const h = Number(height) || 1;
+                const ratio = w / Math.max(1, h);
+                const LANDSCAPE_TARGET = 16 / 9;
+                const PORTRAIT_TARGET = 9 / 16;
+                const diffLandscape = Math.abs(ratio - LANDSCAPE_TARGET);
+                const diffPortrait = Math.abs(ratio - PORTRAIT_TARGET);
+
+                // Near-square captures: use current device orientation as tie-breaker.
+                if (ratio >= 0.90 && ratio <= 1.10) {
+                    const isScreenLandscape = window.matchMedia && window.matchMedia('(orientation: landscape)').matches;
+                    return isScreenLandscape ? 'landscape' : 'portrait';
+                }
+
+                return diffLandscape <= diffPortrait ? 'landscape' : 'portrait';
+            };
+
+            const drawOverlay = async (sourceEl, sourceW, sourceH, forcedOrientationKey) => {
+                await ensureTimemarkSettingsSynced();
+                const vw = sourceW || (sourceEl && sourceEl.videoWidth) || (sourceEl && sourceEl.naturalWidth) || 1280;
+                const vh = sourceH || (sourceEl && sourceEl.videoHeight) || (sourceEl && sourceEl.naturalHeight) || 720;
                 canvasEl.width = vw;
                 canvasEl.height = vh;
                 const ctx = canvasEl.getContext('2d');
-                ctx.drawImage(videoEl, 0, 0, vw, vh);
+                ctx.drawImage(sourceEl, 0, 0, vw, vh);
                 const timemark = getTimemarkSettings();
                 const finalLocation = timemark.location || geo.locationLabel || 'N/A';
-                const orientationKey = vw >= vh ? 'landscape' : 'portrait';
-                const activeLayout = (timemark.layout && timemark.layout[orientationKey]) ? timemark.layout[orientationKey] : (timemark.layout && timemark.layout.landscape ? timemark.layout.landscape : {});
                 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-                const mapPoint = (pt) => ({
-                    x: Math.round(clamp((pt && typeof pt.x === 'number') ? pt.x : 0.06, 0, 0.95) * vw),
-                    y: Math.round(clamp((pt && typeof pt.y === 'number') ? pt.y : 0.68, 0, 0.95) * vh),
-                });
-                const mapSize = (pt, fallbackW, fallbackH) => ({
-                    w: Math.round(clamp((pt && typeof pt.w === 'number') ? pt.w : fallbackW, 0.08, 0.95) * vw),
-                    h: Math.round(clamp((pt && typeof pt.h === 'number') ? pt.h : fallbackH, 0.06, 0.95) * vh),
-                });
-                const drawWrappedText = (text, x, y, maxWidth, lineHeight, fontPx, weight = 'normal', bg = true) => {
-                    ctx.font = `${weight} ${fontPx}px Arial`;
+                const now = new Date();
+                const modeLabel = mode === 'time_out' ? 'CLOCK OUT' : 'CLOCK IN';
+                const timeValue = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                const dateValue = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+                const orientationKey = (forcedOrientationKey === 'portrait' || forcedOrientationKey === 'landscape')
+                    ? forcedOrientationKey
+                    : pickLayoutByCanvasRatio(vw, vh);
+                const isPortraitOverlay = orientationKey === 'portrait';
+                const safeEmployeeName = String(employeeName || 'Employee').trim() || 'Employee';
+                const gpsLabel = String((geo && geo.locationLabel) || '').trim();
+                const safeLocation = String(finalLocation || 'N/A').trim() || 'N/A';
+                const addressWithGps = (safeLocation && gpsLabel && safeLocation !== gpsLabel)
+                    ? `${safeLocation} | ${gpsLabel}`
+                    : (safeLocation || gpsLabel || 'N/A');
+                const drawImageContain = (img, x, y, boxW, boxH) => {
+                    const srcW = Number(img && (img.naturalWidth || img.videoWidth || img.width)) || 1;
+                    const srcH = Number(img && (img.naturalHeight || img.videoHeight || img.height)) || 1;
+                    const scale = Math.min(boxW / srcW, boxH / srcH);
+                    const drawW = Math.max(1, Math.round(srcW * scale));
+                    const drawH = Math.max(1, Math.round(srcH * scale));
+                    const drawX = Math.round(x + ((boxW - drawW) / 2));
+                    const drawY = Math.round(y + ((boxH - drawH) / 2));
+                    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+                };
+                const drawWrappedLine = (text, x, y, maxWidth, font, lineHeight, maxLines) => {
+                    ctx.font = font;
                     const words = String(text || '').split(/\s+/).filter(Boolean);
                     const lines = [];
                     let line = '';
                     words.forEach((word) => {
-                        const test = line ? `${line} ${word}` : word;
-                        if (ctx.measureText(test).width <= maxWidth || !line) {
-                            line = test;
+                        const probe = line ? `${line} ${word}` : word;
+                        if (!line || ctx.measureText(probe).width <= maxWidth) {
+                            line = probe;
                         } else {
                             lines.push(line);
                             line = word;
                         }
                     });
                     if (line) lines.push(line);
-                    if (!lines.length) lines.push('');
-                    const blockHeight = lines.length * lineHeight + 12;
-                    const safeX = clamp(x, 6, vw - maxWidth - 10);
-                    const safeY = clamp(y, 6, vh - blockHeight - 6);
-                    if (bg) {
-                        ctx.fillStyle = 'rgba(0,0,0,0.45)';
-                        ctx.fillRect(safeX - 6, safeY - 6, maxWidth + 12, blockHeight);
-                    }
-                    ctx.fillStyle = '#ffffff';
-                    lines.forEach((ln, idx) => ctx.fillText(ln, safeX, safeY + (idx + 1) * lineHeight));
+                    const rendered = lines.slice(0, Math.max(1, maxLines || 1));
+                    rendered.forEach((ln, i) => {
+                        const lineY = y + (i * lineHeight);
+                        ctx.strokeText(ln, x, lineY);
+                        ctx.fillText(ln, x, lineY);
+                    });
+                    return rendered.length;
                 };
 
-                const companyPt = mapPoint(activeLayout.company);
-                const typePt = mapPoint(activeLayout.type);
-                const timePt = mapPoint(activeLayout.time);
-                const locationPt = mapPoint(activeLayout.location);
-                const logoPt = mapPoint(activeLayout.logo);
-                const companySz = mapSize(activeLayout.company, 0.42, 0.10);
-                const typeSz = mapSize(activeLayout.type, 0.32, 0.08);
-                const timeSz = mapSize(activeLayout.time, 0.38, 0.08);
-                const locationSz = mapSize(activeLayout.location, 0.56, 0.10);
-                const logoSz = mapSize(activeLayout.logo, 0.16, 0.18);
-                if (orientationKey === 'portrait') {
-                    const square = Math.max(60, Math.min(logoSz.w, logoSz.h));
-                    logoSz.w = square;
-                    logoSz.h = square;
-                }
-                const companyFont = clamp(Math.round(companySz.h * 0.32), 12, 40);
-                const typeFont = clamp(Math.round(typeSz.h * 0.32), 11, 34);
-                const timeFont = clamp(Math.round(timeSz.h * 0.32), 11, 34);
-                const locationFont = clamp(Math.round(locationSz.h * 0.28), 10, 30);
-                drawWrappedText(`company: ${timemark.companyName}`, companyPt.x, companyPt.y, companySz.w, Math.round(companyFont * 1.2), companyFont, 'bold');
-                drawWrappedText(`type: ${mode === 'time_out' ? 'Time Out' : 'Time In'}`, typePt.x, typePt.y, typeSz.w, Math.round(typeFont * 1.2), typeFont);
-                drawWrappedText(`time: ${new Date().toLocaleString()}`, timePt.x, timePt.y, timeSz.w, Math.round(timeFont * 1.2), timeFont);
-                drawWrappedText(`location: ${finalLocation}`, locationPt.x, locationPt.y, locationSz.w, Math.round(locationFont * 1.2), locationFont);
+                const marginX = Math.round(vw * (isPortraitOverlay ? 0.045 : 0.04));
+                const marginY = Math.round(vh * (isPortraitOverlay ? 0.045 : 0.04));
+                const overlayLiftPx = Math.round(vh * (isPortraitOverlay ? 0.08 : 0.05));
+                const badgeH = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.15), 96, 220)
+                    : clamp(Math.round(vh * 0.16), 82, 190);
 
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 2;
+
+                // 1) Main logo at the top of the overlay stack (locked aspect ratio via square box).
+                let mainLogoDrawn = false;
+                const mainLogoSide = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.95), 360, 620)
+                    : clamp(Math.round(vh * 0.76), 360, 620);
+                const mainLogoX = marginX;
+                const rawMainLogoY = vh - marginY - mainLogoSide - badgeH - Math.round(vh * 0.22) - overlayLiftPx;
+                const mainLogoY = clamp(rawMainLogoY, marginY, Math.max(marginY, vh - mainLogoSide - marginY));
                 try {
                     const logoSource = timemark.logoData || logoUrl;
                     const logo = await loadImage(logoSource);
-                    const logoW = Math.max(60, logoSz.w);
-                    const logoH = Math.max(42, logoSz.h);
-                    const lx = clamp(logoPt.x, 4, vw - logoW - 4);
-                    const ly = clamp(logoPt.y, 4, vh - logoH - 4);
-                    ctx.drawImage(logo, lx, ly, logoW, logoH);
+                    drawImageContain(logo, mainLogoX, mainLogoY, mainLogoSide, mainLogoSide);
+                    mainLogoDrawn = true;
                 } catch (error) {
-                    // Continue even if logo fails to load.
+                    mainLogoDrawn = false;
                 }
+
+                const badgeY = mainLogoY + mainLogoSide + Math.round(vh * 0.02);
+                let modeFontPx = clamp(Math.round(badgeH * 0.52), 34, 78);
+                ctx.font = `700 ${modeFontPx}px Arial`;
+                const modePadX = Math.round(badgeH * 0.22);
+                const modeTextW = ctx.measureText(modeLabel).width;
+                let labelW = Math.round(modeTextW + (modePadX * 2));
+                labelW = clamp(labelW, 128, Math.round(vw * 0.34));
+                // If the label still risks clipping, scale text down proportionally.
+                const maxModeTextW = labelW - (modePadX * 2);
+                if (modeTextW > maxModeTextW && maxModeTextW > 20) {
+                    modeFontPx = clamp(Math.floor(modeFontPx * (maxModeTextW / modeTextW)), 16, modeFontPx);
+                }
+                ctx.fillStyle = '#73b43b';
+                ctx.fillRect(marginX, badgeY, labelW, badgeH);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `700 ${modeFontPx}px Arial`;
+                ctx.textBaseline = 'middle';
+                ctx.fillText(modeLabel, marginX + modePadX, badgeY + (badgeH / 2));
+
+                const timeW = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.50), 250, 520)
+                    : clamp(Math.round(vw * 0.42), 220, 440);
+                const timeX = marginX + labelW;
+                ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                ctx.fillRect(timeX, badgeY, timeW, badgeH);
+                const timeParts = timeValue.split(' ');
+                const hhmm = timeParts[0] || timeValue;
+                const ampm = timeParts[1] || '';
+                ctx.fillStyle = '#0b3f8a';
+                const hhmmFontPx = clamp(Math.round(badgeH * 0.86), 68, 152);
+                const ampmFontPx = clamp(Math.round(badgeH * 0.48), 32, 60);
+                ctx.font = `700 ${hhmmFontPx}px Arial`;
+                const hhmmW = ctx.measureText(hhmm).width;
+                ctx.font = `700 ${ampmFontPx}px Arial`;
+                const ampmW = ampm ? ctx.measureText(ampm).width : 0;
+                const gapW = ampm ? Math.round(timeW * 0.025) : 0;
+                const groupW = hhmmW + gapW + ampmW;
+                const hhmmX = timeX + Math.max(8, Math.round((timeW - groupW) / 2));
+                const centerY = badgeY + Math.round(badgeH * 0.56);
+                ctx.font = `700 ${hhmmFontPx}px Arial`;
+                ctx.fillText(hhmm, hhmmX, centerY);
+                if (ampm) {
+                    const ampmX = hhmmX + hhmmW + gapW;
+                    ctx.font = `700 ${ampmFontPx}px Arial`;
+                    ctx.fillText(ampm, ampmX, badgeY + Math.round(badgeH * 0.48));
+                }
+
+                const baseY = badgeY + badgeH + Math.round(vh * (isPortraitOverlay ? 0.028 : 0.03));
+                const lineGap = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.15), 64, 140)
+                    : clamp(Math.round(vh * 0.12), 58, 124);
+                const maxTextWidth = Math.round(vw * 0.88);
+
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.96)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.62)';
+                ctx.lineWidth = isPortraitOverlay ? 2.4 : 2.0;
+                ctx.lineJoin = 'round';
+
+                const dateFontPx = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.135), 72, 132)
+                    : clamp(Math.round(vh * 0.118), 62, 128);
+                ctx.font = `700 ${dateFontPx}px Arial`;
+                ctx.strokeText(dateValue, marginX, baseY);
+                ctx.fillText(dateValue, marginX, baseY);
+
+                const employeeFontPx = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.155), 84, 152)
+                    : clamp(Math.round(vh * 0.136), 74, 146);
+                ctx.font = `700 ${employeeFontPx}px Arial`;
+                ctx.strokeText(safeEmployeeName, marginX, baseY + lineGap);
+                ctx.fillText(safeEmployeeName, marginX, baseY + lineGap);
+
+                const verifyFontPx = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.078), 36, 62)
+                    : clamp(Math.round(vh * 0.080), 40, 66);
+                const verifiedBaseY = vh - marginY;
+
+                const locationFontPx = isPortraitOverlay
+                    ? clamp(Math.round(vw * 0.102), 48, 92)
+                    : clamp(Math.round(vh * 0.094), 46, 96);
+                const locationStartY = baseY + (lineGap * 2);
+                const locationLineHeight = isPortraitOverlay
+                    ? clamp(Math.round(locationFontPx * 1.00), 52, 96)
+                    : clamp(Math.round(locationFontPx * 1.02), 50, 100);
+                const locationBottomLimit = verifiedBaseY - Math.round(verifyFontPx * 1.35);
+                const maxLocationLines = clamp(
+                    Math.floor((locationBottomLimit - locationStartY) / Math.max(1, locationLineHeight)),
+                    1,
+                    3
+                );
+                drawWrappedLine(
+                    addressWithGps,
+                    marginX,
+                    locationStartY,
+                    maxTextWidth,
+                    `${locationFontPx}px Arial`,
+                    locationLineHeight,
+                    maxLocationLines
+                );
+
+                const verifiedDrawY = clamp(
+                    marginY + verifyFontPx,
+                    verifiedBaseY,
+                    vh - marginY
+                );
+                ctx.font = `${verifyFontPx}px Arial`;
+                ctx.strokeText('Verified time by Avantech Portal System', marginX, verifiedDrawY);
+                ctx.fillText('Verified time by Avantech Portal System', marginX, verifiedDrawY);
+
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
 
                 preparedImageData = canvasEl.toDataURL('image/jpeg', 0.92);
                 previewEl.src = preparedImageData;
@@ -2664,43 +3016,191 @@
 
             const startCamera = async () => {
                 resetSteps();
-                hintEl.textContent = 'Allow camera and location to continue.';
-                geo = await getLocation();
+                hintEl.textContent = isMobileAssist ? 'Tap "Open System Camera" to take a photo.' : 'Allow camera and location to continue.';
+                videoEl.setAttribute('playsinline', '');
+                videoEl.setAttribute('muted', '');
+                videoEl.muted = true;
+                videoEl.autoplay = true;
+                videoEl.playsInline = true;
+
+                if (isMobileAssist) {
+                    videoEl.classList.add('d-none');
+                    geoPromise = getLocation();
+                    geo = await geoPromise;
+                    return;
+                }
+
+                videoEl.classList.remove('d-none');
+
+                if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                    throw new Error('Camera needs HTTPS on mobile browsers.');
+                }
+
                 try {
-                    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('Camera is not supported in this browser.');
+                    }
+
+                    const attempts = [
+                        { video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+                        { video: { facingMode: 'user' }, audio: false },
+                        { video: true, audio: false },
+                    ];
+
+                    let lastErr = null;
+                    for (const constraints of attempts) {
+                        try {
+                            stream = await navigator.mediaDevices.getUserMedia(constraints);
+                            break;
+                        } catch (err) {
+                            lastErr = err;
+                        }
+                    }
+
+                    if (!stream) {
+                        throw lastErr || new Error('Unable to open camera stream.');
+                    }
+
                     videoEl.srcObject = stream;
                     await videoEl.play();
+
+                    // Avoid blocking camera start; location can be fetched in parallel.
+                    geoPromise = getLocation();
+                    geo = await geoPromise;
                     hintEl.textContent = `${mode === 'time_out' ? 'Time Out' : 'Time In'} ready. ${geo.locationLabel}`;
+                    requestBtn.classList.add('d-none');
                 } catch (error) {
-                    hintEl.textContent = 'Unable to open camera. Please allow camera permission.';
+                    const message = (error && error.message) ? error.message : 'Unable to open camera.';
+                    showRequestButton(`${message} Please allow camera permission.`);
                     throw error;
                 }
             };
 
             fab.addEventListener('click', async () => {
+                if (isFabDragging || Date.now() < suppressFabClickUntil) return;
+                await refreshStatus();
+                if (fab.classList.contains('d-none')) return;
                 modal.show();
                 try {
+                    await startCamera();
+                } catch (error) {
+                    if (!isMobileAssist) {
+                        showRequestButton('Click "Enable Camera Access" to request camera permission.');
+                    }
+                    return;
+                }
+            });
+
+            requestBtn.addEventListener('click', async () => {
+                requestBtn.disabled = true;
+                try {
+                    if (isMobileAssist) {
+                        mobileCameraInput.click();
+                        return;
+                    }
+                    await startCamera();
+                } catch (error) {
+                    return;
+                } finally {
+                    requestBtn.disabled = false;
+                }
+            });
+
+            mobileCameraInput.addEventListener('change', async (event) => {
+                const file = event.target && event.target.files ? event.target.files[0] : null;
+                if (!file) return;
+                if (!file.type || !file.type.startsWith('image/')) {
+                    if (window.showToast) window.showToast('Please capture an image.', 'danger');
+                    return;
+                }
+                try {
+                    let overlaySource = null;
+                    let overlayW = 0;
+                    let overlayH = 0;
+                    if (window.createImageBitmap) {
+                        try {
+                            const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+                            overlaySource = bitmap;
+                            overlayW = bitmap.width;
+                            overlayH = bitmap.height;
+                        } catch (error) {
+                            overlaySource = null;
+                        }
+                    }
+                    if (!overlaySource) {
+                        const objectUrl = URL.createObjectURL(file);
+                        const img = new Image();
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve;
+                            img.onerror = reject;
+                            img.src = objectUrl;
+                        });
+                        overlaySource = img;
+                        overlayW = img.naturalWidth;
+                        overlayH = img.naturalHeight;
+                        URL.revokeObjectURL(objectUrl);
+                    }
+
+                    const preferredOrientation = (window.matchMedia && window.matchMedia('(orientation: portrait)').matches)
+                        ? 'portrait'
+                        : 'landscape';
+                    await drawOverlay(overlaySource, overlayW, overlayH, preferredOrientation);
+                    if (overlaySource && typeof overlaySource.close === 'function') overlaySource.close();
+                    captureStepEl.classList.add('d-none');
+                    previewStepEl.classList.remove('d-none');
+                    submitBtn.classList.remove('d-none');
+                    downloadBtn.classList.remove('d-none');
+                    requestBtn.classList.add('d-none');
+                    hintEl.textContent = `${mode === 'time_out' ? 'Time Out' : 'Time In'} photo ready.`;
+                } catch (error) {
+                    if (window.showToast) window.showToast('Unable to process captured image.', 'danger');
+                }
+            });
+
+            captureBtn.addEventListener('click', async () => {
+                if (!stream) return;
+                await drawOverlay(videoEl, videoEl.videoWidth, videoEl.videoHeight);
+                stopCamera();
+                captureStepEl.classList.add('d-none');
+                previewStepEl.classList.remove('d-none');
+                captureBtn.classList.add('d-none');
+                submitBtn.classList.remove('d-none');
+                downloadBtn.classList.remove('d-none');
+            });
+
+            retakeBtn.addEventListener('click', async () => {
+                try {
+                    if (isMobileAssist) {
+                        previewStepEl.classList.add('d-none');
+                        captureStepEl.classList.remove('d-none');
+                        submitBtn.classList.add('d-none');
+                        downloadBtn.classList.add('d-none');
+                        requestBtn.classList.remove('d-none');
+                        hintEl.textContent = 'Tap "Open System Camera" to take another photo.';
+                        return;
+                    }
                     await startCamera();
                 } catch (error) {
                     return;
                 }
             });
 
-            captureBtn.addEventListener('click', async () => {
-                if (!stream) return;
-                await drawOverlay();
-                stopCamera();
-                captureStepEl.classList.add('d-none');
-                previewStepEl.classList.remove('d-none');
-                captureBtn.classList.add('d-none');
-                submitBtn.classList.remove('d-none');
-            });
-
-            retakeBtn.addEventListener('click', async () => {
-                try {
-                    await startCamera();
-                } catch (error) {
+            downloadBtn.addEventListener('click', () => {
+                if (!preparedImageData) {
+                    if (window.showToast) window.showToast('No captured image to download yet.', 'warning');
                     return;
+                }
+                try {
+                    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const modeLabel = mode === 'time_out' ? 'time-out' : 'time-in';
+                    const a = document.createElement('a');
+                    a.href = preparedImageData;
+                    a.download = `attendance-${modeLabel}-${stamp}.jpg`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                } catch (error) {
+                    if (window.showToast) window.showToast('Unable to download image.', 'danger');
                 }
             });
 
@@ -2750,7 +3250,8 @@
             });
 
             refreshStatus();
-            window.setInterval(refreshStatus, 60000);
+            ensureTimemarkSettingsSynced();
+            window.setInterval(refreshStatus, 5000);
             document.addEventListener('app:page-swapped', () => { refreshStatus(); });
             window.addEventListener('popstate', () => { refreshStatus(); });
             document.addEventListener('visibilitychange', () => {

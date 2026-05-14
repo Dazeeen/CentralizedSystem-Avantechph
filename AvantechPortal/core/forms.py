@@ -198,6 +198,7 @@ class BaseUserFormMixin:
 
 
 class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
+    employee_id = forms.CharField(required=False, max_length=120)
     branch = forms.CharField(required=False, max_length=120)
     contact_number = forms.CharField(required=False, max_length=50)
 
@@ -208,6 +209,7 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
             'first_name',
             'last_name',
             'email',
+            'employee_id',
             'branch',
             'contact_number',
             'is_active',
@@ -232,6 +234,8 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
         )
         self.fields['branch'].label = 'Branch'
         self.fields['branch'].help_text = 'Optional branch assignment (e.g., Main, North, South).'
+        self.fields['employee_id'].label = 'Employee ID (Biometric)'
+        self.fields['employee_id'].help_text = 'Optional biometric employee ID.'
         self.fields['contact_number'].label = 'Contact Number'
         self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
         self._style_fields()
@@ -240,10 +244,20 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
         user = super().save(commit=commit)
         if commit and user:
             profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.employee_id = (self.cleaned_data.get('employee_id') or '').strip()
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
             profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
-            profile.save(update_fields=['branch', 'contact_number'])
+            profile.save(update_fields=['employee_id', 'branch', 'contact_number'])
         return user
+
+    def clean_employee_id(self):
+        value = (self.cleaned_data.get('employee_id') or '').strip()
+        if not value:
+            return ''
+        exists = UserProfile.objects.filter(employee_id__iexact=value).exists()
+        if exists:
+            raise ValidationError('Employee ID already exists.')
+        return value
 
     @property
     def grouped_user_permissions(self):
@@ -251,6 +265,7 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
 
 
 class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
+    employee_id = forms.CharField(required=False, max_length=120)
     branch = forms.CharField(required=False, max_length=120)
     contact_number = forms.CharField(required=False, max_length=50)
 
@@ -261,6 +276,7 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
             'first_name',
             'last_name',
             'email',
+            'employee_id',
             'branch',
             'contact_number',
             'is_active',
@@ -284,8 +300,11 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
             'Optional. Use this only for special cases when a user needs access different from their assigned roles.'
         )
         profile = getattr(self.instance, 'profile', None)
+        self.fields['employee_id'].initial = profile.employee_id if profile else ''
         self.fields['branch'].initial = profile.branch if profile else ''
         self.fields['contact_number'].initial = profile.contact_number if profile else ''
+        self.fields['employee_id'].label = 'Employee ID (Biometric)'
+        self.fields['employee_id'].help_text = 'Optional biometric employee ID.'
         self.fields['branch'].label = 'Branch'
         self.fields['branch'].help_text = 'Optional branch assignment (e.g., Main, North, South).'
         self.fields['contact_number'].label = 'Contact Number'
@@ -296,10 +315,20 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         user = super().save(commit=commit)
         if commit and user:
             profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.employee_id = (self.cleaned_data.get('employee_id') or '').strip()
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
             profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
-            profile.save(update_fields=['branch', 'contact_number'])
+            profile.save(update_fields=['employee_id', 'branch', 'contact_number'])
         return user
+
+    def clean_employee_id(self):
+        value = (self.cleaned_data.get('employee_id') or '').strip()
+        if not value:
+            return ''
+        exists = UserProfile.objects.filter(employee_id__iexact=value).exclude(user=self.instance).exists()
+        if exists:
+            raise ValidationError('Employee ID already exists.')
+        return value
 
     @property
     def grouped_user_permissions(self):

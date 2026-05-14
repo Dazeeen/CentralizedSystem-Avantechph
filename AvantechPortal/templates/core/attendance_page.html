@@ -10,26 +10,172 @@
             <h2 class="h5 mb-0">Today's Attendance</h2>
             <div class="d-flex align-items-center gap-2">
                 <span class="badge text-bg-light border">{{ attendance_date|date:'F d, Y' }}</span>
+                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#attendanceFiltersCollapse" aria-expanded="false" aria-controls="attendanceFiltersCollapse">Search & Filters</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#attendanceSettingsModal">Settings</button>
             </div>
         </div>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Employee ID</th><th>Name</th><th>Department</th><th>Time In</th><th>Time Out</th><th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in attendance_rows %}
-                    <tr>
-                        <td>{{ row.employee_id }}</td><td>{{ row.name }}</td><td>{{ row.department }}</td><td>{{ row.time_in }}</td><td>{{ row.time_out }}</td><td>{{ row.status }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="6" class="text-center text-secondary py-3">No attendance records for today.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="collapse mb-3" id="attendanceFiltersCollapse">
+            <div class="card card-body py-3">
+                <form id="attendanceFilterForm" class="row g-2">
+                    <div class="col-md-6">
+                        <label for="attendanceSearchInput" class="form-label mb-1">Search</label>
+                        <input type="text" class="form-control" id="attendanceSearchInput" name="q" value="{{ attendance_q }}" placeholder="Search user id, name, department">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="attendanceStatusFilter" class="form-label mb-1">Status</label>
+                        <select class="form-select" id="attendanceStatusFilter" name="status">
+                            <option value="" {% if not attendance_filter_status %}selected{% endif %}>All</option>
+                            <option value="Present" {% if attendance_filter_status == 'Present' %}selected{% endif %}>Present</option>
+                            <option value="Late" {% if attendance_filter_status == 'Late' %}selected{% endif %}>Late</option>
+                            <option value="Early Out" {% if attendance_filter_status == 'Early Out' %}selected{% endif %}>Early Out</option>
+                            <option value="Half Day (Morning)" {% if attendance_filter_status == 'Half Day (Morning)' %}selected{% endif %}>Half Day (Morning)</option>
+                            <option value="Half Day (Afternoon)" {% if attendance_filter_status == 'Half Day (Afternoon)' %}selected{% endif %}>Half Day (Afternoon)</option>
+                            <option value="__blank__" {% if attendance_filter_status == '__blank__' %}selected{% endif %}>No Status Yet</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-outline-primary w-100">Apply</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="attendance-split-layout">
+            <div>
+                <div class="table-responsive attendance-table-wrap">
+                    <table class="table table-sm align-middle mb-0 attendance-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th><th>Employee Name</th><th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody">
+                            {% for row in attendance_rows %}
+                            <tr class="attendance-row" data-employee-id="{{ row.employee_id }}" data-name="{{ row.name }}" data-department="{{ row.department }}" data-time-in="{{ row.time_in }}" data-time-out="{{ row.time_out }}" data-status="{{ row.status }}" data-time-in-image="{% if row.time_in_image_url %}{{ row.time_in_image_url }}{% endif %}" data-time-out-image="{% if row.time_out_image_url %}{{ row.time_out_image_url }}{% endif %}">
+                                <td>{{ row.employee_id }}</td>
+                                <td>{{ row.name }}</td>
+                                <td>
+                                    <span class="badge
+                                        {% if row.status == 'Present' %}text-bg-success
+                                        {% elif 'Late' in row.status %}text-bg-warning
+                                        {% elif 'Early Out' in row.status %}text-bg-danger
+                                        {% elif 'Half Day' in row.status %}text-bg-info
+                                        {% elif row.status == 'Absent' %}text-bg-secondary
+                                        {% else %}text-bg-light border{% endif %}">
+                                        {{ row.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="text-center text-secondary py-3">No attendance records for today.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="attendancePaginationWrap">
+                {% if attendance_rows.paginator.num_pages > 1 %}
+                <nav class="mt-3" aria-label="Attendance pagination" id="attendancePaginationNav">
+                    <ul class="pagination pagination-sm mb-0 justify-content-end">
+                        {% if attendance_rows.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ attendance_rows.previous_page_number }}">Previous</a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                        {% endif %}
+
+                        {% for page_num in attendance_rows.paginator.page_range %}
+                        <li class="page-item {% if attendance_rows.number == page_num %}active{% endif %}">
+                            <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                        </li>
+                        {% endfor %}
+
+                        {% if attendance_rows.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ attendance_rows.next_page_number }}">Next</a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">Next</span></li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+                </div>
+            </div>
+            <aside class="attendance-summary-panel">
+                <h3 class="attendance-summary-name" id="attendanceSummaryName">Select an attendance row</h3>
+                <div class="small text-secondary mb-3">Attendance Summary</div>
+                <div class="attendance-summary-grid">
+                    <div><div class="attendance-summary-label">Employee ID</div><div class="attendance-summary-value" id="attendanceSummaryEmployeeId">-</div></div>
+                    <div><div class="attendance-summary-label">Department</div><div class="attendance-summary-value" id="attendanceSummaryDepartment">-</div></div>
+                </div>
+                <div class="attendance-summary-grid">
+                    <div><div class="attendance-summary-label">Time In</div><div class="attendance-summary-value" id="attendanceSummaryTimeIn">-</div></div>
+                    <div><div class="attendance-summary-label">Time Out</div><div class="attendance-summary-value" id="attendanceSummaryTimeOut">-</div></div>
+                </div>
+                <div class="attendance-summary-item">
+                    <div class="attendance-summary-label">Status</div>
+                    <div class="attendance-summary-value" id="attendanceSummaryStatus">-</div>
+                </div>
+                <div class="attendance-summary-item">
+                    <div class="attendance-summary-label">Time In Image</div>
+                    <div id="attendanceSummaryImageWrap" class="attendance-summary-image-wrap">
+                        <img id="attendanceSummaryImage" class="attendance-summary-image attendance-summary-image-clickable d-none" alt="Time in capture" role="button" tabindex="0" title="View full image">
+                        <div id="attendanceSummaryImageEmpty" class="attendance-summary-image-empty">No time-in image available.</div>
+                    </div>
+                </div>
+                <div class="attendance-summary-item">
+                    <div class="attendance-summary-label">Time Out Image</div>
+                    <div id="attendanceSummaryOutImageWrap" class="attendance-summary-image-wrap">
+                        <img id="attendanceSummaryOutImage" class="attendance-summary-image attendance-summary-image-clickable d-none" alt="Time out capture" role="button" tabindex="0" title="View full image">
+                        <div id="attendanceSummaryOutImageEmpty" class="attendance-summary-image-empty">No time-out image available.</div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attendanceRowInfoModal" tabindex="-1" aria-labelledby="attendanceRowInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="attendanceRowInfoModalLabel">Attendance Details</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><div class="attendance-summary-label">ID</div><div class="attendance-summary-value" id="attendanceInfoEmployeeId">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Employee Name</div><div class="attendance-summary-value" id="attendanceInfoName">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Department</div><div class="attendance-summary-value" id="attendanceInfoDepartment">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Status</div><div class="attendance-summary-value" id="attendanceInfoStatus">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Time In</div><div class="attendance-summary-value" id="attendanceInfoTimeIn">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Time Out</div><div class="attendance-summary-value" id="attendanceInfoTimeOut">-</div></div>
+                    <div class="col-md-6">
+                        <div class="attendance-summary-label">Time In Image</div>
+                        <img id="attendanceInfoTimeInImage" class="img-fluid rounded border d-none" alt="Time in image">
+                        <div id="attendanceInfoTimeInImageEmpty" class="small text-secondary">No time-in image available.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="attendance-summary-label">Time Out Image</div>
+                        <img id="attendanceInfoTimeOutImage" class="img-fluid rounded border d-none" alt="Time out image">
+                        <div id="attendanceInfoTimeOutImageEmpty" class="small text-secondary">No time-out image available.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attendanceImagePreviewModal" tabindex="-1" aria-labelledby="attendanceImagePreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="attendanceImagePreviewModalLabel">Time In Image Preview</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center bg-dark-subtle">
+                <img id="attendanceImagePreviewModalImg" class="img-fluid rounded attendance-preview-modal-image" alt="Attendance full image preview">
+            </div>
         </div>
     </div>
 </div>
@@ -46,7 +192,8 @@
                     <div class="col-md-3 border-end">
                         <div class="list-group">
                             <button type="button" class="list-group-item list-group-item-action active js-att-settings-tab" data-target="timemarkPane">Timemark</button>
-                            <button type="button" class="list-group-item list-group-item-action js-att-settings-tab" data-target="layoutPane">Layout</button>
+                            <button type="button" class="list-group-item list-group-item-action js-att-settings-tab" data-target="attendancePolicyPane">Attendance Settings</button>
+                            <button type="button" class="list-group-item list-group-item-action js-att-settings-tab" data-target="overlayPreviewPane">Overlay Preview</button>
                         </div>
                     </div>
                     <div class="col-md-9">
@@ -67,39 +214,77 @@
                                 <input type="text" class="form-control" id="timemarkLocation" placeholder="Enter full address">
                             </div>
                         </div>
+                        <div id="attendancePolicyPane" class="js-att-settings-pane d-none">
+                            <h3 class="h6 mb-3">Attendance Settings</h3>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="attendanceShiftStartTime" class="form-label">Shift Start Time</label>
+                                    <input type="time" class="form-control" id="attendanceShiftStartTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceTimeInOpenMinutes" class="form-label">Time In Open Minutes Before Shift</label>
+                                    <input type="number" min="0" max="180" class="form-control" id="attendanceTimeInOpenMinutes" placeholder="5">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLateGraceMinutes" class="form-label">Late Grace Period (minutes)</label>
+                                    <input type="number" min="0" max="180" class="form-control" id="attendanceLateGraceMinutes" placeholder="15">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLunchReturnGraceMinutes" class="form-label">Lunch Return Grace (minutes)</label>
+                                    <input type="number" min="0" max="180" class="form-control" id="attendanceLunchReturnGraceMinutes" placeholder="10">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLunchStartTime" class="form-label">Lunch Break From</label>
+                                    <input type="time" class="form-control" id="attendanceLunchStartTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLunchEndTime" class="form-label">Lunch Break To</label>
+                                    <input type="time" class="form-control" id="attendanceLunchEndTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceTimeOutStartTime" class="form-label">Time Out Starts At</label>
+                                    <input type="time" class="form-control" id="attendanceTimeOutStartTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceTimeOutCloseMinutesAfter" class="form-label">Time Out Close Minutes After Start</label>
+                                    <input type="number" min="0" max="360" class="form-control" id="attendanceTimeOutCloseMinutesAfter" placeholder="180">
+                                </div>
+                            </div>
+                            <div class="small text-secondary mt-3">
+                                Rules applied: late after grace, early out before configured time out, half-day morning/afternoon detection around lunch window.
+                            </div>
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-primary" id="attendancePolicySaveBtn">Save Attendance Settings</button>
+                            </div>
+                        </div>
 
-                        <div id="layoutPane" class="js-att-settings-pane d-none">
+                        <div id="overlayPreviewPane" class="js-att-settings-pane d-none">
                             <div class="d-flex align-items-center gap-2 mb-2">
-                                <span class="small text-secondary">Layout Mode:</span>
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Layout orientation">
-                                    <button type="button" class="btn btn-outline-primary active js-layout-orientation" data-orientation="landscape">Landscape</button>
-                                    <button type="button" class="btn btn-outline-primary js-layout-orientation" data-orientation="portrait">Portrait</button>
+                                <span class="small text-secondary">Preview Mode:</span>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Preview orientation">
+                                    <button type="button" class="btn btn-outline-primary active js-preview-orientation" data-orientation="landscape">Landscape</button>
+                                    <button type="button" class="btn btn-outline-primary js-preview-orientation" data-orientation="portrait">Portrait</button>
                                 </div>
                             </div>
-                            <p class="small text-secondary mb-2">Drag to move. Drag corner handles to resize. Values preview in <code>key: value</code> format.</p>
-                            <div id="overlayLayoutEditor" class="position-relative border rounded overflow-hidden bg-dark-subtle" style="max-width:100%; margin:auto;">
-                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="company" style="left:6%;top:68%;width:42%;height:10%;cursor:move;">
-                                    <span>company: Avantech Centralized System</span>
-                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
-                                </div>
-                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="type" style="left:6%;top:79%;width:32%;height:8%;cursor:move;">
-                                    <span>type: Time In</span>
-                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
-                                </div>
-                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="time" style="left:6%;top:87%;width:38%;height:8%;cursor:move;">
-                                    <span>time: 2026-05-12 08:01:00</span>
-                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
-                                </div>
-                                <div class="position-absolute js-overlay-item text-white bg-dark bg-opacity-75 rounded p-1" data-key="location" style="left:6%;top:94%;width:56%;height:10%;cursor:move;">
-                                    <span>location: 123 Sample St, City, PH</span>
-                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
-                                </div>
-                                <div class="position-absolute js-overlay-item bg-light border rounded d-flex align-items-center justify-content-center" data-key="logo" style="left:78%;top:5%;width:16%;height:18%;cursor:move;">
-                                    <span class="small">logo: image</span>
-                                    <span class="resize-handle nw" data-handle="nw"></span><span class="resize-handle ne" data-handle="ne"></span><span class="resize-handle sw" data-handle="sw"></span><span class="resize-handle se" data-handle="se"></span>
+                            <p class="small text-secondary mb-2">Read-only preview of the fixed overlay format used on captured images.</p>
+                            <div id="overlayPreviewCanvas" class="overlay-preview-canvas landscape">
+                                <div class="overlay-demo-panel">
+                                    <div class="overlay-demo-main-logo" id="overlayPreviewMainLogo"></div>
+                                    <div class="overlay-demo-badge">
+                                        <div class="overlay-demo-mode" id="overlayPreviewMode">CLOCK IN</div>
+                                        <div class="overlay-demo-time-wrap">
+                                            <div class="overlay-demo-time" id="overlayPreviewTime">09:03</div>
+                                            <div class="overlay-demo-ampm" id="overlayPreviewAmpm">AM</div>
+                                        </div>
+                                    </div>
+                                    <div class="overlay-demo-date" id="overlayPreviewDate">Tue, Aug 19, 2025</div>
+                                    <div class="overlay-demo-employee" id="overlayPreviewEmployee">Employee Name</div>
+                                    <div class="overlay-demo-location" id="overlayPreviewLocation">Address/GPS</div>
+                                    <div class="overlay-demo-verify">
+                                        <span>Verified time by Avantech Portal System</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="small text-secondary mt-2">Landscape canvas: 16:9, Portrait canvas: 9:16</div>
                         </div>
                     </div>
                 </div>
@@ -113,20 +298,398 @@
 </div>
 
 <style>
-#overlayLayoutEditor.landscape { width: 100%; aspect-ratio: 16 / 9; background: linear-gradient(140deg, #202a43, #2f4f7f); }
-#overlayLayoutEditor.portrait { width: min(360px, 100%); aspect-ratio: 9 / 16; background: linear-gradient(160deg, #243b55, #141e30); }
-.js-overlay-item { user-select: none; overflow: hidden; }
-.js-overlay-item > span:first-child { display:block; font-size:12px; line-height:1.2; white-space:normal; word-break:break-word; }
-.js-overlay-item[data-key="logo"] { background: rgba(255,255,255,0.92) !important; border: 1px solid #0f172a; }
-.js-overlay-item[data-key="logo"] > span:first-child { color: #0f172a; font-weight: 600; }
-.resize-handle { position:absolute; width:12px; height:12px; background:#fff; border:1px solid #333; z-index:2; }
-.resize-handle.nw { left:-6px; top:-6px; cursor:nwse-resize; }
-.resize-handle.ne { right:-6px; top:-6px; cursor:nesw-resize; }
-.resize-handle.sw { left:-6px; bottom:-6px; cursor:nesw-resize; }
-.resize-handle.se { right:-6px; bottom:-6px; cursor:nwse-resize; }
+.attendance-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.attendance-table-wrap { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+.attendance-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+.attendance-table thead th { white-space: nowrap; }
+.attendance-row { cursor: pointer; transition: box-shadow .18s ease, transform .18s ease, background-color .18s ease; }
+.attendance-row td { background: #fff; transition: background-color .18s ease, color .18s ease; }
+.attendance-row:hover td { background: #94c441; color: #0f172a; }
+.attendance-row.is-active td { background: #73b43b; color: #ffffff; font-weight: 600; }
+.attendance-row.is-active td:first-child { box-shadow: inset 3px 0 0 #94c441; }
+.attendance-summary-panel { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; background: #fcfdff; position: sticky; top: 12px; }
+.attendance-summary-name { font-size: 1.06rem; font-weight: 700; margin: 0 0 2px; color: #0f172a; }
+.attendance-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.attendance-summary-item { margin-bottom: 10px; }
+.attendance-summary-label { font-size: .74rem; color: #64748b; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+.attendance-summary-value { font-size: .95rem; font-weight: 600; color: #0f172a; word-break: break-word; }
+.attendance-summary-status-badge { display: inline-block; padding: .28rem .5rem; border-radius: .4rem; color: #fff; font-weight: 600; font-size: .82rem; }
+.attendance-summary-status-present { background: #198754; }
+.attendance-summary-status-late { background: #f59f00; color: #1f2937; }
+.attendance-summary-status-early { background: #dc3545; }
+.attendance-summary-status-half { background: #0dcaf0; color: #1f2937; }
+.attendance-summary-status-absent { background: #6c757d; }
+.attendance-summary-status-default { background: #64748b; }
+.attendance-summary-image-wrap { border: 1px solid #dbe3ee; border-radius: 10px; background: #f8fafc; min-height: 180px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.attendance-summary-image { width: 100%; height: 100%; max-height: 300px; object-fit: cover; display: block; }
+.attendance-summary-image-clickable { cursor: zoom-in; pointer-events: auto; }
+.attendance-summary-image-empty { color: #64748b; font-size: .9rem; padding: 14px; text-align: center; }
+.attendance-preview-modal-image {
+    max-height: min(70vh, 680px);
+    width: auto;
+    object-fit: contain;
+}
+@media (max-width: 991.98px) {
+    .attendance-split-layout { grid-template-columns: 1fr; }
+    .attendance-summary-panel { position: static; }
+}
+.overlay-preview-canvas {
+    position: relative;
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid #bfc7d1;
+    overflow: hidden;
+    background:
+        linear-gradient(120deg, rgba(15, 23, 42, 0.76), rgba(2, 132, 199, 0.42)),
+        radial-gradient(circle at 80% 20%, rgba(22, 163, 74, 0.35), transparent 40%),
+        #1f2937;
+}
+.overlay-preview-canvas.landscape { aspect-ratio: 16 / 9; }
+.overlay-preview-canvas.portrait { width: min(360px, 100%); aspect-ratio: 9 / 16; margin: 0 auto; }
+.overlay-demo-panel {
+    position: absolute;
+    left: 4%;
+    right: 4%;
+    bottom: 4%;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.overlay-demo-main-logo {
+    width: clamp(256px, 36vw, 420px);
+    height: clamp(256px, 36vw, 420px);
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+.overlay-demo-main-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.overlay-demo-badge { display: flex; align-items: stretch; width: fit-content; margin-bottom: 10px; }
+.overlay-demo-mode {
+    background: #73b43b;
+    color: #fff;
+    font-weight: 800;
+    padding: 12px 14px;
+    font-size: 34px;
+}
+.overlay-demo-time-wrap {
+    background: rgba(255, 255, 255, 0.95);
+    color: #0b3f8a;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 12px 18px;
+}
+.overlay-demo-time { font-size: 82px; font-weight: 800; line-height: 1.08; }
+.overlay-demo-ampm { font-size: 36px; font-weight: 700; line-height: 1.08; }
+.overlay-demo-date { font-size: 60px; font-weight: 700; line-height: 1.26; margin-bottom: 8px; }
+.overlay-demo-location { font-size: 46px; line-height: 1.30; margin-bottom: 8px; }
+.overlay-demo-employee { font-size: 64px; font-weight: 700; line-height: 1.24; margin-bottom: 10px; }
+.overlay-demo-verify { display: flex; align-items: center; gap: 10px; font-size: 44px; line-height: 1.28; margin-top: 6px; }
+.overlay-preview-canvas.portrait .overlay-demo-time { font-size: 72px; }
+.overlay-preview-canvas.portrait .overlay-demo-mode { font-size: 30px; }
+.overlay-preview-canvas.portrait .overlay-demo-date { font-size: 46px; }
+.overlay-preview-canvas.portrait .overlay-demo-location { font-size: 36px; }
+.overlay-preview-canvas.portrait .overlay-demo-employee { font-size: 52px; }
+.overlay-preview-canvas.portrait .overlay-demo-verify { font-size: 34px; }
 </style>
 
+
 <script>
+(function () {
+    let rows = Array.from(document.querySelectorAll('.attendance-row'));
+    const tableBodyEl = document.getElementById('attendanceTableBody');
+    const paginationWrapEl = document.getElementById('attendancePaginationWrap');
+    const filterFormEl = document.getElementById('attendanceFilterForm');
+    const searchInputEl = document.getElementById('attendanceSearchInput');
+    const statusFilterEl = document.getElementById('attendanceStatusFilter');
+    const rowInfoModalEl = document.getElementById('attendanceRowInfoModal');
+    const infoIdEl = document.getElementById('attendanceInfoEmployeeId');
+    const infoNameEl = document.getElementById('attendanceInfoName');
+    const infoDepartmentEl = document.getElementById('attendanceInfoDepartment');
+    const infoStatusEl = document.getElementById('attendanceInfoStatus');
+    const infoTimeInEl = document.getElementById('attendanceInfoTimeIn');
+    const infoTimeOutEl = document.getElementById('attendanceInfoTimeOut');
+    const infoTimeInImgEl = document.getElementById('attendanceInfoTimeInImage');
+    const infoTimeOutImgEl = document.getElementById('attendanceInfoTimeOutImage');
+    const infoTimeInImgEmptyEl = document.getElementById('attendanceInfoTimeInImageEmpty');
+    const infoTimeOutImgEmptyEl = document.getElementById('attendanceInfoTimeOutImageEmpty');
+    const nameEl = document.getElementById('attendanceSummaryName');
+    const empIdEl = document.getElementById('attendanceSummaryEmployeeId');
+    const deptEl = document.getElementById('attendanceSummaryDepartment');
+    const timeInEl = document.getElementById('attendanceSummaryTimeIn');
+    const timeOutEl = document.getElementById('attendanceSummaryTimeOut');
+    const statusEl = document.getElementById('attendanceSummaryStatus');
+    const imageEl = document.getElementById('attendanceSummaryImage');
+    const imageEmptyEl = document.getElementById('attendanceSummaryImageEmpty');
+    const outImageEl = document.getElementById('attendanceSummaryOutImage');
+    const outImageEmptyEl = document.getElementById('attendanceSummaryOutImageEmpty');
+    const imagePreviewModalEl = document.getElementById('attendanceImagePreviewModal');
+    const imagePreviewModalImg = document.getElementById('attendanceImagePreviewModalImg');
+    if (tableBodyEl && tableBodyEl.dataset.attendanceBound === '1') return;
+    if (tableBodyEl) tableBodyEl.dataset.attendanceBound = '1';
+    let fallbackBackdropEl = null;
+    const getModalInstance = (el) => {
+        if (!el) return null;
+        if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return null;
+        return bootstrap.Modal.getOrCreateInstance(el);
+    };
+    const openModalSafe = (el) => {
+        const bsModal = getModalInstance(el);
+        if (bsModal) {
+            bsModal.show();
+            return;
+        }
+        if (!el) return;
+        el.style.display = 'block';
+        el.classList.add('show');
+        el.removeAttribute('aria-hidden');
+        el.setAttribute('aria-modal', 'true');
+        document.body.classList.add('modal-open');
+        if (!fallbackBackdropEl) {
+            fallbackBackdropEl = document.createElement('div');
+            fallbackBackdropEl.className = 'modal-backdrop fade show';
+            document.body.appendChild(fallbackBackdropEl);
+        }
+    };
+    const closeModalSafe = (el) => {
+        const bsModal = getModalInstance(el);
+        if (bsModal) {
+            bsModal.hide();
+            return;
+        }
+        if (!el) return;
+        el.style.display = 'none';
+        el.classList.remove('show');
+        el.setAttribute('aria-hidden', 'true');
+        el.removeAttribute('aria-modal');
+        document.body.classList.remove('modal-open');
+        if (fallbackBackdropEl && fallbackBackdropEl.parentNode) {
+            fallbackBackdropEl.parentNode.removeChild(fallbackBackdropEl);
+            fallbackBackdropEl = null;
+        }
+    };
+    if (!tableBodyEl || !paginationWrapEl || !filterFormEl || !searchInputEl || !statusFilterEl || !nameEl || !empIdEl || !deptEl || !timeInEl || !timeOutEl || !statusEl || !imageEl || !imageEmptyEl || !outImageEl || !outImageEmptyEl) return;
+    const liveFeedUrl = "{% url 'attendance_live_feed' %}";
+    let previousSnapshot = {};
+
+    const selectRow = (row) => {
+        rows.forEach((r) => r.classList.toggle('is-active', r === row));
+        nameEl.textContent = row.dataset.name || 'Employee';
+        empIdEl.textContent = row.dataset.employeeId || '-';
+        deptEl.textContent = row.dataset.department || '-';
+        timeInEl.textContent = row.dataset.timeIn || '-';
+        timeOutEl.textContent = row.dataset.timeOut || '-';
+        const statusText = row.dataset.status || '-';
+        statusEl.textContent = statusText;
+        statusEl.className = 'attendance-summary-value attendance-summary-status-badge';
+        if (statusText === 'Present') statusEl.classList.add('attendance-summary-status-present');
+        else if (statusText.includes('Late')) statusEl.classList.add('attendance-summary-status-late');
+        else if (statusText.includes('Early Out')) statusEl.classList.add('attendance-summary-status-early');
+        else if (statusText.includes('Half Day')) statusEl.classList.add('attendance-summary-status-half');
+        else if (statusText === 'Absent') statusEl.classList.add('attendance-summary-status-absent');
+        else statusEl.classList.add('attendance-summary-status-default');
+
+        const imageUrl = (row.dataset.timeInImage || '').trim();
+        if (imageUrl) {
+            imageEl.src = imageUrl;
+            imageEl.classList.remove('d-none');
+            imageEmptyEl.classList.add('d-none');
+        } else {
+            imageEl.removeAttribute('src');
+            imageEl.classList.add('d-none');
+            imageEmptyEl.classList.remove('d-none');
+        }
+
+        const outImageUrl = (row.dataset.timeOutImage || '').trim();
+        if (outImageUrl) {
+            outImageEl.src = outImageUrl;
+            outImageEl.classList.remove('d-none');
+            outImageEmptyEl.classList.add('d-none');
+        } else {
+            outImageEl.removeAttribute('src');
+            outImageEl.classList.add('d-none');
+            outImageEmptyEl.classList.remove('d-none');
+        }
+    };
+
+    const openRowInfoModal = (row) => {
+        if (!infoIdEl || !infoNameEl || !infoDepartmentEl || !infoStatusEl || !infoTimeInEl || !infoTimeOutEl || !infoTimeInImgEl || !infoTimeOutImgEl || !infoTimeInImgEmptyEl || !infoTimeOutImgEmptyEl) return;
+        infoIdEl.textContent = row.dataset.employeeId || '-';
+        infoNameEl.textContent = row.dataset.name || '-';
+        infoDepartmentEl.textContent = row.dataset.department || '-';
+        infoStatusEl.textContent = row.dataset.status || '-';
+        infoTimeInEl.textContent = row.dataset.timeIn || '-';
+        infoTimeOutEl.textContent = row.dataset.timeOut || '-';
+
+        const timeInSrc = (row.dataset.timeInImage || '').trim();
+        if (timeInSrc) {
+            infoTimeInImgEl.src = timeInSrc;
+            infoTimeInImgEl.classList.remove('d-none');
+            infoTimeInImgEmptyEl.classList.add('d-none');
+        } else {
+            infoTimeInImgEl.removeAttribute('src');
+            infoTimeInImgEl.classList.add('d-none');
+            infoTimeInImgEmptyEl.classList.remove('d-none');
+        }
+
+        const timeOutSrc = (row.dataset.timeOutImage || '').trim();
+        if (timeOutSrc) {
+            infoTimeOutImgEl.src = timeOutSrc;
+            infoTimeOutImgEl.classList.remove('d-none');
+            infoTimeOutImgEmptyEl.classList.add('d-none');
+        } else {
+            infoTimeOutImgEl.removeAttribute('src');
+            infoTimeOutImgEl.classList.add('d-none');
+            infoTimeOutImgEmptyEl.classList.remove('d-none');
+        }
+        closeModalSafe(rowInfoModalEl);
+        openModalSafe(rowInfoModalEl);
+    };
+
+    const bindRowHandlers = () => {
+        rows.forEach((row) => {
+            row.addEventListener('click', () => selectRow(row));
+            row.addEventListener('dblclick', () => {
+                selectRow(row);
+                openRowInfoModal(row);
+            });
+        });
+    };
+    bindRowHandlers();
+    const openImagePreview = (sourceEl) => {
+        const src = (sourceEl.getAttribute('src') || '').trim();
+        if (!src || sourceEl.classList.contains('d-none') || !imagePreviewModalImg) return;
+        imagePreviewModalImg.src = src;
+        openModalSafe(imagePreviewModalEl);
+    };
+    imageEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(imageEl); });
+    outImageEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(outImageEl); });
+    if (infoTimeInImgEl) infoTimeInImgEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(infoTimeInImgEl); });
+    if (infoTimeOutImgEl) infoTimeOutImgEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(infoTimeOutImgEl); });
+    imageEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openImagePreview(imageEl);
+        }
+    });
+    outImageEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openImagePreview(outImageEl);
+        }
+    });
+    if (rows.length) selectRow(rows[0]);
+
+    const statusBadgeClass = (statusText) => {
+        if (statusText === 'Present') return 'text-bg-success';
+        if (String(statusText).includes('Late')) return 'text-bg-warning';
+        if (String(statusText).includes('Early Out')) return 'text-bg-danger';
+        if (String(statusText).includes('Half Day')) return 'text-bg-info';
+        if (statusText === 'Absent') return 'text-bg-secondary';
+        return 'text-bg-light border';
+    };
+
+    const buildPaginationHtml = (pagination, q, status) => {
+        if (!pagination || !pagination.num_pages || pagination.num_pages <= 1) return '';
+        const qp = (page) => {
+            const p = new URLSearchParams();
+            if (q) p.set('q', q);
+            if (status) p.set('status', status);
+            p.set('page', String(page));
+            return `?${p.toString()}`;
+        };
+        const pages = (pagination.page_range || []).map((p) => `<li class="page-item ${pagination.page === p ? 'active' : ''}"><a class="page-link" href="${qp(p)}">${p}</a></li>`).join('');
+        return `<nav class="mt-3" aria-label="Attendance pagination" id="attendancePaginationNav"><ul class="pagination pagination-sm mb-0 justify-content-end">${pagination.has_previous ? `<li class="page-item"><a class="page-link" href="${qp(pagination.previous_page_number)}">Previous</a></li>` : '<li class="page-item disabled"><span class="page-link">Previous</span></li>'}${pages}${pagination.has_next ? `<li class="page-item"><a class="page-link" href="${qp(pagination.next_page_number)}">Next</a></li>` : '<li class="page-item disabled"><span class="page-link">Next</span></li>'}</ul></nav>`;
+    };
+
+    const buildRowsHtml = (items) => {
+        const esc = (v) => String(v == null ? '' : v)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        if (!items.length) return '<tr><td colspan="3" class="text-center text-secondary py-3">No attendance records for today.</td></tr>';
+        return items.map((row) => {
+            const status = row.status || '';
+            const badgeCls = statusBadgeClass(status);
+            return `<tr class="attendance-row" data-employee-id="${esc(row.employee_id || '')}" data-name="${esc(row.name || '')}" data-department="${esc(row.department || '')}" data-time-in="${esc(row.time_in || '-')}" data-time-out="${esc(row.time_out || '-')}" data-status="${esc(status)}" data-time-in-image="${esc(row.time_in_image_url || '')}" data-time-out-image="${esc(row.time_out_image_url || '')}"><td>${esc(row.employee_id || '')}</td><td>${esc(row.name || '')}</td><td><span class="badge ${badgeCls}">${esc(status || '-')}</span></td></tr>`;
+        }).join('');
+    };
+
+    const updateSnapshotAndNotify = (items) => {
+        const current = {};
+        items.forEach((row) => {
+            const key = String(row.employee_id || '');
+            current[key] = { time_in: row.time_in || '-', time_out: row.time_out || '-' };
+            const before = previousSnapshot[key];
+            if (!before) return;
+            if ((before.time_in === '-' || !before.time_in) && row.time_in && row.time_in !== '-') {
+                if (window.showToast) window.showToast(`${row.name || 'Employee'} timed in at ${row.time_in}.`, 'success');
+            }
+            if ((before.time_out === '-' || !before.time_out) && row.time_out && row.time_out !== '-') {
+                if (window.showToast) window.showToast(`${row.name || 'Employee'} timed out at ${row.time_out}.`, 'info');
+            }
+        });
+        previousSnapshot = current;
+    };
+
+    const refreshAttendanceLive = async (options = {}) => {
+        const selectedId = options.keepSelectedId || (rows.find((r) => r.classList.contains('is-active'))?.dataset.employeeId || '');
+        const q = (searchInputEl.value || '').trim();
+        const status = (statusFilterEl.value || '').trim();
+        const page = options.page || new URLSearchParams(window.location.search).get('page') || '1';
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (status) params.set('status', status);
+        params.set('page', page);
+        const response = await fetch(`${liveFeedUrl}?${params.toString()}`, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!payload || !payload.ok) return;
+        const items = Array.isArray(payload.rows) ? payload.rows : [];
+        tableBodyEl.innerHTML = buildRowsHtml(items);
+        paginationWrapEl.innerHTML = buildPaginationHtml(payload.pagination, q, status);
+        rows = Array.from(document.querySelectorAll('.attendance-row'));
+        bindRowHandlers();
+        updateSnapshotAndNotify(items);
+        if (rows.length) {
+            const matched = rows.find((r) => r.dataset.employeeId === selectedId) || rows[0];
+            selectRow(matched);
+        }
+    };
+
+    filterFormEl.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await refreshAttendanceLive({ page: '1' });
+    });
+    document.addEventListener('click', async (event) => {
+        const link = event.target.closest('#attendancePaginationWrap a.page-link');
+        if (!link) return;
+        event.preventDefault();
+        const url = new URL(link.href, window.location.origin);
+        const page = url.searchParams.get('page') || '1';
+        await refreshAttendanceLive({ page });
+    });
+
+    updateSnapshotAndNotify(rows.map((r) => ({
+        employee_id: r.dataset.employeeId || '',
+        name: r.dataset.name || '',
+        time_in: r.dataset.timeIn || '-',
+        time_out: r.dataset.timeOut || '-',
+    })));
+    tableBodyEl.addEventListener('dblclick', (event) => {
+        const row = event.target.closest('.attendance-row');
+        if (!row) return;
+        selectRow(row);
+        openRowInfoModal(row);
+    });
+    document.addEventListener('click', (event) => {
+        const closer = event.target.closest('#attendanceRowInfoModal [data-bs-dismiss=\"modal\"], #attendanceImagePreviewModal [data-bs-dismiss=\"modal\"]');
+        if (!closer) return;
+        const modalRoot = closer.closest('.modal');
+        if (modalRoot) closeModalSafe(modalRoot);
+    });
+    window.setInterval(() => { refreshAttendanceLive().catch(() => {}); }, 5000);
+})();
+
 (function () {
     const tabs = Array.from(document.querySelectorAll('.js-att-settings-tab'));
     const panes = Array.from(document.querySelectorAll('.js-att-settings-pane'));
@@ -135,323 +698,258 @@
     const companyNameInput = document.getElementById('timemarkCompanyName');
     const locationInput = document.getElementById('timemarkLocation');
     const saveBtn = document.getElementById('timemarkSaveBtn');
-    const editor = document.getElementById('overlayLayoutEditor');
-    const overlayItems = Array.from(document.querySelectorAll('.js-overlay-item'));
-    const orientationButtons = Array.from(document.querySelectorAll('.js-layout-orientation'));
+    const settingsModalEl = document.getElementById('attendanceSettingsModal');
+    const previewCanvas = document.getElementById('overlayPreviewCanvas');
+    const previewMode = document.getElementById('overlayPreviewMode');
+    const previewTime = document.getElementById('overlayPreviewTime');
+    const previewAmpm = document.getElementById('overlayPreviewAmpm');
+    const previewDate = document.getElementById('overlayPreviewDate');
+    const previewLocation = document.getElementById('overlayPreviewLocation');
+    const previewEmployee = document.getElementById('overlayPreviewEmployee');
+    const previewMainLogo = document.getElementById('overlayPreviewMainLogo');
+    const previewOrientationButtons = Array.from(document.querySelectorAll('.js-preview-orientation'));
+    const shiftStartInput = document.getElementById('attendanceShiftStartTime');
+    const timeInOpenMinutesInput = document.getElementById('attendanceTimeInOpenMinutes');
+    const lateGraceMinutesInput = document.getElementById('attendanceLateGraceMinutes');
+    const lunchStartInput = document.getElementById('attendanceLunchStartTime');
+    const lunchEndInput = document.getElementById('attendanceLunchEndTime');
+    const lunchReturnGraceInput = document.getElementById('attendanceLunchReturnGraceMinutes');
+    const timeOutStartInput = document.getElementById('attendanceTimeOutStartTime');
+    const timeOutCloseMinutesInput = document.getElementById('attendanceTimeOutCloseMinutesAfter');
+    const policySaveBtn = document.getElementById('attendancePolicySaveBtn');
     const STORAGE_KEY = 'attendance_timemark_settings_v1';
-    const defaultBox = {
-        company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
-        type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
-        time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
-        location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
-        logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.16 },
+    const SETTINGS_API_URL = "{% url 'attendance_assist_settings' %}";
+    const POLICY_SETTINGS_API_URL = "{% url 'attendance_policy_settings' %}";
+    const FIXED_LAYOUT = {
+        landscape: {
+            company: { x: 0.06, y: 0.58, w: 0.42, h: 0.10 },
+            type: { x: 0.06, y: 0.69, w: 0.32, h: 0.08 },
+            time: { x: 0.06, y: 0.77, w: 0.38, h: 0.08 },
+            location: { x: 0.06, y: 0.84, w: 0.56, h: 0.10 },
+            logo: { x: 0.78, y: 0.00, w: 0.16, h: 0.18 },
+        },
+        portrait: {
+            company: { x: 0.06, y: 0.58, w: 0.42, h: 0.10 },
+            type: { x: 0.06, y: 0.69, w: 0.32, h: 0.08 },
+            time: { x: 0.06, y: 0.77, w: 0.38, h: 0.08 },
+            location: { x: 0.06, y: 0.84, w: 0.56, h: 0.10 },
+            logo: { x: 0.78, y: 0.00, w: 0.16, h: 0.18 },
+        },
     };
+
     let logoData = '';
-    let currentOrientation = 'landscape';
-    let layoutState = { landscape: JSON.parse(JSON.stringify(defaultBox)), portrait: JSON.parse(JSON.stringify(defaultBox)) };
-    if (!logoInput || !logoPreview || !companyNameInput || !locationInput || !saveBtn || !editor || !overlayItems.length || !orientationButtons.length) return;
+    if (!logoInput || !logoPreview || !companyNameInput || !locationInput || !saveBtn || !settingsModalEl || !previewCanvas || !previewMode || !previewTime || !previewAmpm || !previewDate || !previewLocation || !previewEmployee || !previewMainLogo || !tabs.length || !panes.length || !previewOrientationButtons.length) return;
 
-    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-    const showPane = (id) => { tabs.forEach((t) => t.classList.toggle('active', t.dataset.target === id)); panes.forEach((p) => p.classList.toggle('d-none', p.id !== id)); };
-    const renderLogo = (src) => { if (!src) { logoPreview.textContent = 'No Logo'; return; } logoPreview.innerHTML=''; const i=document.createElement('img'); i.src=src; i.style.width='100%'; i.style.height='100%'; i.style.objectFit='cover'; logoPreview.appendChild(i); };
-
-    const setEditorOrientation = () => {
-        editor.classList.toggle('landscape', currentOrientation === 'landscape');
-        editor.classList.toggle('portrait', currentOrientation === 'portrait');
+    const getCsrfToken = () => {
+        const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (input && input.value) return input.value;
+        const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
     };
 
-    const normalizeBox = (box, fallback) => {
-        const safe = box && typeof box === 'object' ? box : {};
-        return {
-            x: clamp(typeof safe.x === 'number' ? safe.x : fallback.x, 0, 0.97),
-            y: clamp(typeof safe.y === 'number' ? safe.y : fallback.y, 0, 0.97),
-            w: clamp(typeof safe.w === 'number' ? safe.w : fallback.w, 0.08, 0.95),
-            h: clamp(typeof safe.h === 'number' ? safe.h : fallback.h, 0.06, 0.95),
-        };
-    };
-
-    const normalizeLayoutSet = (setObj) => {
-        const out = {};
-        Object.keys(defaultBox).forEach((key) => {
-            out[key] = normalizeBox(setObj ? setObj[key] : null, defaultBox[key]);
-        });
-        return out;
-    };
-
-    const syncItemTypography = (item, fitToContent = false, recalcFromHeight = false) => {
-        const key = item.dataset.key || '';
-        if (key === 'logo') return;
-        const label = item.querySelector('span:first-child');
-        if (!label) return;
-        const itemH = parseFloat(item.style.height || '0') || item.getBoundingClientRect().height;
-        const itemW = parseFloat(item.style.width || '0') || item.getBoundingClientRect().width;
-        const byHeight = itemH * 0.24;
-        const byWidth = itemW * 0.020;
-        let fontSize = parseFloat(item.dataset.fontPx || '');
-        if (!Number.isFinite(fontSize)) {
-            fontSize = clamp(Math.round((byHeight * 0.7) + (byWidth * 0.3)), 10, 24);
-        } else {
-            fontSize = clamp(Math.round(fontSize), 10, 48);
+    const renderLogo = (src) => {
+        if (!src) {
+            logoPreview.textContent = 'No Logo';
+            previewMainLogo.innerHTML = '';
+            return;
         }
-        item.dataset.fontPx = String(fontSize);
-        label.style.fontSize = `${fontSize}px`;
-        label.style.lineHeight = '1';
-        label.style.whiteSpace = 'nowrap';
-        if (fitToContent) {
-            const targetHeight = Math.max(18, Math.ceil(fontSize * 1.05) + 2);
-            item.style.height = `${targetHeight}px`;
-            const targetWidth = Math.max(48, Math.ceil(label.scrollWidth + 10));
-            item.style.width = `${targetWidth}px`;
-        }
+        logoPreview.innerHTML = '';
+        const i = document.createElement('img');
+        i.src = src;
+        i.style.width = '100%';
+        i.style.height = '100%';
+        i.style.objectFit = 'cover';
+        logoPreview.appendChild(i);
+
+        previewMainLogo.innerHTML = '';
+        const main = document.createElement('img');
+        main.src = src;
+        main.alt = 'Logo';
+        previewMainLogo.appendChild(main);
     };
 
-    const applyLayoutToEditor = () => {
-        const rect = editor.getBoundingClientRect();
-        const active = layoutState[currentOrientation] || layoutState.landscape;
-        overlayItems.forEach((item) => {
-            const key = item.dataset.key || '';
-            const pt = active[key] || defaultBox[key];
-            if (!pt) return;
-            const wPx = clamp(pt.w, 0.08, 0.95) * rect.width;
-            const hPx = clamp(pt.h, 0.06, 0.95) * rect.height;
-            const xPx = clamp(pt.x * rect.width, 0, Math.max(0, rect.width - wPx));
-            const yPx = clamp(pt.y * rect.height, 0, Math.max(0, rect.height - hPx));
-            item.style.left = `${xPx}px`;
-            item.style.top = `${yPx}px`;
-            item.style.width = `${wPx}px`;
-            item.style.height = `${hPx}px`;
-            if (key === 'logo') {
-                if (currentOrientation === 'portrait') {
-                    const square = Math.max(54, Math.min(wPx, hPx));
-                    item.style.width = `${square}px`;
-                    item.style.height = `${square}px`;
-                }
-                // Ensure the logo placeholder always stays visible in the editor.
-                const currentW = parseFloat(item.style.width || '0') || wPx;
-                const currentH = parseFloat(item.style.height || '0') || hPx;
-                const safeW = Math.max(54, currentW);
-                const safeH = Math.max(54, currentH);
-                const safeX = clamp(xPx, 0, Math.max(0, rect.width - safeW));
-                const safeY = clamp(yPx, 0, Math.max(0, rect.height - safeH));
-                item.style.left = `${safeX}px`;
-                item.style.top = `${safeY}px`;
-                item.style.width = `${safeW}px`;
-                item.style.height = `${safeH}px`;
-                item.style.zIndex = '5';
-                item.style.display = 'flex';
-                item.style.visibility = 'visible';
-                item.style.opacity = '1';
-            }
-            syncItemTypography(item, false);
-        });
+    const showPane = (id) => {
+        tabs.forEach((t) => t.classList.toggle('active', t.dataset.target === id));
+        panes.forEach((p) => p.classList.toggle('d-none', p.id !== id));
     };
 
-    const readLayoutFromEditor = () => {
-        const rect = editor.getBoundingClientRect();
-        const next = {};
-        overlayItems.forEach((item) => {
-            const key = item.dataset.key || '';
-            if (!key) return;
-            const x = parseFloat(item.style.left || '0') / (rect.width || 1);
-            const y = parseFloat(item.style.top || '0') / (rect.height || 1);
-            const w = parseFloat(item.style.width || '0') / (rect.width || 1);
-            const h = parseFloat(item.style.height || '0') / (rect.height || 1);
-            next[key] = { x: clamp(x,0,0.97), y: clamp(y,0,0.97), w: clamp(w,0.08,0.95), h: clamp(h,0.06,0.95) };
-        });
-        layoutState[currentOrientation] = normalizeLayoutSet({ ...layoutState[currentOrientation], ...next });
+    const renderOverlayPreviewText = () => {
+        const now = new Date();
+        const clock = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        const parts = clock.split(' ');
+        previewTime.textContent = parts[0] || clock;
+        previewAmpm.textContent = parts[1] || '';
+        previewDate.textContent = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        previewLocation.textContent = locationInput.value.trim() || 'Address/GPS';
+        previewEmployee.textContent = "{{ request.user.get_full_name|default:request.user.username|escapejs }}";
+        previewMode.textContent = 'CLOCK IN';
     };
 
-    const enableDragResize = () => {
-        overlayItems.forEach((item) => {
-            let mode = '';
-            let handleDir = '';
-            let didResize = false;
-            let dx = 0; let dy = 0; let startW = 0; let startH = 0;
-            let startX = 0; let startY = 0; let startL = 0; let startT = 0;
-            let aspect = 1;
-            let startFontPx = 14;
-
-            item.addEventListener('pointerdown', (event) => {
-                const handle = event.target.closest('.resize-handle');
-                mode = handle ? 'resize' : 'drag';
-                handleDir = handle ? (handle.getAttribute('data-handle') || 'se') : '';
-                didResize = false;
-                item.setPointerCapture(event.pointerId);
-                const r = item.getBoundingClientRect();
-                dx = event.clientX - r.left;
-                dy = event.clientY - r.top;
-                startW = r.width;
-                startH = r.height;
-                startX = event.clientX;
-                startY = event.clientY;
-                startL = parseFloat(item.style.left || '0');
-                startT = parseFloat(item.style.top || '0');
-                aspect = startW / Math.max(1, startH);
-                if ((item.dataset.key || '') !== 'logo') {
-                    const label = item.querySelector('span:first-child');
-                    const computed = label ? window.getComputedStyle(label) : null;
-                    startFontPx = clamp(parseFloat((computed && computed.fontSize) || item.dataset.fontPx || '14') || 14, 10, 48);
-                    item.dataset.fontPx = String(startFontPx);
-                }
-            });
-
-            item.addEventListener('pointermove', (event) => {
-                if (!mode) return;
-                const rect = editor.getBoundingClientRect();
-                if (mode === 'drag') {
-                    const r = item.getBoundingClientRect();
-                    const left = clamp(event.clientX - rect.left - dx, 0, rect.width - r.width);
-                    const top = clamp(event.clientY - rect.top - dy, 0, rect.height - r.height);
-                    item.style.left = `${left}px`;
-                    item.style.top = `${top}px`;
-                } else {
-                    didResize = true;
-                    const key = item.dataset.key || '';
-                    const isLogo = key === 'logo';
-                    const label = item.querySelector('span:first-child');
-                    const deltaX = event.clientX - startX;
-                    const deltaY = event.clientY - startY;
-                    let newL = startL;
-                    let newT = startT;
-                    let newW = startW;
-                    let newH = startH;
-                    const minW = 48;
-                    const minH = 18;
-                    let minTextW = minW;
-                    let minTextH = minH;
-                    if (!isLogo && label) {
-                        const computed = window.getComputedStyle(label);
-                        const fontPx = parseFloat(computed.fontSize || '14') || 14;
-                        const tmp = document.createElement('canvas').getContext('2d');
-                        tmp.font = `${fontPx}px Arial`;
-                        const textW = Math.ceil(tmp.measureText(label.textContent || '').width);
-                        minTextW = Math.max(minW, textW + 12);
-                        minTextH = Math.max(minH, Math.ceil(fontPx * 1.35) + 6);
-                    }
-
-                    if (handleDir === 'se') {
-                        newW = startW + deltaX;
-                        newH = startH + deltaY;
-                    } else if (handleDir === 'sw') {
-                        newW = startW - deltaX;
-                        newH = startH + deltaY;
-                        newL = startL + deltaX;
-                    } else if (handleDir === 'ne') {
-                        newW = startW + deltaX;
-                        newH = startH - deltaY;
-                        newT = startT + deltaY;
-                    } else if (handleDir === 'nw') {
-                        newW = startW - deltaX;
-                        newH = startH - deltaY;
-                        newL = startL + deltaX;
-                        newT = startT + deltaY;
-                    }
-
-                    if (isLogo) {
-                        if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-                            newH = newW / Math.max(0.1, aspect);
-                        } else {
-                            newW = newH * Math.max(0.1, aspect);
-                        }
-                        if (handleDir === 'sw' || handleDir === 'nw') {
-                            newL = (startL + startW) - newW;
-                        }
-                        if (handleDir === 'ne' || handleDir === 'nw') {
-                            newT = (startT + startH) - newH;
-                        }
-                    } else {
-                        // Canva-like: scale box and font proportionally during corner resize.
-                        const scaleX = newW / Math.max(1, startW);
-                        const scaleY = newH / Math.max(1, startH);
-                        const scale = clamp(Math.max(scaleX, scaleY), 0.25, 5);
-                        newW = startW * scale;
-                        newH = startH * scale;
-                        if (handleDir === 'sw' || handleDir === 'nw') {
-                            newL = (startL + startW) - newW;
-                        }
-                        if (handleDir === 'ne' || handleDir === 'nw') {
-                            newT = (startT + startH) - newH;
-                        }
-                        item.dataset.fontPx = String(clamp(startFontPx * scale, 10, 48));
-                    }
-
-                    const maxW = Math.max(1, rect.width - newL);
-                    const maxH = Math.max(1, rect.height - newT);
-                    newW = clamp(newW, isLogo ? minW : minTextW, maxW);
-                    newH = clamp(newH, isLogo ? minH : minTextH, maxH);
-                    newL = clamp(newL, 0, rect.width - newW);
-                    newT = clamp(newT, 0, rect.height - newH);
-
-                    item.style.left = `${newL}px`;
-                    item.style.top = `${newT}px`;
-                    item.style.width = `${newW}px`;
-                    item.style.height = `${newH}px`;
-                }
-                if (mode === 'resize') {
-                    syncItemTypography(item, false, false);
-                }
-            });
-
-            item.addEventListener('pointerup', () => {
-                if (didResize) syncItemTypography(item, false, false);
-                mode = ''; handleDir = ''; readLayoutFromEditor();
-            });
-            item.addEventListener('pointercancel', () => { mode = ''; handleDir = ''; readLayoutFromEditor(); });
-        });
+    const loadSettingsFromPayload = (d) => {
+        if (!d || typeof d !== 'object') return;
+        companyNameInput.value = d.company_name || '';
+        locationInput.value = d.location || '';
+        logoData = d.logo_data || '';
+        renderLogo(logoData);
+        renderOverlayPreviewText();
     };
 
-    const loadSettings = () => {
+    const loadPolicySettings = async () => {
+        if (!shiftStartInput || !timeInOpenMinutesInput || !lateGraceMinutesInput || !lunchStartInput || !lunchEndInput || !lunchReturnGraceInput || !timeOutStartInput || !timeOutCloseMinutesInput) return;
+        if (!window.fetch) return;
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) {
-                const d = JSON.parse(raw);
-                companyNameInput.value = d.company_name || '';
-                locationInput.value = d.location || '';
-                logoData = d.logo_data || '';
-                if (d.layout && d.layout.landscape) layoutState.landscape = normalizeLayoutSet({ ...layoutState.landscape, ...d.layout.landscape });
-                if (d.layout && d.layout.portrait) layoutState.portrait = normalizeLayoutSet({ ...layoutState.portrait, ...d.layout.portrait });
-                renderLogo(logoData);
+            const response = await fetch(POLICY_SETTINGS_API_URL, {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (!response.ok) return;
+            const payload = await response.json();
+            if (!payload || !payload.ok || !payload.settings) return;
+            const p = payload.settings;
+            shiftStartInput.value = p.shift_start_time || '';
+            timeInOpenMinutesInput.value = String(p.time_in_open_minutes_before ?? '');
+            lateGraceMinutesInput.value = String(p.late_grace_minutes ?? '');
+            lunchStartInput.value = p.lunch_start_time || '';
+            lunchEndInput.value = p.lunch_end_time || '';
+            lunchReturnGraceInput.value = String(p.lunch_return_grace_minutes ?? '');
+            timeOutStartInput.value = p.time_out_start_time || '';
+            timeOutCloseMinutesInput.value = String(p.time_out_close_minutes_after ?? '');
+        } catch (e) {}
+    };
+
+    const loadSettings = async () => {
+        let loadedFromServer = false;
+        if (window.fetch) {
+            try {
+                const response = await fetch(SETTINGS_API_URL, {
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (response.ok) {
+                    const payload = await response.json();
+                    if (payload && payload.ok && payload.settings) {
+                        loadSettingsFromPayload(payload.settings);
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload.settings));
+                        loadedFromServer = true;
+                    }
+                }
+            } catch (e) {}
+        }
+        try {
+            if (!loadedFromServer) {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) loadSettingsFromPayload(JSON.parse(raw));
             }
         } catch (e) {}
-        layoutState.landscape = normalizeLayoutSet(layoutState.landscape);
-        layoutState.portrait = normalizeLayoutSet(layoutState.portrait);
-        setEditorOrientation();
-        applyLayoutToEditor();
     };
 
     tabs.forEach((t) => t.addEventListener('click', () => showPane(t.dataset.target || 'timemarkPane')));
-    orientationButtons.forEach((btn) => btn.addEventListener('click', () => {
-        readLayoutFromEditor();
-        currentOrientation = btn.dataset.orientation === 'portrait' ? 'portrait' : 'landscape';
-        orientationButtons.forEach((b) => b.classList.toggle('active', b === btn));
-        setEditorOrientation();
-        applyLayoutToEditor();
+    previewOrientationButtons.forEach((btn) => btn.addEventListener('click', () => {
+        const orientation = btn.dataset.orientation === 'portrait' ? 'portrait' : 'landscape';
+        previewOrientationButtons.forEach((b) => b.classList.toggle('active', b === btn));
+        previewCanvas.classList.toggle('landscape', orientation === 'landscape');
+        previewCanvas.classList.toggle('portrait', orientation === 'portrait');
     }));
 
     logoInput.addEventListener('change', () => {
         const file = logoInput.files && logoInput.files[0];
         if (!file) { logoData = ''; renderLogo(''); return; }
         const reader = new FileReader();
-        reader.onload = (ev) => { logoData = String(ev.target && ev.target.result ? ev.target.result : ''); renderLogo(logoData); };
+        reader.onload = (ev) => {
+            logoData = String(ev.target && ev.target.result ? ev.target.result : '');
+            renderLogo(logoData);
+        };
         reader.readAsDataURL(file);
     });
+    locationInput.addEventListener('input', renderOverlayPreviewText);
 
-    saveBtn.addEventListener('click', () => {
-        readLayoutFromEditor();
-        const payload = { company_name: companyNameInput.value.trim(), location: locationInput.value.trim(), logo_data: logoData || '', layout: layoutState };
+    saveBtn.addEventListener('click', async () => {
+        const payload = {
+            company_name: companyNameInput.value.trim(),
+            location: locationInput.value.trim(),
+            logo_data: logoData || '',
+            layout: FIXED_LAYOUT,
+        };
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            if (window.fetch) {
+                const response = await fetch(SETTINGS_API_URL, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCsrfToken(),
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.ok) {
+                    throw new Error((result && result.message) || 'Unable to save attendance settings.');
+                }
+                if (result.settings) {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(result.settings));
+                    loadSettingsFromPayload(result.settings);
+                }
+            } else {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            }
             if (window.showToast) window.showToast('Attendance settings saved and applied to overlay.', 'success');
             else alert('Attendance settings saved and applied to overlay.');
         } catch (e) {
-            if (window.showToast) window.showToast('Unable to save attendance settings on this browser.', 'danger');
-            else alert('Unable to save attendance settings on this browser.');
+            const message = (e && e.message) ? e.message : 'Unable to save attendance settings on this browser.';
+            if (window.showToast) window.showToast(message, 'danger');
+            else alert(message);
         }
     });
 
-    window.addEventListener('resize', applyLayoutToEditor);
-    enableDragResize();
+    if (policySaveBtn) {
+        policySaveBtn.addEventListener('click', async () => {
+            const payload = {
+                shift_start_time: shiftStartInput ? shiftStartInput.value : '',
+                time_in_open_minutes_before: timeInOpenMinutesInput ? timeInOpenMinutesInput.value : '',
+                late_grace_minutes: lateGraceMinutesInput ? lateGraceMinutesInput.value : '',
+                lunch_start_time: lunchStartInput ? lunchStartInput.value : '',
+                lunch_end_time: lunchEndInput ? lunchEndInput.value : '',
+                lunch_return_grace_minutes: lunchReturnGraceInput ? lunchReturnGraceInput.value : '',
+                time_out_start_time: timeOutStartInput ? timeOutStartInput.value : '',
+                time_out_close_minutes_after: timeOutCloseMinutesInput ? timeOutCloseMinutesInput.value : '',
+            };
+            try {
+                const response = await fetch(POLICY_SETTINGS_API_URL, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCsrfToken(),
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.ok) {
+                    throw new Error((result && result.message) || 'Unable to save attendance policy settings.');
+                }
+                if (window.showToast) window.showToast('Attendance policy settings saved.', 'success');
+                else alert('Attendance policy settings saved.');
+            } catch (e) {
+                const message = (e && e.message) ? e.message : 'Unable to save attendance policy settings.';
+                if (window.showToast) window.showToast(message, 'danger');
+                else alert(message);
+            }
+        });
+    }
+
+    settingsModalEl.addEventListener('shown.bs.modal', () => {
+        showPane('timemarkPane');
+        loadSettings();
+        loadPolicySettings();
+    });
+    window.setInterval(renderOverlayPreviewText, 1000);
+    renderOverlayPreviewText();
     loadSettings();
 })();
 </script>
+
 {% endblock %}
