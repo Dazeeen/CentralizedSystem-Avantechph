@@ -122,6 +122,9 @@ from .models import (
 	AssetTagEntry,
 	AttendanceLog,
 	AttendanceGlobalTimemarkSetting,
+	AttendancePolicySetting,
+	TimekeepingImportBatch,
+	TimekeepingImportEntry,
 	AttendanceTimemarkSetting,
 	Client,
 	CRMClient,
@@ -165,6 +168,11 @@ from .models import (
 	PatchNoteReaction,
 	UserProfile,
 )
+
+try:
+	import xlrd
+except Exception:
+	xlrd = None
 from .notifications import create_notification
 from .permission_catalog import build_permission_preview_groups, format_permission_summary
 from .context_processors import PAGE_ACCESS_RULES
@@ -631,18 +639,562 @@ def dashboard(request):
 
 @login_required
 def attendance_page(request):
+	return _render_timekeeping_page(request, page_title='Attendance', page_heading='Attendance')
+
+
+def _resolve_timekeeping_user(employee_id, employee_name, user_by_id, user_by_name):
+	emp_id = str(employee_id or '').strip()
+	if emp_id:
+		profile_match = UserProfile.objects.select_related('user').filter(employee_id__iexact=emp_id, user__is_active=True).first()
+		if profile_match and profile_match.user_id:
+			return profile_match.user
+		if emp_id in user_by_id:
+			return user_by_id.get(emp_id)
+	name_key = str(employee_name or '').strip().lower()
+	if name_key and name_key in user_by_name:
+		return user_by_name.get(name_key)
+	return None
+
+
+def _resolve_timekeeping_user_by_system_id(employee_id, user_by_id):
+	emp_id = str(employee_id or '').strip()
+	if not emp_id:
+		return None
+	return user_by_id.get(emp_id)
+
+
+def _parse_timekeeping_date_range(payload):
+	raw = str(((payload or {}).get('Date Range') or '')).strip()
+	if '~' not in raw:
+		return (None, None)
+	left, right = [part.strip() for part in raw.split('~', 1)]
+	return (parse_date(left), parse_date(right))
+
+
+def _build_timekeeping_verification(payload, user_obj):
+	payload = payload if isinstance(payload, dict) else {}
+	dtr_rows = payload.get('DTR Rows') if isinstance(payload.get('DTR Rows'), list) else []
+	date_from, _date_to = _parse_timekeeping_date_range(payload)
+	if not user_obj or not dtr_rows or not date_from:
+		return [], 'Pending Verification'
+
+	day_logs = {
+		log.attendance_date: log
+		for log in AttendanceLog.objects.filter(user=user_obj, attendance_date__gte=date_from, attendance_date__lte=date_from + timedelta(days=max(len(dtr_rows), 1)))
+	}
+	tolerance_minutes = 90
+	verification_rows = []
+	verified_hits = 0
+	for idx, row in enumerate(dtr_rows):
+		day_date = date_from + timedelta(days=idx)
+		log = day_logs.get(day_date)
+		in_time = str((row or {}).get('before_noon_in') or '').strip()
+		out_time = str((row or {}).get('overtime_out') or (row or {}).get('after_noon_out') or '').strip()
+		if not in_time and not out_time:
+			verification_rows.append({'date_label': (row or {}).get('date_label') or '', 'status': 'No Biometric Time', 'db_time_in': '', 'db_time_out': ''})
+			continue
+		if not log:
+			verification_rows.append({'date_label': (row or {}).get('date_label') or '', 'status': 'No Capture', 'db_time_in': '', 'db_time_out': ''})
+			continue
+		try:
+			in_target = datetime.combine(day_date, datetime.strptime(in_time, '%H:%M').time(), tzinfo=timezone.get_current_timezone()) if in_time else None
+		except ValueError:
+			in_target = None
+		try:
+			out_target = datetime.combine(day_date, datetime.strptime(out_time, '%H:%M').time(), tzinfo=timezone.get_current_timezone()) if out_time else None
+		except ValueError:
+			out_target = None
+		in_ok = bool(log.time_in_photo) if not in_time else bool(log.time_in_photo and log.time_in_at and in_target and abs((timezone.localtime(log.time_in_at) - in_target).total_seconds()) <= tolerance_minutes * 60)
+		out_ok = bool(log.time_out_photo) if not out_time else bool(log.time_out_photo and log.time_out_at and out_target and abs((timezone.localtime(log.time_out_at) - out_target).total_seconds()) <= tolerance_minutes * 60)
+		if in_ok and (out_ok or not out_time):
+			status = 'Verified'
+			verified_hits += 1
+		elif in_ok or out_ok:
+			status = 'Partially Verified'
+		else:
+			status = 'Time Mismatch'
+		verification_rows.append({
+			'date_label': (row or {}).get('date_label') or '',
+			'status': status,
+			'db_time_in': timezone.localtime(log.time_in_at).strftime('%H:%M') if log.time_in_at else '',
+			'db_time_out': timezone.localtime(log.time_out_at).strftime('%H:%M') if log.time_out_at else '',
+		})
+	final_status = 'Verified' if verified_hits else 'Needs Review'
+	return verification_rows, final_status
+
+
+def _enrich_timekeeping_payload_with_verification(payload, user_obj):
+	enriched = dict(payload or {})
+	verification_rows, final_status = _build_timekeeping_verification(enriched, user_obj)
+	enriched['DTR Verification'] = verification_rows
+	return enriched, final_status
+
+
+@login_required
+def timekeeping_page(request):
+	if request.method == 'POST':
+		action = (request.POST.get('form_action') or '').strip()
+		if action == 'import_biometrics':
+			upload = request.FILES.get('biometric_file')
+			if not upload:
+				messages.error(request, 'Please choose an .xls file to import.')
+				return redirect('timekeeping_page')
+			if not upload.name.lower().endswith('.xls'):
+				messages.error(request, 'Only legacy .xls files are supported for this biometric import.')
+				return redirect('timekeeping_page')
+			if xlrd is None:
+				messages.error(request, 'Biometric importer needs xlrd package. Install xlrd to continue.')
+				return redirect('timekeeping_page')
+			try:
+				parsed_rows = _parse_biometric_xls(upload.read())
+			except Exception as exc:
+				messages.error(request, f'Unable to parse biometric file: {exc}')
+				return redirect('timekeeping_page')
+			if not parsed_rows:
+				messages.warning(request, 'No employee rows found in this file.')
+				return redirect('timekeeping_page')
+			with transaction.atomic():
+				batch = TimekeepingImportBatch.objects.create(
+					source_filename=(upload.name or '')[:255],
+					imported_by=request.user,
+				)
+				entries = []
+				for idx, row in enumerate(parsed_rows, start=1):
+					entries.append(TimekeepingImportEntry(
+						batch=batch,
+						row_number=idx,
+						employee_id=str(row.get('employee_id') or '').strip()[:120],
+						employee_name=str(row.get('employee_name') or '').strip()[:255],
+						row_payload=row.get('payload') or {},
+					))
+				TimekeepingImportEntry.objects.bulk_create(entries, batch_size=500)
+			messages.success(request, f'Imported {len(parsed_rows)} biometric timekeeping rows.')
+			return redirect('timekeeping_page')
+		if action == 'delete_batch':
+			batch_id_raw = (request.POST.get('batch_id') or '').strip()
+			try:
+				batch_id = int(batch_id_raw)
+			except (TypeError, ValueError):
+				messages.error(request, 'Invalid batch selected for delete.')
+				return redirect('timekeeping_page')
+			batch = TimekeepingImportBatch.objects.filter(id=batch_id).first()
+			if not batch:
+				messages.error(request, 'Import batch not found.')
+				return redirect('timekeeping_page')
+			batch.delete()
+			messages.success(request, 'Imported record deleted.')
+			return redirect('timekeeping_page')
+
+	entries_qs = TimekeepingImportEntry.objects.select_related('batch')
+	latest_batch = TimekeepingImportBatch.objects.first()
+	if latest_batch:
+		entries_qs = entries_qs.filter(batch=latest_batch)
+	entries = list(entries_qs)
+
+	user_qs = User.objects.filter(is_active=True).only('id', 'first_name', 'last_name', 'username')
+	user_by_id = {str(u.id): u for u in user_qs}
+
+	timekeeping_rows = []
+	for e in entries:
+		user_obj = _resolve_timekeeping_user_by_system_id(e.employee_id, user_by_id)
+		enriched_payload, verification_status = _enrich_timekeeping_payload_with_verification(e.row_payload or {}, user_obj)
+		time_in_image_url = ''
+		time_out_image_url = ''
+		if user_obj:
+			latest_log = AttendanceLog.objects.filter(user=user_obj).order_by('-attendance_date', '-updated_at').first()
+			if latest_log and latest_log.time_in_photo:
+				time_in_image_url = latest_log.time_in_photo.url
+			if latest_log and latest_log.time_out_photo:
+				time_out_image_url = latest_log.time_out_photo.url
+		timekeeping_rows.append({
+			'entry_id': e.id,
+			'employee_id': e.employee_id or '-',
+			'employee_name': e.employee_name or '-',
+			'system_user_id': str(user_obj.id) if user_obj else '-',
+			'system_user_name': (user_obj.get_full_name() or user_obj.username) if user_obj else '-',
+			'system_username': user_obj.username if user_obj else '-',
+			'batch_name': (e.batch.source_filename if e.batch_id else ''),
+			'imported_at': timezone.localtime(e.imported_at).strftime('%b %d, %Y %I:%M %p') if e.imported_at else '-',
+			'payload': enriched_payload,
+			'payload_json': json.dumps(enriched_payload, ensure_ascii=False),
+			'time_in_image_url': time_in_image_url,
+			'time_out_image_url': time_out_image_url,
+			'verification_status': verification_status,
+			'user_match_status': 'Matched in System' if user_obj else 'Not Found in System',
+		})
+
+	imported_batches = (
+		TimekeepingImportBatch.objects
+		.select_related('imported_by')
+		.annotate(entry_count=Count('entries'))
+		.order_by('-imported_at')
+	)
+
+	context = {
+		'timekeeping_rows': timekeeping_rows,
+		'latest_timekeeping_batch': latest_batch,
+		'imported_batches': imported_batches,
+	}
+	return render(request, 'core/timekeeping_page.html', context)
+
+
+@login_required
+def timekeeping_batch_detail(request, batch_id):
+	batch = get_object_or_404(TimekeepingImportBatch.objects.select_related('imported_by'), id=batch_id)
+	user_qs = User.objects.filter(is_active=True).only('id', 'first_name', 'last_name', 'username')
+	user_by_id = {str(u.id): u for u in user_qs}
+
+	entries = []
+	attendance_date_range = ''
+	for e in batch.entries.order_by('row_number', 'id'):
+		user_obj = _resolve_timekeeping_user_by_system_id(e.employee_id, user_by_id)
+		enriched_payload, verification_status = _enrich_timekeeping_payload_with_verification(e.row_payload or {}, user_obj)
+		if not attendance_date_range:
+			attendance_date_range = str((enriched_payload.get('Date Range') or '')).strip()
+		time_in_image_url = ''
+		time_out_image_url = ''
+		if user_obj:
+			latest_log = AttendanceLog.objects.filter(user=user_obj).order_by('-attendance_date', '-updated_at').first()
+			if latest_log and latest_log.time_in_photo:
+				time_in_image_url = latest_log.time_in_photo.url
+			if latest_log and latest_log.time_out_photo:
+				time_out_image_url = latest_log.time_out_photo.url
+		entries.append({
+			'row_number': e.row_number,
+			'employee_id': e.employee_id,
+			'employee_name': e.employee_name,
+			'row_payload': enriched_payload,
+			'time_in_image_url': time_in_image_url,
+			'time_out_image_url': time_out_image_url,
+			'verification_status': verification_status,
+		})
+	return JsonResponse({
+		'ok': True,
+		'batch': {
+			'id': batch.id,
+			'name': batch.source_filename or '-',
+			'imported_by': batch.imported_by.get_full_name() if batch.imported_by else '-',
+			'imported_at': timezone.localtime(batch.imported_at).strftime('%B %d, %Y') if batch.imported_at else '-',
+			'attendance_date_range': _format_attendance_date_range_long(attendance_date_range),
+			'tabling_date': timezone.localtime(batch.imported_at).strftime('%B %d, %Y') if batch.imported_at else '-',
+			'entry_count': len(entries),
+		},
+		'entries': entries,
+	})
+
+
+def _format_attendance_date_range_long(raw_value):
+	raw = str(raw_value or '').strip()
+	if not raw:
+		return '-'
+	if '~' not in raw:
+		parsed = parse_date(raw)
+		return parsed.strftime('%B %d, %Y') if parsed else raw
+	left_raw, right_raw = [part.strip() for part in raw.split('~', 1)]
+	left = parse_date(left_raw)
+	right = parse_date(right_raw)
+	left_text = left.strftime('%B %d, %Y') if left else left_raw
+	right_text = right.strftime('%B %d, %Y') if right else right_raw
+	return f'{left_text} - {right_text}'
+
+
+@login_required
+def timekeeping_batch_download(request, batch_id):
+	batch = get_object_or_404(TimekeepingImportBatch, id=batch_id)
+	entries = batch.entries.order_by('row_number', 'id')
+	headers = []
+	for e in entries:
+		payload = e.row_payload or {}
+		for k in payload.keys():
+			if k not in headers:
+				headers.append(k)
+	response = HttpResponse(content_type='text/csv')
+	filename = f'timekeeping_batch_{batch.id}.csv'
+	response['Content-Disposition'] = f'attachment; filename=\"{filename}\"'
+	writer = csv.writer(response)
+	writer.writerow(['row_number', 'employee_id', 'employee_name', *headers])
+	for e in entries:
+		payload = e.row_payload or {}
+		writer.writerow([e.row_number, e.employee_id, e.employee_name, *[payload.get(h, '') for h in headers]])
+	return response
+
+
+@login_required
+def timekeeping_batch_print(request, batch_id):
+	batch = get_object_or_404(TimekeepingImportBatch.objects.select_related('imported_by'), id=batch_id)
+	entries = []
+	for row in batch.entries.order_by('row_number', 'id'):
+		payload = row.row_payload if isinstance(row.row_payload, dict) else {}
+		entries.append({
+			'row_number': row.row_number,
+			'employee_id': row.employee_id,
+			'employee_name': row.employee_name,
+			'attendance_date_range': str(payload.get('Date Range') or '').strip(),
+		})
+	return render(request, 'core/timekeeping_batch_print_v2.html', {
+		'batch': batch,
+		'entries': entries,
+	})
+
+
+def _parse_biometric_xls(file_bytes):
+	book = xlrd.open_workbook(file_contents=file_bytes)
+
+	def clean(v):
+		if v is None:
+			return ''
+		text = str(v).strip()
+		if text.endswith('.0') and text.replace('.', '', 1).isdigit():
+			text = text[:-2]
+		return text
+
+	def as_float(v):
+		try:
+			return float(v)
+		except (TypeError, ValueError):
+			return 0.0
+
+	def excel_time_to_hhmm(v):
+		if v in ('', None):
+			return ''
+		try:
+			num = float(v)
+		except (TypeError, ValueError):
+			txt = clean(v)
+			return txt if ':' in txt else ''
+		if num <= 0:
+			return ''
+		total_minutes = int(round((num % 1) * 24 * 60))
+		hours = (total_minutes // 60) % 24
+		minutes = total_minutes % 60
+		return f'{hours:02d}:{minutes:02d}'
+
+	results = []
+	seen = set()
+
+	for sheet_idx in range(book.nsheets):
+		sheet = book.sheet_by_index(sheet_idx)
+		# Parse only time-card layout sheets (employee attendance table blocks).
+		if sheet.nrows < 13 or sheet.ncols < 15:
+			continue
+		header_probe = clean(sheet.cell_value(0, 11)).lower() if sheet.nrows > 0 and sheet.ncols > 11 else ''
+		timecard_probe = clean(sheet.cell_value(9, 0)).lower() if sheet.nrows > 9 else ''
+		if 'employee attendance table' not in header_probe and 'time card' not in timecard_probe:
+			continue
+		block_cols = []
+		if sheet.nrows > 4 and sheet.nrows > 3:
+			for c in range(sheet.ncols):
+				id_cell = clean(sheet.cell_value(4, c))
+				name_cell = clean(sheet.cell_value(3, c))
+				if not id_cell or not name_cell:
+					continue
+				if name_cell.lower() == 'name':
+					continue
+				try:
+					float(id_cell)
+				except (TypeError, ValueError):
+					continue
+				start_col = c - 9
+				if start_col < 0:
+					continue
+				if start_col not in block_cols:
+					block_cols.append(start_col)
+		for block_col in block_cols:
+			if block_col + 13 >= sheet.ncols:
+				continue
+			user_id = clean(sheet.cell_value(4, block_col + 9)) if sheet.nrows > 4 else ''
+			name = clean(sheet.cell_value(3, block_col + 9)) if sheet.nrows > 3 else ''
+			dept = clean(sheet.cell_value(3, block_col + 1)) if sheet.nrows > 3 else ''
+			date_range = clean(sheet.cell_value(4, block_col + 1)) if sheet.nrows > 4 else ''
+			if not user_id and not name:
+				continue
+			key = (user_id.lower(), name.lower())
+			if key in seen:
+				continue
+			seen.add(key)
+
+			summary = {
+				'absence_day': as_float(sheet.cell_value(7, block_col + 0)) if sheet.nrows > 7 else 0.0,
+				'leave_day': as_float(sheet.cell_value(7, block_col + 1)) if sheet.nrows > 7 else 0.0,
+				'trip_day': as_float(sheet.cell_value(7, block_col + 2)) if sheet.nrows > 7 else 0.0,
+				'work_day': as_float(sheet.cell_value(7, block_col + 4)) if sheet.nrows > 7 else 0.0,
+				'ot_normal': as_float(sheet.cell_value(7, block_col + 5)) if sheet.nrows > 7 else 0.0,
+				'ot_special': as_float(sheet.cell_value(7, block_col + 7)) if sheet.nrows > 7 else 0.0,
+				'late_times': int(as_float(sheet.cell_value(7, block_col + 8))) if sheet.nrows > 7 else 0,
+				'late_minute': int(as_float(sheet.cell_value(7, block_col + 9))) if sheet.nrows > 7 else 0,
+				'early_times': int(as_float(sheet.cell_value(7, block_col + 11))) if sheet.nrows > 7 else 0,
+				'early_minute': int(as_float(sheet.cell_value(7, block_col + 13))) if sheet.nrows > 7 else 0,
+			}
+
+			dtr_rows = []
+			for r in range(12, min(sheet.nrows, 45)):
+				date_label = clean(sheet.cell_value(r, block_col + 0))
+				if not date_label:
+					continue
+				dtr_rows.append({
+					'date_label': date_label,
+					'before_noon_in': excel_time_to_hhmm(sheet.cell_value(r, block_col + 1)),
+					'before_noon_out': excel_time_to_hhmm(sheet.cell_value(r, block_col + 3)),
+					'after_noon_in': excel_time_to_hhmm(sheet.cell_value(r, block_col + 6)),
+					'after_noon_out': excel_time_to_hhmm(sheet.cell_value(r, block_col + 8)),
+					'overtime_in': excel_time_to_hhmm(sheet.cell_value(r, block_col + 10)),
+					'overtime_out': excel_time_to_hhmm(sheet.cell_value(r, block_col + 12)),
+				})
+
+			payload = {
+				'User ID': user_id,
+				'Name': name,
+				'Department': dept,
+				'Date Range': date_range,
+				'Summary': summary,
+				'DTR Rows': dtr_rows,
+			}
+			results.append({
+				'employee_id': user_id,
+				'employee_name': name,
+				'payload': payload,
+			})
+
+	if results:
+		return results
+
+	# Fallback for simpler single-table .xls formats.
+	sheet = book.sheet_by_index(0)
+	header_row_idx = None
+	header_map = {}
+	for r in range(min(sheet.nrows, 40)):
+		row_vals = [clean(sheet.cell_value(r, c)).lower() for c in range(sheet.ncols)]
+		id_idx = next((i for i, v in enumerate(row_vals) if any(k in v for k in ('emp', 'employee', 'user id', 'enroll', 'id'))), None)
+		name_idx = next((i for i, v in enumerate(row_vals) if 'name' in v), None)
+		if id_idx is not None and name_idx is not None:
+			header_row_idx = r
+			header_map = {i: clean(sheet.cell_value(r, i)) for i in range(sheet.ncols)}
+			break
+	if header_row_idx is None:
+		raise ValueError('Could not detect Employee ID and Name columns in the sheet.')
+
+	row_keys = {idx: (header_map.get(idx) or f'Column {idx+1}') for idx in range(sheet.ncols)}
+	id_col = None
+	name_col = None
+	for idx, label in row_keys.items():
+		l = label.lower()
+		if id_col is None and any(k in l for k in ('emp', 'employee', 'user id', 'enroll', 'id')):
+			id_col = idx
+		if name_col is None and 'name' in l:
+			name_col = idx
+	if id_col is None or name_col is None:
+		raise ValueError('Employee ID or Employee Name column not found.')
+
+	fallback_results = []
+	for r in range(header_row_idx + 1, sheet.nrows):
+		values = {row_keys[c]: clean(sheet.cell_value(r, c)) for c in range(sheet.ncols)}
+		employee_id = clean(sheet.cell_value(r, id_col))
+		employee_name = clean(sheet.cell_value(r, name_col))
+		if not employee_id and not employee_name:
+			continue
+		fallback_results.append({
+			'employee_id': employee_id,
+			'employee_name': employee_name,
+			'payload': values,
+		})
+	return fallback_results
+
+
+def _render_timekeeping_page(request, page_title='Attendance', page_heading='Attendance'):
 	today = timezone.localdate()
-	dummy_attendance_rows = [
-		{'employee_id': 'EMP-001', 'name': 'Juan Dela Cruz', 'department': 'Sales', 'time_in': '08:02 AM', 'time_out': '05:11 PM', 'status': 'Present'},
-		{'employee_id': 'EMP-002', 'name': 'Maria Santos', 'department': 'Finance', 'time_in': '08:15 AM', 'time_out': '05:06 PM', 'status': 'Present'},
-		{'employee_id': 'EMP-003', 'name': 'Carlo Reyes', 'department': 'Operations', 'time_in': '08:40 AM', 'time_out': '-', 'status': 'Late'},
-		{'employee_id': 'EMP-004', 'name': 'Anne Villanueva', 'department': 'HR', 'time_in': '-', 'time_out': '-', 'status': 'Absent'},
-	]
+	q = (request.GET.get('q') or '').strip()
+	filter_status = (request.GET.get('status') or '').strip()
+	attendance_rows = _build_attendance_rows(today, q=q, filter_status=filter_status)
+	attendance_page_obj = Paginator(attendance_rows, 20).get_page(request.GET.get('page'))
+	query_data = request.GET.copy()
+	if 'page' in query_data:
+		query_data.pop('page')
 	context = {
 		'attendance_date': today,
-		'attendance_rows': dummy_attendance_rows,
+		'attendance_rows': attendance_page_obj,
+		'attendance_q': q,
+		'attendance_filter_status': filter_status,
+		'attendance_query_string': query_data.urlencode(),
+		'timekeeping_page_title': page_title,
+		'timekeeping_page_heading': page_heading,
 	}
-	return render(request, 'core/attendance_page.html', context)
+	template_name = 'core/timekeeping_page.html' if page_heading == 'Timekeeping' else 'core/attendance_page.html'
+	return render(request, template_name, context)
+
+
+@login_required
+def attendance_live_feed(request):
+	today = timezone.localdate()
+	q = (request.GET.get('q') or '').strip()
+	filter_status = (request.GET.get('status') or '').strip()
+	page_num = request.GET.get('page')
+	rows = _build_attendance_rows(today, q=q, filter_status=filter_status)
+	page_obj = Paginator(rows, 20).get_page(page_num)
+	return JsonResponse({
+		'ok': True,
+		'rows': list(page_obj.object_list),
+		'pagination': {
+			'page': page_obj.number,
+			'num_pages': page_obj.paginator.num_pages,
+			'has_previous': page_obj.has_previous(),
+			'has_next': page_obj.has_next(),
+			'previous_page_number': page_obj.previous_page_number() if page_obj.has_previous() else None,
+			'next_page_number': page_obj.next_page_number() if page_obj.has_next() else None,
+			'page_range': list(page_obj.paginator.page_range),
+		},
+	})
+
+
+def _build_attendance_rows(today, q='', filter_status=''):
+	now_dt = timezone.localtime()
+	window = _attendance_shift_window(now_dt)
+	logs = (
+		AttendanceLog.objects
+		.select_related('user')
+		.filter(attendance_date=today)
+	)
+	log_map = {log.user_id: log for log in logs}
+	users = (
+		User.objects
+		.select_related('profile')
+		.prefetch_related('groups')
+		.filter(is_active=True)
+		.order_by('last_name', 'first_name', 'username')
+	)
+	rows = []
+	for user_obj in users:
+		log = log_map.get(user_obj.id)
+		full_name = (user_obj.get_full_name() or '').strip() or (user_obj.username or f'User {user_obj.id}')
+		profile_obj = getattr(user_obj, 'profile', None)
+		first_group = user_obj.groups.order_by('name').first()
+		department = '-'
+		if first_group and first_group.name:
+			department = first_group.name
+		elif profile_obj and getattr(profile_obj, 'branch', ''):
+			department = profile_obj.branch
+		status = _evaluate_attendance_status(log, window) if log else ''
+		row = {
+			'employee_id': str(user_obj.id),
+			'name': full_name,
+			'department': department,
+			'time_in': timezone.localtime(log.time_in_at).strftime('%I:%M %p') if log and log.time_in_at else '-',
+			'time_out': timezone.localtime(log.time_out_at).strftime('%I:%M %p') if log and log.time_out_at else '-',
+			'status': status,
+			'time_in_image_url': log.time_in_photo.url if log and log.time_in_photo else '',
+			'time_out_image_url': log.time_out_photo.url if log and log.time_out_photo else '',
+		}
+		if q:
+			haystack = f"{row['employee_id']} {row['name']} {row['department']}".lower()
+			if q.lower() not in haystack:
+				continue
+		if filter_status:
+			if filter_status == '__blank__':
+				if row['status']:
+					continue
+			elif row['status'] != filter_status:
+				continue
+		rows.append(row)
+	return rows
 
 
 def _attendance_timemark_default_layout():
@@ -756,16 +1308,140 @@ def attendance_assist_settings(request):
 
 
 def _attendance_shift_window(now_dt):
-	shift_start = now_dt.replace(hour=8, minute=0, second=0, microsecond=0)
-	shift_end = now_dt.replace(hour=17, minute=0, second=0, microsecond=0)
-	time_in_open = shift_start - timedelta(minutes=5)
-	time_out_close = shift_end + timedelta(minutes=30)
+	policy, _ = AttendancePolicySetting.objects.get_or_create(key='global')
+	shift_start = now_dt.replace(
+		hour=policy.shift_start_time.hour,
+		minute=policy.shift_start_time.minute,
+		second=0,
+		microsecond=0,
+	)
+	time_out_start = now_dt.replace(
+		hour=policy.time_out_start_time.hour,
+		minute=policy.time_out_start_time.minute,
+		second=0,
+		microsecond=0,
+	)
+	lunch_start = now_dt.replace(
+		hour=policy.lunch_start_time.hour,
+		minute=policy.lunch_start_time.minute,
+		second=0,
+		microsecond=0,
+	)
+	lunch_end = now_dt.replace(
+		hour=policy.lunch_end_time.hour,
+		minute=policy.lunch_end_time.minute,
+		second=0,
+		microsecond=0,
+	)
+	time_in_open = shift_start - timedelta(minutes=int(policy.time_in_open_minutes_before or 0))
+	late_cutoff = shift_start + timedelta(minutes=int(policy.late_grace_minutes or 0))
+	lunch_return_late_cutoff = lunch_end + timedelta(minutes=int(policy.lunch_return_grace_minutes or 0))
+	time_out_close = time_out_start + timedelta(minutes=int(policy.time_out_close_minutes_after or 0))
 	return {
 		'shift_start': shift_start,
-		'shift_end': shift_end,
+		'shift_end': time_out_start,
+		'time_out_start': time_out_start,
+		'lunch_start': lunch_start,
+		'lunch_end': lunch_end,
 		'time_in_open': time_in_open,
+		'late_cutoff': late_cutoff,
+		'lunch_return_late_cutoff': lunch_return_late_cutoff,
 		'time_out_close': time_out_close,
 	}
+
+
+def _evaluate_attendance_status(record, window):
+	if not record or not record.time_in_at:
+		return ''
+
+	time_in_local = timezone.localtime(record.time_in_at)
+	time_out_local = timezone.localtime(record.time_out_at) if record.time_out_at else None
+
+	statuses = []
+
+	is_half_day_afternoon = window['lunch_start'] <= time_in_local <= window['lunch_end']
+	if is_half_day_afternoon:
+		statuses.append('Half Day (Afternoon)')
+	elif time_in_local > window['late_cutoff']:
+		statuses.append('Late')
+
+	if time_out_local:
+		if time_out_local < window['time_out_start']:
+			statuses.append('Early Out')
+		if time_in_local < window['lunch_start'] and time_out_local >= window['lunch_start'] and time_out_local < window['time_out_start']:
+			statuses.append('Half Day (Morning)')
+
+	if not statuses:
+		return 'Present'
+	return ', '.join(dict.fromkeys(statuses))
+
+
+@login_required
+def attendance_policy_settings(request):
+	policy, _ = AttendancePolicySetting.objects.get_or_create(key='global')
+
+	if request.method == 'GET':
+		return JsonResponse({
+			'ok': True,
+			'settings': {
+				'time_in_open_minutes_before': int(policy.time_in_open_minutes_before or 0),
+				'shift_start_time': policy.shift_start_time.strftime('%H:%M'),
+				'late_grace_minutes': int(policy.late_grace_minutes or 0),
+				'lunch_start_time': policy.lunch_start_time.strftime('%H:%M'),
+				'lunch_end_time': policy.lunch_end_time.strftime('%H:%M'),
+				'lunch_return_grace_minutes': int(policy.lunch_return_grace_minutes or 0),
+				'time_out_start_time': policy.time_out_start_time.strftime('%H:%M'),
+				'time_out_close_minutes_after': int(policy.time_out_close_minutes_after or 0),
+			},
+		})
+
+	if request.method != 'POST':
+		return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
+	if not (request.user.is_staff or request.user.is_superuser):
+		return JsonResponse({'ok': False, 'message': 'Only admins can update attendance policy settings.'}, status=403)
+
+	try:
+		payload = json.loads(request.body.decode('utf-8'))
+	except (TypeError, ValueError, json.JSONDecodeError):
+		return JsonResponse({'ok': False, 'message': 'Invalid settings payload.'}, status=400)
+
+	def parse_hhmm(value, fallback):
+		raw = str(value or '').strip()
+		try:
+			return datetime.strptime(raw, '%H:%M').time()
+		except Exception:
+			return fallback
+
+	def parse_int(value, fallback, lower=0, upper=1440):
+		try:
+			num = int(value)
+		except (TypeError, ValueError):
+			num = fallback
+		return min(upper, max(lower, num))
+
+	policy.time_in_open_minutes_before = parse_int(payload.get('time_in_open_minutes_before'), int(policy.time_in_open_minutes_before or 0), 0, 180)
+	policy.shift_start_time = parse_hhmm(payload.get('shift_start_time'), policy.shift_start_time)
+	policy.late_grace_minutes = parse_int(payload.get('late_grace_minutes'), int(policy.late_grace_minutes or 0), 0, 180)
+	policy.lunch_start_time = parse_hhmm(payload.get('lunch_start_time'), policy.lunch_start_time)
+	policy.lunch_end_time = parse_hhmm(payload.get('lunch_end_time'), policy.lunch_end_time)
+	policy.lunch_return_grace_minutes = parse_int(payload.get('lunch_return_grace_minutes'), int(policy.lunch_return_grace_minutes or 0), 0, 180)
+	policy.time_out_start_time = parse_hhmm(payload.get('time_out_start_time'), policy.time_out_start_time)
+	policy.time_out_close_minutes_after = parse_int(payload.get('time_out_close_minutes_after'), int(policy.time_out_close_minutes_after or 0), 0, 360)
+	policy.updated_by = request.user
+	policy.save(update_fields=[
+		'time_in_open_minutes_before',
+		'shift_start_time',
+		'late_grace_minutes',
+		'lunch_start_time',
+		'lunch_end_time',
+		'lunch_return_grace_minutes',
+		'time_out_start_time',
+		'time_out_close_minutes_after',
+		'updated_by',
+		'updated_at',
+	])
+	return JsonResponse({'ok': True})
 
 
 @login_required
@@ -781,12 +1457,17 @@ def attendance_assist_status(request):
 
 	if not record.time_in_at:
 		mode = 'time_in'
-		visible = window['time_in_open'] <= now_dt <= window['shift_end']
-		message = 'Time In window is open.' if visible else 'Time In is available 5 minutes before shift start.'
+		visible = window['time_in_open'] <= now_dt <= window['time_out_close']
+		if not visible:
+			message = 'Time In is not currently available.'
+		elif now_dt > window['late_cutoff']:
+			message = 'Time In is open. You are currently marked as late.'
+		else:
+			message = 'Time In window is open.'
 	elif not record.time_out_at:
 		mode = 'time_out'
-		visible = window['shift_end'] <= now_dt <= window['time_out_close']
-		message = 'Time Out window is open until 30 minutes after shift end.' if visible else 'Time Out opens at shift end.'
+		visible = window['time_out_start'] <= now_dt <= window['time_out_close']
+		message = 'Time Out window is open.' if visible else 'Time Out is not yet available.'
 	else:
 		mode = 'done'
 		visible = False
@@ -797,12 +1478,15 @@ def attendance_assist_status(request):
 		'visible': visible,
 		'mode': mode,
 		'message': message,
+		'is_late_time_in_hint': bool(mode == 'time_in' and visible and now_dt > window['late_cutoff']),
 		'shift_start': window['shift_start'].strftime('%I:%M %p'),
 		'shift_end': window['shift_end'].strftime('%I:%M %p'),
 		'time_in_open': window['time_in_open'].strftime('%I:%M %p'),
+		'time_out_start': window['time_out_start'].strftime('%I:%M %p'),
 		'time_out_close': window['time_out_close'].strftime('%I:%M %p'),
 		'time_in_at': timezone.localtime(record.time_in_at).strftime('%I:%M %p') if record.time_in_at else '',
 		'time_out_at': timezone.localtime(record.time_out_at).strftime('%I:%M %p') if record.time_out_at else '',
+		'server_time': now_dt.strftime('%I:%M %p'),
 	})
 
 
@@ -828,14 +1512,14 @@ def attendance_assist_submit(request):
 	if mode == 'time_in':
 		if record.time_in_at:
 			return JsonResponse({'ok': False, 'message': 'Time In already recorded.'}, status=400)
-		if not (window['time_in_open'] <= now_dt <= window['shift_end']):
+		if not (window['time_in_open'] <= now_dt <= window['time_out_close']):
 			return JsonResponse({'ok': False, 'message': 'Time In window is not open.'}, status=400)
 	else:
 		if not record.time_in_at:
 			return JsonResponse({'ok': False, 'message': 'Time In is required before Time Out.'}, status=400)
 		if record.time_out_at:
 			return JsonResponse({'ok': False, 'message': 'Time Out already recorded.'}, status=400)
-		if not (window['shift_end'] <= now_dt <= window['time_out_close']):
+		if not (window['time_out_start'] <= now_dt <= window['time_out_close']):
 			return JsonResponse({'ok': False, 'message': 'Time Out window is not open.'}, status=400)
 
 	try:
@@ -5898,6 +6582,8 @@ def users_create(request):
 			'page_title': 'Create User',
 			'submit_label': 'Create User',
 			'role_permissions_grouped_map': role_permissions_grouped_map,
+			'existing_user_ids': list(User.objects.values_list('username', flat=True)),
+			'current_user_id_value': '',
 		},
 	)
 
@@ -5950,6 +6636,8 @@ def users_update(request, user_id):
 			'page_title': f'Edit User: {managed_user.username}',
 			'submit_label': 'Save Changes',
 			'role_permissions_grouped_map': role_permissions_grouped_map,
+			'existing_user_ids': list(User.objects.values_list('username', flat=True)),
+			'current_user_id_value': managed_user.username,
 		},
 	)
 

@@ -166,10 +166,57 @@
 </div>
 
 {{ role_permissions_grouped_map|json_script:'role-permissions-grouped-data' }}
+{{ existing_user_ids|json_script:'existing-user-ids-data' }}
 
 <script>
     (function () {
         const initUserFormInteractions = () => {
+        const userIdInput = document.getElementById('id_username');
+        const userForm = document.querySelector('form[method="post"]');
+        const submitButton = userForm ? userForm.querySelector('button[type="submit"]') : null;
+        const currentUserIdValue = "{{ current_user_id_value|escapejs }}";
+        const existingUserIds = JSON.parse(document.getElementById('existing-user-ids-data')?.textContent || '[]')
+            .map((value) => String(value || '').trim().toLowerCase());
+        const existingUserIdSet = new Set(existingUserIds);
+        let userIdError = null;
+
+        const ensureUserIdErrorNode = () => {
+            if (!userIdInput || userIdError) {
+                return;
+            }
+            userIdError = document.createElement('div');
+            userIdError.className = 'text-danger small mt-1 d-none';
+            userIdInput.insertAdjacentElement('afterend', userIdError);
+        };
+
+        const syncUserIdUniqueness = () => {
+            if (!userIdInput || !submitButton) {
+                return;
+            }
+            ensureUserIdErrorNode();
+            const typedValue = String(userIdInput.value || '').trim();
+            const typedKey = typedValue.toLowerCase();
+            const currentKey = String(currentUserIdValue || '').trim().toLowerCase();
+            const usernameDuplicate = !!typedKey && typedKey !== currentKey && existingUserIdSet.has(typedKey);
+            userIdInput.classList.toggle('is-invalid', usernameDuplicate);
+            if (userIdError) {
+                if (usernameDuplicate) {
+                    userIdError.textContent = 'Username already exists. Please use a different username.';
+                    userIdError.classList.remove('d-none');
+                } else {
+                    userIdError.textContent = '';
+                    userIdError.classList.add('d-none');
+                }
+            }
+            submitButton.disabled = usernameDuplicate;
+        };
+
+        if (userIdInput) {
+            userIdInput.addEventListener('input', syncUserIdUniqueness);
+            userIdInput.addEventListener('change', syncUserIdUniqueness);
+            syncUserIdUniqueness();
+        }
+
         const getFieldCheckboxes = (fieldKind) => {
             if (fieldKind === 'groups') {
                 return document.querySelectorAll('input[type="checkbox"][name="groups"]');

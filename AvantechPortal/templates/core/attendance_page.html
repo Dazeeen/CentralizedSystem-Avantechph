@@ -10,26 +10,172 @@
             <h2 class="h5 mb-0">Today's Attendance</h2>
             <div class="d-flex align-items-center gap-2">
                 <span class="badge text-bg-light border">{{ attendance_date|date:'F d, Y' }}</span>
+                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#attendanceFiltersCollapse" aria-expanded="false" aria-controls="attendanceFiltersCollapse">Search & Filters</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#attendanceSettingsModal">Settings</button>
             </div>
         </div>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Employee ID</th><th>Name</th><th>Department</th><th>Time In</th><th>Time Out</th><th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in attendance_rows %}
-                    <tr>
-                        <td>{{ row.employee_id }}</td><td>{{ row.name }}</td><td>{{ row.department }}</td><td>{{ row.time_in }}</td><td>{{ row.time_out }}</td><td>{{ row.status }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="6" class="text-center text-secondary py-3">No attendance records for today.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="collapse mb-3" id="attendanceFiltersCollapse">
+            <div class="card card-body py-3">
+                <form id="attendanceFilterForm" class="row g-2">
+                    <div class="col-md-6">
+                        <label for="attendanceSearchInput" class="form-label mb-1">Search</label>
+                        <input type="text" class="form-control" id="attendanceSearchInput" name="q" value="{{ attendance_q }}" placeholder="Search user id, name, department">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="attendanceStatusFilter" class="form-label mb-1">Status</label>
+                        <select class="form-select" id="attendanceStatusFilter" name="status">
+                            <option value="" {% if not attendance_filter_status %}selected{% endif %}>All</option>
+                            <option value="Present" {% if attendance_filter_status == 'Present' %}selected{% endif %}>Present</option>
+                            <option value="Late" {% if attendance_filter_status == 'Late' %}selected{% endif %}>Late</option>
+                            <option value="Early Out" {% if attendance_filter_status == 'Early Out' %}selected{% endif %}>Early Out</option>
+                            <option value="Half Day (Morning)" {% if attendance_filter_status == 'Half Day (Morning)' %}selected{% endif %}>Half Day (Morning)</option>
+                            <option value="Half Day (Afternoon)" {% if attendance_filter_status == 'Half Day (Afternoon)' %}selected{% endif %}>Half Day (Afternoon)</option>
+                            <option value="__blank__" {% if attendance_filter_status == '__blank__' %}selected{% endif %}>No Status Yet</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-outline-primary w-100">Apply</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="attendance-split-layout">
+            <div>
+                <div class="table-responsive attendance-table-wrap">
+                    <table class="table table-sm align-middle mb-0 attendance-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th><th>Employee Name</th><th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody">
+                            {% for row in attendance_rows %}
+                            <tr class="attendance-row" data-employee-id="{{ row.employee_id }}" data-name="{{ row.name }}" data-department="{{ row.department }}" data-time-in="{{ row.time_in }}" data-time-out="{{ row.time_out }}" data-status="{{ row.status }}" data-time-in-image="{% if row.time_in_image_url %}{{ row.time_in_image_url }}{% endif %}" data-time-out-image="{% if row.time_out_image_url %}{{ row.time_out_image_url }}{% endif %}">
+                                <td>{{ row.employee_id }}</td>
+                                <td>{{ row.name }}</td>
+                                <td>
+                                    <span class="badge
+                                        {% if row.status == 'Present' %}text-bg-success
+                                        {% elif 'Late' in row.status %}text-bg-warning
+                                        {% elif 'Early Out' in row.status %}text-bg-danger
+                                        {% elif 'Half Day' in row.status %}text-bg-info
+                                        {% elif row.status == 'Absent' %}text-bg-secondary
+                                        {% else %}text-bg-light border{% endif %}">
+                                        {{ row.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="text-center text-secondary py-3">No attendance records for today.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="attendancePaginationWrap">
+                {% if attendance_rows.paginator.num_pages > 1 %}
+                <nav class="mt-3" aria-label="Attendance pagination" id="attendancePaginationNav">
+                    <ul class="pagination pagination-sm mb-0 justify-content-end">
+                        {% if attendance_rows.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ attendance_rows.previous_page_number }}">Previous</a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                        {% endif %}
+
+                        {% for page_num in attendance_rows.paginator.page_range %}
+                        <li class="page-item {% if attendance_rows.number == page_num %}active{% endif %}">
+                            <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                        </li>
+                        {% endfor %}
+
+                        {% if attendance_rows.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ attendance_rows.next_page_number }}">Next</a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">Next</span></li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+                </div>
+            </div>
+            <aside class="attendance-summary-panel">
+                <h3 class="attendance-summary-name" id="attendanceSummaryName">Select an attendance row</h3>
+                <div class="small text-secondary mb-3">Attendance Summary</div>
+                <div class="attendance-summary-grid">
+                    <div><div class="attendance-summary-label">Employee ID</div><div class="attendance-summary-value" id="attendanceSummaryEmployeeId">-</div></div>
+                    <div><div class="attendance-summary-label">Department</div><div class="attendance-summary-value" id="attendanceSummaryDepartment">-</div></div>
+                </div>
+                <div class="attendance-summary-grid">
+                    <div><div class="attendance-summary-label">Time In</div><div class="attendance-summary-value" id="attendanceSummaryTimeIn">-</div></div>
+                    <div><div class="attendance-summary-label">Time Out</div><div class="attendance-summary-value" id="attendanceSummaryTimeOut">-</div></div>
+                </div>
+                <div class="attendance-summary-item">
+                    <div class="attendance-summary-label">Status</div>
+                    <div class="attendance-summary-value" id="attendanceSummaryStatus">-</div>
+                </div>
+                <div class="attendance-summary-item">
+                    <div class="attendance-summary-label">Time In Image</div>
+                    <div id="attendanceSummaryImageWrap" class="attendance-summary-image-wrap">
+                        <img id="attendanceSummaryImage" class="attendance-summary-image attendance-summary-image-clickable d-none" alt="Time in capture" role="button" tabindex="0" title="View full image">
+                        <div id="attendanceSummaryImageEmpty" class="attendance-summary-image-empty">No time-in image available.</div>
+                    </div>
+                </div>
+                <div class="attendance-summary-item">
+                    <div class="attendance-summary-label">Time Out Image</div>
+                    <div id="attendanceSummaryOutImageWrap" class="attendance-summary-image-wrap">
+                        <img id="attendanceSummaryOutImage" class="attendance-summary-image attendance-summary-image-clickable d-none" alt="Time out capture" role="button" tabindex="0" title="View full image">
+                        <div id="attendanceSummaryOutImageEmpty" class="attendance-summary-image-empty">No time-out image available.</div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attendanceRowInfoModal" tabindex="-1" aria-labelledby="attendanceRowInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="attendanceRowInfoModalLabel">Attendance Details</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><div class="attendance-summary-label">ID</div><div class="attendance-summary-value" id="attendanceInfoEmployeeId">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Employee Name</div><div class="attendance-summary-value" id="attendanceInfoName">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Department</div><div class="attendance-summary-value" id="attendanceInfoDepartment">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Status</div><div class="attendance-summary-value" id="attendanceInfoStatus">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Time In</div><div class="attendance-summary-value" id="attendanceInfoTimeIn">-</div></div>
+                    <div class="col-md-6"><div class="attendance-summary-label">Time Out</div><div class="attendance-summary-value" id="attendanceInfoTimeOut">-</div></div>
+                    <div class="col-md-6">
+                        <div class="attendance-summary-label">Time In Image</div>
+                        <img id="attendanceInfoTimeInImage" class="img-fluid rounded border d-none" alt="Time in image">
+                        <div id="attendanceInfoTimeInImageEmpty" class="small text-secondary">No time-in image available.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="attendance-summary-label">Time Out Image</div>
+                        <img id="attendanceInfoTimeOutImage" class="img-fluid rounded border d-none" alt="Time out image">
+                        <div id="attendanceInfoTimeOutImageEmpty" class="small text-secondary">No time-out image available.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attendanceImagePreviewModal" tabindex="-1" aria-labelledby="attendanceImagePreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="attendanceImagePreviewModalLabel">Time In Image Preview</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center bg-dark-subtle">
+                <img id="attendanceImagePreviewModalImg" class="img-fluid rounded attendance-preview-modal-image" alt="Attendance full image preview">
+            </div>
         </div>
     </div>
 </div>
@@ -46,6 +192,7 @@
                     <div class="col-md-3 border-end">
                         <div class="list-group">
                             <button type="button" class="list-group-item list-group-item-action active js-att-settings-tab" data-target="timemarkPane">Timemark</button>
+                            <button type="button" class="list-group-item list-group-item-action js-att-settings-tab" data-target="attendancePolicyPane">Attendance Settings</button>
                             <button type="button" class="list-group-item list-group-item-action js-att-settings-tab" data-target="overlayPreviewPane">Overlay Preview</button>
                         </div>
                     </div>
@@ -65,6 +212,49 @@
                             <div>
                                 <label for="timemarkLocation" class="form-label">Location</label>
                                 <input type="text" class="form-control" id="timemarkLocation" placeholder="Enter full address">
+                            </div>
+                        </div>
+                        <div id="attendancePolicyPane" class="js-att-settings-pane d-none">
+                            <h3 class="h6 mb-3">Attendance Settings</h3>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="attendanceShiftStartTime" class="form-label">Shift Start Time</label>
+                                    <input type="time" class="form-control" id="attendanceShiftStartTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceTimeInOpenMinutes" class="form-label">Time In Open Minutes Before Shift</label>
+                                    <input type="number" min="0" max="180" class="form-control" id="attendanceTimeInOpenMinutes" placeholder="5">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLateGraceMinutes" class="form-label">Late Grace Period (minutes)</label>
+                                    <input type="number" min="0" max="180" class="form-control" id="attendanceLateGraceMinutes" placeholder="15">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLunchReturnGraceMinutes" class="form-label">Lunch Return Grace (minutes)</label>
+                                    <input type="number" min="0" max="180" class="form-control" id="attendanceLunchReturnGraceMinutes" placeholder="10">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLunchStartTime" class="form-label">Lunch Break From</label>
+                                    <input type="time" class="form-control" id="attendanceLunchStartTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceLunchEndTime" class="form-label">Lunch Break To</label>
+                                    <input type="time" class="form-control" id="attendanceLunchEndTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceTimeOutStartTime" class="form-label">Time Out Starts At</label>
+                                    <input type="time" class="form-control" id="attendanceTimeOutStartTime">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="attendanceTimeOutCloseMinutesAfter" class="form-label">Time Out Close Minutes After Start</label>
+                                    <input type="number" min="0" max="360" class="form-control" id="attendanceTimeOutCloseMinutesAfter" placeholder="180">
+                                </div>
+                            </div>
+                            <div class="small text-secondary mt-3">
+                                Rules applied: late after grace, early out before configured time out, half-day morning/afternoon detection around lunch window.
+                            </div>
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-primary" id="attendancePolicySaveBtn">Save Attendance Settings</button>
                             </div>
                         </div>
 
@@ -108,6 +298,41 @@
 </div>
 
 <style>
+.attendance-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.attendance-table-wrap { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+.attendance-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+.attendance-table thead th { white-space: nowrap; }
+.attendance-row { cursor: pointer; transition: box-shadow .18s ease, transform .18s ease, background-color .18s ease; }
+.attendance-row td { background: #fff; transition: background-color .18s ease, color .18s ease; }
+.attendance-row:hover td { background: #94c441; color: #0f172a; }
+.attendance-row.is-active td { background: #73b43b; color: #ffffff; font-weight: 600; }
+.attendance-row.is-active td:first-child { box-shadow: inset 3px 0 0 #94c441; }
+.attendance-summary-panel { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; background: #fcfdff; position: sticky; top: 12px; }
+.attendance-summary-name { font-size: 1.06rem; font-weight: 700; margin: 0 0 2px; color: #0f172a; }
+.attendance-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.attendance-summary-item { margin-bottom: 10px; }
+.attendance-summary-label { font-size: .74rem; color: #64748b; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+.attendance-summary-value { font-size: .95rem; font-weight: 600; color: #0f172a; word-break: break-word; }
+.attendance-summary-status-badge { display: inline-block; padding: .28rem .5rem; border-radius: .4rem; color: #fff; font-weight: 600; font-size: .82rem; }
+.attendance-summary-status-present { background: #198754; }
+.attendance-summary-status-late { background: #f59f00; color: #1f2937; }
+.attendance-summary-status-early { background: #dc3545; }
+.attendance-summary-status-half { background: #0dcaf0; color: #1f2937; }
+.attendance-summary-status-absent { background: #6c757d; }
+.attendance-summary-status-default { background: #64748b; }
+.attendance-summary-image-wrap { border: 1px solid #dbe3ee; border-radius: 10px; background: #f8fafc; min-height: 180px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.attendance-summary-image { width: 100%; height: 100%; max-height: 300px; object-fit: cover; display: block; }
+.attendance-summary-image-clickable { cursor: zoom-in; pointer-events: auto; }
+.attendance-summary-image-empty { color: #64748b; font-size: .9rem; padding: 14px; text-align: center; }
+.attendance-preview-modal-image {
+    max-height: min(70vh, 680px);
+    width: auto;
+    object-fit: contain;
+}
+@media (max-width: 991.98px) {
+    .attendance-split-layout { grid-template-columns: 1fr; }
+    .attendance-summary-panel { position: static; }
+}
 .overlay-preview-canvas {
     position: relative;
     width: 100%;
@@ -169,6 +394,303 @@
 
 <script>
 (function () {
+    let rows = Array.from(document.querySelectorAll('.attendance-row'));
+    const tableBodyEl = document.getElementById('attendanceTableBody');
+    const paginationWrapEl = document.getElementById('attendancePaginationWrap');
+    const filterFormEl = document.getElementById('attendanceFilterForm');
+    const searchInputEl = document.getElementById('attendanceSearchInput');
+    const statusFilterEl = document.getElementById('attendanceStatusFilter');
+    const rowInfoModalEl = document.getElementById('attendanceRowInfoModal');
+    const infoIdEl = document.getElementById('attendanceInfoEmployeeId');
+    const infoNameEl = document.getElementById('attendanceInfoName');
+    const infoDepartmentEl = document.getElementById('attendanceInfoDepartment');
+    const infoStatusEl = document.getElementById('attendanceInfoStatus');
+    const infoTimeInEl = document.getElementById('attendanceInfoTimeIn');
+    const infoTimeOutEl = document.getElementById('attendanceInfoTimeOut');
+    const infoTimeInImgEl = document.getElementById('attendanceInfoTimeInImage');
+    const infoTimeOutImgEl = document.getElementById('attendanceInfoTimeOutImage');
+    const infoTimeInImgEmptyEl = document.getElementById('attendanceInfoTimeInImageEmpty');
+    const infoTimeOutImgEmptyEl = document.getElementById('attendanceInfoTimeOutImageEmpty');
+    const nameEl = document.getElementById('attendanceSummaryName');
+    const empIdEl = document.getElementById('attendanceSummaryEmployeeId');
+    const deptEl = document.getElementById('attendanceSummaryDepartment');
+    const timeInEl = document.getElementById('attendanceSummaryTimeIn');
+    const timeOutEl = document.getElementById('attendanceSummaryTimeOut');
+    const statusEl = document.getElementById('attendanceSummaryStatus');
+    const imageEl = document.getElementById('attendanceSummaryImage');
+    const imageEmptyEl = document.getElementById('attendanceSummaryImageEmpty');
+    const outImageEl = document.getElementById('attendanceSummaryOutImage');
+    const outImageEmptyEl = document.getElementById('attendanceSummaryOutImageEmpty');
+    const imagePreviewModalEl = document.getElementById('attendanceImagePreviewModal');
+    const imagePreviewModalImg = document.getElementById('attendanceImagePreviewModalImg');
+    if (tableBodyEl && tableBodyEl.dataset.attendanceBound === '1') return;
+    if (tableBodyEl) tableBodyEl.dataset.attendanceBound = '1';
+    let fallbackBackdropEl = null;
+    const getModalInstance = (el) => {
+        if (!el) return null;
+        if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return null;
+        return bootstrap.Modal.getOrCreateInstance(el);
+    };
+    const openModalSafe = (el) => {
+        const bsModal = getModalInstance(el);
+        if (bsModal) {
+            bsModal.show();
+            return;
+        }
+        if (!el) return;
+        el.style.display = 'block';
+        el.classList.add('show');
+        el.removeAttribute('aria-hidden');
+        el.setAttribute('aria-modal', 'true');
+        document.body.classList.add('modal-open');
+        if (!fallbackBackdropEl) {
+            fallbackBackdropEl = document.createElement('div');
+            fallbackBackdropEl.className = 'modal-backdrop fade show';
+            document.body.appendChild(fallbackBackdropEl);
+        }
+    };
+    const closeModalSafe = (el) => {
+        const bsModal = getModalInstance(el);
+        if (bsModal) {
+            bsModal.hide();
+            return;
+        }
+        if (!el) return;
+        el.style.display = 'none';
+        el.classList.remove('show');
+        el.setAttribute('aria-hidden', 'true');
+        el.removeAttribute('aria-modal');
+        document.body.classList.remove('modal-open');
+        if (fallbackBackdropEl && fallbackBackdropEl.parentNode) {
+            fallbackBackdropEl.parentNode.removeChild(fallbackBackdropEl);
+            fallbackBackdropEl = null;
+        }
+    };
+    if (!tableBodyEl || !paginationWrapEl || !filterFormEl || !searchInputEl || !statusFilterEl || !nameEl || !empIdEl || !deptEl || !timeInEl || !timeOutEl || !statusEl || !imageEl || !imageEmptyEl || !outImageEl || !outImageEmptyEl) return;
+    const liveFeedUrl = "{% url 'attendance_live_feed' %}";
+    let previousSnapshot = {};
+
+    const selectRow = (row) => {
+        rows.forEach((r) => r.classList.toggle('is-active', r === row));
+        nameEl.textContent = row.dataset.name || 'Employee';
+        empIdEl.textContent = row.dataset.employeeId || '-';
+        deptEl.textContent = row.dataset.department || '-';
+        timeInEl.textContent = row.dataset.timeIn || '-';
+        timeOutEl.textContent = row.dataset.timeOut || '-';
+        const statusText = row.dataset.status || '-';
+        statusEl.textContent = statusText;
+        statusEl.className = 'attendance-summary-value attendance-summary-status-badge';
+        if (statusText === 'Present') statusEl.classList.add('attendance-summary-status-present');
+        else if (statusText.includes('Late')) statusEl.classList.add('attendance-summary-status-late');
+        else if (statusText.includes('Early Out')) statusEl.classList.add('attendance-summary-status-early');
+        else if (statusText.includes('Half Day')) statusEl.classList.add('attendance-summary-status-half');
+        else if (statusText === 'Absent') statusEl.classList.add('attendance-summary-status-absent');
+        else statusEl.classList.add('attendance-summary-status-default');
+
+        const imageUrl = (row.dataset.timeInImage || '').trim();
+        if (imageUrl) {
+            imageEl.src = imageUrl;
+            imageEl.classList.remove('d-none');
+            imageEmptyEl.classList.add('d-none');
+        } else {
+            imageEl.removeAttribute('src');
+            imageEl.classList.add('d-none');
+            imageEmptyEl.classList.remove('d-none');
+        }
+
+        const outImageUrl = (row.dataset.timeOutImage || '').trim();
+        if (outImageUrl) {
+            outImageEl.src = outImageUrl;
+            outImageEl.classList.remove('d-none');
+            outImageEmptyEl.classList.add('d-none');
+        } else {
+            outImageEl.removeAttribute('src');
+            outImageEl.classList.add('d-none');
+            outImageEmptyEl.classList.remove('d-none');
+        }
+    };
+
+    const openRowInfoModal = (row) => {
+        if (!infoIdEl || !infoNameEl || !infoDepartmentEl || !infoStatusEl || !infoTimeInEl || !infoTimeOutEl || !infoTimeInImgEl || !infoTimeOutImgEl || !infoTimeInImgEmptyEl || !infoTimeOutImgEmptyEl) return;
+        infoIdEl.textContent = row.dataset.employeeId || '-';
+        infoNameEl.textContent = row.dataset.name || '-';
+        infoDepartmentEl.textContent = row.dataset.department || '-';
+        infoStatusEl.textContent = row.dataset.status || '-';
+        infoTimeInEl.textContent = row.dataset.timeIn || '-';
+        infoTimeOutEl.textContent = row.dataset.timeOut || '-';
+
+        const timeInSrc = (row.dataset.timeInImage || '').trim();
+        if (timeInSrc) {
+            infoTimeInImgEl.src = timeInSrc;
+            infoTimeInImgEl.classList.remove('d-none');
+            infoTimeInImgEmptyEl.classList.add('d-none');
+        } else {
+            infoTimeInImgEl.removeAttribute('src');
+            infoTimeInImgEl.classList.add('d-none');
+            infoTimeInImgEmptyEl.classList.remove('d-none');
+        }
+
+        const timeOutSrc = (row.dataset.timeOutImage || '').trim();
+        if (timeOutSrc) {
+            infoTimeOutImgEl.src = timeOutSrc;
+            infoTimeOutImgEl.classList.remove('d-none');
+            infoTimeOutImgEmptyEl.classList.add('d-none');
+        } else {
+            infoTimeOutImgEl.removeAttribute('src');
+            infoTimeOutImgEl.classList.add('d-none');
+            infoTimeOutImgEmptyEl.classList.remove('d-none');
+        }
+        closeModalSafe(rowInfoModalEl);
+        openModalSafe(rowInfoModalEl);
+    };
+
+    const bindRowHandlers = () => {
+        rows.forEach((row) => {
+            row.addEventListener('click', () => selectRow(row));
+            row.addEventListener('dblclick', () => {
+                selectRow(row);
+                openRowInfoModal(row);
+            });
+        });
+    };
+    bindRowHandlers();
+    const openImagePreview = (sourceEl) => {
+        const src = (sourceEl.getAttribute('src') || '').trim();
+        if (!src || sourceEl.classList.contains('d-none') || !imagePreviewModalImg) return;
+        imagePreviewModalImg.src = src;
+        openModalSafe(imagePreviewModalEl);
+    };
+    imageEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(imageEl); });
+    outImageEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(outImageEl); });
+    if (infoTimeInImgEl) infoTimeInImgEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(infoTimeInImgEl); });
+    if (infoTimeOutImgEl) infoTimeOutImgEl.addEventListener('click', (event) => { event.preventDefault(); openImagePreview(infoTimeOutImgEl); });
+    imageEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openImagePreview(imageEl);
+        }
+    });
+    outImageEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openImagePreview(outImageEl);
+        }
+    });
+    if (rows.length) selectRow(rows[0]);
+
+    const statusBadgeClass = (statusText) => {
+        if (statusText === 'Present') return 'text-bg-success';
+        if (String(statusText).includes('Late')) return 'text-bg-warning';
+        if (String(statusText).includes('Early Out')) return 'text-bg-danger';
+        if (String(statusText).includes('Half Day')) return 'text-bg-info';
+        if (statusText === 'Absent') return 'text-bg-secondary';
+        return 'text-bg-light border';
+    };
+
+    const buildPaginationHtml = (pagination, q, status) => {
+        if (!pagination || !pagination.num_pages || pagination.num_pages <= 1) return '';
+        const qp = (page) => {
+            const p = new URLSearchParams();
+            if (q) p.set('q', q);
+            if (status) p.set('status', status);
+            p.set('page', String(page));
+            return `?${p.toString()}`;
+        };
+        const pages = (pagination.page_range || []).map((p) => `<li class="page-item ${pagination.page === p ? 'active' : ''}"><a class="page-link" href="${qp(p)}">${p}</a></li>`).join('');
+        return `<nav class="mt-3" aria-label="Attendance pagination" id="attendancePaginationNav"><ul class="pagination pagination-sm mb-0 justify-content-end">${pagination.has_previous ? `<li class="page-item"><a class="page-link" href="${qp(pagination.previous_page_number)}">Previous</a></li>` : '<li class="page-item disabled"><span class="page-link">Previous</span></li>'}${pages}${pagination.has_next ? `<li class="page-item"><a class="page-link" href="${qp(pagination.next_page_number)}">Next</a></li>` : '<li class="page-item disabled"><span class="page-link">Next</span></li>'}</ul></nav>`;
+    };
+
+    const buildRowsHtml = (items) => {
+        const esc = (v) => String(v == null ? '' : v)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        if (!items.length) return '<tr><td colspan="3" class="text-center text-secondary py-3">No attendance records for today.</td></tr>';
+        return items.map((row) => {
+            const status = row.status || '';
+            const badgeCls = statusBadgeClass(status);
+            return `<tr class="attendance-row" data-employee-id="${esc(row.employee_id || '')}" data-name="${esc(row.name || '')}" data-department="${esc(row.department || '')}" data-time-in="${esc(row.time_in || '-')}" data-time-out="${esc(row.time_out || '-')}" data-status="${esc(status)}" data-time-in-image="${esc(row.time_in_image_url || '')}" data-time-out-image="${esc(row.time_out_image_url || '')}"><td>${esc(row.employee_id || '')}</td><td>${esc(row.name || '')}</td><td><span class="badge ${badgeCls}">${esc(status || '-')}</span></td></tr>`;
+        }).join('');
+    };
+
+    const updateSnapshotAndNotify = (items) => {
+        const current = {};
+        items.forEach((row) => {
+            const key = String(row.employee_id || '');
+            current[key] = { time_in: row.time_in || '-', time_out: row.time_out || '-' };
+            const before = previousSnapshot[key];
+            if (!before) return;
+            if ((before.time_in === '-' || !before.time_in) && row.time_in && row.time_in !== '-') {
+                if (window.showToast) window.showToast(`${row.name || 'Employee'} timed in at ${row.time_in}.`, 'success');
+            }
+            if ((before.time_out === '-' || !before.time_out) && row.time_out && row.time_out !== '-') {
+                if (window.showToast) window.showToast(`${row.name || 'Employee'} timed out at ${row.time_out}.`, 'info');
+            }
+        });
+        previousSnapshot = current;
+    };
+
+    const refreshAttendanceLive = async (options = {}) => {
+        const selectedId = options.keepSelectedId || (rows.find((r) => r.classList.contains('is-active'))?.dataset.employeeId || '');
+        const q = (searchInputEl.value || '').trim();
+        const status = (statusFilterEl.value || '').trim();
+        const page = options.page || new URLSearchParams(window.location.search).get('page') || '1';
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (status) params.set('status', status);
+        params.set('page', page);
+        const response = await fetch(`${liveFeedUrl}?${params.toString()}`, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!payload || !payload.ok) return;
+        const items = Array.isArray(payload.rows) ? payload.rows : [];
+        tableBodyEl.innerHTML = buildRowsHtml(items);
+        paginationWrapEl.innerHTML = buildPaginationHtml(payload.pagination, q, status);
+        rows = Array.from(document.querySelectorAll('.attendance-row'));
+        bindRowHandlers();
+        updateSnapshotAndNotify(items);
+        if (rows.length) {
+            const matched = rows.find((r) => r.dataset.employeeId === selectedId) || rows[0];
+            selectRow(matched);
+        }
+    };
+
+    filterFormEl.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await refreshAttendanceLive({ page: '1' });
+    });
+    document.addEventListener('click', async (event) => {
+        const link = event.target.closest('#attendancePaginationWrap a.page-link');
+        if (!link) return;
+        event.preventDefault();
+        const url = new URL(link.href, window.location.origin);
+        const page = url.searchParams.get('page') || '1';
+        await refreshAttendanceLive({ page });
+    });
+
+    updateSnapshotAndNotify(rows.map((r) => ({
+        employee_id: r.dataset.employeeId || '',
+        name: r.dataset.name || '',
+        time_in: r.dataset.timeIn || '-',
+        time_out: r.dataset.timeOut || '-',
+    })));
+    tableBodyEl.addEventListener('dblclick', (event) => {
+        const row = event.target.closest('.attendance-row');
+        if (!row) return;
+        selectRow(row);
+        openRowInfoModal(row);
+    });
+    document.addEventListener('click', (event) => {
+        const closer = event.target.closest('#attendanceRowInfoModal [data-bs-dismiss=\"modal\"], #attendanceImagePreviewModal [data-bs-dismiss=\"modal\"]');
+        if (!closer) return;
+        const modalRoot = closer.closest('.modal');
+        if (modalRoot) closeModalSafe(modalRoot);
+    });
+    window.setInterval(() => { refreshAttendanceLive().catch(() => {}); }, 5000);
+})();
+
+(function () {
     const tabs = Array.from(document.querySelectorAll('.js-att-settings-tab'));
     const panes = Array.from(document.querySelectorAll('.js-att-settings-pane'));
     const logoInput = document.getElementById('timemarkLogoInput');
@@ -186,22 +708,32 @@
     const previewEmployee = document.getElementById('overlayPreviewEmployee');
     const previewMainLogo = document.getElementById('overlayPreviewMainLogo');
     const previewOrientationButtons = Array.from(document.querySelectorAll('.js-preview-orientation'));
+    const shiftStartInput = document.getElementById('attendanceShiftStartTime');
+    const timeInOpenMinutesInput = document.getElementById('attendanceTimeInOpenMinutes');
+    const lateGraceMinutesInput = document.getElementById('attendanceLateGraceMinutes');
+    const lunchStartInput = document.getElementById('attendanceLunchStartTime');
+    const lunchEndInput = document.getElementById('attendanceLunchEndTime');
+    const lunchReturnGraceInput = document.getElementById('attendanceLunchReturnGraceMinutes');
+    const timeOutStartInput = document.getElementById('attendanceTimeOutStartTime');
+    const timeOutCloseMinutesInput = document.getElementById('attendanceTimeOutCloseMinutesAfter');
+    const policySaveBtn = document.getElementById('attendancePolicySaveBtn');
     const STORAGE_KEY = 'attendance_timemark_settings_v1';
     const SETTINGS_API_URL = "{% url 'attendance_assist_settings' %}";
+    const POLICY_SETTINGS_API_URL = "{% url 'attendance_policy_settings' %}";
     const FIXED_LAYOUT = {
         landscape: {
-            company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
-            type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
-            time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
-            location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
-            logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.18 },
+            company: { x: 0.06, y: 0.58, w: 0.42, h: 0.10 },
+            type: { x: 0.06, y: 0.69, w: 0.32, h: 0.08 },
+            time: { x: 0.06, y: 0.77, w: 0.38, h: 0.08 },
+            location: { x: 0.06, y: 0.84, w: 0.56, h: 0.10 },
+            logo: { x: 0.78, y: 0.00, w: 0.16, h: 0.18 },
         },
         portrait: {
-            company: { x: 0.06, y: 0.68, w: 0.42, h: 0.10 },
-            type: { x: 0.06, y: 0.79, w: 0.32, h: 0.08 },
-            time: { x: 0.06, y: 0.87, w: 0.38, h: 0.08 },
-            location: { x: 0.06, y: 0.94, w: 0.56, h: 0.10 },
-            logo: { x: 0.78, y: 0.05, w: 0.16, h: 0.18 },
+            company: { x: 0.06, y: 0.58, w: 0.42, h: 0.10 },
+            type: { x: 0.06, y: 0.69, w: 0.32, h: 0.08 },
+            time: { x: 0.06, y: 0.77, w: 0.38, h: 0.08 },
+            location: { x: 0.06, y: 0.84, w: 0.56, h: 0.10 },
+            logo: { x: 0.78, y: 0.00, w: 0.16, h: 0.18 },
         },
     };
 
@@ -260,6 +792,30 @@
         logoData = d.logo_data || '';
         renderLogo(logoData);
         renderOverlayPreviewText();
+    };
+
+    const loadPolicySettings = async () => {
+        if (!shiftStartInput || !timeInOpenMinutesInput || !lateGraceMinutesInput || !lunchStartInput || !lunchEndInput || !lunchReturnGraceInput || !timeOutStartInput || !timeOutCloseMinutesInput) return;
+        if (!window.fetch) return;
+        try {
+            const response = await fetch(POLICY_SETTINGS_API_URL, {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (!response.ok) return;
+            const payload = await response.json();
+            if (!payload || !payload.ok || !payload.settings) return;
+            const p = payload.settings;
+            shiftStartInput.value = p.shift_start_time || '';
+            timeInOpenMinutesInput.value = String(p.time_in_open_minutes_before ?? '');
+            lateGraceMinutesInput.value = String(p.late_grace_minutes ?? '');
+            lunchStartInput.value = p.lunch_start_time || '';
+            lunchEndInput.value = p.lunch_end_time || '';
+            lunchReturnGraceInput.value = String(p.lunch_return_grace_minutes ?? '');
+            timeOutStartInput.value = p.time_out_start_time || '';
+            timeOutCloseMinutesInput.value = String(p.time_out_close_minutes_after ?? '');
+        } catch (e) {}
     };
 
     const loadSettings = async () => {
@@ -348,9 +904,47 @@
         }
     });
 
+    if (policySaveBtn) {
+        policySaveBtn.addEventListener('click', async () => {
+            const payload = {
+                shift_start_time: shiftStartInput ? shiftStartInput.value : '',
+                time_in_open_minutes_before: timeInOpenMinutesInput ? timeInOpenMinutesInput.value : '',
+                late_grace_minutes: lateGraceMinutesInput ? lateGraceMinutesInput.value : '',
+                lunch_start_time: lunchStartInput ? lunchStartInput.value : '',
+                lunch_end_time: lunchEndInput ? lunchEndInput.value : '',
+                lunch_return_grace_minutes: lunchReturnGraceInput ? lunchReturnGraceInput.value : '',
+                time_out_start_time: timeOutStartInput ? timeOutStartInput.value : '',
+                time_out_close_minutes_after: timeOutCloseMinutesInput ? timeOutCloseMinutesInput.value : '',
+            };
+            try {
+                const response = await fetch(POLICY_SETTINGS_API_URL, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCsrfToken(),
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.ok) {
+                    throw new Error((result && result.message) || 'Unable to save attendance policy settings.');
+                }
+                if (window.showToast) window.showToast('Attendance policy settings saved.', 'success');
+                else alert('Attendance policy settings saved.');
+            } catch (e) {
+                const message = (e && e.message) ? e.message : 'Unable to save attendance policy settings.';
+                if (window.showToast) window.showToast(message, 'danger');
+                else alert(message);
+            }
+        });
+    }
+
     settingsModalEl.addEventListener('shown.bs.modal', () => {
         showPane('timemarkPane');
         loadSettings();
+        loadPolicySettings();
     });
     window.setInterval(renderOverlayPreviewText, 1000);
     renderOverlayPreviewText();
