@@ -311,6 +311,13 @@ def finance_navigation_state(request):
     )
     is_support_ticket_nav_active = url_name.startswith('support_ticket')
     is_crm_nav_active = url_name.startswith('crm_')
+    is_human_resource_role = bool(
+        request.user.is_authenticated
+        and (
+            request.user.is_superuser
+            or request.user.groups.filter(name__iexact='Human Resource').exists()
+        )
+    )
 
     important_ticket_count = 0
     technical_action_required_count = 0
@@ -369,6 +376,7 @@ def finance_navigation_state(request):
 
     return {
         'is_crm_nav_active': is_crm_nav_active,
+        'is_human_resource_role': is_human_resource_role,
         'is_finance_nav_active': is_finance_nav_active,
         'is_asset_tracker_nav_active': is_asset_tracker_nav_active,
         'is_support_ticket_nav_active': is_support_ticket_nav_active,

@@ -1262,13 +1262,19 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    document.addEventListener('dblclick', function (event) {
+    var previousSalesRowDblclickHandler = window.__crmSalesRowDblclickHandler || null;
+    if (previousSalesRowDblclickHandler) {
+        document.removeEventListener('dblclick', previousSalesRowDblclickHandler);
+    }
+    var crmSalesRowDblclickHandler = function (event) {
         var row = event.target.closest('.crm-sales-row');
         if (row && !event.target.closest('input, button, a, label')) {
             setActiveSalesRow(row);
             openSalesModalFromRow(row);
         }
-    });
+    };
+    document.addEventListener('dblclick', crmSalesRowDblclickHandler);
+    window.__crmSalesRowDblclickHandler = crmSalesRowDblclickHandler;
 
     var summaryViewBtn = document.getElementById('crmSalesSummaryViewBtn');
     if (summaryViewBtn) {

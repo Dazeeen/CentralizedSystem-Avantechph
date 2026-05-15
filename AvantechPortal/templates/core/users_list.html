@@ -41,7 +41,13 @@
             <a class="btn btn-outline-success" href="{% url 'support_lockout_center' %}">Lockouts</a>
         {% endif %}
         <a class="btn btn-outline-success" href="{% url 'roles_list' %}">Manage Roles</a>
-        <a class="btn btn-success" href="{% url 'users_create' %}">Add User</a>
+        <button
+            type="button"
+            class="btn btn-success js-user-create-modal-trigger"
+            data-create-url="{% url 'users_create' %}"
+        >
+            Add User
+        </button>
     </div>
 </div>
 
@@ -117,7 +123,15 @@
                                     ...
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><a class="dropdown-item js-row-action" href="{% url 'users_update' row.user.id %}">Edit</a></li>
+                                    <li>
+                                        <button
+                                            type="button"
+                                            class="dropdown-item js-row-action js-user-edit-modal-trigger"
+                                            data-edit-url="{% url 'users_update' row.user.id %}"
+                                        >
+                                            Edit
+                                        </button>
+                                    </li>
                                     <li><a class="dropdown-item text-danger js-row-action" href="{% url 'users_delete' row.user.id %}">Delete</a></li>
                                 </ul>
                             </div>
@@ -194,6 +208,17 @@
             </div>
         </div>
     {% endif %}
+</div>
+
+<div class="modal fade" id="userEditModal" tabindex="-1" aria-labelledby="userEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-lg-down">
+        <div class="modal-content border-0 shadow">
+            {% include 'core/includes/modal_header.html' with modal_title='User Form' modal_title_id='userEditModalLabel' %}
+            <div class="modal-body bg-light-subtle" id="userEditModalBody">
+                <div class="text-secondary">Loading edit form...</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="userProfileModal" tabindex="-1" aria-labelledby="userProfileModalLabel" aria-hidden="true">
@@ -350,6 +375,130 @@
 </div>
 
 {{ user_profile_map|json_script:'user-profile-data' }}
+
+<script>
+    (function () {
+        const setUserModalTitle = (titleText) => {
+            const titleEl = document.getElementById('userEditModalLabel');
+            if (titleEl) {
+                titleEl.textContent = titleText;
+            }
+        };
+
+        const bindEditModalTriggers = () => {
+            document.querySelectorAll('.js-user-edit-modal-trigger').forEach((trigger) => {
+                if (trigger.dataset.userEditBound === '1') {
+                    return;
+                }
+                trigger.dataset.userEditBound = '1';
+                trigger.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const editUrl = trigger.getAttribute('data-edit-url');
+                    if (window.openUserEditModal) {
+                        window.openUserEditModal(editUrl);
+                    }
+                });
+            });
+        };
+
+        const bindCreateModalTriggers = () => {
+            document.querySelectorAll('.js-user-create-modal-trigger').forEach((trigger) => {
+                if (trigger.dataset.userCreateBound === '1') {
+                    return;
+                }
+                trigger.dataset.userCreateBound = '1';
+                trigger.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    const createUrl = trigger.getAttribute('data-create-url');
+                    if (window.openUserCreateModal) {
+                        window.openUserCreateModal(createUrl);
+                    }
+                });
+            });
+        };
+
+        const bindModalFormSubmit = (bodyEl, editModal) => {
+            const form = bodyEl.querySelector('#usersEditModalForm');
+            if (!form || form.dataset.bound === '1') {
+                return;
+            }
+            form.dataset.bound = '1';
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.disabled = true;
+                }
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        body: new FormData(form),
+                    });
+                    const contentType = response.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        const payload = await response.json();
+                        if (payload && payload.ok) {
+                            editModal.hide();
+                            window.location.reload();
+                            return;
+                        }
+                    }
+                    const html = await response.text();
+                    bodyEl.innerHTML = html;
+                    bindModalFormSubmit(bodyEl, editModal);
+                } catch (error) {
+                    bodyEl.innerHTML = '<div class="alert alert-danger mb-0">Unable to save user changes right now.</div>';
+                } finally {
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                    }
+                }
+            });
+        };
+
+        window.openUserAccountFormModal = async (formUrl, modalTitle) => {
+            const modalEl = document.getElementById('userEditModal');
+            const bodyEl = document.getElementById('userEditModalBody');
+            if (!modalEl || !bodyEl || !window.bootstrap || !window.fetch || !formUrl) {
+                return;
+            }
+            const editModal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+            setUserModalTitle(modalTitle || 'User Form');
+            bodyEl.innerHTML = '<div class="text-secondary">Loading edit form...</div>';
+            editModal.show();
+            try {
+                const separator = formUrl.includes('?') ? '&' : '?';
+                const response = await fetch(`${formUrl}${separator}modal=1`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const html = await response.text();
+                bodyEl.innerHTML = html;
+                bindModalFormSubmit(bodyEl, editModal);
+            } catch (error) {
+                bodyEl.innerHTML = '<div class="alert alert-danger mb-0">Unable to load edit form.</div>';
+            }
+        };
+
+        window.openUserEditModal = (editUrl) => window.openUserAccountFormModal(editUrl, 'Edit User');
+        window.openUserCreateModal = (createUrl) => window.openUserAccountFormModal(createUrl, 'Create User');
+
+        const modalEl = document.getElementById('userEditModal');
+        if (modalEl && modalEl.dataset.userEditModalCleanupBound !== '1') {
+            modalEl.dataset.userEditModalCleanupBound = '1';
+            modalEl.addEventListener('hidden.bs.modal', () => {
+                const bodyEl = document.getElementById('userEditModalBody');
+                if (bodyEl) {
+                    bodyEl.innerHTML = '<div class="text-secondary">Loading edit form...</div>';
+                }
+            });
+        }
+
+        bindEditModalTriggers();
+        bindCreateModalTriggers();
+    })();
+</script>
 
 <script>
     (function () {

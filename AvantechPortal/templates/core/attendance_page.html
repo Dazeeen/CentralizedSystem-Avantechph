@@ -469,9 +469,12 @@
     if (!tableBodyEl || !paginationWrapEl || !filterFormEl || !searchInputEl || !statusFilterEl || !nameEl || !empIdEl || !deptEl || !timeInEl || !timeOutEl || !statusEl || !imageEl || !imageEmptyEl || !outImageEl || !outImageEmptyEl) return;
     const liveFeedUrl = "{% url 'attendance_live_feed' %}";
     let previousSnapshot = {};
+    let selectedEmployeeId = '';
 
     const selectRow = (row) => {
+        if (!row) return;
         rows.forEach((r) => r.classList.toggle('is-active', r === row));
+        selectedEmployeeId = row.dataset.employeeId || '';
         nameEl.textContent = row.dataset.name || 'Employee';
         empIdEl.textContent = row.dataset.employeeId || '-';
         deptEl.textContent = row.dataset.department || '-';
@@ -544,16 +547,15 @@
         openModalSafe(rowInfoModalEl);
     };
 
-    const bindRowHandlers = () => {
-        rows.forEach((row) => {
-            row.addEventListener('click', () => selectRow(row));
-            row.addEventListener('dblclick', () => {
-                selectRow(row);
-                openRowInfoModal(row);
-            });
-        });
+    const handleAttendanceRowSingleClick = (row) => {
+        if (!row) return;
+        selectRow(row);
     };
-    bindRowHandlers();
+    const handleAttendanceRowDoubleClick = (row) => {
+        if (!row) return;
+        selectRow(row);
+        openRowInfoModal(row);
+    };
     const openImagePreview = (sourceEl) => {
         const src = (sourceEl.getAttribute('src') || '').trim();
         if (!src || sourceEl.classList.contains('d-none') || !imagePreviewModalImg) return;
@@ -632,7 +634,7 @@
     };
 
     const refreshAttendanceLive = async (options = {}) => {
-        const selectedId = options.keepSelectedId || (rows.find((r) => r.classList.contains('is-active'))?.dataset.employeeId || '');
+        const selectedId = options.keepSelectedId || selectedEmployeeId || (rows.find((r) => r.classList.contains('is-active'))?.dataset.employeeId || '');
         const q = (searchInputEl.value || '').trim();
         const status = (statusFilterEl.value || '').trim();
         const page = options.page || new URLSearchParams(window.location.search).get('page') || '1';
@@ -648,11 +650,12 @@
         tableBodyEl.innerHTML = buildRowsHtml(items);
         paginationWrapEl.innerHTML = buildPaginationHtml(payload.pagination, q, status);
         rows = Array.from(document.querySelectorAll('.attendance-row'));
-        bindRowHandlers();
         updateSnapshotAndNotify(items);
         if (rows.length) {
             const matched = rows.find((r) => r.dataset.employeeId === selectedId) || rows[0];
             selectRow(matched);
+        } else {
+            selectedEmployeeId = '';
         }
     };
 
@@ -675,12 +678,26 @@
         time_in: r.dataset.timeIn || '-',
         time_out: r.dataset.timeOut || '-',
     })));
-    tableBodyEl.addEventListener('dblclick', (event) => {
+    if (tableBodyEl.__attendanceTableClickHandler) {
+        tableBodyEl.removeEventListener('click', tableBodyEl.__attendanceTableClickHandler);
+    }
+    if (tableBodyEl.__attendanceTableDblclickHandler) {
+        tableBodyEl.removeEventListener('dblclick', tableBodyEl.__attendanceTableDblclickHandler);
+    }
+    const attendanceTableClickHandler = (event) => {
         const row = event.target.closest('.attendance-row');
         if (!row) return;
-        selectRow(row);
-        openRowInfoModal(row);
-    });
+        handleAttendanceRowSingleClick(row);
+    };
+    const attendanceTableDblclickHandler = (event) => {
+        const row = event.target.closest('.attendance-row');
+        if (!row) return;
+        handleAttendanceRowDoubleClick(row);
+    };
+    tableBodyEl.__attendanceTableClickHandler = attendanceTableClickHandler;
+    tableBodyEl.__attendanceTableDblclickHandler = attendanceTableDblclickHandler;
+    tableBodyEl.addEventListener('click', attendanceTableClickHandler);
+    tableBodyEl.addEventListener('dblclick', attendanceTableDblclickHandler);
     document.addEventListener('click', (event) => {
         const closer = event.target.closest('#attendanceRowInfoModal [data-bs-dismiss=\"modal\"], #attendanceImagePreviewModal [data-bs-dismiss=\"modal\"]');
         if (!closer) return;

@@ -11,13 +11,15 @@
 
         <form method="post">
             {% csrf_token %}
+            {{ form.admin_current_password }}
             {% if form.non_field_errors %}
                 <div class="alert alert-danger">{{ form.non_field_errors }}</div>
             {% endif %}
 
             <div class="row g-3">
                 {% for field in form %}
-                    {% if field.name == 'groups' %}
+                    {% if field.name == 'admin_current_password' %}
+                    {% elif field.name == 'groups' %}
                         <div class="col-12 col-lg-6">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <label for="{{ field.id_for_label }}" class="form-label fw-semibold mb-0">{{ field.label }}</label>
@@ -154,6 +156,29 @@
     </div>
 </div>
 
+<div class="modal fade" id="adminPasswordConfirmModal" tabindex="-1" aria-labelledby="adminPasswordConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title" id="adminPasswordConfirmModalLabel">Confirm Admin Password</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <p class="text-secondary mb-3">Enter your current admin password to save this user's new password.</p>
+                <label for="adminCurrentPasswordModalInput" class="form-label fw-semibold">Current Admin Password</label>
+                <input type="password" id="adminCurrentPasswordModalInput" class="form-control" autocomplete="current-password">
+                {% if form.admin_current_password.errors %}
+                    <div class="text-danger small mt-1">{{ form.admin_current_password.errors|striptags }}</div>
+                {% endif %}
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmAdminPasswordSaveButton">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="rolePermissionPreviewModal" tabindex="-1" aria-labelledby="rolePermissionPreviewModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
@@ -174,6 +199,13 @@
         const userIdInput = document.getElementById('id_username');
         const userForm = document.querySelector('form[method="post"]');
         const submitButton = userForm ? userForm.querySelector('button[type="submit"]') : null;
+        const newPasswordInput = document.getElementById('id_new_password1');
+        const confirmPasswordInput = document.getElementById('id_new_password2');
+        const adminPasswordHiddenInput = document.getElementById('id_admin_current_password');
+        const adminPasswordModalInput = document.getElementById('adminCurrentPasswordModalInput');
+        const confirmAdminPasswordSaveButton = document.getElementById('confirmAdminPasswordSaveButton');
+        const adminPasswordModalElement = document.getElementById('adminPasswordConfirmModal');
+        const adminPasswordModal = adminPasswordModalElement ? new bootstrap.Modal(adminPasswordModalElement) : null;
         const currentUserIdValue = "{{ current_user_id_value|escapejs }}";
         const existingUserIds = JSON.parse(document.getElementById('existing-user-ids-data')?.textContent || '[]')
             .map((value) => String(value || '').trim().toLowerCase());
@@ -215,6 +247,49 @@
             userIdInput.addEventListener('input', syncUserIdUniqueness);
             userIdInput.addEventListener('change', syncUserIdUniqueness);
             syncUserIdUniqueness();
+        }
+
+        const passwordChangeRequested = () => {
+            const newPassword = String(newPasswordInput?.value || '').trim();
+            const confirmPassword = String(confirmPasswordInput?.value || '').trim();
+            return !!newPassword || !!confirmPassword;
+        };
+
+        if (userForm && submitButton && adminPasswordHiddenInput && adminPasswordModalInput && adminPasswordModal) {
+            userForm.addEventListener('submit', (event) => {
+                if (!passwordChangeRequested()) {
+                    return;
+                }
+                if (adminPasswordHiddenInput.value) {
+                    return;
+                }
+                event.preventDefault();
+                adminPasswordModalInput.value = '';
+                adminPasswordModal.show();
+                setTimeout(() => adminPasswordModalInput.focus(), 120);
+            });
+
+            if (confirmAdminPasswordSaveButton) {
+                confirmAdminPasswordSaveButton.addEventListener('click', () => {
+                    const adminPasswordValue = String(adminPasswordModalInput.value || '').trim();
+                    adminPasswordHiddenInput.value = adminPasswordValue;
+                    adminPasswordModal.hide();
+                    if (!adminPasswordValue) {
+                        adminPasswordModal.show();
+                        setTimeout(() => adminPasswordModalInput.focus(), 120);
+                        return;
+                    }
+                    userForm.requestSubmit(submitButton);
+                });
+            }
+
+            if (adminPasswordModalElement) {
+                adminPasswordModalElement.addEventListener('hidden.bs.modal', () => {
+                    if (!adminPasswordHiddenInput.value) {
+                        adminPasswordModalInput.value = '';
+                    }
+                });
+            }
         }
 
         const getFieldCheckboxes = (fieldKind) => {
@@ -497,6 +572,10 @@
         });
 
         filterUserPermissions();
+
+        if (adminPasswordHiddenInput && adminPasswordHiddenInput.value && adminPasswordModal) {
+            adminPasswordModal.show();
+        }
 
         };
 

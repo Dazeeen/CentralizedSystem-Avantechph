@@ -210,6 +210,34 @@ def _has_any_permission(user, permission_names):
 	return any(user.has_perm(permission_name) for permission_name in permission_names)
 
 
+def _is_crm_technicals_admin(user):
+	return bool(user and user.is_authenticated and (user.is_superuser or user.has_perm('core.manage_crm_technicals_section')))
+
+
+def _is_human_resource_role_member(user):
+	return bool(
+		user
+		and user.is_authenticated
+		and (
+			user.is_superuser
+			or user.groups.filter(name__iexact='Human Resource').exists()
+		)
+	)
+
+
+def _can_access_forms_section(user):
+	if not user or not user.is_authenticated:
+		return False
+	if user.is_superuser or user.is_staff or _is_human_resource_role_member(user):
+		return True
+	return (
+		user.has_perm('core.view_assetaccountability')
+		or user.has_perm('core.add_assetaccountability')
+		or user.has_perm('core.change_assetaccountability')
+		or user.has_perm('core.delete_assetaccountability')
+	)
+
+
 def _geocode_ph_address(full_address):
 	address = (full_address or '').strip()
 	if not address:
@@ -648,8 +676,6 @@ def _resolve_timekeeping_user(employee_id, employee_name, user_by_id, user_by_na
 		profile_match = UserProfile.objects.select_related('user').filter(employee_id__iexact=emp_id, user__is_active=True).first()
 		if profile_match and profile_match.user_id:
 			return profile_match.user
-		if emp_id in user_by_id:
-			return user_by_id.get(emp_id)
 	name_key = str(employee_name or '').strip().lower()
 	if name_key and name_key in user_by_name:
 		return user_by_name.get(name_key)
@@ -660,7 +686,10 @@ def _resolve_timekeeping_user_by_system_id(employee_id, user_by_id):
 	emp_id = str(employee_id or '').strip()
 	if not emp_id:
 		return None
-	return user_by_id.get(emp_id)
+	profile_match = UserProfile.objects.select_related('user').filter(employee_id__iexact=emp_id, user__is_active=True).first()
+	if profile_match and profile_match.user_id:
+		return profile_match.user
+	return None
 
 
 def _parse_timekeeping_date_range(payload):
@@ -732,6 +761,8 @@ def _enrich_timekeeping_payload_with_verification(payload, user_obj):
 
 @login_required
 def timekeeping_page(request):
+	if not _is_human_resource_role_member(request.user):
+		return _permission_denied_response(request, 'Only Human Resource role can access Timekeeping.')
 	if request.method == 'POST':
 		action = (request.POST.get('form_action') or '').strip()
 		if action == 'import_biometrics':
@@ -806,11 +837,15 @@ def timekeeping_page(request):
 				time_in_image_url = latest_log.time_in_photo.url
 			if latest_log and latest_log.time_out_photo:
 				time_out_image_url = latest_log.time_out_photo.url
+		system_employee_id = '-'
+		if user_obj:
+			user_profile = getattr(user_obj, 'profile', None)
+			system_employee_id = (getattr(user_profile, 'employee_id', '') or '').strip() or '-'
 		timekeeping_rows.append({
 			'entry_id': e.id,
 			'employee_id': e.employee_id or '-',
 			'employee_name': e.employee_name or '-',
-			'system_user_id': str(user_obj.id) if user_obj else '-',
+			'system_user_id': system_employee_id,
 			'system_user_name': (user_obj.get_full_name() or user_obj.username) if user_obj else '-',
 			'system_username': user_obj.username if user_obj else '-',
 			'batch_name': (e.batch.source_filename if e.batch_id else ''),
@@ -822,6 +857,26 @@ def timekeeping_page(request):
 			'verification_status': verification_status,
 			'user_match_status': 'Matched in System' if user_obj else 'Not Found in System',
 		})
+	employee_q = (request.GET.get('employee_q') or '').strip()
+	employee_status = (request.GET.get('employee_status') or '').strip()
+	filtered_timekeeping_rows = timekeeping_rows
+	if employee_q:
+		query_lower = employee_q.lower()
+		filtered_timekeeping_rows = [
+			row for row in filtered_timekeeping_rows
+			if query_lower in str(row.get('employee_id', '')).lower()
+			or query_lower in str(row.get('employee_name', '')).lower()
+			or query_lower in str(row.get('system_user_id', '')).lower()
+			or query_lower in str(row.get('system_user_name', '')).lower()
+			or query_lower in str(row.get('system_username', '')).lower()
+		]
+	if employee_status:
+		status_lower = employee_status.lower()
+		filtered_timekeeping_rows = [
+			row for row in filtered_timekeeping_rows
+			if str(row.get('user_match_status', '')).lower() == status_lower
+		]
+	timekeeping_page = Paginator(filtered_timekeeping_rows, 5).get_page(request.GET.get('employee_page'))
 
 	imported_batches = (
 		TimekeepingImportBatch.objects
@@ -831,7 +886,10 @@ def timekeeping_page(request):
 	)
 
 	context = {
-		'timekeeping_rows': timekeeping_rows,
+		'timekeeping_rows': list(timekeeping_page.object_list),
+		'timekeeping_page': timekeeping_page,
+		'employee_q': employee_q,
+		'employee_status': employee_status,
 		'latest_timekeeping_batch': latest_batch,
 		'imported_batches': imported_batches,
 	}
@@ -840,6 +898,8 @@ def timekeeping_page(request):
 
 @login_required
 def timekeeping_batch_detail(request, batch_id):
+	if not _is_human_resource_role_member(request.user):
+		return _permission_denied_response(request, 'Only Human Resource role can access Timekeeping.')
 	batch = get_object_or_404(TimekeepingImportBatch.objects.select_related('imported_by'), id=batch_id)
 	user_qs = User.objects.filter(is_active=True).only('id', 'first_name', 'last_name', 'username')
 	user_by_id = {str(u.id): u for u in user_qs}
@@ -900,6 +960,8 @@ def _format_attendance_date_range_long(raw_value):
 
 @login_required
 def timekeeping_batch_download(request, batch_id):
+	if not _is_human_resource_role_member(request.user):
+		return _permission_denied_response(request, 'Only Human Resource role can access Timekeeping.')
 	batch = get_object_or_404(TimekeepingImportBatch, id=batch_id)
 	entries = batch.entries.order_by('row_number', 'id')
 	headers = []
@@ -921,6 +983,8 @@ def timekeeping_batch_download(request, batch_id):
 
 @login_required
 def timekeeping_batch_print(request, batch_id):
+	if not _is_human_resource_role_member(request.user):
+		return _permission_denied_response(request, 'Only Human Resource role can access Timekeeping.')
 	batch = get_object_or_404(TimekeepingImportBatch.objects.select_related('imported_by'), id=batch_id)
 	entries = []
 	for row in batch.entries.order_by('row_number', 'id'):
@@ -1760,13 +1824,56 @@ def crm_dashboard(request):
 	closed_won_sales_qs = sales_qs.filter(
 		Q(sales_status__iexact='close won') | Q(sales_status__iexact='closed won')
 	)
+	closed_lost_sales_qs = sales_qs.filter(
+		Q(sales_status__iexact='close lost') | Q(sales_status__iexact='closed lost')
+	)
 	closed_won_sales = closed_won_sales_qs.count()
+	closed_lost_sales = closed_lost_sales_qs.count()
 	technical_active_jobs = technical_qs.filter(
 		Q(installation_status__iexact='scheduled')
 		| Q(installation_status__iexact='ongoing')
 		| Q(installation_status__iexact='rescheduled')
 		| Q(installation_status__iexact='back jobs')
 	).count()
+	actionable_technical_qs = technical_qs.filter(
+		Q(installation_status__iexact='scheduled')
+		| Q(installation_status__iexact='rescheduled')
+		| Q(installation_status__iexact='back jobs')
+		| Q(installation_status__iexact='ongoing')
+	).exclude(installation_date__isnull=True)
+	technical_responsibility_notifications_count = actionable_technical_qs.count()
+	technical_schedule_dates = list(actionable_technical_qs.values_list('installation_date', flat=True))
+
+	technical_today_overdue = sum(1 for d in technical_schedule_dates if d and d < today)
+	technical_today_due = sum(1 for d in technical_schedule_dates if d == today)
+	technical_today_upcoming = sum(1 for d in technical_schedule_dates if d and today < d <= (today + timedelta(days=3)))
+	technical_today_later = sum(1 for d in technical_schedule_dates if d and d > (today + timedelta(days=3)))
+
+	technical_week_labels = []
+	technical_week_values = []
+	for i in range(7):
+		d = week_start + timedelta(days=i)
+		technical_week_labels.append(d.strftime('%a'))
+		technical_week_values.append(sum(1 for schedule_date in technical_schedule_dates if schedule_date == d))
+
+	technical_month_labels = []
+	technical_month_values = []
+	for day in range(1, month_total_days + 1):
+		d = month_start.replace(day=day)
+		technical_month_labels.append(str(day))
+		technical_month_values.append(sum(1 for schedule_date in technical_schedule_dates if schedule_date == d))
+
+	technical_year_labels = []
+	technical_year_values = []
+	for month_num in range(1, 13):
+		technical_year_labels.append(datetime.strptime(str(month_num), '%m').strftime('%b'))
+		technical_year_values.append(
+			sum(
+				1
+				for schedule_date in technical_schedule_dates
+				if schedule_date and schedule_date.year == today.year and schedule_date.month == month_num
+			)
+		)
 	monthly_quota = Decimal('5000000')
 	quarterly_quota = monthly_quota * Decimal('3')
 	annual_quota = monthly_quota * Decimal('12')
@@ -1775,13 +1882,42 @@ def crm_dashboard(request):
 	annual_revenue = sales_qs.filter(created_at__date__gte=year_start).aggregate(total=Sum('project_cost')).get('total') or Decimal('0')
 	total_revenue = sales_qs.aggregate(total=Sum('project_cost')).get('total') or Decimal('0')
 	monthly_milestone_pct = int((monthly_revenue / monthly_quota) * 100) if monthly_quota else 0
+	closed_lost_datetimes = [timezone.localtime(ts) for ts in closed_lost_sales_qs.values_list('created_at', flat=True)]
+	closed_lost_today_labels = []
+	closed_lost_today_values = []
+	for hour in range(24):
+		closed_lost_today_labels.append(datetime.strptime(f'{hour:02d}:00', '%H:%M').strftime('%I %p').lstrip('0'))
+		closed_lost_today_values.append(
+			sum(1 for dt in closed_lost_datetimes if dt.date() == today and dt.hour == hour)
+		)
+	closed_lost_week_labels = []
+	closed_lost_week_values = []
+	for i in range(7):
+		d = week_start + timedelta(days=i)
+		closed_lost_week_labels.append(d.strftime('%a'))
+		closed_lost_week_values.append(sum(1 for dt in closed_lost_datetimes if dt.date() == d))
+	closed_lost_month_labels = []
+	closed_lost_month_values = []
+	for day in range(1, month_total_days + 1):
+		d = month_start.replace(day=day)
+		closed_lost_month_labels.append(str(day))
+		closed_lost_month_values.append(sum(1 for dt in closed_lost_datetimes if dt.date() == d))
+	closed_lost_year_labels = []
+	closed_lost_year_values = []
+	for month_num in range(1, 13):
+		closed_lost_year_labels.append(datetime.strptime(str(month_num), '%m').strftime('%b'))
+		closed_lost_year_values.append(
+			sum(1 for dt in closed_lost_datetimes if dt.year == today.year and dt.month == month_num)
+		)
 
 	context = {
 		'total_clients': total_leads,
 		'total_leads': total_leads,
 		'active_sales_pipeline': active_sales_pipeline,
 		'closed_won_sales': closed_won_sales,
+		'closed_lost_sales': closed_lost_sales,
 		'technical_active_jobs': technical_active_jobs,
+		'technical_responsibility_notifications_count': technical_responsibility_notifications_count,
 		'monthly_milestone_pct': monthly_milestone_pct,
 		'monthly_revenue': monthly_revenue,
 		'quarterly_revenue': quarterly_revenue,
@@ -1812,6 +1948,30 @@ def crm_dashboard(request):
 				'week': {'labels': week_labels, 'values': week_values},
 				'month': {'labels': month_labels, 'values': month_values},
 				'year': {'labels': year_labels, 'values': year_values},
+			}
+		),
+		'crm_technical_responsibility_report_json': dumps(
+			{
+				'today': {
+					'labels': ['Overdue', 'Due Today', 'Next 3 Days', 'Later'],
+					'values': [
+						technical_today_overdue,
+						technical_today_due,
+						technical_today_upcoming,
+						technical_today_later,
+					],
+				},
+				'week': {'labels': technical_week_labels, 'values': technical_week_values},
+				'month': {'labels': technical_month_labels, 'values': technical_month_values},
+				'year': {'labels': technical_year_labels, 'values': technical_year_values},
+			}
+		),
+		'crm_closed_lost_report_json': dumps(
+			{
+				'today': {'labels': closed_lost_today_labels, 'values': closed_lost_today_values},
+				'week': {'labels': closed_lost_week_labels, 'values': closed_lost_week_values},
+				'month': {'labels': closed_lost_month_labels, 'values': closed_lost_month_values},
+				'year': {'labels': closed_lost_year_labels, 'values': closed_lost_year_values},
 			}
 		),
 		'crm_map_pins_json': dumps(map_pins),
@@ -2087,7 +2247,6 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 		inverter_model = _pick(normalized, 'inverter_model', 'inverter-model')
 		battery_model = _pick(normalized, 'battery_model', 'battery-model')
 		net_metering = _pick(normalized, 'net_metering', 'net-metering', 'netmetering')
-		net_metering_status = _pick(normalized, 'net_metering_status', 'net-metering status', 'net metering status')
 		installation_status = _pick(normalized, 'installation_status', 'installation-status')
 		po_number = _pick(normalized, 'po_number', 'po-number', 'po', 'po#')
 		technical_remarks = _pick(normalized, 'technical_remarks', 'technical-remarks', 'remarks')
@@ -2130,7 +2289,6 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 				inverter_model,
 				battery_model,
 				net_metering,
-				net_metering_status,
 				installation_status,
 				po_number,
 				technical_remarks,
@@ -2146,7 +2304,6 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 				inverter_model=inverter_model,
 				battery_model=battery_model,
 				net_metering=net_metering,
-				net_metering_status=net_metering_status,
 				installation_status=installation_status,
 				po_number=po_number,
 				remarks=technical_remarks,
@@ -2447,9 +2604,15 @@ def crm_clients(request):
 		clients_queryset = clients_queryset.filter(customer_id__lte=filter_customer_id_to)
 
 	if filter_registered_from:
-		clients_queryset = clients_queryset.filter(created_at__date__gte=filter_registered_from)
+		clients_queryset = clients_queryset.filter(
+			Q(registered_in_system_on__gte=filter_registered_from)
+			| Q(registered_in_system_on__isnull=True, created_at__date__gte=filter_registered_from)
+		)
 	if filter_registered_to:
-		clients_queryset = clients_queryset.filter(created_at__date__lte=filter_registered_to)
+		clients_queryset = clients_queryset.filter(
+			Q(registered_in_system_on__lte=filter_registered_to)
+			| Q(registered_in_system_on__isnull=True, created_at__date__lte=filter_registered_to)
+		)
 
 	sortable_fields = {
 		'customer_id': 'customer_id',
@@ -2997,8 +3160,10 @@ def crm_technicals(request):
 				time.sleep(0.2 * (attempt + 1))
 		return None
 
+	can_manage_crm_technicals = _is_crm_technicals_admin(request.user)
+
 	if request.method == 'POST':
-		if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals']):
+		if not can_manage_crm_technicals:
 			return _permission_denied_response(request)
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'update_technical_notification_settings':
@@ -3234,9 +3399,6 @@ def crm_technicals(request):
 			inverter_model = (request.POST.get('inverter_model') or '').strip()
 			battery_model = (request.POST.get('battery_model') or '').strip()
 			net_metering = (request.POST.get('net_metering') or '').strip()
-			net_metering_status_raw = (request.POST.get('net_metering_status') or '').strip()
-			allowed_net_metering_statuses = {'WITH NET-METERING', 'WITHOUT NET-METERING'}
-			net_metering_status = net_metering_status_raw if net_metering_status_raw in allowed_net_metering_statuses else ''
 			installation_status_raw = (request.POST.get('installation_status') or '').strip().lower()
 			po_number = (request.POST.get('po_number') or '').strip()
 			remarks = (request.POST.get('remarks') or '').strip()
@@ -3254,7 +3416,6 @@ def crm_technicals(request):
 					tech_record.inverter_model = inverter_model
 					tech_record.battery_model = battery_model
 					tech_record.net_metering = net_metering
-					tech_record.net_metering_status = net_metering_status
 					tech_record.installation_status = installation_status
 					tech_record.po_number = po_number
 					tech_record.remarks = remarks
@@ -3310,23 +3471,30 @@ def crm_technicals(request):
 	filter_po_number_range = (request.GET.get('po_number_range') or '').strip()
 	filter_installation_date_from = parse_date((request.GET.get('installation_date_from') or '').strip())
 	filter_installation_date_to = parse_date((request.GET.get('installation_date_to') or '').strip())
-	filter_net_metering_status = (request.GET.get('net_metering_status') or '').strip()
 	filter_panel_units_range = (request.GET.get('panel_units_range') or '').strip()
 	sort_field = (request.GET.get('sort') or 'updated_at').strip()
 	sort_dir = (request.GET.get('dir') or 'desc').strip().lower()
 	if sort_dir not in {'asc', 'desc'}:
 		sort_dir = 'desc'
 
-	can_view_all_sales = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals'])
+	can_view_all_sales = can_manage_crm_technicals
+	user_team_names = []
+	if request.user.is_authenticated:
+		user_team_names = list(
+			CRMTechnicalTeam.objects.filter(members=request.user)
+			.exclude(name__isnull=True)
+			.exclude(name__exact='')
+			.values_list('name', flat=True)
+			.distinct()
+		)
 	if not can_view_all_sales:
-		user_full_name = (request.user.get_full_name() or '').strip()
-		user_username = (request.user.username or '').strip()
-		ownership_filter = Q(client__created_by=request.user)
-		if user_full_name:
-			ownership_filter |= Q(assigned_sales__icontains=user_full_name)
-		if user_username:
-			ownership_filter |= Q(assigned_sales__icontains=user_username)
-		queryset = queryset.filter(ownership_filter).distinct()
+		if user_team_names:
+			team_filter = Q()
+			for team_name in user_team_names:
+				team_filter |= Q(technical_record__team_assigned__iexact=team_name)
+			queryset = queryset.filter(team_filter).distinct()
+		else:
+			queryset = queryset.none()
 
 	team_assigned_options = list(
 		CRMTechnicalTeam.objects.exclude(name__isnull=True)
@@ -3335,6 +3503,12 @@ def crm_technicals(request):
 		.values_list('name', flat=True)
 		.distinct()
 	)
+	if not can_view_all_sales:
+		visible_teams = {name.lower() for name in user_team_names}
+		team_assigned_options = [
+			team_name for team_name in team_assigned_options
+			if team_name.lower() in visible_teams
+		]
 
 	if technical_query:
 		search_terms = [segment.strip() for segment in re.split(r'\s+', technical_query) if segment.strip()]
@@ -3345,7 +3519,6 @@ def crm_technicals(request):
 				| Q(technical_record__team_assigned__icontains=term)
 				| Q(technical_record__installation_status__icontains=term)
 				| Q(technical_record__po_number__icontains=term)
-				| Q(technical_record__net_metering_status__icontains=term)
 				| Q(technical_record__panel_units__icontains=term)
 			)
 
@@ -3379,9 +3552,6 @@ def crm_technicals(request):
 		queryset = queryset.filter(technical_record__installation_date__gte=filter_installation_date_from)
 	if filter_installation_date_to:
 		queryset = queryset.filter(technical_record__installation_date__lte=filter_installation_date_to)
-	if filter_net_metering_status:
-		queryset = queryset.filter(technical_record__net_metering_status__iexact=filter_net_metering_status)
-
 	sortable_fields = {
 		'client_name': 'client__last_name',
 		'team_assigned': 'technical_record__team_assigned',
@@ -3440,7 +3610,6 @@ def crm_technicals(request):
 			filter_po_number_range,
 			request.GET.get('installation_date_from', '').strip(),
 			request.GET.get('installation_date_to', '').strip(),
-			filter_net_metering_status,
 			filter_panel_units_range,
 		]
 	)
@@ -3479,7 +3648,6 @@ def crm_technicals(request):
 				'time': tech.installation_time.strftime('%H:%M'),
 				'client': client_label,
 				'team_assigned': tech.team_assigned or '',
-				'net_metering_status': tech.net_metering_status or '',
 			}
 		)
 	visible_sales_record_ids = [row.id for row in technical_page.object_list]
@@ -3584,14 +3752,13 @@ def crm_technicals(request):
 			'filter_po_number_range': filter_po_number_range,
 			'filter_installation_date_from': request.GET.get('installation_date_from', ''),
 			'filter_installation_date_to': request.GET.get('installation_date_to', ''),
-			'filter_net_metering_status': filter_net_metering_status,
 			'filter_panel_units_range': filter_panel_units_range,
 			'has_active_technical_filters': has_active_technical_filters,
 			'team_assigned_options': team_assigned_options,
 			'sort_urls': sort_urls,
 			'sort_indicators': sort_indicators,
 			'technical_page_qs_prefix': technical_page_qs_prefix,
-			'can_manage_crm_technicals': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['technicals']),
+			'can_manage_crm_technicals': can_manage_crm_technicals,
 		},
 	)
 
@@ -4275,7 +4442,12 @@ def _require_permission(request, perm_name):
 
 
 def _can_manage_company_internet_accounts(user):
-	return user.is_superuser or user.has_perm('core.change_companyinternetaccount') or user.has_perm('core.view_companyinternetaccount')
+	return (
+		user.is_superuser
+		or user.has_perm('core.view_companyinternetaccount')
+		or user.has_perm('core.change_companyinternetaccount')
+		or user.has_perm('core.add_companyinternetaccount')
+	)
 
 
 def _get_unlocked_company_account_ids(request):
@@ -6424,7 +6596,7 @@ def users_list(request):
 			| Q(reason__icontains=suspicious_query)
 		)
 
-	users_page = Paginator(users, 10).get_page(request.GET.get('user_page'))
+	users_page = Paginator(users, 5).get_page(request.GET.get('user_page'))
 	suspicious_page = Paginator(suspicious_events, 10).get_page(request.GET.get('suspicious_page'))
 	page_users = list(users_page.object_list)
 	page_user_ids = [user.id for user in page_users]
@@ -6551,6 +6723,7 @@ def users_create(request):
 	restricted_response = _require_permission(request, 'auth.add_user')
 	if restricted_response:
 		return restricted_response
+	is_modal_request = request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.GET.get('modal') == '1' or request.POST.get('modal') == '1'
 
 	role_permissions_grouped_map = {}
 	available_roles = Group.objects.prefetch_related('permissions').order_by('name')
@@ -6570,22 +6743,25 @@ def users_create(request):
 				target_label=created_user.username,
 			)
 			messages.success(request, 'User account created successfully.')
+			if is_modal_request:
+				return JsonResponse({'ok': True, 'message': 'User account created successfully.'})
 			return redirect('users_list')
 	else:
 		form = StaffUserCreationForm()
 
-	return render(
-		request,
-		'core/users_form.html',
-		{
-			'form': form,
-			'page_title': 'Create User',
-			'submit_label': 'Create User',
-			'role_permissions_grouped_map': role_permissions_grouped_map,
-			'existing_user_ids': list(User.objects.values_list('username', flat=True)),
-			'current_user_id_value': '',
-		},
-	)
+	context = {
+		'form': form,
+		'page_title': 'Create User',
+		'submit_label': 'Create User',
+		'role_permissions_grouped_map': role_permissions_grouped_map,
+		'existing_user_ids': list(User.objects.values_list('username', flat=True)),
+		'current_user_id_value': '',
+		'form_action_url': reverse('users_create'),
+	}
+	if is_modal_request:
+		status_code = 400 if request.method == 'POST' and form.errors else 200
+		return render(request, 'core/includes/users_form_modal_content.html', context, status=status_code)
+	return render(request, 'core/users_form.html', context)
 
 
 @login_required
@@ -6593,6 +6769,7 @@ def users_update(request, user_id):
 	restricted_response = _require_permission(request, 'auth.change_user')
 	if restricted_response:
 		return restricted_response
+	is_modal_request = request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.GET.get('modal') == '1' or request.POST.get('modal') == '1'
 
 	role_permissions_grouped_map = {}
 	available_roles = Group.objects.prefetch_related('permissions').order_by('name')
@@ -6602,7 +6779,7 @@ def users_update(request, user_id):
 	managed_user = get_object_or_404(User, pk=user_id)
 
 	if request.method == 'POST':
-		form = StaffUserUpdateForm(request.POST, instance=managed_user)
+		form = StaffUserUpdateForm(request.POST, instance=managed_user, current_user=request.user)
 		if form.is_valid():
 			for attempt in range(3):
 				try:
@@ -6617,29 +6794,35 @@ def users_update(request, user_id):
 							target_label=updated_user.username,
 						)
 					messages.success(request, 'User account updated successfully.')
+					if is_modal_request:
+						return JsonResponse({'ok': True, 'message': 'User account updated successfully.'})
 					return redirect('users_list')
 				except OperationalError as exc:
 					if 'database is locked' not in str(exc).lower():
 						raise
 					if attempt == 2:
+						if is_modal_request:
+							return JsonResponse({'ok': False, 'message': 'The database is busy right now. Please try again in a moment.'}, status=503)
 						messages.error(request, 'The database is busy right now. Please try again in a moment.')
 						return redirect('users_update', user_id=user_id)
 					time.sleep(0.15 * (attempt + 1))
 	else:
-		form = StaffUserUpdateForm(instance=managed_user)
+		form = StaffUserUpdateForm(instance=managed_user, current_user=request.user)
 
-	return render(
-		request,
-		'core/users_form.html',
-		{
-			'form': form,
-			'page_title': f'Edit User: {managed_user.username}',
-			'submit_label': 'Save Changes',
-			'role_permissions_grouped_map': role_permissions_grouped_map,
-			'existing_user_ids': list(User.objects.values_list('username', flat=True)),
-			'current_user_id_value': managed_user.username,
-		},
-	)
+	context = {
+		'form': form,
+		'managed_user': managed_user,
+		'page_title': f'Edit User: {managed_user.username}',
+		'submit_label': 'Save Changes',
+		'role_permissions_grouped_map': role_permissions_grouped_map,
+		'existing_user_ids': list(User.objects.values_list('username', flat=True)),
+		'current_user_id_value': managed_user.username,
+		'form_action_url': reverse('users_update', args=[managed_user.id]),
+	}
+	if is_modal_request:
+		status_code = 400 if request.method == 'POST' and form.errors else 200
+		return render(request, 'core/includes/users_form_modal_content.html', context, status=status_code)
+	return render(request, 'core/users_form.html', context)
 
 
 @login_required
@@ -10643,9 +10826,8 @@ def clients_bulk_update_status(request):
 
 @login_required
 def forms_list(request):
-	restricted_response = _require_permission(request, 'core.view_assetaccountability')
-	if restricted_response:
-		return restricted_response
+	if not _can_access_forms_section(request.user):
+		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Forms.')
 
 	can_manage_forms = (
 		request.user.is_superuser

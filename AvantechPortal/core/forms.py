@@ -6,6 +6,7 @@ from pathlib import Path
 
 from captcha.fields import CaptchaField
 from django import forms
+from django.contrib.auth import password_validation
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, UserCreationForm
 from django.contrib.auth.models import Group, Permission, User
 from django.core.cache import cache
@@ -268,6 +269,21 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
     employee_id = forms.CharField(required=False, max_length=120)
     branch = forms.CharField(required=False, max_length=120)
     contact_number = forms.CharField(required=False, max_length=50)
+    new_password1 = forms.CharField(
+        required=False,
+        label='New Password',
+        widget=forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
+    )
+    new_password2 = forms.CharField(
+        required=False,
+        label='Confirm New Password',
+        widget=forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
+    )
+    admin_current_password = forms.CharField(
+        required=False,
+        label='Admin Current Password',
+        widget=forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'current-password'}),
+    )
 
     class Meta:
         model = User
@@ -286,6 +302,7 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         ]
 
     def __init__(self, *args, **kwargs):
+        self.current_user = kwargs.pop('current_user', None)
         super().__init__(*args, **kwargs)
         self.fields['groups'].queryset = Group.objects.order_by('name')
         self.fields['groups'].label = 'Roles'
@@ -309,16 +326,24 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         self.fields['branch'].help_text = 'Optional branch assignment (e.g., Main, North, South).'
         self.fields['contact_number'].label = 'Contact Number'
         self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
+        self.fields['new_password1'].help_text = 'Leave blank if you do not want to change this user password.'
+        self.fields['new_password2'].help_text = 'Type the same password again to confirm.'
+        self.fields['admin_current_password'].widget = forms.HiddenInput()
         self._style_fields()
 
     def save(self, commit=True):
         user = super().save(commit=commit)
+        new_password = (self.cleaned_data.get('new_password1') or '').strip()
+        if new_password:
+            user.set_password(new_password)
         if commit and user:
             profile, _ = UserProfile.objects.get_or_create(user=user)
             profile.employee_id = (self.cleaned_data.get('employee_id') or '').strip()
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
             profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
             profile.save(update_fields=['employee_id', 'branch', 'contact_number'])
+            if new_password:
+                user.save(update_fields=['password'])
         return user
 
     def clean_employee_id(self):
@@ -329,6 +354,31 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         if exists:
             raise ValidationError('Employee ID already exists.')
         return value
+
+    def clean(self):
+        cleaned_data = super().clean()
+        new_password1 = (cleaned_data.get('new_password1') or '').strip()
+        new_password2 = (cleaned_data.get('new_password2') or '').strip()
+        admin_current_password = cleaned_data.get('admin_current_password') or ''
+
+        if new_password1 or new_password2:
+            if not new_password1:
+                self.add_error('new_password1', 'New password is required.')
+            if not new_password2:
+                self.add_error('new_password2', 'Please confirm the new password.')
+            if new_password1 and new_password2 and new_password1 != new_password2:
+                self.add_error('new_password2', 'New password and confirmation do not match.')
+            if new_password1:
+                try:
+                    password_validation.validate_password(new_password1, self.instance)
+                except ValidationError as exc:
+                    self.add_error('new_password1', exc)
+            if not admin_current_password:
+                self.add_error('admin_current_password', 'Current admin password is required to save password changes.')
+            elif not self.current_user or not self.current_user.check_password(admin_current_password):
+                self.add_error('admin_current_password', 'Current admin password is incorrect.')
+
+        return cleaned_data
 
     @property
     def grouped_user_permissions(self):
@@ -591,6 +641,7 @@ class CRMClientForm(forms.ModelForm):
             'contact_number',
             'email',
             'date_of_birth',
+            'registered_in_system_on',
             'home_address',
             'city',
             'notes',
@@ -599,6 +650,7 @@ class CRMClientForm(forms.ModelForm):
         ]
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date', 'min': '1900-01-01'}),
+            'registered_in_system_on': forms.DateInput(attrs={'type': 'date', 'min': '1900-01-01'}),
             'home_address': forms.TextInput(
                 attrs={
                     'autocomplete': 'off',
@@ -619,6 +671,7 @@ class CRMClientForm(forms.ModelForm):
             else:
                 field.widget.attrs.setdefault('class', 'form-control')
         self.fields['date_of_birth'].widget.attrs['max'] = timezone.localdate().isoformat()
+        self.fields['registered_in_system_on'].widget.attrs['max'] = timezone.localdate().isoformat()
         self.fields['email'].required = require_email_dob
         self.fields['date_of_birth'].required = require_email_dob
 

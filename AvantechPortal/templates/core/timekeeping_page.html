@@ -10,8 +10,37 @@
 #impDetailBody .js-imported-detail-row {
     cursor: pointer;
 }
+#impDetailBody .js-imported-detail-row {
+    transition: background-color 0.15s ease;
+}
+#impDetailBody .js-imported-detail-row:hover {
+    background-color: #e8f4ff;
+}
+#impDetailBody .js-imported-detail-row.tk-imported-detail-selected {
+    background-color: #d1ecff;
+}
+#impDetailBody .js-imported-detail-row.tk-imported-detail-selected td {
+    box-shadow: inset 0 0 0 9999px rgba(13, 110, 253, 0.06);
+}
 #tkDailyRecordBody tr {
     cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+#tkDailyRecordBody tr:hover {
+    background-color: #e8f4ff;
+}
+#tkDailyRecordBody tr.tk-verification-selected {
+    background-color: #d1ecff;
+}
+#tkDailyRecordBody tr.tk-verification-selected td {
+    box-shadow: inset 0 0 0 9999px rgba(13, 110, 253, 0.06);
+}
+.tk-dtr-verification-modal {
+    z-index: 1085;
+}
+.modal-backdrop.tk-dtr-verification-backdrop {
+    z-index: 1080;
+    opacity: 0.6;
 }
 </style>
 <div class="card border-0 shadow-sm">
@@ -69,6 +98,47 @@
         </div>
 
         <h3 class="h6 mb-2">Employees / Users</h3>
+        <div class="d-flex justify-content-end mb-2">
+            <button
+                class="btn btn-sm btn-outline-success"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#timekeepingEmployeeFiltersCollapse"
+                aria-expanded="false"
+                aria-controls="timekeepingEmployeeFiltersCollapse"
+            >
+                Toggle Search & Filters
+            </button>
+        </div>
+        <div class="collapse mb-3 {% if employee_q or employee_status %}show{% endif %}" id="timekeepingEmployeeFiltersCollapse">
+            <div class="card card-body border-0 bg-light-subtle">
+                <form method="get" class="row g-2 align-items-end">
+                    <div class="col-12 col-md-7">
+                        <label class="form-label mb-1" for="employee-q">Search Employees / Users</label>
+                        <input
+                            id="employee-q"
+                            name="employee_q"
+                            type="text"
+                            class="form-control"
+                            value="{{ employee_q }}"
+                            placeholder="Search by Biometric ID, Employee ID, name, or username"
+                        >
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label mb-1" for="employee-status">Match Status</label>
+                        <select id="employee-status" name="employee_status" class="form-select">
+                            <option value="">All</option>
+                            <option value="Matched in System" {% if employee_status == 'Matched in System' %}selected{% endif %}>Matched in System</option>
+                            <option value="Not Found in System" {% if employee_status == 'Not Found in System' %}selected{% endif %}>Not Found in System</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-success w-100">Apply</button>
+                        <a href="{% url 'timekeeping_page' %}" class="btn btn-outline-secondary w-100">Clear</a>
+                    </div>
+                </form>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0" id="timekeepingEmployeesTable">
                 <thead class="table-light">
@@ -86,7 +156,7 @@
                         </td>
                         <td>
                             <div class="fw-semibold">{{ row.system_user_name }}</div>
-                            <div class="small text-secondary">System ID: {{ row.system_user_id }} | Username: {{ row.system_username }}</div>
+                            <div class="small text-secondary">Employee ID: {{ row.system_user_id }} | Username: {{ row.system_username }}</div>
                             {% if row.user_match_status == 'Matched in System' %}
                                 <span class="badge text-bg-success mt-1">Matched in System</span>
                             {% else %}
@@ -100,6 +170,30 @@
                 </tbody>
             </table>
         </div>
+        {% if timekeeping_page and timekeeping_page.paginator.num_pages > 1 %}
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <small class="text-secondary">Page {{ timekeeping_page.number }} of {{ timekeeping_page.paginator.num_pages }}</small>
+            <div class="btn-group flex-wrap" role="group" aria-label="Employees pagination">
+                {% if timekeeping_page.has_previous %}
+                    <a class="btn btn-sm btn-outline-success" href="?employee_page={{ timekeeping_page.previous_page_number }}&employee_q={{ employee_q|urlencode }}&employee_status={{ employee_status|urlencode }}">Previous</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                {% endif %}
+                {% for page_number in timekeeping_page.paginator.page_range %}
+                    {% if page_number == timekeeping_page.number %}
+                        <button class="btn btn-sm btn-success" type="button" disabled>{{ page_number }}</button>
+                    {% else %}
+                        <a class="btn btn-sm btn-outline-success" href="?employee_page={{ page_number }}&employee_q={{ employee_q|urlencode }}&employee_status={{ employee_status|urlencode }}">{{ page_number }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if timekeeping_page.has_next %}
+                    <a class="btn btn-sm btn-outline-success" href="?employee_page={{ timekeeping_page.next_page_number }}&employee_q={{ employee_q|urlencode }}&employee_status={{ employee_status|urlencode }}">Next</a>
+                {% else %}
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -272,7 +366,7 @@
                     <div class="col-md-6">
                         <div class="border rounded p-3 h-100">
                             <div class="small text-secondary mb-2">System User Info</div>
-                            <div class="mb-2"><span class="small text-secondary d-block">User ID</span><span class="fw-semibold" id="tkCmpSysId">-</span></div>
+                            <div class="mb-2"><span class="small text-secondary d-block">Employee ID</span><span class="fw-semibold" id="tkCmpSysId">-</span></div>
                             <div class="mb-2"><span class="small text-secondary d-block">Full Name</span><span class="fw-semibold" id="tkCmpSysName">-</span></div>
                             <div class="mb-2"><span class="small text-secondary d-block">Username</span><span class="fw-semibold" id="tkCmpSysUsername">-</span></div>
                             <div><span class="small text-secondary d-block">Match Status</span><span id="tkCmpMatchBadge">-</span></div>
@@ -378,6 +472,7 @@
     const panes = Array.from(document.querySelectorAll('.js-tk-pane'));
 
     if (!importedTable || !importedModalEl || !impInfoId || !impInfoName || !impInfoBy || !impInfoDate || !impAttendanceDateRange || !impTablingDate || !impDetailBody || !employeeTable || !rowModalEl || !compareModalEl || !cmpBioId || !cmpBioName || !cmpBatch || !cmpSysId || !cmpSysName || !cmpSysUsername || !cmpMatchBadge || !infoEmployeeId || !infoEmployeeName || !infoBatch || !infoImportedAt || !payloadBody || !dtrBody || !prevBtn || !nextBtn || !sumAbsence || !sumLeave || !sumTrip || !sumWork || !sumOtNormal || !sumOtSpecial || !sumLateTimes || !sumLateMinute || !sumEarlyTimes || !sumEarlyMinute || !dtrVerificationModalEl || !dtrVerifyDate || !dtrVerifyStatus || !dtrVerifyBioIn || !dtrVerifyDbIn || !dtrVerifyBioOut || !dtrVerifyDbOut) return;
+    dtrVerificationModalEl.classList.add('tk-dtr-verification-modal');
 
     const esc = (v) => String(v == null ? '' : v)
         .replace(/&/g, '&amp;')
@@ -618,6 +713,10 @@
     impDetailBody.addEventListener('click', (event) => {
         const row = event.target.closest('.js-imported-detail-row');
         if (!row) return;
+        impDetailBody.querySelectorAll('.js-imported-detail-row.tk-imported-detail-selected').forEach((entry) => {
+            entry.classList.remove('tk-imported-detail-selected');
+        });
+        row.classList.add('tk-imported-detail-selected');
         openRowModalFromImportedDetail(row);
     });
 
@@ -650,6 +749,10 @@
     dtrBody.addEventListener('click', (event) => {
         const row = event.target.closest('tr');
         if (!row) return;
+        dtrBody.querySelectorAll('tr.tk-verification-selected').forEach((entry) => {
+            entry.classList.remove('tk-verification-selected');
+        });
+        row.classList.add('tk-verification-selected');
         const dateLabel = row.dataset.dateLabel || '-';
         const verification = row.dataset.verification || 'Pending Verification';
         dtrVerifyDate.textContent = dateLabel;
@@ -659,6 +762,29 @@
         dtrVerifyBioOut.textContent = row.dataset.bioOut || '-';
         dtrVerifyDbOut.textContent = row.dataset.dbOut || '-';
         if (typeof bootstrap !== 'undefined' && bootstrap.Modal) bootstrap.Modal.getOrCreateInstance(dtrVerificationModalEl).show();
+    });
+
+    dtrVerificationModalEl.addEventListener('shown.bs.modal', () => {
+        const backdrops = document.querySelectorAll('.modal-backdrop');
+        const activeBackdrop = backdrops[backdrops.length - 1];
+        if (activeBackdrop) {
+            activeBackdrop.classList.add('tk-dtr-verification-backdrop');
+        }
+    });
+
+    dtrVerificationModalEl.addEventListener('hidden.bs.modal', () => {
+        document.querySelectorAll('.modal-backdrop.tk-dtr-verification-backdrop').forEach((backdrop) => {
+            backdrop.classList.remove('tk-dtr-verification-backdrop');
+        });
+    });
+
+    rowModalEl.addEventListener('hidden.bs.modal', () => {
+        dtrBody.querySelectorAll('tr.tk-verification-selected').forEach((entry) => {
+            entry.classList.remove('tk-verification-selected');
+        });
+        impDetailBody.querySelectorAll('.js-imported-detail-row.tk-imported-detail-selected').forEach((entry) => {
+            entry.classList.remove('tk-imported-detail-selected');
+        });
     });
 })();
 </script>

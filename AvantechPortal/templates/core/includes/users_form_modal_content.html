@@ -1,0 +1,116 @@
+{% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+{% endif %}
+
+<form method="post" action="{{ form_action_url|default:request.path }}" id="usersEditModalForm">
+    {% csrf_token %}
+    <input type="hidden" name="modal" value="1">
+    {{ form.admin_current_password }}
+
+    <div class="row g-3">
+        {% for field in form %}
+            {% if field.name != 'admin_current_password' and field.name != 'groups' and field.name != 'user_permissions' and field.name != 'new_password1' and field.name != 'new_password2' %}
+                <div class="col-12 col-md-6">
+                    <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="text-danger small mt-1">{{ field.errors|striptags }}</div>{% endif %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <div class="row g-3 mt-1">
+        {% for field in form %}
+            {% if field.name == 'new_password1' or field.name == 'new_password2' %}
+                <div class="col-12 col-xl-6">
+                    <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="text-danger small mt-1">{{ field.errors|striptags }}</div>{% endif %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <div class="row g-3 mt-1">
+        {% for field in form %}
+            {% if field.name == 'groups' %}
+                <div class="col-12 col-xl-6">
+                    <label for="{{ field.id_for_label }}" class="form-label fw-semibold mb-2">{{ field.label }}</label>
+                    <div class="table-responsive border rounded">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Role</th>
+                                    <th class="text-center" style="width: 90px;">Select</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% with selected_values=form.selected_group_ids %}
+                                    {% for role in field.field.queryset %}
+                                        <tr>
+                                            <td>{{ role.name }}</td>
+                                            <td class="text-center">
+                                                <input type="checkbox" class="form-check-input" name="groups" value="{{ role.pk }}" {% if role.pk|stringformat:'s' in selected_values %}checked{% endif %}>
+                                            </td>
+                                        </tr>
+                                    {% empty %}
+                                        <tr><td colspan="2" class="text-secondary text-center">No roles available.</td></tr>
+                                    {% endfor %}
+                                {% endwith %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="text-danger small mt-1">{{ field.errors|striptags }}</div>{% endif %}
+                </div>
+            {% endif %}
+        {% endfor %}
+
+        {% for field in form %}
+            {% if field.name == 'user_permissions' %}
+                <div class="col-12 col-xl-6">
+                    <label class="form-label fw-semibold mb-2">{{ field.label }}</label>
+                    <div class="border rounded p-2" style="max-height: 360px; overflow: auto;">
+                        {% for group in form.grouped_user_permissions %}
+                            <details class="mb-2" {% if forloop.first %}open{% endif %}>
+                                <summary class="fw-semibold text-capitalize">{{ group.app_label }}</summary>
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <tbody>
+                                            {% for item in group.items %}
+                                                <tr>
+                                                    <td>
+                                                        <div>{{ item.label }}</div>
+                                                        <div class="small text-secondary">{{ item.description|default:'Controls access to this feature.' }}</div>
+                                                    </td>
+                                                    <td class="text-center" style="width: 80px;">
+                                                        <input type="checkbox" class="form-check-input" name="user_permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </details>
+                        {% empty %}
+                            <div class="text-secondary text-center py-2">No feature access available.</div>
+                        {% endfor %}
+                    </div>
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="text-danger small mt-1">{{ field.errors|striptags }}</div>{% endif %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    {% if form.admin_current_password.errors %}
+        <div class="text-danger small mt-3">{{ form.admin_current_password.errors|striptags }}</div>
+    {% endif %}
+
+    <div class="d-flex justify-content-end gap-2 mt-4">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success">Save Changes</button>
+    </div>
+</form>

@@ -718,6 +718,7 @@ class CRMClient(models.Model):
 	geo_longitude = models.FloatField(blank=True, null=True)
 	notes = models.TextField(blank=True)
 	customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPE_CHOICES, default='residential')
+	registered_in_system_on = models.DateField(blank=True, null=True)
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
 		on_delete=models.SET_NULL,
@@ -898,7 +899,6 @@ class CRMTechnicalRecord(models.Model):
 	inverter_model = models.CharField(max_length=150, blank=True)
 	battery_model = models.CharField(max_length=150, blank=True)
 	net_metering = models.CharField(max_length=80, blank=True)
-	net_metering_status = models.CharField(max_length=80, blank=True)
 	installation_status = models.CharField(max_length=50, blank=True)
 	po_number = models.CharField(max_length=80, blank=True)
 	remarks = models.TextField(blank=True)

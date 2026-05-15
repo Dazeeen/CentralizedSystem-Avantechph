@@ -77,7 +77,7 @@
                 </thead>
                 <tbody>
                     {% for row in clients_page %}
-                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}"
+                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'F j, Y' }}{% elif row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-registered-at-iso="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'Y-m-d' }}{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}"
                             {% with sales=row.sales_records.first %}
                                 data-sales-date-created="{% if sales and sales.date_created %}{{ sales.date_created|date:'F j, Y' }}{% else %}-{% endif %}"
                                 data-sales-lead-source="{% if sales and sales.lead_source %}{{ sales.lead_source }}{% else %}-{% endif %}"
@@ -351,7 +351,7 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Registered In System</label>
-                                <input class="form-control bg-light" id="infoRegisteredAt" readonly>
+                                <input class="form-control bg-light crm-inline-editable" id="infoRegisteredAt" name="registered_in_system_on" type="date" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Email</label>
@@ -1069,6 +1069,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (clearSelectionBtn) {
         clearSelectionBtn.addEventListener('click', function () {
+            var rowChecks = Array.from(document.querySelectorAll('.crm-row-checkbox'));
             rowChecks.forEach(function (cb) { cb.checked = false; });
             if (selectAll) {
                 selectAll.checked = false;
@@ -1122,6 +1123,8 @@ document.addEventListener('DOMContentLoaded', function () {
         row.dataset.contactNumber = document.getElementById('infoContactNumber').value || '-';
         row.dataset.email = document.getElementById('infoEmail').value || '-';
         row.dataset.dateOfBirthIso = document.getElementById('infoDateOfBirth').value || '';
+        row.dataset.registeredAtIso = document.getElementById('infoRegisteredAt').value || '';
+        row.dataset.registeredAt = row.dataset.registeredAtIso || '-';
         row.dataset.homeAddress = document.getElementById('infoHomeAddress').value || '-';
         row.dataset.city = document.getElementById('infoCity').value || '-';
         row.dataset.notes = document.getElementById('infoNotes').value || '-';
@@ -1156,7 +1159,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('infoEmail').value = row.dataset.email === '-' ? '' : (row.dataset.email || '');
         document.getElementById('infoSidebarEmail').textContent = row.dataset.email || '-';
         document.getElementById('infoDateOfBirth').value = row.dataset.dateOfBirthIso || '';
-        document.getElementById('infoRegisteredAt').value = row.dataset.registeredAt || '-';
+        document.getElementById('infoRegisteredAt').value = row.dataset.registeredAtIso || '';
         document.getElementById('infoHomeAddress').value = row.dataset.homeAddress === '-' ? '' : (row.dataset.homeAddress || '');
         document.getElementById('infoCity').value = row.dataset.city === '-' ? '' : (row.dataset.city || '');
         document.getElementById('infoNotes').value = row.dataset.notes === '-' ? '' : (row.dataset.notes || '');
@@ -1228,7 +1231,14 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
-    document.addEventListener('click', function (event) {
+    var previousClientRowHandlers = window.__crmClientsRowModalHandlers || null;
+    if (previousClientRowHandlers) {
+        if (previousClientRowHandlers.click) document.removeEventListener('click', previousClientRowHandlers.click);
+        if (previousClientRowHandlers.keydown) document.removeEventListener('keydown', previousClientRowHandlers.keydown);
+        if (previousClientRowHandlers.dblclick) document.removeEventListener('dblclick', previousClientRowHandlers.dblclick);
+    }
+
+    var crmClientsRowClickHandler = function (event) {
         var viewBtn = event.target.closest('.js-action-view');
         if (viewBtn) {
             var rowForView = viewBtn.closest('.crm-client-row');
@@ -1251,24 +1261,32 @@ document.addEventListener('DOMContentLoaded', function () {
         if (row && !event.target.closest('input, button, a, label')) {
             setActiveRow(row);
         }
-    });
-    document.addEventListener('keydown', function (event) {
+    };
+    document.addEventListener('click', crmClientsRowClickHandler);
+    var crmClientsRowKeydownHandler = function (event) {
         var row = event.target.closest('.crm-client-row');
         if (!row || event.key !== 'Enter') {
             return;
         }
         event.preventDefault();
         setActiveRow(row);
-    });
+    };
+    document.addEventListener('keydown', crmClientsRowKeydownHandler);
     applyClientRowsUI();
 
-    document.addEventListener('dblclick', function (event) {
+    var crmClientsRowDblclickHandler = function (event) {
         var row = event.target.closest('.crm-client-row');
         if (row && !event.target.closest('input, button, a, label')) {
             setActiveRow(row);
             openClientModalFromRow(row);
         }
-    });
+    };
+    document.addEventListener('dblclick', crmClientsRowDblclickHandler);
+    window.__crmClientsRowModalHandlers = {
+        click: crmClientsRowClickHandler,
+        keydown: crmClientsRowKeydownHandler,
+        dblclick: crmClientsRowDblclickHandler,
+    };
 
     var summaryViewBtn = document.getElementById('crmSummaryViewBtn');
     var summaryEditBtn = document.getElementById('crmSummaryEditBtn');
@@ -1530,7 +1548,6 @@ document.addEventListener('DOMContentLoaded', function () {
         { value: 'inverter_model', label: 'Inverter Model' },
         { value: 'battery_model', label: 'Battery Model' },
         { value: 'net_metering', label: 'Net Metering' },
-        { value: 'net_metering_status', label: 'Net Metering Status' },
         { value: 'installation_status', label: 'Installation Status' },
         { value: 'po_number', label: 'PO Number' },
         { value: 'technical_remarks', label: 'Technical Remarks' }
@@ -1885,7 +1902,6 @@ document.addEventListener('DOMContentLoaded', function () {
             'inverter model': 'inverter_model',
             'battery model': 'battery_model',
             'net metering': 'net_metering',
-            'net metering status': 'net_metering_status',
             'installation status': 'installation_status',
             'po number': 'po_number',
             'technical remarks': 'technical_remarks'

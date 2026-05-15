@@ -6,10 +6,11 @@
 
 {% block content %}
 <div class="row g-3 mb-3">
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Total Leads</div><div class="display-6 fw-bold">{{ total_leads }}</div></div></div></div>
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Active Sales Pipeline</div><div class="display-6 fw-bold">{{ active_sales_pipeline }}</div></div></div></div>
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Closed Won Sales</div><div class="display-6 fw-bold">{{ closed_won_sales }}</div></div></div></div>
-    <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Technical Active Jobs</div><div class="display-6 fw-bold">{{ technical_active_jobs }}</div></div></div></div>
+    <div class="col-lg col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Total Leads</div><div class="display-6 fw-bold">{{ total_leads }}</div></div></div></div>
+    <div class="col-lg col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Active Sales Pipeline</div><div class="display-6 fw-bold">{{ active_sales_pipeline }}</div></div></div></div>
+    <div class="col-lg col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Closed Won Sales</div><div class="display-6 fw-bold">{{ closed_won_sales }}</div></div></div></div>
+    <div class="col-lg col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Closed Lost Sales</div><div class="display-6 fw-bold">{{ closed_lost_sales }}</div></div></div></div>
+    <div class="col-lg col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><div class="small text-secondary">Technical Active Jobs</div><div class="display-6 fw-bold">{{ technical_active_jobs }}</div></div></div></div>
 </div>
 <div class="row g-3 mb-3">
     <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="small text-secondary">Monthly Milestone</div><div class="display-6 fw-bold">{{ monthly_milestone_pct }}%</div><div class="small text-secondary">Quota: {{ monthly_quota_display }}</div></div></div></div>
@@ -30,6 +31,36 @@
         </div>
     </div>
     <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="small text-secondary">Total Revenue</div><div class="display-6 fw-bold">{{ total_revenue_display }}</div><div class="small text-secondary">Closed-won sales only</div></div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-xl-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div class="small text-secondary">Technicals Responsibility Notifications</div>
+                <div class="display-6 fw-bold">{{ technical_responsibility_notifications_count }}</div>
+                <div class="small text-secondary">Actionable technical schedules</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-9">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                    <h2 class="h5 mb-0">Technicals Responsibility Notifications Report</h2>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Technical report range">
+                        <button type="button" class="btn btn-outline-success active js-technical-report-mode" data-mode="today">Today</button>
+                        <button type="button" class="btn btn-outline-success js-technical-report-mode" data-mode="week">This Week</button>
+                        <button type="button" class="btn btn-outline-success js-technical-report-mode" data-mode="month">This Month</button>
+                        <button type="button" class="btn btn-outline-success js-technical-report-mode" data-mode="year">This Year</button>
+                    </div>
+                </div>
+                <div class="crm-chart-wrap">
+                    <canvas id="crmTechnicalResponsibilityChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="row g-3">
@@ -73,6 +104,7 @@
 {{ new_client_period_labels_json|json_script:"crm-new-client-labels" }}
 {{ new_client_period_values_json|json_script:"crm-new-client-values" }}
 {{ crm_new_clients_report_json|json_script:"crm-new-clients-report-data" }}
+{{ crm_technical_responsibility_report_json|json_script:"crm-technical-responsibility-report-data" }}
 {{ crm_map_pins_json|json_script:"crm-map-pins" }}
 
 <style>
@@ -167,17 +199,33 @@
     }
     var reportNode = document.getElementById('crm-new-clients-report-data');
     var reportData = parseNodeJson(reportNode, {});
+    var technicalReportNode = document.getElementById('crm-technical-responsibility-report-data');
+    var technicalReportData = parseNodeJson(technicalReportNode, {});
     var defaultPayload = (reportData && reportData.today) ? reportData.today : { labels: [], values: [] };
     var labels = Array.isArray(defaultPayload.labels) ? defaultPayload.labels : [];
     var values = Array.isArray(defaultPayload.values) ? defaultPayload.values : [];
     var modeButtons = Array.from(document.querySelectorAll('.js-crm-report-mode'));
     var chartCanvas = document.getElementById('crmNewClientsChart');
+    var technicalModeButtons = Array.from(document.querySelectorAll('.js-technical-report-mode'));
+    var technicalChartCanvas = document.getElementById('crmTechnicalResponsibilityChart');
+    var technicalReportChart = null;
     if (chartCanvas && window.Chart) {
         reportChart = new Chart(chartCanvas.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: labels,
                 datasets: [{ label: 'Clients', data: values, borderRadius: 8, backgroundColor: ['#2a6dde', '#1f8f53', '#f5a524', '#8b5cf6'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { display: false } } }
+        });
+    }
+    if (technicalChartCanvas && window.Chart) {
+        var technicalDefaultPayload = (technicalReportData && technicalReportData.today) ? technicalReportData.today : { labels: [], values: [] };
+        technicalReportChart = new Chart(technicalChartCanvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: Array.isArray(technicalDefaultPayload.labels) ? technicalDefaultPayload.labels : [],
+                datasets: [{ label: 'Notifications', data: Array.isArray(technicalDefaultPayload.values) ? technicalDefaultPayload.values : [], borderRadius: 8, backgroundColor: '#1f8f53' }]
             },
             options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { display: false } } }
         });
@@ -210,6 +258,33 @@
         });
     });
     applyReportMode('today');
+
+    function setActiveTechnicalModeButton(mode) {
+        technicalModeButtons.forEach(function (btn) {
+            btn.classList.toggle('active', (btn.getAttribute('data-mode') || '') === mode);
+        });
+    }
+    function resolveTechnicalPayload(mode) {
+        var m = String(mode || '').toLowerCase();
+        if (technicalReportData && technicalReportData[m]) return technicalReportData[m];
+        if (technicalReportData && technicalReportData.today) return technicalReportData.today;
+        return { labels: [], values: [] };
+    }
+    function applyTechnicalReportMode(mode) {
+        var payload = resolveTechnicalPayload(mode);
+        setActiveTechnicalModeButton(String(mode || 'today').toLowerCase());
+        if (!technicalReportChart || !payload) return;
+        technicalReportChart.data.labels = Array.isArray(payload.labels) ? payload.labels : [];
+        technicalReportChart.data.datasets[0].data = Array.isArray(payload.values) ? payload.values : [];
+        technicalReportChart.update('none');
+    }
+    technicalModeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            applyTechnicalReportMode(btn.getAttribute('data-mode') || 'today');
+        });
+    });
+    applyTechnicalReportMode('today');
 
     var quotaRevenueEl = document.getElementById('crmQuotaRevenue');
     var quotaTargetEl = document.getElementById('crmQuotaTarget');

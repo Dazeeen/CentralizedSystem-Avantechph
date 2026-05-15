@@ -14,7 +14,7 @@
                 <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#technicalNotificationSettingsModal">Settings</button>
                 <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#manageTechnicalTeamsModal">Manage Teams</button>
                 <button type="button" class="btn btn-outline-success" id="setInstallationScheduleBtn">Set Installation Schedule</button>
-                <button type="button" class="btn btn-success" id="updateTechnicalInfoBtn">Update</button>
+                <button type="button" class="btn btn-success" id="updateTechnicalInfoBtn">Modify</button>
                 {% endif %}
                 <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#technicalCalendarModal">View Calendar</button>
             </div>
@@ -67,14 +67,6 @@
                                 <input type="date" name="installation_date_to" value="{{ filter_installation_date_to }}" class="form-control form-control-sm js-tech-filter-input">
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small mb-1">Net-Metering Status</label>
-                                <select name="net_metering_status" class="form-select form-select-sm js-tech-filter-input">
-                                    <option value="">All</option>
-                                    <option value="WITH NET-METERING" {% if filter_net_metering_status == 'WITH NET-METERING' %}selected{% endif %}>WITH NET-METERING</option>
-                                    <option value="WITHOUT NET-METERING" {% if filter_net_metering_status == 'WITHOUT NET-METERING' %}selected{% endif %}>WITHOUT NET-METERING</option>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
                                 <label class="form-label small mb-1">Panel Units Range</label>
                                 <input type="text" name="panel_units_range" value="{{ filter_panel_units_range }}" class="form-control form-control-sm js-tech-filter-input" placeholder="n-N (e.g. 8-14)">
                             </div>
@@ -111,7 +103,6 @@
                                     data-inverter-model="{{ tech.inverter_model|default:'-' }}"
                                     data-battery-model="{{ tech.battery_model|default:'-' }}"
                                     data-net-metering="{{ tech.net_metering|default:'-' }}"
-                                    data-net-metering-status="{{ tech.net_metering_status|default:'-' }}"
                                     data-installation-status="{{ tech.installation_status|default:'-' }}"
                                     data-po-number="{{ tech.po_number|default:'-' }}"
                                     data-remarks="{{ tech.remarks|default:'-' }}">
@@ -141,7 +132,7 @@
                                             <ul class="dropdown-menu dropdown-menu-end">
                                                 <li><button type="button" class="dropdown-item js-tech-view-btn">View Technical Info</button></li>
                                                 {% if can_manage_crm_technicals %}
-                                                <li><button type="button" class="dropdown-item js-tech-update-btn">Update Installation Info</button></li>
+                                                <li><button type="button" class="dropdown-item js-tech-update-btn">Modify Installation Info</button></li>
                                                 {% endif %}
                                             </ul>
                                         </div>
@@ -189,6 +180,7 @@
     </div>
 </div>
 
+{% if can_manage_crm_technicals %}
 <div class="modal fade" id="technicalNotificationSettingsModal" tabindex="-1" aria-labelledby="technicalNotificationSettingsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-md modal-dialog-scrollable">
         <div class="modal-content">
@@ -220,6 +212,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="modal fade" id="technicalInfoModal" tabindex="-1" aria-labelledby="technicalInfoModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable technical-info-modal-dialog">
@@ -251,7 +244,6 @@
                                 <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" id="techInfoInverterModel" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control" id="techInfoBatteryModel" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Net-Metering</label><input class="form-control" id="techInfoNetMetering" readonly></div>
-                                <div class="col-md-6"><label class="form-label">Net-Metering Status</label><input class="form-control" id="techInfoNetMeteringStatus" readonly></div>
                                 <div class="col-md-6">
                                     <label class="form-label">Installation Status</label>
                                     <div class="form-control d-flex align-items-center" id="techInfoInstallationStatusWrap">
@@ -289,6 +281,7 @@
     </div>
 </div>
 
+{% if can_manage_crm_technicals %}
 <div class="modal fade" id="technicalUpdateModal" tabindex="-1" aria-labelledby="technicalUpdateModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -312,11 +305,10 @@
                         <div class="col-md-6"><label class="form-label">Panel Units</label><input class="form-control" name="panel_units" id="technicalUpdatePanelUnits"></div>
                         <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" name="inverter_model" id="technicalUpdateInverterModel"></div>
                         <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control" name="battery_model" id="technicalUpdateBatteryModel"></div>
-                        <div class="col-md-6"><label class="form-label">Net-Metering</label><input class="form-control" name="net_metering" id="technicalUpdateNetMetering"></div>
                         <div class="col-md-6">
-                            <label class="form-label">Net-Metering Status</label>
-                            <select class="form-select" name="net_metering_status" id="technicalUpdateNetMeteringStatus">
-                                <option value="">Select status</option>
+                            <label class="form-label">Net-Metering</label>
+                            <select class="form-select" name="net_metering" id="technicalUpdateNetMetering">
+                                <option value="">Select net-metering</option>
                                 <option value="WITH NET-METERING">WITH NET-METERING</option>
                                 <option value="WITHOUT NET-METERING">WITHOUT NET-METERING</option>
                             </select>
@@ -336,12 +328,13 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">Update</button>
+                    <button type="submit" class="btn btn-success">Modify</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="modal fade" id="technicalHistoryDetailModal" tabindex="-1" aria-labelledby="technicalHistoryDetailModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -372,6 +365,7 @@
     </div>
 </div>
 
+{% if can_manage_crm_technicals %}
 <div class="modal fade" id="manageTechnicalTeamsModal" tabindex="-1" aria-labelledby="manageTechnicalTeamsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
@@ -439,7 +433,9 @@
         </div>
     </div>
 </div>
+{% endif %}
 
+{% if can_manage_crm_technicals %}
 <div class="modal fade" id="setInstallationScheduleModal" tabindex="-1" aria-labelledby="setInstallationScheduleModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
@@ -490,6 +486,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="modal fade" id="technicalCalendarModal" tabindex="-1" aria-labelledby="technicalCalendarModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -671,7 +668,6 @@ document.addEventListener('DOMContentLoaded', function () {
         var poRange = parsePoRange(form.querySelector('[name=\"po_number_range\"]') ? form.querySelector('[name=\"po_number_range\"]').value : '');
         var dateFrom = normalizeText(form.querySelector('[name=\"installation_date_from\"]') ? form.querySelector('[name=\"installation_date_from\"]').value : '');
         var dateTo = normalizeText(form.querySelector('[name=\"installation_date_to\"]') ? form.querySelector('[name=\"installation_date_to\"]').value : '');
-        var netMeteringStatus = normalizeText(form.querySelector('[name=\"net_metering_status\"]') ? form.querySelector('[name=\"net_metering_status\"]').value : '');
         var panelRange = parsePanelRange(form.querySelector('[name=\"panel_units_range\"]') ? form.querySelector('[name=\"panel_units_range\"]').value : '');
 
         rows.forEach(function (row) {
@@ -680,10 +676,9 @@ document.addEventListener('DOMContentLoaded', function () {
             var status = normalizeText(row.dataset.installationStatus || '');
             var poNumber = normalizeText(row.dataset.poNumber || '');
             var installDate = normalizeText(row.dataset.installationDate || '');
-            var netStatus = normalizeText(row.dataset.netMeteringStatus || '');
             var panelUnitsRaw = normalizeText(row.dataset.panelUnits || '');
             var panelUnitsNum = Number(panelUnitsRaw);
-            var searchable = [clientName, team, status, poNumber, netStatus, panelUnitsRaw].join(' ');
+            var searchable = [clientName, team, status, poNumber, panelUnitsRaw].join(' ');
 
             var visible = true;
             if (q && searchable.indexOf(q) === -1) visible = false;
@@ -702,7 +697,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             if (visible && dateFrom && installDate && installDate < dateFrom) visible = false;
             if (visible && dateTo && installDate && installDate > dateTo) visible = false;
-            if (visible && netMeteringStatus && netStatus !== netMeteringStatus) visible = false;
             if (visible && panelRange) {
                 if (Number.isNaN(panelUnitsNum) || panelUnitsNum < panelRange.min || panelUnitsNum > panelRange.max) {
                     visible = false;
@@ -1266,7 +1260,6 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('techInfoInverterModel').value = row.dataset.inverterModel || '-';
         document.getElementById('techInfoBatteryModel').value = row.dataset.batteryModel || '-';
         document.getElementById('techInfoNetMetering').value = row.dataset.netMetering || '-';
-        document.getElementById('techInfoNetMeteringStatus').value = row.dataset.netMeteringStatus || '-';
         var infoStatusEl = document.getElementById('techInfoInstallationStatusBadge');
         if (infoStatusEl) infoStatusEl.outerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-').replace('<span', '<span id="techInfoInstallationStatusBadge"');
         document.getElementById('techInfoPoNumber').value = row.dataset.poNumber || '-';
@@ -1282,14 +1275,6 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!el) return;
             el.value = (value && value !== '-') ? value : '';
         };
-        var normalizeNetMeteringStatus = function (value) {
-            var raw = String(value || '').trim();
-            if (!raw || raw === '-') return '';
-            var normalized = raw.toLowerCase().replace(/[_\s]+/g, '-');
-            if (normalized === 'with-net-metering' || normalized === 'with-netmetering') return 'WITH NET-METERING';
-            if (normalized === 'without-net-metering' || normalized === 'without-netmetering') return 'WITHOUT NET-METERING';
-            return raw;
-        };
         setVal('technicalUpdateClientName', row.dataset.clientName || '');
         setVal('technicalUpdateSalesRecordId', row.dataset.salesRecordId || '');
         setVal('technicalUpdateInstallationDate', row.dataset.installationDate || '');
@@ -1299,7 +1284,6 @@ document.addEventListener('DOMContentLoaded', function () {
         setVal('technicalUpdateInverterModel', row.dataset.inverterModel || '');
         setVal('technicalUpdateBatteryModel', row.dataset.batteryModel || '');
         setVal('technicalUpdateNetMetering', row.dataset.netMetering || '');
-        setVal('technicalUpdateNetMeteringStatus', normalizeNetMeteringStatus(row.dataset.netMeteringStatus || ''));
         setVal('technicalUpdateInstallationStatus', (row.dataset.installationStatus || '').toLowerCase());
         setVal('technicalUpdatePoNumber', row.dataset.poNumber || '');
         setVal('technicalUpdateRemarks', row.dataset.remarks || '');
@@ -1421,7 +1405,13 @@ document.addEventListener('DOMContentLoaded', function () {
         technicalHistoryDetailModal.show();
     }
 
-    document.addEventListener('click', function (event) {
+    var previousTechnicalRowHandlers = window.__crmTechnicalRowModalHandlers || null;
+    if (previousTechnicalRowHandlers) {
+        if (previousTechnicalRowHandlers.click) document.removeEventListener('click', previousTechnicalRowHandlers.click);
+        if (previousTechnicalRowHandlers.dblclick) document.removeEventListener('dblclick', previousTechnicalRowHandlers.dblclick);
+    }
+
+    var crmTechnicalRowClickHandler = function (event) {
         var row = event.target.closest('.crm-tech-row');
         if (row && !event.target.closest('input, button, a, label')) setActiveRow(row);
 
@@ -1441,15 +1431,21 @@ document.addEventListener('DOMContentLoaded', function () {
             openTechnicalUpdateModalFromRow(updateRow);
             return;
         }
-    });
+    };
+    document.addEventListener('click', crmTechnicalRowClickHandler);
 
-    document.addEventListener('dblclick', function (event) {
+    var crmTechnicalRowDblclickHandler = function (event) {
         var row = event.target.closest('.crm-tech-row');
         if (row && !event.target.closest('input, button, a, label')) {
             setActiveRow(row);
             openTechnicalModalFromRow(row);
         }
-    });
+    };
+    document.addEventListener('dblclick', crmTechnicalRowDblclickHandler);
+    window.__crmTechnicalRowModalHandlers = {
+        click: crmTechnicalRowClickHandler,
+        dblclick: crmTechnicalRowDblclickHandler,
+    };
     document.addEventListener('click', function (event) {
         var tabBtn = event.target.closest('.js-tech-modal-tab');
         if (tabBtn) {
