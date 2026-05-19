@@ -37,9 +37,9 @@ from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.utils import OperationalError
-from django.db.models import Count, Max, Sum
+from django.db.models import Count, Max, Sum, F, Value, DecimalField, ExpressionWrapper
 from django.db.models import Q
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import TruncMonth, Coalesce
 from django.http import FileResponse, HttpResponse
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -2237,6 +2237,7 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 		sales_date = parse_date(_pick(normalized, 'date_created'))
 		monthly_electric_bill = _money(_pick(normalized, 'monthly_electric_bill'))
 		project_cost = _money(_pick(normalized, 'project_cost'))
+		downpayment = _money(_pick(normalized, 'downpayment', 'down_payment', 'dp'))
 		roof_type = _pick(normalized, 'roof_type')
 		return_on_investment = _pick(normalized, 'return_on_investment')
 		assigned_sales = _pick(normalized, 'assigned_sales')
@@ -2259,6 +2260,7 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 				roof_type,
 				ownership,
 				project_cost is not None,
+				downpayment is not None,
 				return_on_investment,
 				assigned_sales,
 				sales_status,
@@ -2273,6 +2275,7 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 				roof_type=roof_type,
 				ownership=ownership,
 				project_cost=project_cost,
+				downpayment=downpayment,
 				return_on_investment=return_on_investment,
 				assigned_sales=assigned_sales,
 				sales_status=sales_status,
@@ -2849,12 +2852,14 @@ def crm_sales(request):
 
 			monthly_electric_bill = _to_decimal(request.POST.get('monthly_electric_bill'))
 			project_cost = _to_decimal(request.POST.get('project_cost'))
+			downpayment = _to_decimal(request.POST.get('downpayment'))
 
 			sales_record.lead_source = lead_source
 			sales_record.monthly_electric_bill = monthly_electric_bill
 			sales_record.roof_type = roof_type
 			sales_record.ownership = ownership
 			sales_record.project_cost = project_cost
+			sales_record.downpayment = downpayment
 			sales_record.return_on_investment = return_on_investment
 			sales_record.sales_status = sales_status
 			sales_record.client_status = client_status
@@ -2865,6 +2870,7 @@ def crm_sales(request):
 				'roof_type',
 				'ownership',
 				'project_cost',
+				'downpayment',
 				'return_on_investment',
 				'sales_status',
 				'client_status',
@@ -2880,6 +2886,7 @@ def crm_sales(request):
 				roof_type=roof_type,
 				ownership=ownership,
 				project_cost=project_cost,
+				downpayment=downpayment,
 				return_on_investment=return_on_investment,
 				sales_status=sales_status,
 				interaction_notes=interaction_notes,
@@ -2961,6 +2968,7 @@ def crm_sales(request):
 				roof_type=sales_row.roof_type,
 				ownership=sales_row.ownership,
 				project_cost=sales_row.project_cost,
+				downpayment=sales_row.downpayment,
 				return_on_investment=sales_row.return_on_investment,
 				sales_status='closed lost',
 				interaction_notes='System auto-aging: no updates received within configured aging period.',
@@ -2973,6 +2981,9 @@ def crm_sales(request):
 	filter_lead_source = (request.GET.get('lead_source') or '').strip()
 	filter_roof_type = (request.GET.get('roof_type') or '').strip()
 	filter_roi = (request.GET.get('roi') or '').strip()
+	cost_view = (request.GET.get('cost_view') or 'total').strip().lower()
+	if cost_view not in {'total', 'downpayment', 'remaining'}:
+		cost_view = 'total'
 	filter_project_cost_min_raw = (request.GET.get('project_cost_min') or '').strip()
 	filter_project_cost_max_raw = (request.GET.get('project_cost_max') or '').strip()
 	sort_field = (request.GET.get('sort') or 'date_created').strip()
@@ -2984,6 +2995,14 @@ def crm_sales(request):
 		'activity_logs',
 		'activity_logs__created_by',
 		'activity_logs__attachments',
+	)
+	currency_field = DecimalField(max_digits=12, decimal_places=2)
+	zero_value = Value(Decimal('0.00'), output_field=currency_field)
+	sales_queryset = sales_queryset.annotate(
+		project_cost_value=Coalesce(F('project_cost'), zero_value, output_field=currency_field),
+		downpayment_value=Coalesce(F('downpayment'), zero_value, output_field=currency_field),
+	).annotate(
+		remaining_cost_value=ExpressionWrapper(F('project_cost_value') - F('downpayment_value'), output_field=currency_field),
 	)
 	can_view_all_sales = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales'])
 	if not can_view_all_sales:
@@ -3048,10 +3067,16 @@ def crm_sales(request):
 		project_cost_max = Decimal(filter_project_cost_max_raw) if filter_project_cost_max_raw else None
 	except (InvalidOperation, TypeError, ValueError):
 		project_cost_max = None
+	cost_filter_field_map = {
+		'total': 'project_cost_value',
+		'downpayment': 'downpayment_value',
+		'remaining': 'remaining_cost_value',
+	}
+	selected_cost_filter_field = cost_filter_field_map.get(cost_view, 'project_cost_value')
 	if project_cost_min is not None:
-		sales_queryset = sales_queryset.filter(project_cost__gte=project_cost_min)
+		sales_queryset = sales_queryset.filter(**{f'{selected_cost_filter_field}__gte': project_cost_min})
 	if project_cost_max is not None:
-		sales_queryset = sales_queryset.filter(project_cost__lte=project_cost_max)
+		sales_queryset = sales_queryset.filter(**{f'{selected_cost_filter_field}__lte': project_cost_max})
 
 	assigned_sales_options = list(
 		CRMSalesRecord.objects.exclude(assigned_sales__isnull=True)
@@ -3070,7 +3095,7 @@ def crm_sales(request):
 	sortable_fields = {
 		'client': 'client__last_name',
 		'assigned_sales': 'assigned_sales',
-		'project_cost': 'project_cost',
+		'project_cost': selected_cost_filter_field,
 		'last_update': 'updated_at',
 		'sales_status': 'sales_status',
 		'date_created': 'date_created',
@@ -3094,6 +3119,15 @@ def crm_sales(request):
 		sales_row.inactive_days = inactive_days
 		sales_row.days_remaining = days_remaining
 		sales_row.last_touch_display = timezone.localtime(last_touch).strftime('%b %d, %Y %I:%M %p') if last_touch else '-'
+		selected_cost_value = None
+		if cost_view == 'downpayment':
+			selected_cost_value = sales_row.downpayment
+		elif cost_view == 'remaining':
+			if sales_row.project_cost is not None or sales_row.downpayment is not None:
+				selected_cost_value = (sales_row.project_cost or Decimal('0.00')) - (sales_row.downpayment or Decimal('0.00'))
+		else:
+			selected_cost_value = sales_row.project_cost
+		sales_row.selected_cost_value = selected_cost_value
 	base_query_params = request.GET.copy()
 	base_query_params.pop('page', None)
 	current_query_string = base_query_params.urlencode()
@@ -3123,6 +3157,7 @@ def crm_sales(request):
 		'filter_lead_source': filter_lead_source,
 		'filter_roof_type': filter_roof_type,
 		'filter_roi': filter_roi,
+		'cost_view': cost_view,
 		'filter_project_cost_min': filter_project_cost_min_raw,
 		'filter_project_cost_max': filter_project_cost_max_raw,
 		'sort_urls': sort_urls,
