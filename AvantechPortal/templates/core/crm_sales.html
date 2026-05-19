@@ -17,7 +17,8 @@
             <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#crmSalesAgingSettingsModal">Settings</button>
             {% endif %}
         </div>
-        <form method="get" class="row g-2 mb-3">
+        <form method="get" class="row g-2 mb-3" id="crmSalesFilterForm">
+            <input type="hidden" name="cost_view" value="{{ cost_view }}">
             <div class="col-lg-4 col-md-6">
                 <label class="form-label mb-1" for="crmSalesSearchInput">Search (fuzzy)</label>
                 <input type="text" class="form-control" id="crmSalesSearchInput" name="q" value="{{ q }}" placeholder="Client, customer id, assigned sales...">
@@ -72,11 +73,15 @@
                 <input type="text" class="form-control" id="crmSalesRoiInput" name="roi" value="{{ filter_roi }}">
             </div>
             <div class="col-lg-2 col-md-3">
-                <label class="form-label mb-1" for="crmSalesProjectCostMin">Project Cost Min</label>
+                <label class="form-label mb-1" for="crmSalesProjectCostMin">
+                    {% if cost_view == 'downpayment' %}Downpayment{% elif cost_view == 'remaining' %}Remaining{% else %}Project Cost{% endif %} Min
+                </label>
                 <input type="number" step="0.01" class="form-control" id="crmSalesProjectCostMin" name="project_cost_min" value="{{ filter_project_cost_min }}">
             </div>
             <div class="col-lg-2 col-md-3">
-                <label class="form-label mb-1" for="crmSalesProjectCostMax">Project Cost Max</label>
+                <label class="form-label mb-1" for="crmSalesProjectCostMax">
+                    {% if cost_view == 'downpayment' %}Downpayment{% elif cost_view == 'remaining' %}Remaining{% else %}Project Cost{% endif %} Max
+                </label>
                 <input type="number" step="0.01" class="form-control" id="crmSalesProjectCostMax" name="project_cost_max" value="{{ filter_project_cost_max }}">
             </div>
             <div class="col-lg-2 col-md-3 d-flex align-items-end">
@@ -95,7 +100,18 @@
                         <th style="width: 36px;"><input type="checkbox" id="crmSalesSelectAll"></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.client }}">Client <span class="ms-1">{{ sort_indicators.client }}</span></a></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.assigned_sales }}">Assigned Sales <span class="ms-1">{{ sort_indicators.assigned_sales }}</span></a></th>
-                        <th><a class="text-decoration-none text-dark" href="{{ sort_urls.project_cost }}">Project Cost <span class="ms-1">{{ sort_indicators.project_cost }}</span></a></th>
+                        <th>
+                            <div class="d-inline-flex align-items-center gap-0">
+                                <select class="form-select form-select-sm border-0 shadow-none bg-transparent pe-5 ps-0 text-dark fw-semibold" id="crmSalesCostColumnSelect" style="width:auto; min-width: 0;">
+                                    <option value="total" {% if cost_view == 'total' %}selected{% endif %}>Total Project Cost</option>
+                                    <option value="downpayment" {% if cost_view == 'downpayment' %}selected{% endif %}>Downpayment</option>
+                                    <option value="remaining" {% if cost_view == 'remaining' %}selected{% endif %}>Remaining</option>
+                                </select>
+                                <a class="btn btn-sm border-0 bg-transparent shadow-none text-dark fw-semibold px-0 py-0 ms-3" href="{{ sort_urls.project_cost }}" title="Sort cost column">
+                                    {{ sort_indicators.project_cost }}
+                                </a>
+                            </div>
+                        </th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.last_update }}">Last Update <span class="ms-1">{{ sort_indicators.last_update }}</span></a></th>
                         <th><a class="text-decoration-none text-dark" href="{{ sort_urls.sales_status }}">Sales Status <span class="ms-1">{{ sort_indicators.sales_status }}</span></a></th>
                         <th style="width: 72px;">Action</th>
@@ -122,6 +138,8 @@
                             data-ownership="{{ row.ownership|default:'-' }}"
                             data-project-cost="{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}"
                             data-project-cost-raw="{% if row.project_cost is not None %}{{ row.project_cost }}{% endif %}"
+                            data-downpayment="{% if row.downpayment is not None %}PHP {{ row.downpayment|comma2 }}{% else %}-{% endif %}"
+                            data-downpayment-raw="{% if row.downpayment is not None %}{{ row.downpayment }}{% endif %}"
                             data-monthly-electric-bill-raw="{% if row.monthly_electric_bill is not None %}{{ row.monthly_electric_bill }}{% endif %}"
                             data-return-on-investment="{{ row.return_on_investment|default:'-' }}"
                             data-assigned-sales="{{ row.assigned_sales|default:'-' }}"
@@ -134,7 +152,7 @@
                             <td><input type="checkbox" class="crm-sales-row-checkbox" value="{{ row.id }}"></td>
                             <td>{{ row.client.last_name }}, {{ row.client.first_name }}</td>
                             <td>{{ row.assigned_sales|default:"-" }}</td>
-                            <td>{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}</td>
+                            <td>{% if row.selected_cost_value is not None %}PHP {{ row.selected_cost_value|comma2 }}{% else %}-{% endif %}</td>
                             <td>
                                 {% if row.days_remaining <= 0 %}
                                     <span class="badge text-bg-secondary">inactive na</span>
@@ -176,6 +194,7 @@
                                             data-history-roof-type="{{ log.roof_type|default:'-' }}"
                                             data-history-ownership="{{ log.ownership|default:'-' }}"
                                             data-history-project-cost="{% if log.project_cost is not None %}PHP {{ log.project_cost|comma2 }}{% else %}-{% endif %}"
+                                            data-history-downpayment="{% if log.downpayment is not None %}PHP {{ log.downpayment|comma2 }}{% else %}-{% endif %}"
                                             data-history-roi="{{ log.return_on_investment|default:'-' }}"
                                             data-history-sales-status="{{ log.sales_status|default:'-' }}"
                                             data-history-notes="{{ log.interaction_notes|default:'-' }}"
@@ -350,6 +369,7 @@
                                     <div class="col-md-6"><label class="form-label">Roof Type</label><input type="text" class="form-control" id="salesClientSalesRoofType" readonly></div>
                                     <div class="col-md-6"><label class="form-label">Ownership</label><input type="text" class="form-control" id="salesClientSalesOwnership" readonly></div>
                                     <div class="col-md-6"><label class="form-label">Project Cost</label><input type="text" class="form-control" id="salesClientSalesProjectCost" readonly></div>
+                                    <div class="col-md-6"><label class="form-label">Downpayment</label><input type="text" class="form-control" id="salesClientSalesDownpayment" readonly></div>
                                     <div class="col-md-6"><label class="form-label">Return On Investment</label><input type="text" class="form-control" id="salesClientSalesROI" readonly></div>
                                     <div class="col-md-6"><label class="form-label">Assigned Sales</label><input type="text" class="form-control" id="salesClientSalesAssignedSales" readonly></div>
                                     <div class="col-md-6"><label class="form-label">Sales Status</label><input type="text" class="form-control" id="salesClientSalesStatus" readonly></div>
@@ -428,6 +448,10 @@
                                     <div class="col-md-6">
                                         <label class="form-label">Project Cost</label>
                                         <input type="text" class="form-control" id="salesInfoProjectCost" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Downpayment</label>
+                                        <input type="text" class="form-control" id="salesInfoDownpayment" readonly>
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label">Return On Investment</label>
@@ -532,6 +556,10 @@
                         <div class="col-md-6">
                             <label class="form-label">Project Cost</label>
                             <input type="number" step="0.01" class="form-control" name="project_cost" id="logProjectCost">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Downpayment</label>
+                            <input type="number" step="0.01" class="form-control" name="downpayment" id="logDownpayment">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Return On Investment</label>
@@ -671,6 +699,7 @@
                     <div class="col-md-6"><label class="form-label">Roof Type</label><input type="text" class="form-control" id="historyDetailRoofType" readonly></div>
                     <div class="col-md-6"><label class="form-label">Ownership</label><input type="text" class="form-control" id="historyDetailOwnership" readonly></div>
                     <div class="col-md-6"><label class="form-label">Project Cost</label><input type="text" class="form-control" id="historyDetailProjectCost" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Downpayment</label><input type="text" class="form-control" id="historyDetailDownpayment" readonly></div>
                     <div class="col-md-6"><label class="form-label">ROI</label><input type="text" class="form-control" id="historyDetailRoi" readonly></div>
                     <div class="col-md-6"><label class="form-label">Sales Status</label><input type="text" class="form-control" id="historyDetailSalesStatus" readonly></div>
                     <div class="col-12"><label class="form-label">Interaction Notes</label><textarea class="form-control" id="historyDetailNotes" rows="3" readonly></textarea></div>
@@ -848,6 +877,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var activeSalesRowId = null;
+    var costColumnSelect = document.getElementById('crmSalesCostColumnSelect');
     var selectAll = document.getElementById('crmSalesSelectAll');
     var salesModalEl = document.getElementById('crmSalesInfoModal');
     var salesModal = (salesModalEl && window.bootstrap) ? new bootstrap.Modal(salesModalEl) : null;
@@ -863,6 +893,15 @@ document.addEventListener('DOMContentLoaded', function () {
     var activityUploadFiles = [];
     var clientProfileModalEl = document.getElementById('crmSalesClientProfileModal');
     var clientProfileModal = (clientProfileModalEl && window.bootstrap) ? new bootstrap.Modal(clientProfileModalEl) : null;
+
+    if (costColumnSelect) {
+        costColumnSelect.addEventListener('change', function () {
+            var url = new URL(window.location.href);
+            url.searchParams.set('cost_view', costColumnSelect.value || 'total');
+            url.searchParams.delete('page');
+            window.location.href = url.toString();
+        });
+    }
 
     function safeText(value) {
         return value == null || String(value).trim() === '' ? '-' : String(value);
@@ -923,6 +962,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('salesInfoRoofType').value = row.dataset.roofType || '-';
         document.getElementById('salesInfoOwnership').value = row.dataset.ownership || '-';
         document.getElementById('salesInfoProjectCost').value = row.dataset.projectCost || '-';
+        document.getElementById('salesInfoDownpayment').value = row.dataset.downpayment || '-';
         document.getElementById('salesInfoROI').value = row.dataset.returnOnInvestment || '-';
         document.getElementById('salesInfoAssignedSales').value = row.dataset.assignedSales || '-';
         document.getElementById('salesInfoStatus').value = row.dataset.salesStatus || '-';
@@ -954,6 +994,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var roofType = document.getElementById('logRoofType');
         var ownership = document.getElementById('logOwnership');
         var projectCost = document.getElementById('logProjectCost');
+        var downpayment = document.getElementById('logDownpayment');
         var roi = document.getElementById('logROI');
         var salesStatus = document.getElementById('logSalesStatus');
         var clientName = document.getElementById('logClientName');
@@ -965,6 +1006,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (roofType) roofType.value = row.dataset.roofType === '-' ? '' : (row.dataset.roofType || '');
         if (ownership) ownership.value = (row.dataset.ownership || '').toLowerCase() === '-' ? '' : (row.dataset.ownership || '').toLowerCase();
         if (projectCost) projectCost.value = row.dataset.projectCostRaw || '';
+        if (downpayment) downpayment.value = row.dataset.downpaymentRaw || '';
         if (roi) roi.value = row.dataset.returnOnInvestment === '-' ? '' : (row.dataset.returnOnInvestment || '');
         if (salesStatus) salesStatus.value = (row.dataset.salesStatus || '').toLowerCase() === '-' ? '' : (row.dataset.salesStatus || '').toLowerCase();
         if (clientStatus) clientStatus.value = row.dataset.clientStatus === '-' ? '' : (row.dataset.clientStatus || '');
@@ -1081,6 +1123,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('salesClientSalesRoofType').value = row.dataset.roofType || '-';
         document.getElementById('salesClientSalesOwnership').value = row.dataset.ownership || '-';
         document.getElementById('salesClientSalesProjectCost').value = row.dataset.projectCost || '-';
+        document.getElementById('salesClientSalesDownpayment').value = row.dataset.downpayment || '-';
         document.getElementById('salesClientSalesROI').value = row.dataset.returnOnInvestment || '-';
         document.getElementById('salesClientSalesAssignedSales').value = row.dataset.assignedSales || '-';
         document.getElementById('salesClientSalesStatus').value = row.dataset.salesStatus || '-';
@@ -1107,6 +1150,7 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('historyDetailRoofType').value = historyRow.dataset.historyRoofType || '-';
             document.getElementById('historyDetailOwnership').value = historyRow.dataset.historyOwnership || '-';
             document.getElementById('historyDetailProjectCost').value = historyRow.dataset.historyProjectCost || '-';
+            document.getElementById('historyDetailDownpayment').value = historyRow.dataset.historyDownpayment || '-';
             document.getElementById('historyDetailRoi').value = historyRow.dataset.historyRoi || '-';
             document.getElementById('historyDetailSalesStatus').value = historyRow.dataset.historySalesStatus || '-';
             document.getElementById('historyDetailNotes').value = historyRow.dataset.historyNotes || '-';

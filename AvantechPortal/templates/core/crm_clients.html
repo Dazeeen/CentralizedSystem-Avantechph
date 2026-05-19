@@ -85,6 +85,7 @@
                                 data-sales-roof-type="{% if sales and sales.roof_type %}{{ sales.roof_type }}{% else %}-{% endif %}"
                                 data-sales-ownership="{% if sales and sales.ownership %}{{ sales.ownership }}{% else %}-{% endif %}"
                                 data-sales-project-cost="{% if sales and sales.project_cost is not None %}{{ sales.project_cost }}{% else %}-{% endif %}"
+                                data-sales-downpayment="{% if sales and sales.downpayment is not None %}{{ sales.downpayment }}{% else %}-{% endif %}"
                                 data-sales-roi="{% if sales and sales.return_on_investment %}{{ sales.return_on_investment }}{% else %}-{% endif %}"
                                 data-sales-assigned="{% if sales and sales.assigned_sales %}{{ sales.assigned_sales }}{% else %}-{% endif %}"
                                 data-sales-status="{% if sales and sales.sales_status %}{{ sales.sales_status }}{% else %}-{% endif %}"
@@ -1538,6 +1539,7 @@ document.addEventListener('DOMContentLoaded', function () {
         { value: 'roof_type', label: 'Roof Type' },
         { value: 'ownership', label: 'Ownership' },
         { value: 'project_cost', label: 'Project Cost' },
+        { value: 'downpayment', label: 'Downpayment' },
         { value: 'return_on_investment', label: 'Return on Investment' },
         { value: 'assigned_sales', label: 'Assigned Sales' },
         { value: 'sales_status', label: 'Sales Status' },
@@ -1892,6 +1894,8 @@ document.addEventListener('DOMContentLoaded', function () {
             'roof type': 'roof_type',
             'ownership': 'ownership',
             'project cost': 'project_cost',
+            'downpayment': 'downpayment',
+            'down payment': 'downpayment',
             'return on investment': 'return_on_investment',
             'assigned sales': 'assigned_sales',
             'sales status': 'sales_status',
