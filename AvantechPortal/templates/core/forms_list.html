@@ -11,6 +11,9 @@
             <div class="d-flex gap-2">
                 {% if can_manage_forms %}
                 <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#formsManageModal">Manage</button>
+                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#formsHistoryModal">History</button>
+                {% endif %}
+                {% if can_manage_form_files %}
                 <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#formsUploadModal">Upload Form Files</button>
                 {% endif %}
             </div>
@@ -36,7 +39,7 @@
                                     <div class="border rounded-3 p-2 h-100 d-flex flex-column gap-2 forms-upload-square-card">
                                         <div class="d-flex align-items-start justify-content-between gap-2">
                                             <div class="small fw-semibold text-truncate" title="{{ upload.original_name|default:upload.file.name }}">{{ upload.original_name|default:upload.file.name }}</div>
-                                            <button type="button" class="btn btn-sm btn-outline-primary px-2 py-0 forms-upload-print-btn" onclick="printUploadedForm('{{ upload.file.url|escapejs }}');" title="Print this file">
+                                            <button type="button" class="btn btn-sm btn-outline-primary px-2 py-0 forms-upload-print-btn" onclick="printUploadedForm('{% url 'forms_preview_file' upload.id %}');" title="Print this file">
                                                 <span class="material-symbols-outlined forms-upload-print-icon" aria-hidden="true">print</span>
                                             </button>
                                         </div>
@@ -49,9 +52,9 @@
                                             {% endif %}
                                         </div>
                                         <div class="d-grid gap-1 mt-auto">
-                                            <a href="{{ upload.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary w-100">Preview</a>
-                                            <a href="{{ upload.file.url }}" download class="btn btn-sm btn-outline-success w-100">Download</a>
-                                            {% if can_manage_forms %}
+                                            <a href="{% url 'forms_preview_file' upload.id %}" target="_blank" class="btn btn-sm btn-outline-primary w-100">Preview</a>
+                                            <a href="{% url 'forms_download_file' upload.id %}" class="btn btn-sm btn-outline-success w-100">Download</a>
+                                            {% if can_manage_form_files %}
                                             <button
                                                 type="button"
                                                 class="btn btn-sm btn-outline-secondary js-rename-upload-btn w-100"
@@ -89,6 +92,68 @@
 {% endfor %}
 
 {% if can_manage_forms %}
+<div class="modal fade" id="formsHistoryModal" tabindex="-1" aria-labelledby="formsHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="formsHistoryModalLabel">Forms Download History</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Transaction ID</th>
+                                <th>Name</th>
+                                <th>Action</th>
+                                <th>What Form</th>
+                                <th>When</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in forms_download_history_page %}
+                            <tr>
+                                <td>TXN-{{ row.id }}</td>
+                                <td>{{ row.actor.get_full_name|default:row.actor.username|default:"System" }}</td>
+                                <td>{{ row.summary|default:"-" }}</td>
+                                <td>{{ row.metadata.form_name|default:row.target_label|default:"-" }}</td>
+                                <td>{{ row.created_at|date:"M j, Y g:i A" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-secondary py-3">No forms activity history yet.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if forms_download_history_page.paginator.num_pages > 1 %}
+                <nav aria-label="Forms download history pagination">
+                    <ul class="pagination pagination-sm mb-0 justify-content-end">
+                        {% if forms_download_history_page.has_previous %}
+                        <li class="page-item"><a class="page-link" href="?history_page={{ forms_download_history_page.previous_page_number }}#formsHistoryModal">Previous</a></li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                        {% endif %}
+                        {% for page_num in forms_download_history_page.paginator.page_range %}
+                        <li class="page-item {% if forms_download_history_page.number == page_num %}active{% endif %}">
+                            <a class="page-link" href="?history_page={{ page_num }}#formsHistoryModal">{{ page_num }}</a>
+                        </li>
+                        {% endfor %}
+                        {% if forms_download_history_page.has_next %}
+                        <li class="page-item"><a class="page-link" href="?history_page={{ forms_download_history_page.next_page_number }}#formsHistoryModal">Next</a></li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">Next</span></li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="formsManageModal" tabindex="-1" aria-labelledby="formsManageModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
@@ -184,6 +249,7 @@
     </div>
 </div>
 
+{% if can_manage_form_files %}
 <div class="modal fade" id="formsUploadModal" tabindex="-1" aria-labelledby="formsUploadModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -230,7 +296,9 @@
         </div>
     </div>
 </div>
+{% endif %}
 
+{% if can_manage_form_files %}
 <div class="modal fade" id="renameUploadModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -255,6 +323,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="modal fade" id="editSectionModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -469,6 +538,11 @@ document.addEventListener('DOMContentLoaded', function () {
             syncInputFiles();
             renderPreviewGrid();
         });
+    }
+
+    var historyModalEl = document.getElementById('formsHistoryModal');
+    if (historyModalEl && window.location.hash === '#formsHistoryModal' && window.bootstrap && window.bootstrap.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(historyModalEl).show();
     }
 });
 

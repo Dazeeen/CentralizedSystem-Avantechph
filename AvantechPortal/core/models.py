@@ -1393,6 +1393,36 @@ class LiquidationSettings(models.Model):
 		return instance
 
 
+class CalculatorSetting(models.Model):
+	"""Singleton settings for calculator defaults."""
+	volt_drop_percent = models.DecimalField(max_digits=6, decimal_places=2, default=3)
+	sun_peak_period_hours = models.DecimalField(max_digits=6, decimal_places=2, default=4)
+	meralco_rate = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+	battery_health_protection_percent = models.DecimalField(max_digits=6, decimal_places=2, default=20)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		verbose_name = 'Calculator Settings'
+		verbose_name_plural = 'Calculator Settings'
+
+	def save(self, *args, **kwargs):
+		self.pk = 1
+		super().save(*args, **kwargs)
+
+	@classmethod
+	def load(cls):
+		instance, _ = cls.objects.get_or_create(
+			pk=1,
+			defaults={
+				'volt_drop_percent': 3,
+				'sun_peak_period_hours': 4,
+				'meralco_rate': 0,
+				'battery_health_protection_percent': 20,
+			},
+		)
+		return instance
+
+
 class Liquidation(models.Model):
 	RETURNED_OR_OVER_CHOICES = [
 		('returned', 'Returned'),

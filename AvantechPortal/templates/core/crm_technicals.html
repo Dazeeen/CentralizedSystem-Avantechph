@@ -300,7 +300,15 @@
                     </div>
                     <div class="row g-3">
                         <div class="col-md-6"><label class="form-label">Installation Date</label><input type="date" class="form-control" name="installation_date" id="technicalUpdateInstallationDate"></div>
-                        <div class="col-md-6"><label class="form-label">Team Assigned</label><input class="form-control" name="team_assigned" id="technicalUpdateTeamAssigned"></div>
+                        <div class="col-md-6">
+                            <label class="form-label">Team Assigned</label>
+                            <select class="form-select" name="team_assigned" id="technicalUpdateTeamAssigned">
+                                <option value="">Select team</option>
+                                {% for team in technical_teams %}
+                                <option value="{{ team.name }}">{{ team.name }} ({{ team.members|length }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                         <div class="col-md-6"><label class="form-label">System Size Kwh</label><input class="form-control" name="system_size_kwh" id="technicalUpdateSystemSizeKwh"></div>
                         <div class="col-md-6"><label class="form-label">Panel Units</label><input class="form-control" name="panel_units" id="technicalUpdatePanelUnits"></div>
                         <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" name="inverter_model" id="technicalUpdateInverterModel"></div>
@@ -1275,6 +1283,19 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!el) return;
             el.value = (value && value !== '-') ? value : '';
         };
+        var updateTeamSelect = document.getElementById('technicalUpdateTeamAssigned');
+        var teamAssignedValue = row.dataset.teamAssigned || '';
+        if (updateTeamSelect && teamAssignedValue && teamAssignedValue !== '-') {
+            var hasTeamOption = Array.from(updateTeamSelect.options || []).some(function (opt) {
+                return String(opt.value || '').trim().toLowerCase() === String(teamAssignedValue).trim().toLowerCase();
+            });
+            if (!hasTeamOption) {
+                var customOpt = document.createElement('option');
+                customOpt.value = teamAssignedValue;
+                customOpt.textContent = teamAssignedValue + ' (Custom)';
+                updateTeamSelect.appendChild(customOpt);
+            }
+        }
         setVal('technicalUpdateClientName', row.dataset.clientName || '');
         setVal('technicalUpdateSalesRecordId', row.dataset.salesRecordId || '');
         setVal('technicalUpdateInstallationDate', row.dataset.installationDate || '');
