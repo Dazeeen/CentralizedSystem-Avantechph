@@ -265,6 +265,19 @@
                                 </span>
                                 <span class="nav-label">Forms</span>
                             </a>
+                            <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'calculator_page' %}active{% endif %}" href="{% url 'calculator_page' %}">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                        <path d="M8 8H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8 12H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M13 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8 16H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M13 16H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Calculator</span>
+                            </a>
                         {% endif %}
                         {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_consumableitem or perms.core.view_consumableitemtype or perms.core.view_consumablescategory or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
@@ -879,6 +892,19 @@
                             </span>
                             <span class="nav-label">Forms</span>
                         </a>
+                        <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'calculator_page' %}active{% endif %}" href="{% url 'calculator_page' %}">
+                            <span class="nav-logo" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M8 8H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 12H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M13 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 16H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M13 16H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </span>
+                            <span class="nav-label">Calculator</span>
+                        </a>
                     {% endif %}
                     {% if request.user.is_superuser or perms.core.view_assetitem or perms.core.view_assettrackercategory or perms.core.view_assetitemtype or perms.core.view_consumableitem or perms.core.view_consumableitemtype or perms.core.view_consumablescategory or perms.core.view_assetaccountability or perms.core.view_companyinternetaccount or perms.core.change_companyinternetaccount or perms.core.add_companyinternetaccount %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_asset_tracker_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_asset_tracker_nav_active %}true{% else %}false{% endif %}">
@@ -1248,6 +1274,7 @@
             const presenceEndpoint = '{% url "update_presence_status" %}';
             const inactivityLimitMs = 10 * 60 * 1000;
             const presenceSessionStorageKey = 'avantech_presence_session_id';
+            const csrfTokenFromTemplate = '{{ csrf_token }}';
             const statusColors = {
                 active: '#198754',
                 idle: '#ffc107',
@@ -1274,6 +1301,14 @@
                 const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
                 if (csrfInput && csrfInput.value) {
                     return csrfInput.value;
+                }
+
+                if (
+                    csrfTokenFromTemplate
+                    && csrfTokenFromTemplate !== 'NOTPROVIDED'
+                    && csrfTokenFromTemplate !== 'notprovided'
+                ) {
+                    return csrfTokenFromTemplate;
                 }
 
                 const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);

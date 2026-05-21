@@ -127,6 +127,7 @@ from .models import (
 	TimekeepingImportEntry,
 	AttendanceTimemarkSetting,
 	Client,
+	CalculatorSetting,
 	CRMClient,
 	CRMSalesRecord,
 	CRMSalesActivityLog,
@@ -1760,7 +1761,12 @@ def crm_dashboard(request):
 
 	clients_qs = _get_clients_queryset_for_dashboard(request.user)
 	sales_qs = CRMSalesRecord.objects.filter(client__in=clients_qs).distinct()
-	technical_qs = CRMTechnicalRecord.objects.filter(sales_record__client__in=clients_qs).distinct()
+	technical_qs = CRMTechnicalRecord.objects.filter(
+		sales_record__client__in=clients_qs,
+		sales_record__project_cost__isnull=False,
+	).filter(
+		Q(sales_record__sales_status__iexact='closed won') | Q(sales_record__sales_status__iexact='close won')
+	).distinct()
 
 	today = timezone.localdate()
 	week_start = today - timedelta(days=today.weekday())
@@ -2775,20 +2781,83 @@ def crm_sales(request):
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'assign_sales_to_client':
 			sales_id = (request.POST.get('sales_record_id') or '').strip()
-			sales_record = get_object_or_404(CRMSalesRecord, pk=sales_id)
-			selected_sales = [item.strip() for item in request.POST.getlist('assigned_sales_values') if (item or '').strip()]
-			sales_record.assigned_sales = ', '.join(selected_sales)
-			sales_record.save(update_fields=['assigned_sales', 'updated_at'])
-			record_activity(
-				request,
-				'update',
-				'clients',
-				f'Updated assigned sales for CRM sales record #{sales_record.id}.',
-				target=sales_record,
-				target_label=f'Sales #{sales_record.id}',
-				metadata={'sales_record_id': sales_record.id, 'assigned_sales': sales_record.assigned_sales},
+			selected_sales_record_ids_raw = (request.POST.get('selected_sales_record_ids') or '').strip()
+			parsed_sales_ids = []
+			if selected_sales_record_ids_raw:
+				for raw_part in selected_sales_record_ids_raw.split(','):
+					part = (raw_part or '').strip()
+					if part.isdigit():
+						parsed_sales_ids.append(int(part))
+			if sales_id and sales_id.isdigit():
+				parsed_sales_ids.append(int(sales_id))
+			seen_sales_ids = set()
+			target_sales_ids = []
+			for parsed_id in parsed_sales_ids:
+				if parsed_id in seen_sales_ids:
+					continue
+				seen_sales_ids.add(parsed_id)
+				target_sales_ids.append(parsed_id)
+			if not target_sales_ids:
+				return JsonResponse({'ok': False, 'message': 'No sales records selected.'}, status=400) if _is_ajax_request(request) else _permission_denied_response(request, 'No sales records selected.')
+			sales_records_qs = CRMSalesRecord.objects.filter(pk__in=target_sales_ids)
+			sales_records = list(sales_records_qs)
+			if not sales_records:
+				return JsonResponse({'ok': False, 'message': 'Selected sales records were not found.'}, status=404) if _is_ajax_request(request) else _permission_denied_response(request, 'Selected sales records were not found.')
+			selected_sales_raw = [item.strip() for item in request.POST.getlist('assigned_sales_values') if (item or '').strip()]
+			allowed_sales_names = {
+				((user.get_full_name() or user.username or '').strip().lower()): (user.get_full_name() or user.username or '').strip()
+				for user in User.objects.filter(is_active=True)
+				if _has_any_permission(user, CRM_VIEW_PERMISSIONS['sales']) and (user.get_full_name() or user.username or '').strip()
+			}
+			selected_names = []
+			for token in selected_sales_raw:
+				key = token.strip().lower()
+				if key in allowed_sales_names:
+					selected_names.append(allowed_sales_names[key])
+			# Preserve order while removing duplicates.
+			seen_names = set()
+			normalized_names = []
+			for name in selected_names:
+				name_key = (name or '').strip().lower()
+				if not name_key or name_key in seen_names:
+					continue
+				seen_names.add(name_key)
+				normalized_names.append(name)
+			new_assigned_sales_value = ', '.join(normalized_names)
+			updated_ids = []
+			for sales_record in sales_records:
+				sales_record.assigned_sales = new_assigned_sales_value
+				sales_record.save(update_fields=['assigned_sales', 'updated_at'])
+				updated_ids.append(sales_record.id)
+				record_activity(
+					request,
+					'update',
+					'clients',
+					f'Updated assigned sales for CRM sales record #{sales_record.id}.',
+					target=sales_record,
+					target_label=f'Sales #{sales_record.id}',
+					metadata={
+						'sales_record_id': sales_record.id,
+						'assigned_sales': sales_record.assigned_sales,
+						'assigned_sales_names': normalized_names,
+						'is_bulk': len(sales_records) > 1,
+					},
+				)
+			success_message = (
+				f'Assigned sales updated for {len(updated_ids)} records.'
+				if len(updated_ids) > 1
+				else 'Assigned sales updated successfully.'
 			)
-			messages.success(request, 'Assigned sales updated successfully.', extra_tags='toast')
+			if _is_ajax_request(request):
+				return JsonResponse(
+					{
+						'ok': True,
+						'message': success_message,
+						'assigned_sales': new_assigned_sales_value,
+						'updated_sales_record_ids': updated_ids,
+					}
+				)
+			messages.success(request, success_message, extra_tags='toast')
 			return redirect('crm_sales')
 		if form_action == 'update_sales_aging_settings':
 			aging_days_raw = (request.POST.get('aging_days') or '').strip()
@@ -2831,6 +2900,8 @@ def crm_sales(request):
 			return redirect('crm_sales')
 		if form_action == 'log_sales_activity':
 			sales_id = (request.POST.get('sales_record_id') or '').strip()
+			entry_mode = (request.POST.get('entry_mode') or 'log').strip().lower()
+			is_edit_mode = entry_mode == 'edit'
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_id)
 
 			lead_source = (request.POST.get('lead_source') or '').strip().lower()
@@ -2898,18 +2969,27 @@ def crm_sales(request):
 				request,
 				'update',
 				'clients',
-				f'Logged CRM sales activity for sales record #{sales_record.id}.',
+				(
+					f'Updated CRM sales info for sales record #{sales_record.id}.'
+					if is_edit_mode
+					else f'Logged CRM sales activity for sales record #{sales_record.id}.'
+				),
 				target=sales_record,
 				target_label=f'Sales #{sales_record.id}',
 				metadata={
 					'sales_record_id': sales_record.id,
+					'entry_mode': entry_mode,
 					'sales_status': sales_status,
 					'client_status': client_status,
 					'lead_source': lead_source,
 					'attachment_count': len(request.FILES.getlist('activity_files')),
 				},
 			)
-			messages.success(request, 'Sales activity logged successfully.', extra_tags='toast')
+			messages.success(
+				request,
+				'Sales information updated successfully.' if is_edit_mode else 'Sales activity logged successfully.',
+				extra_tags='toast',
+			)
 			return redirect('crm_sales')
 
 	aging_settings, _ = CRMSalesAgingSetting.objects.get_or_create(
@@ -2978,6 +3058,8 @@ def crm_sales(request):
 	query = (request.GET.get('q') or '').strip()
 	filter_assigned_sales = (request.GET.get('assigned_sales') or '').strip()
 	filter_sales_status = (request.GET.get('sales_status') or '').strip()
+	filter_active_pipeline = (request.GET.get('active_pipeline') or '').strip().lower()
+	filter_monthly_milestone = (request.GET.get('monthly_milestone') or '').strip().lower()
 	filter_lead_source = (request.GET.get('lead_source') or '').strip()
 	filter_roof_type = (request.GET.get('roof_type') or '').strip()
 	filter_roi = (request.GET.get('roi') or '').strip()
@@ -3029,7 +3111,11 @@ def crm_sales(request):
 			)
 
 	if filter_assigned_sales:
-		sales_queryset = sales_queryset.filter(assigned_sales__icontains=filter_assigned_sales)
+		sales_queryset = sales_queryset.filter(assigned_sales__iexact=filter_assigned_sales)
+	if filter_monthly_milestone in {'1', 'true', 'yes'}:
+		today = timezone.localdate()
+		month_start = today.replace(day=1)
+		sales_queryset = sales_queryset.filter(created_at__date__gte=month_start, created_at__date__lte=today)
 	if filter_sales_status:
 		status_aliases = {
 			'new': ['new'],
@@ -3045,6 +3131,13 @@ def crm_sales(request):
 		for status_value in status_values:
 			status_query |= Q(sales_status__iexact=status_value)
 		sales_queryset = sales_queryset.filter(status_query)
+	elif filter_active_pipeline in {'1', 'true', 'yes'}:
+		sales_queryset = sales_queryset.exclude(
+			Q(sales_status__iexact='close won')
+			| Q(sales_status__iexact='closed won')
+			| Q(sales_status__iexact='close lost')
+			| Q(sales_status__iexact='closed lost')
+		)
 	if filter_lead_source:
 		lead_aliases = {
 			'walk-in': ['walk-in', 'walkin'],
@@ -3078,19 +3171,18 @@ def crm_sales(request):
 	if project_cost_max is not None:
 		sales_queryset = sales_queryset.filter(**{f'{selected_cost_filter_field}__lte': project_cost_max})
 
-	assigned_sales_options = list(
-		CRMSalesRecord.objects.exclude(assigned_sales__isnull=True)
-		.exclude(assigned_sales__exact='')
-		.order_by('assigned_sales')
-		.values_list('assigned_sales', flat=True)
-		.distinct()
-	)
+	assigned_sales_options = []
 	assignable_sales_users = []
+	seen_option_labels = set()
 	for user in User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username'):
 		if _has_any_permission(user, CRM_VIEW_PERMISSIONS['sales']):
 			label = (user.get_full_name() or user.username or '').strip()
 			if label:
 				assignable_sales_users.append({'value': label, 'username': user.username, 'label': label})
+				label_key = label.lower()
+				if label_key not in seen_option_labels:
+					assigned_sales_options.append({'value': label, 'label': label})
+					seen_option_labels.add(label_key)
 
 	sortable_fields = {
 		'client': 'client__last_name',
@@ -3110,6 +3202,7 @@ def crm_sales(request):
 	sales_page = Paginator(sales_queryset, 20).get_page(request.GET.get('page'))
 	now_ts = timezone.now()
 	for sales_row in sales_page.object_list:
+		sales_row.assigned_sales_display = (sales_row.assigned_sales or '').strip()
 		last_activity = sales_row.activity_logs.first() if hasattr(sales_row, 'activity_logs') else None
 		last_touch = sales_row.updated_at
 		if last_activity and last_activity.created_at and last_activity.created_at > last_touch:
@@ -3503,6 +3596,7 @@ def crm_technicals(request):
 	technical_query = (request.GET.get('q') or '').strip()
 	filter_team_assigned = (request.GET.get('team_assigned') or '').strip()
 	filter_installation_status = (request.GET.get('installation_status') or '').strip()
+	filter_active_jobs = (request.GET.get('active_jobs') or '').strip().lower()
 	filter_po_number_range = (request.GET.get('po_number_range') or '').strip()
 	filter_installation_date_from = parse_date((request.GET.get('installation_date_from') or '').strip())
 	filter_installation_date_to = parse_date((request.GET.get('installation_date_to') or '').strip())
@@ -3583,6 +3677,13 @@ def crm_technicals(request):
 		queryset = queryset.filter(technical_record__team_assigned__iexact=filter_team_assigned)
 	if filter_installation_status:
 		queryset = queryset.filter(technical_record__installation_status__iexact=filter_installation_status)
+	elif filter_active_jobs in {'1', 'true', 'yes'}:
+		queryset = queryset.filter(
+			Q(technical_record__installation_status__iexact='scheduled')
+			| Q(technical_record__installation_status__iexact='ongoing')
+			| Q(technical_record__installation_status__iexact='rescheduled')
+			| Q(technical_record__installation_status__iexact='back jobs')
+		)
 	if filter_installation_date_from:
 		queryset = queryset.filter(technical_record__installation_date__gte=filter_installation_date_from)
 	if filter_installation_date_to:
@@ -6816,10 +6917,48 @@ def users_update(request, user_id):
 	if request.method == 'POST':
 		form = StaffUserUpdateForm(request.POST, instance=managed_user, current_user=request.user)
 		if form.is_valid():
+			old_full_name = (managed_user.get_full_name() or '').strip()
+			old_username = (managed_user.username or '').strip()
+
+			def _sync_assigned_sales_name_tokens(old_name, old_user_name, new_name):
+				old_tokens = {token.strip().lower() for token in [old_name, old_user_name] if (token or '').strip()}
+				if not old_tokens or not (new_name or '').strip():
+					return 0
+				updated_count = 0
+				for sales_row in CRMSalesRecord.objects.exclude(assigned_sales__isnull=True).exclude(assigned_sales__exact=''):
+					raw_value = (sales_row.assigned_sales or '').strip()
+					if not raw_value:
+						continue
+					parts = [item.strip() for item in raw_value.split(',') if item.strip()]
+					changed = False
+					rewritten = []
+					for part in parts:
+						if part.lower() in old_tokens:
+							rewritten.append(new_name)
+							changed = True
+						else:
+							rewritten.append(part)
+					seen = set()
+					cleaned = []
+					for item in rewritten:
+						key = item.lower()
+						if key in seen:
+							continue
+						seen.add(key)
+						cleaned.append(item)
+					new_value = ', '.join(cleaned)
+					if changed and new_value != raw_value:
+						sales_row.assigned_sales = new_value
+						sales_row.save(update_fields=['assigned_sales', 'updated_at'])
+						updated_count += 1
+				return updated_count
+
 			for attempt in range(3):
 				try:
 					with transaction.atomic():
 						updated_user = form.save()
+						new_full_name = (updated_user.get_full_name() or '').strip() or (updated_user.username or '').strip()
+						synced_sales_rows = _sync_assigned_sales_name_tokens(old_full_name, old_username, new_full_name)
 						record_activity(
 							request,
 							'update',
@@ -6827,6 +6966,11 @@ def users_update(request, user_id):
 							f'Updated user account {updated_user.username}.',
 							target=updated_user,
 							target_label=updated_user.username,
+							metadata={
+								'synced_assigned_sales_rows': synced_sales_rows,
+								'old_full_name': old_full_name,
+								'new_full_name': new_full_name,
+							},
 						)
 					messages.success(request, 'User account updated successfully.')
 					if is_modal_request:
@@ -10864,12 +11008,8 @@ def forms_list(request):
 	if not _can_access_forms_section(request.user):
 		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Forms.')
 
-	can_manage_forms = (
-		request.user.is_superuser
-		or request.user.has_perm('core.add_assetaccountability')
-		or request.user.has_perm('core.change_assetaccountability')
-		or request.user.has_perm('core.delete_assetaccountability')
-	)
+	can_manage_forms = request.user.is_superuser
+	can_manage_form_files = request.user.is_superuser
 
 	if request.method == 'POST':
 		if not can_manage_forms:
@@ -10958,6 +11098,8 @@ def forms_list(request):
 			return redirect('forms_list')
 
 		if form_action == 'upload_form_files':
+			if not can_manage_form_files:
+				return _permission_denied_response(request, 'Only superuser can upload form files.')
 			section_id = (request.POST.get('section_id') or '').strip()
 			subsection_id = (request.POST.get('subsection_id') or '').strip()
 			section = FormSection.objects.filter(pk=section_id).first()
@@ -10984,18 +11126,42 @@ def forms_list(request):
 			return redirect('forms_list')
 
 		if form_action == 'remove_upload':
+			if not can_manage_form_files:
+				return _permission_denied_response(request, 'Only superuser can delete uploaded form files.')
 			upload_id = (request.POST.get('upload_id') or '').strip()
 			upload = FormUpload.objects.filter(pk=upload_id).first()
 			if not upload:
 				messages.error(request, 'File record not found.', extra_tags='toast')
 			else:
+				removed_name = (upload.original_name or '').strip() or os.path.basename(getattr(upload.file, 'name', '') or '') or f'FormUpload#{upload.id}'
+				section_name = upload.section.name if upload.section_id else ''
+				subsection_name = upload.subsection.name if upload.subsection_id else ''
 				if upload.file:
 					upload.file.delete(save=False)
 				upload.delete()
+				record_activity(
+					request,
+					'delete',
+					'system',
+					f'Deleted form file "{removed_name}".',
+					target_label=(
+						f'{section_name} / {subsection_name} / {removed_name}'
+						if subsection_name else f'{section_name} / {removed_name}'
+					),
+					metadata={
+						'event': 'forms_delete',
+						'form_upload_id': int(upload_id) if str(upload_id).isdigit() else '',
+						'section': section_name,
+						'subsection': subsection_name,
+						'form_name': removed_name,
+					},
+				)
 				messages.success(request, 'File removed.', extra_tags='toast')
 			return redirect('forms_list')
 
 		if form_action == 'rename_upload':
+			if not can_manage_form_files:
+				return _permission_denied_response(request, 'Only superuser can rename uploaded form files.')
 			upload_id = (request.POST.get('upload_id') or '').strip()
 			new_name = (request.POST.get('new_name') or '').strip()
 			upload = FormUpload.objects.filter(pk=upload_id).first()
@@ -11008,8 +11174,34 @@ def forms_list(request):
 			if len(new_name) > 255:
 				messages.error(request, 'File name is too long (max 255 characters).', extra_tags='toast')
 				return redirect('forms_list')
+			stored_ext = Path(getattr(upload.file, 'name', '') or '').suffix
+			if stored_ext and not Path(new_name).suffix:
+				new_name = f'{new_name}{stored_ext}'
+			old_name = (upload.original_name or '').strip() or os.path.basename(getattr(upload.file, 'name', '') or '') or f'FormUpload#{upload.id}'
 			upload.original_name = new_name
 			upload.save(update_fields=['original_name', 'updated_at'])
+			section_name = upload.section.name if upload.section_id else ''
+			subsection_name = upload.subsection.name if upload.subsection_id else ''
+			record_activity(
+				request,
+				'update',
+				'system',
+				f'Renamed form file from "{old_name}" to "{new_name}".',
+				target=upload,
+				target_label=(
+					f'{section_name} / {subsection_name} / {new_name}'
+					if subsection_name else f'{section_name} / {new_name}'
+				),
+				metadata={
+					'event': 'forms_rename',
+					'form_upload_id': upload.id,
+					'section': section_name,
+					'subsection': subsection_name,
+					'form_name': new_name,
+					'old_name': old_name,
+					'new_name': new_name,
+				},
+			)
 			messages.success(request, 'File renamed.', extra_tags='toast')
 			return redirect('forms_list')
 
@@ -11020,6 +11212,13 @@ def forms_list(request):
 	uploads = list(
 		FormUpload.objects.select_related('section', 'subsection', 'uploaded_by').all().order_by('section__name', 'subsection__name', '-created_at')
 	)
+	forms_download_history_qs = ActivityLog.objects.select_related('actor').filter(
+		Q(url_name='forms_download_file')
+		| Q(url_name='forms_preview_file')
+		| Q(metadata__event='forms_rename')
+		| Q(metadata__event='forms_delete')
+	).order_by('-created_at')
+	forms_download_history_page = Paginator(forms_download_history_qs, 20).get_page(request.GET.get('history_page'))
 	grouped_sections = []
 	uploads_by_subsection = {}
 	for upload in uploads:
@@ -11056,12 +11255,229 @@ def forms_list(request):
 		'core/forms_list.html',
 		{
 			'can_manage_forms': can_manage_forms,
+			'can_manage_form_files': can_manage_form_files,
 			'forms_sections': sections,
 			'forms_subsections': subsections,
 			'forms_subsections_payload': subsections_payload,
 			'forms_grouped_sections': grouped_sections,
+			'forms_download_history_page': forms_download_history_page,
 		},
 	)
+
+
+@login_required
+def calculator_page(request):
+	if not _can_access_forms_section(request.user):
+		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Calculator.')
+	calculator_settings = CalculatorSetting.load()
+	if request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'update_calculator_settings':
+			def _parse_decimal(raw_value, field_label):
+				text_value = str(raw_value or '').strip().replace(',', '')
+				if not text_value:
+					raise ValueError(f'{field_label} is required.')
+				try:
+					return Decimal(text_value)
+				except (InvalidOperation, TypeError, ValueError) as exc:
+					raise ValueError(f'Invalid value for {field_label}.') from exc
+
+			try:
+				volt_drop_percent = _parse_decimal(request.POST.get('volt_drop_percent'), 'Volt Drop %')
+				sun_peak_period_hours = _parse_decimal(request.POST.get('sun_peak_period_hours'), 'Sun Peak Period (hours)')
+				meralco_rate = _parse_decimal(request.POST.get('meralco_rate'), 'Meralco Rate')
+				battery_health_protection_percent = _parse_decimal(request.POST.get('battery_health_protection_percent'), 'Battery Health Protection %')
+			except ValueError as exc:
+				messages.error(request, str(exc), extra_tags='toast')
+				return redirect('calculator_page')
+
+			if volt_drop_percent < 0 or volt_drop_percent > 100:
+				messages.error(request, 'Volt Drop % must be between 0 and 100.', extra_tags='toast')
+				return redirect('calculator_page')
+			if battery_health_protection_percent < 0 or battery_health_protection_percent > 100:
+				messages.error(request, 'Battery Health Protection % must be between 0 and 100.', extra_tags='toast')
+				return redirect('calculator_page')
+			if sun_peak_period_hours < 0:
+				messages.error(request, 'Sun Peak Period (hours) must be 0 or greater.', extra_tags='toast')
+				return redirect('calculator_page')
+			if meralco_rate < 0:
+				messages.error(request, 'Meralco Rate must be 0 or greater.', extra_tags='toast')
+				return redirect('calculator_page')
+
+			calculator_settings.volt_drop_percent = volt_drop_percent
+			calculator_settings.sun_peak_period_hours = sun_peak_period_hours
+			calculator_settings.meralco_rate = meralco_rate
+			calculator_settings.battery_health_protection_percent = battery_health_protection_percent
+			calculator_settings.save(
+				update_fields=[
+					'volt_drop_percent',
+					'sun_peak_period_hours',
+					'meralco_rate',
+					'battery_health_protection_percent',
+					'updated_at',
+				]
+			)
+			record_activity(
+				request=request,
+				action='update',
+				category='forms',
+				summary='Updated calculator settings.',
+				target=calculator_settings,
+				metadata={
+					'volt_drop_percent': str(calculator_settings.volt_drop_percent),
+					'sun_peak_period_hours': str(calculator_settings.sun_peak_period_hours),
+					'meralco_rate': str(calculator_settings.meralco_rate),
+					'battery_health_protection_percent': str(calculator_settings.battery_health_protection_percent),
+				},
+			)
+			messages.success(request, 'Calculator settings updated.', extra_tags='toast')
+			return redirect('calculator_page')
+	return render(request, 'core/calculator_page.html', {'calculator_settings': calculator_settings})
+
+
+def _prepare_forms_file_delivery_payload(upload):
+	if not upload or not upload.file:
+		return None
+
+	stored_file_name = os.path.basename(getattr(upload.file, 'name', '') or '')
+	original_name = (upload.original_name or '').strip() or stored_file_name or f'form-{upload.id}'
+	source_extension = Path(original_name).suffix.lower()
+	if not source_extension:
+		source_extension = Path(stored_file_name).suffix.lower()
+	office_extensions = {'.doc', '.docx', '.xls', '.xlsx'}
+	if source_extension not in office_extensions:
+		return {
+			'content': None,
+			'filename': original_name if Path(original_name).suffix else (stored_file_name or original_name),
+			'content_type': (
+				mimetypes.guess_type(original_name)[0]
+				or mimetypes.guess_type(stored_file_name)[0]
+				or 'application/octet-stream'
+			),
+			'is_converted_pdf': False,
+			'source_extension': source_extension,
+		}
+
+	try:
+		file_bytes = upload.file.read()
+	finally:
+		try:
+			upload.file.close()
+		except Exception:
+			pass
+
+	pdf_bytes = _convert_office_bytes_to_pdf(
+		file_bytes,
+		original_name if Path(original_name).suffix else (stored_file_name or original_name),
+		allow_structured_preview_fallback=True,
+	)
+	if not pdf_bytes:
+		return None
+	base_for_pdf = Path(original_name).stem or Path(stored_file_name).stem or f'form-{upload.id}'
+	return {
+		'content': pdf_bytes,
+		'filename': f'{base_for_pdf}.pdf',
+		'content_type': 'application/pdf',
+		'is_converted_pdf': True,
+		'source_extension': source_extension,
+	}
+
+
+@login_required
+def forms_preview_file(request, upload_id):
+	if not _can_access_forms_section(request.user):
+		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Forms.')
+
+	upload = get_object_or_404(
+		FormUpload.objects.select_related('section', 'subsection'),
+		pk=upload_id,
+	)
+	payload = _prepare_forms_file_delivery_payload(upload)
+	if not payload:
+		messages.error(
+			request,
+			'Unable to convert this file to PDF for preview. Install Microsoft Office/libreoffice/soffice on server.',
+			extra_tags='toast',
+		)
+		return redirect('forms_list')
+	form_name = payload['filename']
+	section_name = upload.section.name if upload.section_id else ''
+	subsection_name = upload.subsection.name if upload.subsection_id else ''
+	record_activity(
+		request,
+		'generate',
+		'system',
+		f'Previewed form file "{form_name}".',
+		target=upload,
+		target_label=(
+			f'{section_name} / {subsection_name} / {form_name}'
+			if subsection_name else f'{section_name} / {form_name}'
+		),
+		metadata={
+			'event': 'forms_preview',
+			'form_upload_id': upload.id,
+			'section': section_name,
+			'subsection': subsection_name,
+			'form_name': form_name,
+			'is_converted_pdf': bool(payload.get('is_converted_pdf')),
+			'source_extension': payload.get('source_extension', ''),
+		},
+	)
+	if payload.get('content') is not None:
+		return _inline_pdf_response(payload['content'], payload['filename'])
+	response = FileResponse(upload.file.open('rb'), as_attachment=False, filename=payload['filename'])
+	response['Content-Type'] = payload.get('content_type') or 'application/octet-stream'
+	return response
+
+
+@login_required
+def forms_download_file(request, upload_id):
+	if not _can_access_forms_section(request.user):
+		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Forms.')
+
+	upload = get_object_or_404(
+		FormUpload.objects.select_related('section', 'subsection'),
+		pk=upload_id,
+	)
+	payload = _prepare_forms_file_delivery_payload(upload)
+	if not payload:
+		messages.error(
+			request,
+			'Unable to convert this file to PDF for download. Install Microsoft Office/libreoffice/soffice on server.',
+			extra_tags='toast',
+		)
+		return redirect('forms_list')
+	download_name = payload['filename']
+	form_path_label = (
+		f'{upload.section.name} / {upload.subsection.name} / {download_name}'
+		if upload.subsection_id else f'{upload.section.name} / {download_name}'
+	)
+	record_activity(
+		request,
+		'generate',
+		'system',
+		f'Downloaded form file "{download_name}".',
+		target=upload,
+		target_label=form_path_label,
+		metadata={
+			'event': 'forms_download',
+			'form_upload_id': upload.id,
+			'section': upload.section.name,
+			'subsection': upload.subsection.name if upload.subsection_id else '',
+			'form_name': download_name,
+			'is_converted_pdf': bool(payload.get('is_converted_pdf')),
+			'source_extension': payload.get('source_extension', ''),
+		},
+	)
+	if payload.get('content') is not None:
+		response = HttpResponse(payload['content'], content_type='application/pdf')
+		response['Content-Disposition'] = f'attachment; filename="{download_name}"'
+		return response
+	try:
+		return FileResponse(upload.file.open('rb'), as_attachment=True, filename=download_name)
+	except Exception:
+		messages.error(request, 'Unable to open file for download.', extra_tags='toast')
+		return redirect('forms_list')
 
 
 @login_required

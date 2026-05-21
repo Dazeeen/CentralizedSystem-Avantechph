@@ -1,0 +1,75 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Calculator{% endblock %}
+{% block page_heading %}Calculator{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <h2 class="h4 mb-0">Calculator</h2>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#calculatorSettingsModal">Settings</button>
+                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#calculatorImportModal">Import</button>
+            </div>
+        </div>
+        <p class="text-secondary mb-0">Calculator tools will be added here.</p>
+    </div>
+</div>
+
+<div class="modal fade" id="calculatorSettingsModal" tabindex="-1" aria-labelledby="calculatorSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="calculatorSettingsModalLabel">Calculator Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" id="calculatorSettingsForm">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="update_calculator_settings">
+
+                    <div class="mb-3">
+                        <h6 class="mb-2 px-2 py-1 rounded text-white bg-primary">General</h6>
+                        <label class="form-label" for="meralco_rate">Meralco Rate</label>
+                        <input type="number" step="0.0001" min="0" class="form-control" id="meralco_rate" name="meralco_rate" value="{{ calculator_settings.meralco_rate|default:'0' }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <h6 class="mb-2 px-2 py-1 rounded text-white bg-success">Solar Panels</h6>
+                        <label class="form-label" for="volt_drop_percent">Volt Drop in Percent</label>
+                        <input type="number" step="0.01" min="0" max="100" class="form-control mb-2" id="volt_drop_percent" name="volt_drop_percent" value="{{ calculator_settings.volt_drop_percent|default:'0' }}" required>
+
+                        <label class="form-label" for="sun_peak_period_hours">Sun Peak Period in Hours</label>
+                        <input type="number" step="0.01" min="0" class="form-control" id="sun_peak_period_hours" name="sun_peak_period_hours" value="{{ calculator_settings.sun_peak_period_hours|default:'0' }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <h6 class="mb-2 px-2 py-1 rounded text-white bg-warning">Battery</h6>
+                        <label class="form-label" for="battery_health_protection_percent">Battery Health Protection in Percent</label>
+                        <input type="number" step="0.01" min="0" max="100" class="form-control" id="battery_health_protection_percent" name="battery_health_protection_percent" value="{{ calculator_settings.battery_health_protection_percent|default:'0' }}" required>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary">Save Settings</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="calculatorImportModal" tabindex="-1" aria-labelledby="calculatorImportModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="calculatorImportModalLabel">Import Data</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

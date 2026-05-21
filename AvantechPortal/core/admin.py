@@ -14,6 +14,7 @@ from .models import (
 	ClientDeletionRequest,
 	ClientQuotation,
 	ClientQuotationDocument,
+	CalculatorSetting,
 	CompanyInternetAccount,
 	DatabaseFile,
 	DevelopmentFeedback,
@@ -291,6 +292,14 @@ class LiquidationTemplateAdmin(admin.ModelAdmin):
 	list_display = ('name', 'is_active', 'uploaded_by', 'updated_at')
 	list_filter = ('is_active', 'updated_at')
 	search_fields = ('name', 'notes', 'uploaded_by__username', 'uploaded_by__email')
+
+
+@admin.register(CalculatorSetting)
+class CalculatorSettingAdmin(admin.ModelAdmin):
+	list_display = ('volt_drop_percent', 'sun_peak_period_hours', 'meralco_rate', 'battery_health_protection_percent', 'updated_at')
+
+	def has_add_permission(self, request):
+		return not CalculatorSetting.objects.exists()
 
 
 @admin.register(Liquidation)

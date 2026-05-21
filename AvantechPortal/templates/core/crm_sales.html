@@ -27,8 +27,8 @@
                 <label class="form-label mb-1" for="crmSalesAssignedInput">Assigned Sales</label>
                 <select class="form-select" id="crmSalesAssignedInput" name="assigned_sales">
                     <option value="">All</option>
-                    {% for assigned_name in assigned_sales_options %}
-                        <option value="{{ assigned_name }}" {% if filter_assigned_sales == assigned_name %}selected{% endif %}>{{ assigned_name }}</option>
+                    {% for assigned_opt in assigned_sales_options %}
+                        <option value="{{ assigned_opt.value }}" {% if filter_assigned_sales == assigned_opt.value %}selected{% endif %}>{{ assigned_opt.label }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -142,7 +142,8 @@
                             data-downpayment-raw="{% if row.downpayment is not None %}{{ row.downpayment }}{% endif %}"
                             data-monthly-electric-bill-raw="{% if row.monthly_electric_bill is not None %}{{ row.monthly_electric_bill }}{% endif %}"
                             data-return-on-investment="{{ row.return_on_investment|default:'-' }}"
-                            data-assigned-sales="{{ row.assigned_sales|default:'-' }}"
+                            data-assigned-sales="{{ row.assigned_sales_display|default:'-' }}"
+                            data-assigned-sales-raw="{{ row.assigned_sales|default:'' }}"
                             data-sales-status="{{ row.sales_status|default:'-' }}"
                             data-client-status="{{ row.client_status|default:'-' }}"
                             data-interaction-notes="{{ row.interaction_notes|default:'-' }}"
@@ -151,7 +152,7 @@
                             data-last-touch="{{ row.last_touch_display|default:'-' }}">
                             <td><input type="checkbox" class="crm-sales-row-checkbox" value="{{ row.id }}"></td>
                             <td>{{ row.client.last_name }}, {{ row.client.first_name }}</td>
-                            <td>{{ row.assigned_sales|default:"-" }}</td>
+                            <td class="js-assigned-sales-cell">{{ row.assigned_sales_display|default:"-" }}</td>
                             <td>{% if row.selected_cost_value is not None %}PHP {{ row.selected_cost_value|comma2 }}{% else %}-{% endif %}</td>
                             <td>
                                 {% if row.days_remaining <= 0 %}
@@ -172,7 +173,7 @@
                                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">...</button>
                                     <ul class="dropdown-menu dropdown-menu-end">
                                         {% if can_manage_crm_sales %}
-                                        <li><button type="button" class="dropdown-item js-sales-action-update">Update</button></li>
+                                        <li><button type="button" class="dropdown-item js-sales-action-edit">Edit</button></li>
                                         {% endif %}
                                         <li><button type="button" class="dropdown-item js-sales-action-view-profile">View Profile</button></li>
                                     </ul>
@@ -503,6 +504,7 @@
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 <input type="hidden" name="form_action" value="log_sales_activity">
+                <input type="hidden" name="entry_mode" id="crmLogSalesEntryMode" value="log">
                 <input type="hidden" name="sales_record_id" id="crmLogSalesRecordId">
                 <div class="modal-header">
                     <h5 class="modal-title" id="crmLogSalesActivityModalLabel">Log Sales Activity</h5>
@@ -599,7 +601,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">Save Activity</button>
+                    <button type="submit" class="btn btn-success" id="crmLogSalesSubmitBtn">Save Activity</button>
                 </div>
             </form>
         </div>
@@ -651,6 +653,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="form_action" value="assign_sales_to_client">
                 <input type="hidden" name="sales_record_id" id="crmAssignSalesRecordId">
+                <input type="hidden" name="selected_sales_record_ids" id="crmAssignSalesSelectedIds">
                 <div class="modal-header">
                     <h5 class="modal-title" id="crmAssignSalesModalLabel">Assign Sales</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -714,6 +717,46 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<button
+    type="button"
+    id="kwCalculatorFab"
+    class="btn btn-success rounded-circle shadow position-fixed"
+    style="width:56px;height:56px;right:24px;bottom:24px;z-index:1080;"
+    title="Open kW Calculator"
+>
+    kW
+</button>
+
+<div id="kwCalculatorPanel" class="card shadow position-fixed d-none" style="right:24px;bottom:90px;width:min(560px,92vw);z-index:1081;">
+    <div id="kwCalculatorDragHandle" class="card-header bg-success text-white d-flex justify-content-between align-items-center" style="cursor:move;">
+        <strong>Appliance kW Calculator</strong>
+        <div class="d-flex gap-1">
+            <button type="button" class="btn btn-sm btn-light" id="kwCalculatorMinBtn" title="Minimize">-</button>
+            <button type="button" class="btn btn-sm btn-light" id="kwCalculatorCloseBtn" title="Close">x</button>
+        </div>
+    </div>
+    <div class="card-body p-2" id="kwCalculatorBody">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-2" id="kwCalculatorTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Appliance Name</th>
+                        <th style="width:130px;">kW</th>
+                        <th style="width:95px;">Qty</th>
+                        <th style="width:130px;">Total kW</th>
+                        <th style="width:60px;"></th>
+                    </tr>
+                </thead>
+                <tbody id="kwCalculatorBodyRows"></tbody>
+            </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+            <button type="button" class="btn btn-sm btn-outline-success" id="kwCalculatorAddRowBtn">+ Add Row</button>
+            <div class="fw-semibold">Grand Total: <span id="kwCalculatorGrandTotal">0.00</span> kW</div>
         </div>
     </div>
 </div>
@@ -866,6 +909,7 @@
     pointer-events: none;
     transition: opacity 0.2s ease;
 }
+.kw-calculator-minimized #kwCalculatorBody { display: none; }
 
     @media (max-width: 991.98px) {
         .crm-sales-split-layout { grid-template-columns: 1fr; }
@@ -885,6 +929,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var logSalesModal = (logSalesModalEl && window.bootstrap) ? new bootstrap.Modal(logSalesModalEl) : null;
     var assignSalesModalEl = document.getElementById('crmAssignSalesModal');
     var assignSalesModal = (assignSalesModalEl && window.bootstrap) ? new bootstrap.Modal(assignSalesModalEl) : null;
+    var assignSalesForm = assignSalesModalEl ? assignSalesModalEl.querySelector('form') : null;
     var historyDetailModalEl = document.getElementById('crmSalesHistoryDetailModal');
     var historyDetailModal = (historyDetailModalEl && window.bootstrap) ? new bootstrap.Modal(historyDetailModalEl, { backdrop: true }) : null;
     var activityFileInput = document.getElementById('crmSalesActivityFiles');
@@ -948,6 +993,12 @@ document.addEventListener('DOMContentLoaded', function () {
             selectAll.indeterminate = selected > 0 && selected < checks.length;
             selectAll.checked = checks.length > 0 && selected === checks.length;
         }
+        var logSalesBtn = document.getElementById('crmLogSalesActivityBtn');
+        if (logSalesBtn) {
+            var isMultiSelect = selected > 1;
+            logSalesBtn.classList.toggle('d-none', isMultiSelect);
+            logSalesBtn.disabled = isMultiSelect;
+        }
     }
 
     function openSalesModalFromRow(row) {
@@ -985,8 +1036,15 @@ document.addEventListener('DOMContentLoaded', function () {
         salesModal.show();
     }
 
-    function openLogSalesModalFromRow(row) {
+    function openLogSalesModalFromRow(row, mode) {
         if (!row || !logSalesModal) return;
+        var entryMode = mode === 'edit' ? 'edit' : 'log';
+        var modalTitle = document.getElementById('crmLogSalesActivityModalLabel');
+        var submitBtn = document.getElementById('crmLogSalesSubmitBtn');
+        var entryModeInput = document.getElementById('crmLogSalesEntryMode');
+        if (modalTitle) modalTitle.textContent = entryMode === 'edit' ? 'Edit Sales Information' : 'Log Sales Activity';
+        if (submitBtn) submitBtn.textContent = entryMode === 'edit' ? 'Save Changes' : 'Save Activity';
+        if (entryModeInput) entryModeInput.value = entryMode;
         var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
         if (salesRecordIdInput) salesRecordIdInput.value = row.dataset.salesRecordId || '';
         var leadSource = document.getElementById('logLeadSource');
@@ -1021,11 +1079,31 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!row || !assignSalesModal) return;
         var salesRecordIdInput = document.getElementById('crmAssignSalesRecordId');
         if (salesRecordIdInput) salesRecordIdInput.value = row.dataset.salesRecordId || '';
-        var assignedRaw = (row.dataset.assignedSales || '').trim();
-        var assignedItems = assignedRaw && assignedRaw !== '-' ? assignedRaw.split(',').map(function (item) { return item.trim(); }).filter(Boolean) : [];
+        var selectedIdsInput = document.getElementById('crmAssignSalesSelectedIds');
+        var checkedRows = Array.from(document.querySelectorAll('.crm-sales-row-checkbox:checked'))
+            .map(function (cb) { return cb.closest('.crm-sales-row'); })
+            .filter(function (selectedRow) { return !!selectedRow; });
+        if (!checkedRows.length && row.dataset.salesRecordId) {
+            checkedRows = [row];
+        }
+        if (selectedIdsInput) {
+            selectedIdsInput.value = checkedRows
+                .map(function (selectedRow) { return String(selectedRow.dataset.salesRecordId || '').trim(); })
+                .filter(function (value) { return !!value; })
+                .join(',');
+        }
+        var assignedSet = new Set();
+        checkedRows.forEach(function (selectedRow) {
+            var assignedRaw = (selectedRow.dataset.assignedSalesRaw || '').trim();
+            if (!assignedRaw || assignedRaw === '-') return;
+            assignedRaw.split(/[,\n;|]/).forEach(function (item) {
+                var normalized = String(item || '').trim().toLowerCase();
+                if (normalized) assignedSet.add(normalized);
+            });
+        });
         var checks = Array.from(document.querySelectorAll('.js-assign-sales-check'));
         checks.forEach(function (cb) {
-            cb.checked = assignedItems.indexOf(cb.value) !== -1;
+            cb.checked = assignedSet.has(String(cb.value || '').trim().toLowerCase());
         });
         assignSalesModal.show();
     }
@@ -1170,11 +1248,11 @@ document.addEventListener('DOMContentLoaded', function () {
             openClientProfileModalFromRow(profileRow);
             return;
         }
-        var updateBtn = event.target.closest('.js-sales-action-update');
-        if (updateBtn) {
-            var updateRow = updateBtn.closest('.crm-sales-row');
-            setActiveSalesRow(updateRow);
-            openLogSalesModalFromRow(updateRow);
+        var editBtn = event.target.closest('.js-sales-action-edit');
+        if (editBtn) {
+            var editRow = editBtn.closest('.crm-sales-row');
+            setActiveSalesRow(editRow);
+            openLogSalesModalFromRow(editRow, 'edit');
             return;
         }
     });
@@ -1184,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', function () {
         logSalesBtn.addEventListener('click', function () {
             var row = document.querySelector('.crm-sales-row.is-active');
             if (!row) return;
-            openLogSalesModalFromRow(row);
+            openLogSalesModalFromRow(row, 'log');
         });
     }
 
@@ -1197,9 +1275,53 @@ document.addEventListener('DOMContentLoaded', function () {
     var assignSalesBtn = document.getElementById('crmAssignSalesBtn');
     if (assignSalesBtn) {
         assignSalesBtn.addEventListener('click', function () {
-            var row = document.querySelector('.crm-sales-row.is-active');
+            var checkedCb = document.querySelector('.crm-sales-row-checkbox:checked');
+            var row = checkedCb ? checkedCb.closest('.crm-sales-row') : document.querySelector('.crm-sales-row.is-active');
             if (!row) return;
             openAssignSalesModalFromRow(row);
+        });
+    }
+
+    if (assignSalesForm && assignSalesModalEl) {
+        assignSalesForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var submitBtn = assignSalesForm.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = true;
+            var formData = new FormData(assignSalesForm);
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            })
+            .then(function (response) { return response.json(); })
+            .then(function (payload) {
+                if (!payload || !payload.ok) {
+                    throw new Error((payload && payload.message) ? payload.message : 'Failed to update assigned sales.');
+                }
+                var assignedText = (payload.assigned_sales || '').trim() || '-';
+                var updatedIds = Array.isArray(payload.updated_sales_record_ids) ? payload.updated_sales_record_ids : [];
+                updatedIds.forEach(function (id) {
+                    var row = document.querySelector('.crm-sales-row[data-sales-record-id="' + id + '"]');
+                    if (!row) return;
+                    row.dataset.assignedSales = assignedText;
+                    row.dataset.assignedSalesRaw = assignedText === '-' ? '' : assignedText;
+                    var cell = row.querySelector('.js-assigned-sales-cell');
+                    if (cell) cell.textContent = assignedText;
+                });
+                var activeRow = document.querySelector('.crm-sales-row.is-active');
+                if (activeRow) {
+                    renderSalesSummaryFromRow(activeRow);
+                }
+                if (assignSalesModal) assignSalesModal.hide();
+                syncSelectAllState();
+            })
+            .catch(function (err) {
+                alert((err && err.message) ? err.message : 'Failed to update assigned sales.');
+            })
+            .finally(function () {
+                if (submitBtn) submitBtn.disabled = false;
+            });
         });
     }
 
@@ -1330,6 +1452,117 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applySalesRowsUI();
     syncSelectAllState();
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var fab = document.getElementById('kwCalculatorFab');
+    var panel = document.getElementById('kwCalculatorPanel');
+    var body = document.getElementById('kwCalculatorBody');
+    var dragHandle = document.getElementById('kwCalculatorDragHandle');
+    var closeBtn = document.getElementById('kwCalculatorCloseBtn');
+    var minBtn = document.getElementById('kwCalculatorMinBtn');
+    var addRowBtn = document.getElementById('kwCalculatorAddRowBtn');
+    var rowsWrap = document.getElementById('kwCalculatorBodyRows');
+    var grandTotalEl = document.getElementById('kwCalculatorGrandTotal');
+    if (!fab || !panel || !rowsWrap || !grandTotalEl) return;
+
+    function toNum(value) {
+        var n = parseFloat(value);
+        return Number.isFinite(n) ? n : 0;
+    }
+
+    function updateTotals() {
+        var grand = 0;
+        rowsWrap.querySelectorAll('tr').forEach(function (row) {
+            var kw = toNum(row.querySelector('.js-kw').value);
+            var qty = toNum(row.querySelector('.js-qty').value);
+            var total = kw * qty;
+            grand += total;
+            row.querySelector('.js-row-total').textContent = total.toFixed(2);
+        });
+        grandTotalEl.textContent = grand.toFixed(2);
+    }
+
+    function addRow(prefill) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = ''
+            + '<td><input type="text" class="form-control form-control-sm js-appliance" placeholder="Appliance name"></td>'
+            + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm js-kw" value="0"></td>'
+            + '<td><input type="number" step="1" min="0" class="form-control form-control-sm js-qty" value="1"></td>'
+            + '<td><span class="js-row-total">0.00</span></td>'
+            + '<td><button type="button" class="btn btn-sm btn-outline-danger js-remove-row">x</button></td>';
+        rowsWrap.appendChild(tr);
+        if (prefill) {
+            tr.querySelector('.js-appliance').value = prefill.name || '';
+            tr.querySelector('.js-kw').value = prefill.kw || 0;
+            tr.querySelector('.js-qty').value = prefill.qty || 1;
+        }
+        tr.querySelectorAll('input').forEach(function (input) {
+            input.addEventListener('input', updateTotals);
+        });
+        tr.querySelector('.js-remove-row').addEventListener('click', function () {
+            tr.remove();
+            updateTotals();
+        });
+        updateTotals();
+    }
+
+    if (!rowsWrap.children.length) addRow();
+
+    fab.addEventListener('click', function () {
+        panel.classList.remove('d-none');
+        panel.classList.remove('kw-calculator-minimized');
+        if (body) body.style.display = '';
+    });
+    closeBtn.addEventListener('click', function () {
+        panel.classList.add('d-none');
+    });
+    minBtn.addEventListener('click', function () {
+        panel.classList.toggle('kw-calculator-minimized');
+        if (body) body.style.display = panel.classList.contains('kw-calculator-minimized') ? 'none' : '';
+    });
+    addRowBtn.addEventListener('click', function () {
+        addRow();
+    });
+
+    var dragging = false;
+    var startX = 0;
+    var startY = 0;
+    var startLeft = 0;
+    var startTop = 0;
+
+    function clamp(val, min, max) {
+        return Math.min(Math.max(val, min), max);
+    }
+
+    dragHandle.addEventListener('mousedown', function (event) {
+        dragging = true;
+        var rect = panel.getBoundingClientRect();
+        panel.style.left = rect.left + 'px';
+        panel.style.top = rect.top + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+        startX = event.clientX;
+        startY = event.clientY;
+        startLeft = rect.left;
+        startTop = rect.top;
+        event.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function (event) {
+        if (!dragging) return;
+        var nextLeft = startLeft + (event.clientX - startX);
+        var nextTop = startTop + (event.clientY - startY);
+        var maxLeft = Math.max(window.innerWidth - panel.offsetWidth, 0);
+        var maxTop = Math.max(window.innerHeight - panel.offsetHeight, 0);
+        panel.style.left = clamp(nextLeft, 0, maxLeft) + 'px';
+        panel.style.top = clamp(nextTop, 0, maxTop) + 'px';
+    });
+
+    document.addEventListener('mouseup', function () {
+        dragging = false;
+    });
 });
 </script>
 {% endblock %}
