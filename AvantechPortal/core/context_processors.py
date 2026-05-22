@@ -1,10 +1,12 @@
 from datetime import timedelta
 
 from django.contrib.auth.models import Group, Permission, User
+from django.db.utils import OperationalError, ProgrammingError
 from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
+    CalculatorSetting,
     Notification,
     SuperUserChatMessage,
     SuperUserChatReadState,
@@ -247,6 +249,37 @@ def role_preview(request):
             'role_id': role.id,
             'role_name': role.name,
         }
+    }
+
+
+def calculator_feature_flags(request):
+    if not getattr(request, 'user', None) or not request.user.is_authenticated:
+        return {
+            'enable_floating_calculator': False,
+            'calculator_default_meralco_rate': '13',
+            'calculator_default_sun_peak_hours': '3',
+            'calculator_default_vdrop_percent': '20',
+            'calculator_default_battery_health_drop_percent': '20',
+        }
+    try:
+        calculator_settings = CalculatorSetting.load()
+        enabled = bool(calculator_settings.enable_floating_calculator)
+        meralco_rate = str(calculator_settings.meralco_rate)
+        sun_peak_hours = str(calculator_settings.sun_peak_period_hours)
+        vdrop_percent = str(calculator_settings.volt_drop_percent)
+        battery_health_drop_percent = str(calculator_settings.battery_health_protection_percent)
+    except (OperationalError, ProgrammingError):
+        enabled = True
+        meralco_rate = '13'
+        sun_peak_hours = '3'
+        vdrop_percent = '20'
+        battery_health_drop_percent = '20'
+    return {
+        'enable_floating_calculator': enabled,
+        'calculator_default_meralco_rate': meralco_rate,
+        'calculator_default_sun_peak_hours': sun_peak_hours,
+        'calculator_default_vdrop_percent': vdrop_percent,
+        'calculator_default_battery_health_drop_percent': battery_health_drop_percent,
     }
 
 

@@ -1399,6 +1399,7 @@ class CalculatorSetting(models.Model):
 	sun_peak_period_hours = models.DecimalField(max_digits=6, decimal_places=2, default=4)
 	meralco_rate = models.DecimalField(max_digits=12, decimal_places=4, default=0)
 	battery_health_protection_percent = models.DecimalField(max_digits=6, decimal_places=2, default=20)
+	enable_floating_calculator = models.BooleanField(default=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
@@ -1418,6 +1419,7 @@ class CalculatorSetting(models.Model):
 				'sun_peak_period_hours': 4,
 				'meralco_rate': 0,
 				'battery_health_protection_percent': 20,
+				'enable_floating_calculator': True,
 			},
 		)
 		return instance
@@ -2931,3 +2933,5 @@ class SystemBackup(models.Model):
 			return int(self.archive.size or 0)
 		except Exception:
 			return 0
+
+

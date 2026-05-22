@@ -169,19 +169,57 @@
 </style>
 <script>
 (function () {
-    var CHART_JS_SRC = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js';
-    var LEAFLET_CSS_HREF = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    var LEAFLET_JS_SRC = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    var CHART_JS_SRCS = [
+        "{% static 'vendor/chart.js/4.5.1/chart.umd.min.js' %}",
+        'https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js'
+    ];
+    var LEAFLET_CSS_HREFS = [
+        "{% static 'vendor/leaflet/1.9.4/leaflet.css' %}",
+        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    ];
+    var LEAFLET_JS_SRCS = [
+        "{% static 'vendor/leaflet/1.9.4/leaflet.js' %}",
+        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    ];
 
-    function ensureStyle(href) {
-        if (!href) return;
-        var existing = document.querySelector('link[rel="stylesheet"][href="' + href + '"]');
-        if (existing) return;
-        var link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = href;
-        link.crossOrigin = 'anonymous';
-        document.head.appendChild(link);
+    function ensureStyle(hrefs) {
+        var list = Array.isArray(hrefs) ? hrefs : [hrefs];
+        list.some(function (href) {
+            if (!href) return false;
+            var existing = document.querySelector('link[rel="stylesheet"][href="' + href + '"]');
+            if (existing) return true;
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = href;
+            link.crossOrigin = 'anonymous';
+            if (href.indexOf('http') === 0) {
+                document.head.appendChild(link);
+            } else {
+                link.onerror = function () {
+                    ensureStyle(list.slice(1));
+                };
+                document.head.appendChild(link);
+            }
+            return true;
+        });
+    }
+
+    function ensureScriptWithFallback(sources) {
+        var list = Array.isArray(sources) ? sources : [sources];
+        var errors = [];
+        return list.reduce(function (chain, src) {
+            return chain.catch(function () {
+                return ensureScript(src).catch(function (err) {
+                    errors.push(err || new Error('Failed to load ' + src));
+                    throw errors[errors.length - 1];
+                });
+            });
+        }, Promise.reject(new Error('Try fallback')))
+            .catch(function () {
+                if (errors.length) {
+                    throw errors[errors.length - 1];
+                }
+            });
     }
 
     function ensureScript(src) {
@@ -219,9 +257,9 @@
     }
 
     async function ensureDashboardDeps() {
-        ensureStyle(LEAFLET_CSS_HREF);
-        await ensureScript(CHART_JS_SRC);
-        await ensureScript(LEAFLET_JS_SRC);
+        ensureStyle(LEAFLET_CSS_HREFS);
+        await ensureScriptWithFallback(CHART_JS_SRCS);
+        await ensureScriptWithFallback(LEAFLET_JS_SRCS);
     }
 
     async function initCrmDashboard() {

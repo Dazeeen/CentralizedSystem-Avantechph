@@ -296,7 +296,14 @@ class LiquidationTemplateAdmin(admin.ModelAdmin):
 
 @admin.register(CalculatorSetting)
 class CalculatorSettingAdmin(admin.ModelAdmin):
-	list_display = ('volt_drop_percent', 'sun_peak_period_hours', 'meralco_rate', 'battery_health_protection_percent', 'updated_at')
+	list_display = (
+		'volt_drop_percent',
+		'sun_peak_period_hours',
+		'meralco_rate',
+		'battery_health_protection_percent',
+		'enable_floating_calculator',
+		'updated_at',
+	)
 
 	def has_add_permission(self, request):
 		return not CalculatorSetting.objects.exists()

@@ -13,7 +13,55 @@
                 <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#calculatorImportModal">Import</button>
             </div>
         </div>
-        <p class="text-secondary mb-0">Calculator tools will be added here.</p>
+        <div class="d-flex justify-content-center mt-3">
+            <ul class="nav nav-pills gap-2 justify-content-center" id="solarCalculatorNav" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="tab-load" data-bs-toggle="tab" data-bs-target="#pane-load" type="button" role="tab" aria-controls="pane-load" aria-selected="true">Load</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-roi" data-bs-toggle="tab" data-bs-target="#pane-roi" type="button" role="tab" aria-controls="pane-roi" aria-selected="false">Return of Investment (ROI)</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-sizing" data-bs-toggle="tab" data-bs-target="#pane-sizing" type="button" role="tab" aria-controls="pane-sizing" aria-selected="false">System Sizing</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-battery" data-bs-toggle="tab" data-bs-target="#pane-battery" type="button" role="tab" aria-controls="pane-battery" aria-selected="false">Battery Backup</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-savings" data-bs-toggle="tab" data-bs-target="#pane-savings" type="button" role="tab" aria-controls="pane-savings" aria-selected="false">Savings Projection</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-proposal" data-bs-toggle="tab" data-bs-target="#pane-proposal" type="button" role="tab" aria-controls="pane-proposal" aria-selected="false">Proposal Summary</button>
+                </li>
+            </ul>
+        </div>
+
+        <div class="tab-content border rounded-3 p-3 p-lg-4 mt-3 bg-light-subtle" id="solarCalculatorNavContent">
+            <div class="tab-pane fade show active" id="pane-load" role="tabpanel" aria-labelledby="tab-load" tabindex="0">
+                <h3 class="h6 mb-2">Load Calculator</h3>
+                <p class="text-secondary mb-0">Compute appliance-level consumption and total demand profile in Watts for project planning.</p>
+            </div>
+            <div class="tab-pane fade" id="pane-roi" role="tabpanel" aria-labelledby="tab-roi" tabindex="0">
+                <h3 class="h6 mb-2">Return of Investment (ROI)</h3>
+                <p class="text-secondary mb-0">Estimate payback period based on project cost, monthly savings, escalation rate, and financing assumptions.</p>
+            </div>
+            <div class="tab-pane fade" id="pane-sizing" role="tabpanel" aria-labelledby="tab-sizing" tabindex="0">
+                <h3 class="h6 mb-2">System Sizing</h3>
+                <p class="text-secondary mb-0">Translate energy demand into recommended PV capacity, panel count, inverter size, and safety allowances.</p>
+            </div>
+            <div class="tab-pane fade" id="pane-battery" role="tabpanel" aria-labelledby="tab-battery" tabindex="0">
+                <h3 class="h6 mb-2">Battery Backup</h3>
+                <p class="text-secondary mb-0">Calculate required battery bank sizing using backup hours, depth of discharge, and battery health margin.</p>
+            </div>
+            <div class="tab-pane fade" id="pane-savings" role="tabpanel" aria-labelledby="tab-savings" tabindex="0">
+                <h3 class="h6 mb-2">Savings Projection</h3>
+                <p class="text-secondary mb-0">Project monthly and annual utility savings with grid offset assumptions and production degradation.</p>
+            </div>
+            <div class="tab-pane fade" id="pane-proposal" role="tabpanel" aria-labelledby="tab-proposal" tabindex="0">
+                <h3 class="h6 mb-2">Proposal Summary</h3>
+                <p class="text-secondary mb-0">Consolidate technical and financial outputs into a clean client-ready project summary.</p>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -33,6 +81,22 @@
                         <h6 class="mb-2 px-2 py-1 rounded text-white bg-primary">General</h6>
                         <label class="form-label" for="meralco_rate">Meralco Rate</label>
                         <input type="number" step="0.0001" min="0" class="form-control" id="meralco_rate" name="meralco_rate" value="{{ calculator_settings.meralco_rate|default:'0' }}" required>
+                        <div class="mt-3">
+                            <div class="d-flex align-items-center justify-content-between gap-3">
+                                <label class="form-label fw-semibold mb-0" for="enable_floating_calculator">Enable Floating Calculator</label>
+                                <div class="form-check form-switch m-0">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        role="switch"
+                                        id="enable_floating_calculator"
+                                        name="enable_floating_calculator"
+                                        {% if calculator_settings.enable_floating_calculator %}checked{% endif %}
+                                    >
+                                </div>
+                            </div>
+                            <div class="form-text">Show floating kW calculator widget on CRM Sales page.</div>
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -41,12 +105,12 @@
                         <input type="number" step="0.01" min="0" max="100" class="form-control mb-2" id="volt_drop_percent" name="volt_drop_percent" value="{{ calculator_settings.volt_drop_percent|default:'0' }}" required>
 
                         <label class="form-label" for="sun_peak_period_hours">Sun Peak Period in Hours</label>
-                        <input type="number" step="0.01" min="0" class="form-control" id="sun_peak_period_hours" name="sun_peak_period_hours" value="{{ calculator_settings.sun_peak_period_hours|default:'0' }}" required>
+                        <input type="number" step="1" min="0" inputmode="numeric" class="form-control" id="sun_peak_period_hours" name="sun_peak_period_hours" value="{{ calculator_settings.sun_peak_period_hours|default:'0'|floatformat:'0' }}" required>
                     </div>
 
                     <div class="mb-3">
                         <h6 class="mb-2 px-2 py-1 rounded text-white bg-warning">Battery</h6>
-                        <label class="form-label" for="battery_health_protection_percent">Battery Health Protection in Percent</label>
+                        <label class="form-label" for="battery_health_protection_percent">Battery Reserve Buffer %</label>
                         <input type="number" step="0.01" min="0" max="100" class="form-control" id="battery_health_protection_percent" name="battery_health_protection_percent" value="{{ calculator_settings.battery_health_protection_percent|default:'0' }}" required>
                     </div>
 
@@ -72,4 +136,110 @@
         </div>
     </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('calculatorSettingsForm');
+    const modalElement = document.getElementById('calculatorSettingsModal');
+    const sunPeakInput = document.getElementById('sun_peak_period_hours');
+    if (!form || !modalElement || !window.fetch) return;
+
+    if (sunPeakInput) {
+        const validateSunPeakField = () => {
+            const raw = String(sunPeakInput.value || '').trim();
+            if (!raw) {
+                sunPeakInput.setCustomValidity('Sun Peak Period (hours) is required.');
+                sunPeakInput.classList.add('is-invalid');
+                return false;
+            }
+            if (!/^\d+$/.test(raw)) {
+                sunPeakInput.setCustomValidity('Sun Peak Period (hours) must be a whole number.');
+                sunPeakInput.classList.add('is-invalid');
+                return false;
+            }
+            sunPeakInput.setCustomValidity('');
+            sunPeakInput.classList.remove('is-invalid');
+            return true;
+        };
+
+        sunPeakInput.addEventListener('keydown', function (event) {
+            if (['.', ',', 'e', 'E', '+', '-'].includes(event.key)) {
+                event.preventDefault();
+            }
+        });
+        sunPeakInput.addEventListener('input', validateSunPeakField);
+        sunPeakInput.addEventListener('blur', validateSunPeakField);
+    }
+
+    const submitButton = form.querySelector('button[type="submit"]');
+
+    form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        if (sunPeakInput) {
+            const isSunPeakValid = /^\d+$/.test(String(sunPeakInput.value || '').trim());
+            if (!isSunPeakValid) {
+                sunPeakInput.classList.add('is-invalid');
+                sunPeakInput.focus();
+                if (window.showToast) {
+                    window.showToast('Sun Peak Period (hours) must be a whole number.', 'danger');
+                }
+                return;
+            }
+            sunPeakInput.classList.remove('is-invalid');
+            sunPeakInput.setCustomValidity('');
+        }
+        if (submitButton) submitButton.disabled = true;
+
+        const formData = new FormData(form);
+        try {
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: formData,
+                credentials: 'same-origin',
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.ok) {
+                if (sunPeakInput && /sun peak period/i.test(String(data.message || ''))) {
+                    sunPeakInput.classList.add('is-invalid');
+                    sunPeakInput.setCustomValidity(data.message || 'Sun Peak Period (hours) must be a whole number.');
+                }
+                throw new Error(data.message || 'Unable to save calculator settings.');
+            }
+
+            const enabled = !!(data.settings && data.settings.enable_floating_calculator);
+            document.dispatchEvent(
+                new CustomEvent('avantech:floating-calculator-toggle', {
+                    detail: { enabled: enabled },
+                })
+            );
+            document.dispatchEvent(
+                new CustomEvent('avantech:calculator-settings-updated', {
+                    detail: {
+                        settings: data.settings || {},
+                    },
+                })
+            );
+
+            if (window.showToast) {
+                window.showToast(data.message || 'Calculator settings updated.', 'success');
+            }
+
+            const modal = (window.bootstrap && window.bootstrap.Modal)
+                ? window.bootstrap.Modal.getInstance(modalElement) || window.bootstrap.Modal.getOrCreateInstance(modalElement)
+                : null;
+            if (modal) modal.hide();
+        } catch (error) {
+            if (window.showToast) {
+                window.showToast(error.message || 'Unable to save calculator settings.', 'danger');
+            } else {
+                window.alert(error.message || 'Unable to save calculator settings.');
+            }
+        } finally {
+            if (submitButton) submitButton.disabled = false;
+        }
+    });
+});
+</script>
 {% endblock %}

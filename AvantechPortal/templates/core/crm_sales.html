@@ -721,45 +721,6 @@
     </div>
 </div>
 
-<button
-    type="button"
-    id="kwCalculatorFab"
-    class="btn btn-success rounded-circle shadow position-fixed"
-    style="width:56px;height:56px;right:24px;bottom:24px;z-index:1080;"
-    title="Open kW Calculator"
->
-    kW
-</button>
-
-<div id="kwCalculatorPanel" class="card shadow position-fixed d-none" style="right:24px;bottom:90px;width:min(560px,92vw);z-index:1081;">
-    <div id="kwCalculatorDragHandle" class="card-header bg-success text-white d-flex justify-content-between align-items-center" style="cursor:move;">
-        <strong>Appliance kW Calculator</strong>
-        <div class="d-flex gap-1">
-            <button type="button" class="btn btn-sm btn-light" id="kwCalculatorMinBtn" title="Minimize">-</button>
-            <button type="button" class="btn btn-sm btn-light" id="kwCalculatorCloseBtn" title="Close">x</button>
-        </div>
-    </div>
-    <div class="card-body p-2" id="kwCalculatorBody">
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-2" id="kwCalculatorTable">
-                <thead class="table-light">
-                    <tr>
-                        <th>Appliance Name</th>
-                        <th style="width:130px;">kW</th>
-                        <th style="width:95px;">Qty</th>
-                        <th style="width:130px;">Total kW</th>
-                        <th style="width:60px;"></th>
-                    </tr>
-                </thead>
-                <tbody id="kwCalculatorBodyRows"></tbody>
-            </table>
-        </div>
-        <div class="d-flex justify-content-between align-items-center">
-            <button type="button" class="btn btn-sm btn-outline-success" id="kwCalculatorAddRowBtn">+ Add Row</button>
-            <div class="fw-semibold">Grand Total: <span id="kwCalculatorGrandTotal">0.00</span> kW</div>
-        </div>
-    </div>
-</div>
 <style>
     .crm-sales-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
     .crm-sales-table-wrap {
@@ -909,8 +870,6 @@
     pointer-events: none;
     transition: opacity 0.2s ease;
 }
-.kw-calculator-minimized #kwCalculatorBody { display: none; }
-
     @media (max-width: 991.98px) {
         .crm-sales-split-layout { grid-template-columns: 1fr; }
         .crm-sales-summary-panel { border-left: 0; border-top: 1px solid #e4e9e6; padding-left: 0; padding-top: 12px; }
@@ -1452,117 +1411,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applySalesRowsUI();
     syncSelectAllState();
-});
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var fab = document.getElementById('kwCalculatorFab');
-    var panel = document.getElementById('kwCalculatorPanel');
-    var body = document.getElementById('kwCalculatorBody');
-    var dragHandle = document.getElementById('kwCalculatorDragHandle');
-    var closeBtn = document.getElementById('kwCalculatorCloseBtn');
-    var minBtn = document.getElementById('kwCalculatorMinBtn');
-    var addRowBtn = document.getElementById('kwCalculatorAddRowBtn');
-    var rowsWrap = document.getElementById('kwCalculatorBodyRows');
-    var grandTotalEl = document.getElementById('kwCalculatorGrandTotal');
-    if (!fab || !panel || !rowsWrap || !grandTotalEl) return;
-
-    function toNum(value) {
-        var n = parseFloat(value);
-        return Number.isFinite(n) ? n : 0;
-    }
-
-    function updateTotals() {
-        var grand = 0;
-        rowsWrap.querySelectorAll('tr').forEach(function (row) {
-            var kw = toNum(row.querySelector('.js-kw').value);
-            var qty = toNum(row.querySelector('.js-qty').value);
-            var total = kw * qty;
-            grand += total;
-            row.querySelector('.js-row-total').textContent = total.toFixed(2);
-        });
-        grandTotalEl.textContent = grand.toFixed(2);
-    }
-
-    function addRow(prefill) {
-        var tr = document.createElement('tr');
-        tr.innerHTML = ''
-            + '<td><input type="text" class="form-control form-control-sm js-appliance" placeholder="Appliance name"></td>'
-            + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm js-kw" value="0"></td>'
-            + '<td><input type="number" step="1" min="0" class="form-control form-control-sm js-qty" value="1"></td>'
-            + '<td><span class="js-row-total">0.00</span></td>'
-            + '<td><button type="button" class="btn btn-sm btn-outline-danger js-remove-row">x</button></td>';
-        rowsWrap.appendChild(tr);
-        if (prefill) {
-            tr.querySelector('.js-appliance').value = prefill.name || '';
-            tr.querySelector('.js-kw').value = prefill.kw || 0;
-            tr.querySelector('.js-qty').value = prefill.qty || 1;
-        }
-        tr.querySelectorAll('input').forEach(function (input) {
-            input.addEventListener('input', updateTotals);
-        });
-        tr.querySelector('.js-remove-row').addEventListener('click', function () {
-            tr.remove();
-            updateTotals();
-        });
-        updateTotals();
-    }
-
-    if (!rowsWrap.children.length) addRow();
-
-    fab.addEventListener('click', function () {
-        panel.classList.remove('d-none');
-        panel.classList.remove('kw-calculator-minimized');
-        if (body) body.style.display = '';
-    });
-    closeBtn.addEventListener('click', function () {
-        panel.classList.add('d-none');
-    });
-    minBtn.addEventListener('click', function () {
-        panel.classList.toggle('kw-calculator-minimized');
-        if (body) body.style.display = panel.classList.contains('kw-calculator-minimized') ? 'none' : '';
-    });
-    addRowBtn.addEventListener('click', function () {
-        addRow();
-    });
-
-    var dragging = false;
-    var startX = 0;
-    var startY = 0;
-    var startLeft = 0;
-    var startTop = 0;
-
-    function clamp(val, min, max) {
-        return Math.min(Math.max(val, min), max);
-    }
-
-    dragHandle.addEventListener('mousedown', function (event) {
-        dragging = true;
-        var rect = panel.getBoundingClientRect();
-        panel.style.left = rect.left + 'px';
-        panel.style.top = rect.top + 'px';
-        panel.style.right = 'auto';
-        panel.style.bottom = 'auto';
-        startX = event.clientX;
-        startY = event.clientY;
-        startLeft = rect.left;
-        startTop = rect.top;
-        event.preventDefault();
-    });
-
-    document.addEventListener('mousemove', function (event) {
-        if (!dragging) return;
-        var nextLeft = startLeft + (event.clientX - startX);
-        var nextTop = startTop + (event.clientY - startY);
-        var maxLeft = Math.max(window.innerWidth - panel.offsetWidth, 0);
-        var maxTop = Math.max(window.innerHeight - panel.offsetHeight, 0);
-        panel.style.left = clamp(nextLeft, 0, maxLeft) + 'px';
-        panel.style.top = clamp(nextTop, 0, maxTop) + 'px';
-    });
-
-    document.addEventListener('mouseup', function () {
-        dragging = false;
-    });
 });
 </script>
 {% endblock %}

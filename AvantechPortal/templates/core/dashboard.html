@@ -1,4 +1,5 @@
 {% extends 'base_app.html' %}
+{% load static %}
 
 {% block title %}Avantech Portal | Dashboard{% endblock %}
 {% block page_heading %}Dashboard{% endblock %}
@@ -175,7 +176,7 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="{% static 'vendor/chart.js/4.5.1/chart.umd.min.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js';"></script>
     <script>
         (function () {
             const canvas = document.getElementById('dashboardClientsAnalyticsChart');

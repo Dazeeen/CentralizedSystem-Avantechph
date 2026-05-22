@@ -210,6 +210,7 @@ TEMPLATES = [
                 'core.context_processors.super_user_chat_access',
                 'core.context_processors.page_access_indicator',
                 'core.context_processors.role_preview',
+                'core.context_processors.calculator_feature_flags',
             ],
         },
     },
@@ -352,4 +353,3 @@ LOGGING = {
         },
     },
 }
-

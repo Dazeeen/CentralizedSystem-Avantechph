@@ -3260,6 +3260,7 @@ def crm_sales(request):
 		'assignable_sales_users': assignable_sales_users,
 		'sales_aging_settings': aging_settings,
 		'can_manage_crm_sales': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']),
+		'enable_floating_calculator': CalculatorSetting.load().enable_floating_calculator,
 	}
 	return render(request, 'core/crm_sales.html', context)
 
@@ -11271,6 +11272,7 @@ def calculator_page(request):
 		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Calculator.')
 	calculator_settings = CalculatorSetting.load()
 	if request.method == 'POST':
+		is_ajax = _is_ajax_request(request)
 		form_action = (request.POST.get('form_action') or '').strip()
 		if form_action == 'update_calculator_settings':
 			def _parse_decimal(raw_value, field_label):
@@ -11282,25 +11284,45 @@ def calculator_page(request):
 				except (InvalidOperation, TypeError, ValueError) as exc:
 					raise ValueError(f'Invalid value for {field_label}.') from exc
 
+			def _parse_non_negative_whole_number(raw_value, field_label):
+				text_value = str(raw_value or '').strip().replace(',', '')
+				if not text_value:
+					raise ValueError(f'{field_label} is required.')
+				try:
+					decimal_value = Decimal(text_value)
+				except (InvalidOperation, TypeError, ValueError) as exc:
+					raise ValueError(f'Invalid value for {field_label}.') from exc
+				if decimal_value < 0:
+					raise ValueError(f'{field_label} must be 0 or greater.')
+				if decimal_value != decimal_value.to_integral_value():
+					raise ValueError(f'{field_label} must be a whole number.')
+				return Decimal(int(decimal_value))
+
 			try:
 				volt_drop_percent = _parse_decimal(request.POST.get('volt_drop_percent'), 'Volt Drop %')
-				sun_peak_period_hours = _parse_decimal(request.POST.get('sun_peak_period_hours'), 'Sun Peak Period (hours)')
+				sun_peak_period_hours = _parse_non_negative_whole_number(request.POST.get('sun_peak_period_hours'), 'Sun Peak Period (hours)')
 				meralco_rate = _parse_decimal(request.POST.get('meralco_rate'), 'Meralco Rate')
 				battery_health_protection_percent = _parse_decimal(request.POST.get('battery_health_protection_percent'), 'Battery Health Protection %')
+				enable_floating_calculator = (request.POST.get('enable_floating_calculator') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
 			except ValueError as exc:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
 				messages.error(request, str(exc), extra_tags='toast')
 				return redirect('calculator_page')
 
 			if volt_drop_percent < 0 or volt_drop_percent > 100:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': 'Volt Drop % must be between 0 and 100.'}, status=400)
 				messages.error(request, 'Volt Drop % must be between 0 and 100.', extra_tags='toast')
 				return redirect('calculator_page')
 			if battery_health_protection_percent < 0 or battery_health_protection_percent > 100:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': 'Battery Health Protection % must be between 0 and 100.'}, status=400)
 				messages.error(request, 'Battery Health Protection % must be between 0 and 100.', extra_tags='toast')
 				return redirect('calculator_page')
-			if sun_peak_period_hours < 0:
-				messages.error(request, 'Sun Peak Period (hours) must be 0 or greater.', extra_tags='toast')
-				return redirect('calculator_page')
 			if meralco_rate < 0:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': 'Meralco Rate must be 0 or greater.'}, status=400)
 				messages.error(request, 'Meralco Rate must be 0 or greater.', extra_tags='toast')
 				return redirect('calculator_page')
 
@@ -11308,12 +11330,14 @@ def calculator_page(request):
 			calculator_settings.sun_peak_period_hours = sun_peak_period_hours
 			calculator_settings.meralco_rate = meralco_rate
 			calculator_settings.battery_health_protection_percent = battery_health_protection_percent
+			calculator_settings.enable_floating_calculator = enable_floating_calculator
 			calculator_settings.save(
 				update_fields=[
 					'volt_drop_percent',
 					'sun_peak_period_hours',
 					'meralco_rate',
 					'battery_health_protection_percent',
+					'enable_floating_calculator',
 					'updated_at',
 				]
 			)
@@ -11328,8 +11352,23 @@ def calculator_page(request):
 					'sun_peak_period_hours': str(calculator_settings.sun_peak_period_hours),
 					'meralco_rate': str(calculator_settings.meralco_rate),
 					'battery_health_protection_percent': str(calculator_settings.battery_health_protection_percent),
+					'enable_floating_calculator': calculator_settings.enable_floating_calculator,
 				},
 			)
+			if is_ajax:
+				return JsonResponse(
+					{
+						'ok': True,
+						'message': 'Calculator settings updated.',
+						'settings': {
+							'volt_drop_percent': str(calculator_settings.volt_drop_percent),
+							'sun_peak_period_hours': str(calculator_settings.sun_peak_period_hours),
+							'meralco_rate': str(calculator_settings.meralco_rate),
+							'battery_health_protection_percent': str(calculator_settings.battery_health_protection_percent),
+							'enable_floating_calculator': bool(calculator_settings.enable_floating_calculator),
+						},
+					}
+				)
 			messages.success(request, 'Calculator settings updated.', extra_tags='toast')
 			return redirect('calculator_page')
 	return render(request, 'core/calculator_page.html', {'calculator_settings': calculator_settings})
