@@ -128,6 +128,8 @@ from .models import (
 	AttendanceTimemarkSetting,
 	Client,
 	CalculatorSetting,
+	CalculatorImportRecord,
+	CalculatorImportRow,
 	CRMClient,
 	CRMSalesRecord,
 	CRMSalesActivityLog,
@@ -11271,6 +11273,28 @@ def calculator_page(request):
 	if not _can_access_forms_section(request.user):
 		return _permission_denied_response(request, 'Only admin, HR, superuser, or authorized users can access Calculator.')
 	calculator_settings = CalculatorSetting.load()
+	mapping_choices = [
+		{'key': 'system_type', 'label': 'System Type'},
+		{'key': 'capacity_kw', 'label': 'Capacity (kW)'},
+		{'key': 'upgrade_brands', 'label': 'Upgrade Brands'},
+		{'key': 'specifications', 'label': 'Specifications'},
+		{'key': 'battery_ampere_hour', 'label': 'Battery (Ampere-hour)'},
+		{'key': 'battery_kwh', 'label': 'Battery (KWH)'},
+		{'key': 'warranty_panel', 'label': 'Warranty Panel'},
+		{'key': 'warranty_battery', 'label': 'Warranty Battery'},
+		{'key': 'warranty_inverter', 'label': 'Warranty Inverter'},
+		{'key': 'panel_qty', 'label': 'Panel Qty'},
+		{'key': 'regular_price', 'label': 'Regular Price'},
+		{'key': 'cash_promo_price', 'label': 'Cash Promo Price'},
+		{'key': 'bdo_installment_12mos', 'label': 'BDO Installment 12 mos'},
+		{'key': 'bdo_installment_18mos', 'label': 'BDO Installment 18 mos'},
+		{'key': 'bdo_installment_24mos', 'label': 'BDO Installment 24 mos'},
+		{'key': 'potential_monthly_savings', 'label': 'Potential Monthly Savings'},
+		{'key': 'potential_annual_savings', 'label': 'Potential Annual Savings'},
+		{'key': 'potential_roi', 'label': 'Potential ROI'},
+	]
+	allowed_mapping_keys = {item['key'] for item in mapping_choices}
+
 	if request.method == 'POST':
 		is_ajax = _is_ajax_request(request)
 		form_action = (request.POST.get('form_action') or '').strip()
@@ -11371,7 +11395,193 @@ def calculator_page(request):
 				)
 			messages.success(request, 'Calculator settings updated.', extra_tags='toast')
 			return redirect('calculator_page')
-	return render(request, 'core/calculator_page.html', {'calculator_settings': calculator_settings})
+		if form_action == 'import_submit':
+			upload_file = request.FILES.get('import_file')
+			raw_payload = (request.POST.get('import_preview_payload') or '').strip()
+			if not upload_file:
+				message = 'Please choose a file to import.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message, extra_tags='toast')
+				return redirect('calculator_page')
+			if not raw_payload:
+				message = 'No import payload found. Please preview file first.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message, extra_tags='toast')
+				return redirect('calculator_page')
+
+			try:
+				payload = json.loads(raw_payload)
+			except Exception:
+				message = 'Invalid import payload format.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message, extra_tags='toast')
+				return redirect('calculator_page')
+
+			columns = payload.get('columns') if isinstance(payload, dict) else None
+			rows = payload.get('rows') if isinstance(payload, dict) else None
+			included_columns = payload.get('included_columns') if isinstance(payload, dict) else None
+			column_mappings = payload.get('column_mappings') if isinstance(payload, dict) else None
+			if not isinstance(columns, list) or not columns:
+				message = 'Missing headers in import payload.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message, extra_tags='toast')
+				return redirect('calculator_page')
+			if not isinstance(rows, list) or not rows:
+				message = 'No rows found in import payload.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message, extra_tags='toast')
+				return redirect('calculator_page')
+			if not isinstance(included_columns, list):
+				included_columns = list(columns)
+			if not isinstance(column_mappings, dict):
+				column_mappings = {}
+
+			included_columns = [str(col or '').strip() for col in included_columns if str(col or '').strip()]
+			column_mappings = {
+				str(k or '').strip(): str(v or '').strip()
+				for k, v in column_mappings.items()
+				if str(v or '').strip() in allowed_mapping_keys
+			}
+
+			def _to_decimal(value, places=4):
+				text = str(value or '').strip()
+				if not text:
+					return None
+				clean = re.sub(r'[^0-9.\-]', '', text.replace(',', ''))
+				if not clean:
+					return None
+				try:
+					return Decimal(clean)
+				except (InvalidOperation, ValueError, TypeError):
+					return None
+
+			def _to_int(value):
+				dec = _to_decimal(value)
+				if dec is None:
+					return None
+				try:
+					return int(dec)
+				except (ValueError, TypeError):
+					return None
+
+			db_rows = []
+			for row in rows:
+				if not isinstance(row, dict):
+					continue
+				row_payload = {
+					'system_type': '',
+					'capacity_kw': None,
+					'upgrade_brands': '',
+					'specifications': '',
+					'battery_ampere_hour': None,
+					'battery_kwh': None,
+					'warranty_panel': '',
+					'warranty_battery': '',
+					'warranty_inverter': '',
+					'panel_qty': None,
+					'regular_price': None,
+					'cash_promo_price': None,
+					'bdo_installment_12mos': None,
+					'bdo_installment_18mos': None,
+					'bdo_installment_24mos': None,
+					'potential_monthly_savings': None,
+					'potential_annual_savings': None,
+					'potential_roi': None,
+					'raw_row': row,
+				}
+				for source_header, target_field in column_mappings.items():
+					if source_header not in included_columns:
+						continue
+					if target_field not in allowed_mapping_keys:
+						continue
+					raw_value = row.get(source_header, '')
+					if target_field in {
+						'capacity_kw', 'battery_ampere_hour', 'battery_kwh', 'regular_price',
+						'cash_promo_price', 'bdo_installment_12mos', 'bdo_installment_18mos',
+						'bdo_installment_24mos', 'potential_monthly_savings',
+						'potential_annual_savings', 'potential_roi',
+					}:
+						row_payload[target_field] = _to_decimal(raw_value)
+					elif target_field == 'panel_qty':
+						row_payload[target_field] = _to_int(raw_value)
+					else:
+						row_payload[target_field] = str(raw_value or '').strip()
+				db_rows.append(row_payload)
+
+			with transaction.atomic():
+				has_active = CalculatorImportRecord.objects.filter(is_active=True).exists()
+				record = CalculatorImportRecord.objects.create(
+					source_file=upload_file,
+					original_filename=getattr(upload_file, 'name', 'calculator-import.file'),
+					file_size_bytes=getattr(upload_file, 'size', 0) or 0,
+					headers=columns,
+					included_headers=included_columns,
+					column_mappings=column_mappings,
+					row_count=len(db_rows),
+					is_active=not has_active,
+					imported_by=request.user,
+				)
+				CalculatorImportRow.objects.bulk_create(
+					[CalculatorImportRow(import_record=record, **payload) for payload in db_rows],
+					batch_size=500,
+				)
+
+			if is_ajax:
+				return JsonResponse(
+					{
+						'ok': True,
+						'message': f'Imported {len(db_rows)} row(s) from {record.original_filename}.',
+						'record': {
+							'id': record.id,
+							'original_filename': record.original_filename,
+							'row_count': record.row_count,
+							'is_active': bool(record.is_active),
+							'created_at': timezone.localtime(record.created_at).strftime('%b %d, %Y %I:%M %p'),
+							'imported_by': request.user.get_full_name() or request.user.username,
+						},
+					}
+				)
+			messages.success(request, f'Imported {len(db_rows)} row(s).', extra_tags='toast')
+			return redirect('calculator_page')
+		if form_action == 'set_active_quotation':
+			record_id = (request.POST.get('record_id') or '').strip()
+			try:
+				record_id_int = int(record_id)
+			except (TypeError, ValueError):
+				record_id_int = 0
+			record = CalculatorImportRecord.objects.filter(id=record_id_int).first()
+			if not record:
+				message = 'Quotation history record not found.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=404)
+				messages.error(request, message, extra_tags='toast')
+				return redirect('calculator_page')
+			with transaction.atomic():
+				CalculatorImportRecord.objects.filter(is_active=True).exclude(id=record.id).update(is_active=False)
+				if not record.is_active:
+					record.is_active = True
+					record.save(update_fields=['is_active'])
+			message = f'"{record.original_filename}" is now active for computation.'
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': message, 'active_record_id': record.id})
+			messages.success(request, message, extra_tags='toast')
+			return redirect('calculator_page')
+
+	import_records = CalculatorImportRecord.objects.select_related('imported_by').all()[:50]
+	return render(
+		request,
+		'core/calculator_page.html',
+		{
+			'calculator_settings': calculator_settings,
+			'calculator_mapping_choices': mapping_choices,
+			'calculator_import_records': import_records,
+		},
+	)
 
 
 def _prepare_forms_file_delivery_payload(upload):

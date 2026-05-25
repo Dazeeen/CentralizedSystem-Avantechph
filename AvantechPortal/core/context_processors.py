@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from .models import (
     CalculatorSetting,
+    CalculatorImportRow,
     Notification,
     SuperUserChatMessage,
     SuperUserChatReadState,
@@ -274,12 +275,59 @@ def calculator_feature_flags(request):
         sun_peak_hours = '3'
         vdrop_percent = '20'
         battery_health_drop_percent = '20'
+    calculator_system_options = []
+    try:
+        rows = (
+            CalculatorImportRow.objects
+            .filter(import_record__is_active=True)
+            .exclude(capacity_kw__isnull=True)
+            .exclude(panel_qty__isnull=True)
+            .values(
+                'id',
+                'system_type',
+                'capacity_kw',
+                'panel_qty',
+                'specifications',
+                'battery_ampere_hour',
+                'battery_kwh',
+                'warranty_panel',
+                'warranty_battery',
+                'warranty_inverter',
+                'regular_price',
+                'cash_promo_price',
+            )
+            .order_by('capacity_kw', 'id')
+        )
+        for row in rows:
+            system_type = str(row.get('system_type') or '').strip()
+            capacity_kw = row.get('capacity_kw')
+            panel_qty = row.get('panel_qty')
+            if capacity_kw is None or panel_qty is None:
+                continue
+            calculator_system_options.append({
+                'id': int(row['id']),
+                'system_type': system_type,
+                'capacity_kw': float(capacity_kw),
+                'panel_qty': int(panel_qty),
+                'specifications': str(row.get('specifications') or '').strip(),
+                'battery_ampere_hour': float(row['battery_ampere_hour']) if row.get('battery_ampere_hour') is not None else None,
+                'battery_kwh': float(row['battery_kwh']) if row.get('battery_kwh') is not None else None,
+                'warranty_panel': str(row.get('warranty_panel') or '').strip(),
+                'warranty_battery': str(row.get('warranty_battery') or '').strip(),
+                'warranty_inverter': str(row.get('warranty_inverter') or '').strip(),
+                'regular_price': float(row['regular_price']) if row.get('regular_price') is not None else None,
+                'cash_promo_price': float(row['cash_promo_price']) if row.get('cash_promo_price') is not None else None,
+            })
+    except (OperationalError, ProgrammingError):
+        calculator_system_options = []
+
     return {
         'enable_floating_calculator': enabled,
         'calculator_default_meralco_rate': meralco_rate,
         'calculator_default_sun_peak_hours': sun_peak_hours,
         'calculator_default_vdrop_percent': vdrop_percent,
         'calculator_default_battery_health_drop_percent': battery_health_drop_percent,
+        'calculator_system_options': calculator_system_options,
     }
 
 

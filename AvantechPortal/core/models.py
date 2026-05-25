@@ -110,6 +110,15 @@ def liquidation_attachment_upload_to(instance, filename):
 	return f'liquidations/attachments/{liquidation_slug}_{date_stamp}{extension}'
 
 
+def calculator_import_upload_to(instance, filename):
+	original_name = filename or 'calculator-import.file'
+	extension = Path(original_name).suffix.lower() or '.file'
+	user_id = getattr(instance, 'imported_by_id', None) or 'user'
+	timestamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	name_slug = slugify(Path(original_name).stem) or 'calculator-import'
+	return f'calculator/imports/{user_id}/{name_slug}_{timestamp}{extension}'
+
+
 def _credentials_fernet():
 	fernet_cls = Fernet
 	if fernet_cls is None:
@@ -1423,6 +1432,66 @@ class CalculatorSetting(models.Model):
 			},
 		)
 		return instance
+
+
+class CalculatorImportRecord(models.Model):
+	source_file = models.FileField(upload_to=calculator_import_upload_to)
+	original_filename = models.CharField(max_length=255)
+	file_size_bytes = models.PositiveBigIntegerField(default=0)
+	headers = models.JSONField(default=list, blank=True)
+	included_headers = models.JSONField(default=list, blank=True)
+	column_mappings = models.JSONField(default=dict, blank=True)
+	row_count = models.PositiveIntegerField(default=0)
+	is_active = models.BooleanField(default=False, db_index=True)
+	imported_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='calculator_import_records',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-created_at']
+
+	def __str__(self):
+		return f'CalculatorImportRecord<{self.original_filename}>'
+
+
+class CalculatorImportRow(models.Model):
+	import_record = models.ForeignKey(
+		CalculatorImportRecord,
+		on_delete=models.CASCADE,
+		related_name='rows',
+	)
+	system_type = models.CharField(max_length=255, blank=True, default='')
+	capacity_kw = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+	upgrade_brands = models.CharField(max_length=255, blank=True, default='')
+	specifications = models.TextField(blank=True, default='')
+	battery_ampere_hour = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+	battery_kwh = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+	warranty_panel = models.CharField(max_length=255, blank=True, default='')
+	warranty_battery = models.CharField(max_length=255, blank=True, default='')
+	warranty_inverter = models.CharField(max_length=255, blank=True, default='')
+	panel_qty = models.PositiveIntegerField(null=True, blank=True)
+	regular_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	cash_promo_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	bdo_installment_12mos = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	bdo_installment_18mos = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	bdo_installment_24mos = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	potential_monthly_savings = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	potential_annual_savings = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	potential_roi = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+	raw_row = models.JSONField(default=dict, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['id']
+
+	def __str__(self):
+		return f'CalculatorImportRow<{self.import_record_id}:{self.id}>'
 
 
 class Liquidation(models.Model):
@@ -2933,5 +3002,3 @@ class SystemBackup(models.Model):
 			return int(self.archive.size or 0)
 		except Exception:
 			return 0
-
-

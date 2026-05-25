@@ -1233,7 +1233,7 @@
         kW
     </button>
 
-    <div id="kwCalculatorPanel" class="card shadow position-fixed d-none" style="right:24px;bottom:90px;width:min(560px,92vw);z-index:1081;">
+    <div id="kwCalculatorPanel" class="card shadow position-fixed d-none" style="right:24px;bottom:90px;width:min(560px,92vw);max-height:78vh;z-index:1081;">
         <div id="kwCalculatorDragHandle" class="card-header bg-success text-white d-flex justify-content-between align-items-center" style="cursor:move;">
             <strong>Calculator</strong>
             <div class="d-flex gap-1">
@@ -1241,7 +1241,7 @@
                 <button type="button" class="btn kw-calculator-header-btn" id="kwCalculatorCloseBtn" title="Close" aria-label="Close">×</button>
             </div>
         </div>
-        <div class="card-body p-2" id="kwCalculatorBody">
+        <div class="card-body p-2" id="kwCalculatorBody" style="overflow-y:auto;max-height:calc(78vh - 64px);">
             <div class="row g-2 mb-2">
                 <div class="col-6">
                     <label class="form-label form-label-sm mb-1 d-block">1st Selection: Type</label>
@@ -1313,7 +1313,25 @@
                         </div>
                         <div class="col-6">
                             <label for="kwPanelCountInput" class="form-label form-label-sm mb-1">Panel Count (pcs)</label>
-                            <input type="number" min="0" step="1" id="kwPanelCountInput" class="form-control form-control-sm" value="0">
+                            <input type="number" min="0" step="1" id="kwPanelCountInput" class="form-control form-control-sm" value="0" readonly disabled>
+                        </div>
+                        <div class="col-6">
+                            <label for="kwPanelCompatibleSystem" class="form-label form-label-sm mb-1">Compatible System (Capacity kW)</label>
+                            <select id="kwPanelCompatibleSystem" class="form-select form-select-sm">
+                                <option value="">Select compatible system</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label for="kwPanelSystemTypeDisplay" class="form-label form-label-sm mb-1">System Type</label>
+                            <input type="text" id="kwPanelSystemTypeDisplay" class="form-control form-control-sm" value="-" readonly disabled>
+                        </div>
+                        <div class="col-12">
+                            <div class="row g-2">
+                                <div class="col-md-6"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Cost</div><div class="fw-semibold" id="kwPanelEstimatedCostOut">PHP 0.00</div></div></div></div>
+                                <div class="col-md-3"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Panel Warranty</div><div class="fw-semibold small" id="kwPanelWarrantyPanelOut">-</div></div></div></div>
+                                <div class="col-md-3"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Inverter Warranty</div><div class="fw-semibold small" id="kwPanelWarrantyInverterOut">-</div></div></div></div>
+                                <div class="col-12"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Specifications</div><div class="fw-semibold small" id="kwPanelSpecificationsOut">-</div></div></div></div>
+                            </div>
                         </div>
                         <div class="col-4">
                             <label for="kwPanelVdrop" class="form-label form-label-sm mb-1">Vdrop %</label>
@@ -1433,8 +1451,8 @@
                     <div class="border rounded-2 bg-light p-2">
                         <div class="row g-2 align-items-end">
                             <div class="col-4">
-                                <label for="kwBatteryCapacityKw" class="form-label form-label-sm mb-1">Battery (kW)</label>
-                                <input type="number" min="0" step="0.01" id="kwBatteryCapacityKw" class="form-control form-control-sm" value="11.7">
+                                <label for="kwBatteryCapacityKw" class="form-label form-label-sm mb-1">Battery (KWH)</label>
+                                <input type="number" min="0" step="0.01" id="kwBatteryCapacityKw" class="form-control form-control-sm" value="11.7" readonly>
                             </div>
                             <div class="col-4">
                                 <label for="kwBatteryHealthDrop" class="form-label form-label-sm mb-1">Battery Reserve Buffer %</label>
@@ -1517,7 +1535,27 @@
                             </div>
                             <div class="col-4">
                                 <label for="kwAllPanelCount" class="form-label form-label-sm mb-1">Panel Count (pcs)</label>
-                                <input type="number" min="0" step="1" id="kwAllPanelCount" class="form-control form-control-sm" value="0">
+                                <input type="number" min="0" step="1" id="kwAllPanelCount" class="form-control form-control-sm" value="0" readonly disabled>
+                            </div>
+                            <div class="col-4">
+                                <label for="kwAllCompatibleSystem" class="form-label form-label-sm mb-1">Compatible System</label>
+                                <select id="kwAllCompatibleSystem" class="form-select form-select-sm">
+                                    <option value="">Select compatible system</option>
+                                </select>
+                            </div>
+                            <div class="col-4">
+                                <label for="kwAllSystemTypeDisplay" class="form-label form-label-sm mb-1">System Type</label>
+                                <input type="text" id="kwAllSystemTypeDisplay" class="form-control form-control-sm" value="-" readonly disabled>
+                            </div>
+                            <div class="col-12">
+                                <div class="row g-2">
+                                    <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Cost</div><div class="fw-semibold" id="kwAllEstimatedCostOut">PHP 0.00</div></div></div></div>
+                                    <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Battery (Ah / kWh)</div><div class="fw-semibold" id="kwAllBatteryInfoOut">-</div></div></div></div>
+                                    <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Panel Warranty</div><div class="fw-semibold small" id="kwAllWarrantyPanelOut">-</div></div></div></div>
+                                    <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Battery Warranty</div><div class="fw-semibold small" id="kwAllWarrantyBatteryOut">-</div></div></div></div>
+                                    <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Inverter Warranty</div><div class="fw-semibold small" id="kwAllWarrantyInverterOut">-</div></div></div></div>
+                                    <div class="col-12"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Specifications</div><div class="fw-semibold small" id="kwAllSpecificationsOut">-</div></div></div></div>
+                                </div>
                             </div>
                             <div class="col-4">
                                 <label for="kwAllPanelVdrop" class="form-label form-label-sm mb-1">Vdrop %</label>
@@ -1528,8 +1566,8 @@
                                 <input type="number" min="0" step="1" id="kwAllPanelSunPeakHours" class="form-control form-control-sm" value="{{ calculator_default_sun_peak_hours|default:'3'|floatformat:'0' }}" disabled>
                             </div>
                             <div class="col-4">
-                                <label for="kwAllBatteryCapacityKw" class="form-label form-label-sm mb-1">Battery: Capacity (kW)</label>
-                                <input type="number" min="0" step="0.01" id="kwAllBatteryCapacityKw" class="form-control form-control-sm" value="11.7">
+                                <label for="kwAllBatteryCapacityKw" class="form-label form-label-sm mb-1">Battery: Capacity (KWH)</label>
+                                <input type="number" min="0" step="0.01" id="kwAllBatteryCapacityKw" class="form-control form-control-sm" value="11.7" readonly disabled>
                             </div>
                             <div class="col-4">
                                 <label for="kwAllBatteryHealthDrop" class="form-label form-label-sm mb-1">Battery: Reserve Buffer %</label>
@@ -1646,6 +1684,7 @@
         }
     </style>
 
+    {{ calculator_system_options|json_script:"calculatorSystemOptionsData" }}
     <script src="{% static 'vendor/bootstrap/5.3.8/js/bootstrap.bundle.min.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js';"></script>
     <script src="{% static 'js/form_enhancements.js' %}?v=20260428-captcha"></script>
     <script>
@@ -1948,6 +1987,13 @@
             const sharedMonthlyBillUnitSelect = document.getElementById('kwSharedMonthlyBillUnit');
             const panelWattageToggleBtn = document.getElementById('kwPanelWattageToggleBtn');
             const panelCountInput = document.getElementById('kwPanelCountInput');
+            const panelCompatibleSystemSelect = document.getElementById('kwPanelCompatibleSystem');
+            const panelSystemTypeDisplay = document.getElementById('kwPanelSystemTypeDisplay');
+            const panelEstimatedCostOut = document.getElementById('kwPanelEstimatedCostOut');
+            const panelBatteryInfoOut = document.getElementById('kwPanelBatteryInfoOut');
+            const panelWarrantyPanelOut = document.getElementById('kwPanelWarrantyPanelOut');
+            const panelWarrantyInverterOut = document.getElementById('kwPanelWarrantyInverterOut');
+            const panelSpecificationsOut = document.getElementById('kwPanelSpecificationsOut');
             const panelVdropInput = document.getElementById('kwPanelVdrop');
             const panelSunPeakHoursInput = document.getElementById('kwPanelSunPeakHours');
             const panelMeralcoRateInput = document.getElementById('kwPanelMeralcoRate');
@@ -1983,6 +2029,14 @@
             const allPanelWattageToggleBtn = document.getElementById('kwAllPanelWattageToggleBtn');
             const allPanelWattageOptions = Array.from(document.querySelectorAll('.js-all-panel-wattage-option'));
             const allPanelCountInput = document.getElementById('kwAllPanelCount');
+            const allCompatibleSystemSelect = document.getElementById('kwAllCompatibleSystem');
+            const allSystemTypeDisplay = document.getElementById('kwAllSystemTypeDisplay');
+            const allEstimatedCostOut = document.getElementById('kwAllEstimatedCostOut');
+            const allBatteryInfoOut = document.getElementById('kwAllBatteryInfoOut');
+            const allWarrantyPanelOut = document.getElementById('kwAllWarrantyPanelOut');
+            const allWarrantyBatteryOut = document.getElementById('kwAllWarrantyBatteryOut');
+            const allWarrantyInverterOut = document.getElementById('kwAllWarrantyInverterOut');
+            const allSpecificationsOut = document.getElementById('kwAllSpecificationsOut');
             const allPanelVdropInput = document.getElementById('kwAllPanelVdrop');
             const allPanelSunPeakHoursInput = document.getElementById('kwAllPanelSunPeakHours');
             const allBatteryCapacityKwInput = document.getElementById('kwAllBatteryCapacityKw');
@@ -1993,6 +2047,8 @@
             const rangeButtons = Array.from(document.querySelectorAll('.js-kw-range-btn'));
             const customYearsWrap = document.getElementById('kwCalculatorCustomYearsWrap');
             const customYearsInput = document.getElementById('kwCalculatorCustomYears');
+            const systemOptionsNode = document.getElementById('calculatorSystemOptionsData');
+            const calculatorSystemOptions = systemOptionsNode ? JSON.parse(systemOptionsNode.textContent || '[]') : [];
             if (!fab || !panel || !rowsWrap || !grandTotalEl) return;
             let isFeatureEnabled = {{ enable_floating_calculator|yesno:"true,false" }};
 
@@ -2012,7 +2068,6 @@
                 panelWattage: 610,
                 panelWattageMode: 'fixed',
                 panelCount: '',
-                panelCountManualOverride: false,
                 batteryCapacityKw: '11.7',
                 batteryHealthDrop: '30',
                 rows: [{ name: '', watts: 0, qty: 1 }],
@@ -2044,7 +2099,6 @@
                         panelWattage: Number.isFinite(Number(parsed.panelWattage)) ? Number(parsed.panelWattage) : 610,
                         panelWattageMode: (parsed.panelWattageMode === 'custom') ? 'custom' : 'fixed',
                         panelCount: String(parsed.panelCount || ''),
-                        panelCountManualOverride: !!parsed.panelCountManualOverride,
                         batteryCapacityKw: String(parsed.batteryCapacityKw || '11.7'),
                         batteryHealthDrop: String(parsed.batteryHealthDrop || '30'),
                         rows: Array.isArray(parsed.rows) && parsed.rows.length ? parsed.rows : defaultState.rows,
@@ -2199,6 +2253,108 @@
                 maximumFractionDigits: places,
             });
             const formatCurrencyPhp = (value) => `PHP ${formatNumber(value, 2)}`;
+            const getMonthlyBillKw = () => {
+                const monthlyBillInputValue = toNum(sharedMonthlyBillInput ? sharedMonthlyBillInput.value : 0);
+                const monthlyBillUnit = String(sharedMonthlyBillUnitSelect ? sharedMonthlyBillUnitSelect.value : 'kw').toLowerCase() === 'w' ? 'w' : 'kw';
+                return monthlyBillUnit === 'w' ? (monthlyBillInputValue / 1000) : monthlyBillInputValue;
+            };
+            const formatSystemOptionLabel = (option) => {
+                const typeText = String(option.system_type || 'System').trim() || 'System';
+                return `${typeText} - ${formatNumber(option.capacity_kw || 0, 2)} kW - ${option.panel_qty || 0} pcs`;
+            };
+            const formatWarrantyYears = (value) => {
+                const text = String(value == null ? '' : value).trim();
+                if (!text || text === '-') return '-';
+                return /year/i.test(text) ? text : `${text} years`;
+            };
+            const setBatteryCapacityFromSystem = (selected, targetInput) => {
+                if (!targetInput) return;
+                if (selected && selected.battery_kwh != null) {
+                    targetInput.value = truncateDecimals(selected.battery_kwh, 2).toFixed(2);
+                    return;
+                }
+                targetInput.value = '0.00';
+            };
+            const applySystemSelectionToPanelFields = () => {
+                if (!panelCompatibleSystemSelect) return;
+                const selected = calculatorSystemOptions.find((opt) => String(opt.id) === String(panelCompatibleSystemSelect.value || ''));
+                if (!selected) {
+                    setBatteryCapacityFromSystem(null, batteryCapacityKwInput);
+                    if (panelCountInput) panelCountInput.value = '0';
+                    if (panelSystemTypeDisplay) panelSystemTypeDisplay.value = '-';
+                    if (panelEstimatedCostOut) panelEstimatedCostOut.textContent = 'PHP 0.00';
+                    if (panelBatteryInfoOut) panelBatteryInfoOut.textContent = '-';
+                    if (panelWarrantyPanelOut) panelWarrantyPanelOut.textContent = '-';
+                    if (panelWarrantyInverterOut) panelWarrantyInverterOut.textContent = '-';
+                    if (panelSpecificationsOut) panelSpecificationsOut.textContent = '-';
+                    return;
+                }
+                setBatteryCapacityFromSystem(selected, batteryCapacityKwInput);
+                if (panelCountInput) panelCountInput.value = String(selected.panel_qty || 0);
+                if (panelSystemTypeDisplay) panelSystemTypeDisplay.value = String(selected.system_type || '-');
+                const estimatedCost = selected.cash_promo_price != null ? selected.cash_promo_price : selected.regular_price;
+                const batteryAh = selected.battery_ampere_hour != null ? formatNumber(selected.battery_ampere_hour, 2) : '-';
+                const batteryKwh = selected.battery_kwh != null ? formatNumber(selected.battery_kwh, 2) : '-';
+                if (panelEstimatedCostOut) panelEstimatedCostOut.textContent = estimatedCost != null ? formatCurrencyPhp(estimatedCost) : 'PHP 0.00';
+                if (panelBatteryInfoOut) panelBatteryInfoOut.textContent = `${batteryAh} / ${batteryKwh}`;
+                if (panelWarrantyPanelOut) panelWarrantyPanelOut.textContent = formatWarrantyYears(selected.warranty_panel);
+                if (panelWarrantyInverterOut) panelWarrantyInverterOut.textContent = formatWarrantyYears(selected.warranty_inverter);
+                if (panelSpecificationsOut) panelSpecificationsOut.textContent = selected.specifications || '-';
+            };
+            const applySystemSelectionToAllFields = () => {
+                if (!allCompatibleSystemSelect) return;
+                const selected = calculatorSystemOptions.find((opt) => String(opt.id) === String(allCompatibleSystemSelect.value || ''));
+                if (!selected) {
+                    setBatteryCapacityFromSystem(null, allBatteryCapacityKwInput);
+                    if (allPanelCountInput) allPanelCountInput.value = '0';
+                    if (allSystemTypeDisplay) allSystemTypeDisplay.value = '-';
+                    if (allEstimatedCostOut) allEstimatedCostOut.textContent = 'PHP 0.00';
+                    if (allBatteryInfoOut) allBatteryInfoOut.textContent = '-';
+                    if (allWarrantyPanelOut) allWarrantyPanelOut.textContent = '-';
+                    if (allWarrantyBatteryOut) allWarrantyBatteryOut.textContent = '-';
+                    if (allWarrantyInverterOut) allWarrantyInverterOut.textContent = '-';
+                    if (allSpecificationsOut) allSpecificationsOut.textContent = '-';
+                    return;
+                }
+                setBatteryCapacityFromSystem(selected, allBatteryCapacityKwInput);
+                if (allPanelCountInput) allPanelCountInput.value = String(selected.panel_qty || 0);
+                if (allSystemTypeDisplay) allSystemTypeDisplay.value = String(selected.system_type || '-');
+                const estimatedCost = selected.cash_promo_price != null ? selected.cash_promo_price : selected.regular_price;
+                const batteryAh = selected.battery_ampere_hour != null ? formatNumber(selected.battery_ampere_hour, 2) : '-';
+                const batteryKwh = selected.battery_kwh != null ? formatNumber(selected.battery_kwh, 2) : '-';
+                if (allEstimatedCostOut) allEstimatedCostOut.textContent = estimatedCost != null ? formatCurrencyPhp(estimatedCost) : 'PHP 0.00';
+                if (allBatteryInfoOut) allBatteryInfoOut.textContent = `${batteryAh} / ${batteryKwh}`;
+                if (allWarrantyPanelOut) allWarrantyPanelOut.textContent = formatWarrantyYears(selected.warranty_panel);
+                if (allWarrantyBatteryOut) allWarrantyBatteryOut.textContent = formatWarrantyYears(selected.warranty_battery);
+                if (allWarrantyInverterOut) allWarrantyInverterOut.textContent = formatWarrantyYears(selected.warranty_inverter);
+                if (allSpecificationsOut) allSpecificationsOut.textContent = selected.specifications || '-';
+            };
+            const refreshCompatibleSystemOptions = () => {
+                const billKw = getMonthlyBillKw();
+                const compatibleOptions = calculatorSystemOptions.filter((opt) => toNum(opt.capacity_kw) >= billKw);
+                if (panelCompatibleSystemSelect) {
+                    const previous = panelCompatibleSystemSelect.value || '';
+                    panelCompatibleSystemSelect.innerHTML = '<option value="">Select compatible system</option>'
+                        + compatibleOptions.map((opt) => `<option value="${opt.id}">${formatSystemOptionLabel(opt)}</option>`).join('');
+                    if (compatibleOptions.some((opt) => String(opt.id) === String(previous))) {
+                        panelCompatibleSystemSelect.value = previous;
+                    } else if (compatibleOptions.length) {
+                        panelCompatibleSystemSelect.value = String(compatibleOptions[0].id);
+                    }
+                }
+                if (allCompatibleSystemSelect) {
+                    const previous = allCompatibleSystemSelect.value || '';
+                    allCompatibleSystemSelect.innerHTML = '<option value="">Select compatible system</option>'
+                        + compatibleOptions.map((opt) => `<option value="${opt.id}">${formatSystemOptionLabel(opt)}</option>`).join('');
+                    if (compatibleOptions.some((opt) => String(opt.id) === String(previous))) {
+                        allCompatibleSystemSelect.value = previous;
+                    } else if (compatibleOptions.length) {
+                        allCompatibleSystemSelect.value = String(compatibleOptions[0].id);
+                    }
+                }
+                applySystemSelectionToPanelFields();
+                applySystemSelectionToAllFields();
+            };
             let latestPanelMetrics = {
                 dailyHarvest: 0,
                 monthlyHarvest: 0,
@@ -2389,6 +2545,24 @@
                 });
                 updateBatteryRoiComputation();
             };
+            const syncCalculatorDraftState = () => {
+                const state = getState();
+                saveState({
+                    ...state,
+                    customYears: customYearsInput ? String(customYearsInput.value || '').trim() : '',
+                    panelWattage: panelWattageSelect ? (panelWattageSelect.value || '610') : '610',
+                    panelWattageMode: (panelWattageSelect && !panelWattageSelect.readOnly) ? 'custom' : 'fixed',
+                    panelCount: panelCountInput ? (panelCountInput.value || '') : '',
+                    panelMonthlyBill: sharedMonthlyBillInput ? (sharedMonthlyBillInput.value || '') : '',
+                    panelMonthlyBillUnit: String(sharedMonthlyBillUnitSelect ? (sharedMonthlyBillUnitSelect.value || 'kw') : 'kw').toLowerCase() === 'w' ? 'w' : 'kw',
+                    batteryCapacityKw: batteryCapacityKwInput ? (batteryCapacityKwInput.value || '') : '',
+                    batteryHealthDrop: batteryHealthDropInput ? (batteryHealthDropInput.value || '') : '',
+                });
+            };
+            const runManualComputation = () => {
+                updatePanelComputation();
+                updateAllRoiComputation();
+            };
             activateGroup(typeButtons, initialState.calculatorType || 'panel');
             activateGroup(modeButtons, initialState.calculatorMode || 'load');
             activateGroup(rangeButtons, initialState.calculatorRange || 'all');
@@ -2407,8 +2581,6 @@
                     if (!raw) {
                         const state = getState();
                         saveState({ ...state, customYears: '' });
-                        updatePanelComputation();
-                        updateAllRoiComputation();
                         return;
                     }
                     const parsed = parseInt(raw, 10);
@@ -2416,8 +2588,6 @@
                     customYearsInput.value = String(normalized);
                     const state = getState();
                     saveState({ ...state, customYears: customYearsInput.value });
-                    updatePanelComputation();
-                    updateAllRoiComputation();
                 };
                 customYearsInput.addEventListener('input', normalizeCustomYears);
                 customYearsInput.addEventListener('change', normalizeCustomYears);
@@ -2447,7 +2617,7 @@
             if (panelVdropInput) panelVdropInput.value = '{{ calculator_default_vdrop_percent|default:"20" }}';
             if (panelSunPeakHoursInput) panelSunPeakHoursInput.value = '{{ calculator_default_sun_peak_hours|default:"3"|floatformat:"0" }}';
             if (panelMeralcoRateInput) panelMeralcoRateInput.value = '{{ calculator_default_meralco_rate|default:"13" }}';
-            [panelWattageSelect, panelCountInput, panelVdropInput, panelSunPeakHoursInput, panelMeralcoRateInput]
+            [panelWattageSelect, panelVdropInput, panelSunPeakHoursInput, panelMeralcoRateInput]
                 .filter(Boolean)
                 .forEach((node) => {
                     const resolveSource = () => {
@@ -2455,29 +2625,57 @@
                         if (node === panelCountInput) return 'panelCount';
                         return 'generic';
                     };
-                    node.addEventListener('input', () => updatePanelComputation(resolveSource()));
-                    node.addEventListener('change', () => updatePanelComputation(resolveSource()));
-                    node.addEventListener('keyup', () => updatePanelComputation(resolveSource()));
+                    node.addEventListener('input', () => {
+                        resolveSource();
+                        syncCalculatorDraftState();
+                        updatePanelComputation();
+                    });
+                    node.addEventListener('change', () => {
+                        resolveSource();
+                        syncCalculatorDraftState();
+                        updatePanelComputation();
+                    });
+                    node.addEventListener('keyup', () => {
+                        resolveSource();
+                        syncCalculatorDraftState();
+                        updatePanelComputation();
+                    });
                 });
             [sharedMonthlyBillInput, sharedMonthlyBillUnitSelect]
                 .filter(Boolean)
                 .forEach((node) => {
-                    const recomputeFromSharedMonthlyBill = () => {
-                        updatePanelComputation('monthlyBill');
-                        updateAllRoiComputation('monthlyBill');
+                    const realtimeRecompute = () => {
+                        refreshCompatibleSystemOptions();
+                        syncCalculatorDraftState();
+                        updatePanelComputation();
+                        updateAllRoiComputation();
                     };
-                    node.addEventListener('input', recomputeFromSharedMonthlyBill);
-                    node.addEventListener('change', recomputeFromSharedMonthlyBill);
-                    node.addEventListener('keyup', recomputeFromSharedMonthlyBill);
-                    node.addEventListener('blur', recomputeFromSharedMonthlyBill);
-                    node.addEventListener('paste', () => requestAnimationFrame(recomputeFromSharedMonthlyBill));
-                    node.addEventListener('wheel', () => requestAnimationFrame(recomputeFromSharedMonthlyBill), { passive: true });
+                    node.addEventListener('input', realtimeRecompute);
+                    node.addEventListener('change', realtimeRecompute);
+                    node.addEventListener('keyup', realtimeRecompute);
+                    node.addEventListener('blur', realtimeRecompute);
+                    node.addEventListener('paste', () => requestAnimationFrame(realtimeRecompute));
+                    node.addEventListener('wheel', () => requestAnimationFrame(realtimeRecompute), { passive: true });
                     node.addEventListener('keydown', (event) => {
                         if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                            requestAnimationFrame(recomputeFromSharedMonthlyBill);
+                            requestAnimationFrame(realtimeRecompute);
                         }
                     });
                 });
+            if (panelCompatibleSystemSelect) {
+                panelCompatibleSystemSelect.addEventListener('change', () => {
+                    applySystemSelectionToPanelFields();
+                    syncCalculatorDraftState();
+                    updatePanelComputation();
+                });
+            }
+            if (allCompatibleSystemSelect) {
+                allCompatibleSystemSelect.addEventListener('change', () => {
+                    applySystemSelectionToAllFields();
+                    syncCalculatorDraftState();
+                    updateAllRoiComputation();
+                });
+            }
             if (panelWattageSelect) {
                 const openPanelWattageDropdown = () => {
                     if (!panelWattageToggleBtn || !window.bootstrap || !window.bootstrap.Dropdown) return;
@@ -2519,7 +2717,6 @@
                         } else {
                             applyPanelWattageMode('fixed');
                             panelWattageSelect.value = picked;
-                            updatePanelComputation('panelWattage');
                         }
                         const state = getState();
                         saveState({
@@ -2527,7 +2724,7 @@
                             panelWattage: panelWattageSelect.value || '610',
                             panelWattageMode: (picked === 'custom') ? 'custom' : 'fixed',
                         });
-                        updatePanelComputation('panelWattage');
+                        syncCalculatorDraftState();
                     });
                 });
             }
@@ -2572,16 +2769,18 @@
                         } else {
                             applyAllPanelWattageMode('fixed');
                             allPanelWattageInput.value = picked;
-                            updateAllRoiComputation();
                         }
-                        updateAllRoiComputation();
+                        syncCalculatorDraftState();
                     });
                 });
             }
             [batteryCapacityKwInput, batteryHealthDropInput]
                 .filter(Boolean)
                 .forEach((node) => {
-                    node.addEventListener('input', updateBatteryRoiComputation);
+                    node.addEventListener('input', () => {
+                        syncCalculatorDraftState();
+                        updateBatteryRoiComputation();
+                    });
                 });
             [
                 allPanelWattageInput,
@@ -2599,10 +2798,14 @@
                         if (node === allPanelCountInput) return 'panelCount';
                         return 'generic';
                     };
-                    node.addEventListener('input', () => updateAllRoiComputation(resolveAllSource()));
+                    node.addEventListener('input', () => {
+                        resolveAllSource();
+                        syncCalculatorDraftState();
+                        updateAllRoiComputation();
+                    });
                 });
-            updatePanelComputation();
-            updateAllRoiComputation();
+            refreshCompatibleSystemOptions();
+            runManualComputation();
             rowsWrap.innerHTML = '';
             (initialState.rows || []).forEach((rowData) => addRow(rowData));
             if (!rowsWrap.children.length) addRow();

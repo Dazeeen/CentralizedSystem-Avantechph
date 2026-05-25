@@ -1,4 +1,5 @@
 {% extends 'base_app.html' %}
+{% load static %}
 
 {% block title %}Avantech Portal | Calculator{% endblock %}
 {% block page_heading %}Calculator{% endblock %}
@@ -13,54 +14,66 @@
                 <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#calculatorImportModal">Import</button>
             </div>
         </div>
-        <div class="d-flex justify-content-center mt-3">
-            <ul class="nav nav-pills gap-2 justify-content-center" id="solarCalculatorNav" role="tablist">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="tab-load" data-bs-toggle="tab" data-bs-target="#pane-load" type="button" role="tab" aria-controls="pane-load" aria-selected="true">Load</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="tab-roi" data-bs-toggle="tab" data-bs-target="#pane-roi" type="button" role="tab" aria-controls="pane-roi" aria-selected="false">Return of Investment (ROI)</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="tab-sizing" data-bs-toggle="tab" data-bs-target="#pane-sizing" type="button" role="tab" aria-controls="pane-sizing" aria-selected="false">System Sizing</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="tab-battery" data-bs-toggle="tab" data-bs-target="#pane-battery" type="button" role="tab" aria-controls="pane-battery" aria-selected="false">Battery Backup</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="tab-savings" data-bs-toggle="tab" data-bs-target="#pane-savings" type="button" role="tab" aria-controls="pane-savings" aria-selected="false">Savings Projection</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="tab-proposal" data-bs-toggle="tab" data-bs-target="#pane-proposal" type="button" role="tab" aria-controls="pane-proposal" aria-selected="false">Proposal Summary</button>
-                </li>
-            </ul>
+        <div class="border rounded-3 p-3 p-lg-4 mt-3 bg-light-subtle">
+            <h3 class="h6 mb-2">Calculator</h3>
+            <p class="text-secondary mb-0">Use the Settings and Import actions to configure and load calculator data.</p>
         </div>
-
-        <div class="tab-content border rounded-3 p-3 p-lg-4 mt-3 bg-light-subtle" id="solarCalculatorNavContent">
-            <div class="tab-pane fade show active" id="pane-load" role="tabpanel" aria-labelledby="tab-load" tabindex="0">
-                <h3 class="h6 mb-2">Load Calculator</h3>
-                <p class="text-secondary mb-0">Compute appliance-level consumption and total demand profile in Watts for project planning.</p>
-            </div>
-            <div class="tab-pane fade" id="pane-roi" role="tabpanel" aria-labelledby="tab-roi" tabindex="0">
-                <h3 class="h6 mb-2">Return of Investment (ROI)</h3>
-                <p class="text-secondary mb-0">Estimate payback period based on project cost, monthly savings, escalation rate, and financing assumptions.</p>
-            </div>
-            <div class="tab-pane fade" id="pane-sizing" role="tabpanel" aria-labelledby="tab-sizing" tabindex="0">
-                <h3 class="h6 mb-2">System Sizing</h3>
-                <p class="text-secondary mb-0">Translate energy demand into recommended PV capacity, panel count, inverter size, and safety allowances.</p>
-            </div>
-            <div class="tab-pane fade" id="pane-battery" role="tabpanel" aria-labelledby="tab-battery" tabindex="0">
-                <h3 class="h6 mb-2">Battery Backup</h3>
-                <p class="text-secondary mb-0">Calculate required battery bank sizing using backup hours, depth of discharge, and battery health margin.</p>
-            </div>
-            <div class="tab-pane fade" id="pane-savings" role="tabpanel" aria-labelledby="tab-savings" tabindex="0">
-                <h3 class="h6 mb-2">Savings Projection</h3>
-                <p class="text-secondary mb-0">Project monthly and annual utility savings with grid offset assumptions and production degradation.</p>
-            </div>
-            <div class="tab-pane fade" id="pane-proposal" role="tabpanel" aria-labelledby="tab-proposal" tabindex="0">
-                <h3 class="h6 mb-2">Proposal Summary</h3>
-                <p class="text-secondary mb-0">Consolidate technical and financial outputs into a clean client-ready project summary.</p>
-            </div>
+    </div>
+</div>
+<div class="card border-0 shadow-sm mt-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+            <h3 class="h6 mb-0">Quotation History</h3>
+            <div class="small text-secondary">Latest 50 records</div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" id="calculatorImportRecordsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Filename</th>
+                        <th>Rows</th>
+                        <th>Included Headers</th>
+                        <th>Status</th>
+                        <th>Imported By</th>
+                        <th>Imported At</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="calculatorImportRecordsBody">
+                    {% for record in calculator_import_records %}
+                    <tr>
+                        <td>{{ record.original_filename }}</td>
+                        <td>{{ record.row_count }}</td>
+                        <td>{{ record.included_headers|length }}</td>
+                        <td>
+                            {% if record.is_active %}
+                            <span class="badge text-bg-success">Active</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if record.imported_by %}{{ record.imported_by.get_full_name|default:record.imported_by.username }}{% else %}-{% endif %}</td>
+                        <td>{{ record.created_at|date:"M d, Y h:i A" }}</td>
+                        <td>
+                            {% if not record.is_active %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="set_active_quotation">
+                                <input type="hidden" name="record_id" value="{{ record.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Set Active</button>
+                            </form>
+                            {% else %}
+                            <button type="button" class="btn btn-sm btn-outline-success" disabled>In Use</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-secondary">No quotation history yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -125,17 +138,121 @@
 </div>
 
 <div class="modal fade" id="calculatorImportModal" tabindex="-1" aria-labelledby="calculatorImportModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="calculatorImportModalLabel">Import Data</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
+            <form id="calculatorImportForm" method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="import_submit">
+            <input type="hidden" name="import_preview_payload" id="calculatorImportPayloadInput" value="">
             <div class="modal-body">
+                <div class="border rounded-3 p-3 bg-light-subtle">
+                    <div
+                        id="calculatorImportDropzone"
+                        class="border border-2 border-dashed rounded-3 p-4 text-center bg-white"
+                        role="button"
+                        tabindex="0"
+                        aria-label="Upload XLSX or CSV file"
+                    >
+                        <div class="fw-semibold">Drop XLSX or CSV file here</div>
+                        <div class="text-secondary small mb-2">or choose a file manually</div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="calculatorImportChooseBtn">Choose File</button>
+                        <input type="file" id="calculatorImportFileInput" name="import_file" class="d-none" accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <h6 class="mb-0">Uploaded File</h6>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="calculatorImportClearBtn">Clear</button>
+                    </div>
+                    <div id="calculatorImportFilesGrid" class="calculator-import-files-grid"></div>
+                </div>
+
+                <div class="mt-3">
+                    <h6 class="mb-2">Detected Headers</h6>
+                    <div class="small text-secondary mb-2">Checked headers will be included in import preview.</div>
+                    <div id="calculatorImportHeadersWrap" class="border rounded-3 p-2 bg-light-subtle">
+                        <div class="text-secondary small">No headers detected yet.</div>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <h6 class="mb-2">Preview</h6>
+                    <div class="table-responsive border rounded-3">
+                        <table class="table table-sm table-striped mb-0" id="calculatorImportPreviewTable">
+                            <thead id="calculatorImportPreviewHead">
+                                <tr><th class="text-secondary">No data loaded</th></tr>
+                            </thead>
+                            <tbody id="calculatorImportPreviewBody">
+                                <tr><td class="text-secondary">Upload a CSV or XLSX file to preview rows.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-end mt-2">
+                        <nav aria-label="Import preview pagination">
+                            <ul class="pagination pagination-sm mb-0" id="calculatorImportPagination"></ul>
+                        </nav>
+                    </div>
+                </div>
             </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="submit" class="btn btn-primary" id="calculatorImportSubmitBtn">Submit Import</button>
+            </div>
+            </form>
         </div>
     </div>
 </div>
+<style>
+.calculator-import-files-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(250px, 250px);
+    gap: 0.75rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+}
+.calculator-import-file-card {
+    position: relative;
+    border: 1px solid #d7dee5;
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    background: #fff;
+    min-height: 132px;
+}
+.calculator-import-remove-btn {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.35rem;
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: 999px;
+    background: #f8d7da;
+    color: #842029;
+    font-size: 14px;
+    line-height: 1;
+}
+.calculator-import-filename {
+    font-weight: 600;
+    font-size: 0.86rem;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.calculator-import-headers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.5rem;
+}
+</style>
+<script src="{% static 'vendor/xlsx/0.18.5/xlsx.full.min.js' %}"></script>
+{{ calculator_mapping_choices|json_script:"calculatorMappingChoices" }}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('calculatorSettingsForm');
@@ -238,6 +355,412 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         } finally {
             if (submitButton) submitButton.disabled = false;
+        }
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    const importForm = document.getElementById('calculatorImportForm');
+    const fileInput = document.getElementById('calculatorImportFileInput');
+    const chooseBtn = document.getElementById('calculatorImportChooseBtn');
+    const clearBtn = document.getElementById('calculatorImportClearBtn');
+    const dropzone = document.getElementById('calculatorImportDropzone');
+    const filesGrid = document.getElementById('calculatorImportFilesGrid');
+    const headersWrap = document.getElementById('calculatorImportHeadersWrap');
+    const previewHead = document.getElementById('calculatorImportPreviewHead');
+    const previewBody = document.getElementById('calculatorImportPreviewBody');
+    const paginationWrap = document.getElementById('calculatorImportPagination');
+    const payloadInput = document.getElementById('calculatorImportPayloadInput');
+    const submitBtn = document.getElementById('calculatorImportSubmitBtn');
+    const recordsBody = document.getElementById('calculatorImportRecordsBody');
+    if (!fileInput || !chooseBtn || !dropzone || !filesGrid || !headersWrap || !previewHead || !previewBody || !paginationWrap) return;
+
+    const mappingChoicesNode = document.getElementById('calculatorMappingChoices');
+    const mappingChoices = mappingChoicesNode ? JSON.parse(mappingChoicesNode.textContent || '[]') : [];
+    const mappingOptionHtml = ['<option value="">Do not map</option>'].concat(
+        mappingChoices.map(function (item) {
+            return '<option value="' + String(item.key || '') + '">' + String(item.label || item.key || '') + '</option>';
+        })
+    ).join('');
+
+    let activeUpload = null;
+    let allHeaders = [];
+    let includedHeaderIndices = new Set();
+    let headerMappings = {};
+    let allRows = [];
+    let currentPage = 1;
+    const pageSize = 5;
+
+    function fileSize(bytes) {
+        const size = Number(bytes || 0);
+        if (!size) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = size;
+        let idx = 0;
+        while (value >= 1024 && idx < units.length - 1) {
+            value /= 1024;
+            idx += 1;
+        }
+        return (idx === 0 ? String(Math.round(value)) : value.toFixed(1)) + ' ' + units[idx];
+    }
+
+    function resetPreviewTable() {
+        previewHead.innerHTML = '<tr><th class="text-secondary">No data loaded</th></tr>';
+        previewBody.innerHTML = '<tr><td class="text-secondary">Upload a CSV or XLSX file to preview rows.</td></tr>';
+        paginationWrap.innerHTML = '';
+    }
+
+    function resetHeaders() {
+        allHeaders = [];
+        includedHeaderIndices = new Set();
+        headerMappings = {};
+        headersWrap.innerHTML = '<div class="text-secondary small">No headers detected yet.</div>';
+    }
+
+    function resetUpload() {
+        activeUpload = null;
+        allRows = [];
+        filesGrid.innerHTML = '';
+        fileInput.value = '';
+        resetHeaders();
+        resetPreviewTable();
+    }
+
+    function renderFileCard(upload) {
+        if (!upload) {
+            filesGrid.innerHTML = '';
+            return;
+        }
+        filesGrid.innerHTML = ''
+            + '<div class="calculator-import-file-card">'
+            + '  <button type="button" class="calculator-import-remove-btn" id="calculatorImportFileRemoveBtn" aria-label="Remove upload">x</button>'
+            + '  <div class="calculator-import-filename" title="' + upload.name.replace(/"/g, '&quot;') + '">' + upload.name + '</div>'
+            + '  <div class="small text-secondary mb-2">' + fileSize(upload.size) + '</div>'
+            + '  <div class="progress" role="progressbar" aria-label="Upload progress">'
+            + '      <div class="progress-bar bg-success" id="calculatorImportProgressBar" style="width:' + upload.progress + '%">' + upload.progress + '%</div>'
+            + '  </div>'
+            + '</div>';
+        const removeBtn = document.getElementById('calculatorImportFileRemoveBtn');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', resetUpload);
+        }
+    }
+
+    function renderPreview() {
+        const selectedIndexes = Array.from(includedHeaderIndices).sort(function (a, b) { return a - b; });
+        if (!selectedIndexes.length || !allRows.length) {
+            previewHead.innerHTML = '<tr><th class="text-secondary">No selected headers</th></tr>';
+            previewBody.innerHTML = '<tr><td class="text-secondary">Check at least one header to preview table.</td></tr>';
+            paginationWrap.innerHTML = '';
+            return;
+        }
+
+        previewHead.innerHTML = '<tr>' + selectedIndexes.map(function (idx) {
+            return '<th>' + String(allHeaders[idx] || ('Column ' + (idx + 1))) + '</th>';
+        }).join('') + '</tr>';
+
+        const dataRows = allRows.slice(1).filter(function (row) {
+            return Array.isArray(row) && row.some(function (cell) { return String(cell || '').trim() !== ''; });
+        });
+        if (!dataRows.length) {
+            previewBody.innerHTML = '<tr><td class="text-secondary" colspan="' + selectedIndexes.length + '">No data rows detected.</td></tr>';
+            paginationWrap.innerHTML = '';
+            return;
+        }
+
+        const totalPages = Math.max(1, Math.ceil(dataRows.length / pageSize));
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+        const startIndex = (currentPage - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const previewRows = dataRows.slice(startIndex, endIndex);
+        previewBody.innerHTML = previewRows.map(function (row) {
+            return '<tr>' + selectedIndexes.map(function (idx) {
+                const cell = row[idx];
+                const text = cell == null ? '' : String(cell);
+                return '<td>' + text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>';
+            }).join('') + '</tr>';
+        }).join('');
+        renderPagination(totalPages);
+    }
+
+    function renderPagination(totalPages) {
+        if (totalPages <= 1) {
+            paginationWrap.innerHTML = '';
+            return;
+        }
+        let html = '';
+        for (let page = 1; page <= totalPages; page += 1) {
+            const active = page === currentPage ? ' active' : '';
+            html += ''
+                + '<li class="page-item' + active + '">'
+                + '  <button type="button" class="page-link js-import-page-btn" data-page="' + page + '">' + page + '</button>'
+                + '</li>';
+        }
+        paginationWrap.innerHTML = html;
+        paginationWrap.querySelectorAll('.js-import-page-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const page = Number(btn.getAttribute('data-page'));
+                if (!Number.isFinite(page) || page < 1) return;
+                currentPage = page;
+                renderPreview();
+            });
+        });
+    }
+
+    function renderHeaders() {
+        if (!allHeaders.length) {
+            resetHeaders();
+            return;
+        }
+        headersWrap.innerHTML = '<div class="calculator-import-headers-grid" id="calculatorImportHeadersGrid"></div>';
+        const grid = document.getElementById('calculatorImportHeadersGrid');
+        allHeaders.forEach(function (header, idx) {
+            const id = 'calculatorImportHeader' + idx;
+            const checked = includedHeaderIndices.has(idx) ? 'checked' : '';
+            const selectedMapping = String(headerMappings[header] || '');
+            const label = document.createElement('label');
+            label.className = 'form-check border rounded-2 px-2 py-1 bg-white';
+            label.innerHTML = ''
+                + '<div class="d-flex align-items-center gap-2 mb-1">'
+                + '<input class="form-check-input me-1 js-import-header-check" type="checkbox" id="' + id + '" data-index="' + idx + '" ' + checked + '>'
+                + '<span class="form-check-label fw-semibold" for="' + id + '">' + String(header || ('Column ' + (idx + 1))) + '</span>'
+                + '</div>'
+                + '<select class="form-select form-select-sm js-import-header-mapping" data-index="' + idx + '">'
+                + mappingOptionHtml
+                + '</select>';
+            grid.appendChild(label);
+            const select = label.querySelector('.js-import-header-mapping');
+            if (select && selectedMapping) {
+                select.value = selectedMapping;
+            }
+        });
+        grid.querySelectorAll('.js-import-header-check').forEach(function (checkbox) {
+            checkbox.addEventListener('change', function () {
+                const idx = Number(checkbox.getAttribute('data-index'));
+                if (Number.isNaN(idx)) return;
+                if (checkbox.checked) {
+                    includedHeaderIndices.add(idx);
+                } else {
+                    includedHeaderIndices.delete(idx);
+                }
+                renderPreview();
+            });
+        });
+        grid.querySelectorAll('.js-import-header-mapping').forEach(function (select) {
+            select.addEventListener('change', function () {
+                const idx = Number(select.getAttribute('data-index'));
+                if (Number.isNaN(idx)) return;
+                const header = allHeaders[idx] || '';
+                headerMappings[header] = String(select.value || '');
+            });
+        });
+    }
+
+    function parseSpreadsheet(buffer) {
+        if (!window.XLSX) {
+            throw new Error('Spreadsheet parser is unavailable. Please refresh the page.');
+        }
+        const workbook = window.XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames && workbook.SheetNames.length ? workbook.SheetNames[0] : null;
+        if (!firstSheetName) {
+            throw new Error('No sheet found in uploaded file.');
+        }
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
+        if (!rows.length) {
+            throw new Error('Uploaded file has no rows.');
+        }
+        const headers = (rows[0] || []).map(function (item, idx) {
+            const text = String(item || '').trim();
+            return text || ('Column ' + (idx + 1));
+        });
+        allRows = rows;
+        allHeaders = headers;
+        includedHeaderIndices = new Set(headers.map(function (_, idx) { return idx; }));
+        headerMappings = {};
+        headers.forEach(function (header) {
+            const normalized = String(header || '').trim().toLowerCase();
+            const found = mappingChoices.find(function (item) {
+                const key = String(item.key || '').toLowerCase();
+                const label = String(item.label || '').toLowerCase();
+                return normalized === key || normalized === label || normalized.replace(/[^a-z0-9]/g, '') === key.replace(/[^a-z0-9]/g, '');
+            });
+            if (found) {
+                headerMappings[header] = found.key;
+            }
+        });
+        currentPage = 1;
+        renderHeaders();
+        renderPreview();
+    }
+
+    function handleFile(file) {
+        if (!file) return;
+        const lowerName = String(file.name || '').toLowerCase();
+        const valid = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || lowerName.endsWith('.csv');
+        if (!valid) {
+            if (window.showToast) window.showToast('Please upload an XLSX, XLS, or CSV file.', 'danger');
+            return;
+        }
+
+        activeUpload = { name: file.name || 'uploaded-file', size: file.size || 0, progress: 0 };
+        renderFileCard(activeUpload);
+        resetHeaders();
+        resetPreviewTable();
+
+        const reader = new FileReader();
+        reader.onprogress = function (event) {
+            if (!activeUpload) return;
+            if (event.lengthComputable) {
+                activeUpload.progress = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+                renderFileCard(activeUpload);
+            }
+        };
+        reader.onload = function (event) {
+            try {
+                const result = event && event.target ? event.target.result : null;
+                if (!result) throw new Error('Unable to read uploaded file.');
+                if (activeUpload) {
+                    activeUpload.progress = 100;
+                    renderFileCard(activeUpload);
+                }
+                parseSpreadsheet(result);
+            } catch (error) {
+                resetUpload();
+                if (window.showToast) window.showToast(error.message || 'Unable to parse file.', 'danger');
+            }
+        };
+        reader.onerror = function () {
+            resetUpload();
+            if (window.showToast) window.showToast('Unable to read file.', 'danger');
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    chooseBtn.addEventListener('click', function () {
+        fileInput.click();
+    });
+    fileInput.addEventListener('change', function () {
+        const file = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+        handleFile(file);
+    });
+    if (clearBtn) {
+        clearBtn.addEventListener('click', resetUpload);
+    }
+
+    if (importForm) {
+        importForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            if (!activeUpload || !allHeaders.length || !allRows.length) {
+                if (window.showToast) window.showToast('Upload and preview a file before submitting.', 'warning');
+                return;
+            }
+            const includedHeaders = Array.from(includedHeaderIndices)
+                .sort(function (a, b) { return a - b; })
+                .map(function (idx) { return allHeaders[idx]; });
+            if (!includedHeaders.length) {
+                if (window.showToast) window.showToast('Select at least one header to include.', 'warning');
+                return;
+            }
+            const rowObjects = allRows.slice(1)
+                .filter(function (row) {
+                    return Array.isArray(row) && row.some(function (cell) { return String(cell || '').trim() !== ''; });
+                })
+                .map(function (row) {
+                    const obj = {};
+                    allHeaders.forEach(function (header, idx) {
+                        obj[header] = row[idx] == null ? '' : row[idx];
+                    });
+                    return obj;
+                });
+            const filteredMappings = {};
+            includedHeaders.forEach(function (header) {
+                const value = String(headerMappings[header] || '').trim();
+                if (value) filteredMappings[header] = value;
+            });
+            const payload = {
+                columns: allHeaders.slice(),
+                included_columns: includedHeaders,
+                rows: rowObjects,
+                column_mappings: filteredMappings,
+            };
+            if (payloadInput) payloadInput.value = JSON.stringify(payload);
+            if (submitBtn) submitBtn.disabled = true;
+            try {
+                const formData = new FormData(importForm);
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: formData,
+                    credentials: 'same-origin',
+                });
+                const data = await response.json().catch(function () { return {}; });
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.message || 'Import failed.');
+                }
+                    if (recordsBody && data.record) {
+                    const hasEmpty = recordsBody.querySelector('td[colspan="7"]');
+                    if (hasEmpty) recordsBody.innerHTML = '';
+                    const row = document.createElement('tr');
+                    const csrfInput = importForm.querySelector('input[name="csrfmiddlewaretoken"]');
+                    const csrfValue = csrfInput ? String(csrfInput.value || '') : '';
+                    row.innerHTML = ''
+                        + '<td>' + String(data.record.original_filename || '-') + '</td>'
+                        + '<td>' + String(data.record.row_count || 0) + '</td>'
+                        + '<td>' + String(includedHeaders.length) + '</td>'
+                        + '<td>' + (data.record.is_active ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>') + '</td>'
+                        + '<td>' + String(data.record.imported_by || '-') + '</td>'
+                        + '<td>' + String(data.record.created_at || '-') + '</td>'
+                        + '<td>'
+                        + (data.record.is_active
+                            ? '<button type="button" class="btn btn-sm btn-outline-success" disabled>In Use</button>'
+                            : '<form method="post" class="d-inline">'
+                                + '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrfValue.replace(/"/g, '&quot;') + '">'
+                                + '<input type="hidden" name="form_action" value="set_active_quotation">'
+                                + '<input type="hidden" name="record_id" value="' + String(data.record.id || '') + '">'
+                                + '<button type="submit" class="btn btn-sm btn-outline-primary">Set Active</button>'
+                              + '</form>')
+                        + '</td>';
+                    recordsBody.prepend(row);
+                }
+                if (window.showToast) window.showToast(data.message || 'Import completed.', 'success');
+                resetUpload();
+            } catch (error) {
+                if (window.showToast) window.showToast(error.message || 'Import failed.', 'danger');
+            } finally {
+                if (submitBtn) submitBtn.disabled = false;
+            }
+        });
+    }
+
+    ['dragenter', 'dragover'].forEach(function (eventName) {
+        dropzone.addEventListener(eventName, function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            dropzone.classList.add('border-primary', 'bg-primary-subtle');
+        });
+    });
+    ['dragleave', 'drop'].forEach(function (eventName) {
+        dropzone.addEventListener(eventName, function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            dropzone.classList.remove('border-primary', 'bg-primary-subtle');
+        });
+    });
+    dropzone.addEventListener('drop', function (event) {
+        const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length
+            ? event.dataTransfer.files[0]
+            : null;
+        handleFile(file);
+    });
+    dropzone.addEventListener('click', function () {
+        fileInput.click();
+    });
+    dropzone.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            fileInput.click();
         }
     });
 });
