@@ -1,0 +1,13 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Inventory - {{ inventory_section_title|default:"Inventory" }}{% endblock %}
+{% block page_heading %}Inventory{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <h2 class="h4 mb-2">{{ inventory_section_title|default:"Inventory" }}</h2>
+        <p class="text-secondary mb-0">This page is currently under maintenance.</p>
+    </div>
+</div>
+{% endblock %}

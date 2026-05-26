@@ -261,8 +261,21 @@ body {
     display: none;
 }
 
-.nav-group-trigger.is-open + .nav-subgroup {
+.nav-group-trigger.is-open+.nav-subgroup {
     display: block;
+}
+
+.js-inventory-nav-subgroup {
+    display: block;
+}
+
+.nav-group-trigger.is-open+.js-inventory-nav-subgroup {
+    display: block;
+}
+
+.js-inventory-nav-subgroup .app-nav-link {
+    display: flex;
+    width: calc(100% - 1.5rem);
 }
 
 .nav-group-label:hover {
@@ -526,7 +539,7 @@ body {
     padding: 10px 12px;
 }
 
-.checkbox-list > div {
+.checkbox-list>div {
     margin-bottom: 6px;
 }
 
@@ -571,7 +584,7 @@ body {
     padding: 0.45rem 0.6rem;
 }
 
-.permission-category + .permission-category {
+.permission-category+.permission-category {
     margin-top: 0.6rem;
 }
 

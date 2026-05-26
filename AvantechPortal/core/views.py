@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import base64
 import csv
 import json
+import math
 import mimetypes
 from functools import lru_cache
 from io import BytesIO
@@ -11295,9 +11296,261 @@ def calculator_page(request):
 	]
 	allowed_mapping_keys = {item['key'] for item in mapping_choices}
 
+	def _to_decimal(value):
+		text = str(value or '').strip()
+		if not text:
+			return None
+		clean = re.sub(r'[^0-9.\-]', '', text.replace(',', ''))
+		if not clean:
+			return None
+		try:
+			return Decimal(clean)
+		except (InvalidOperation, ValueError, TypeError):
+			return None
+
+	def _to_int(value):
+		dec = _to_decimal(value)
+		if dec is None:
+			return None
+		try:
+			return int(dec)
+		except (ValueError, TypeError):
+			return None
+
+	def _apply_row_mapping_updates(row_obj, record_obj):
+		if not row_obj or not record_obj:
+			return
+		mappings = record_obj.column_mappings if isinstance(record_obj.column_mappings, dict) else {}
+		if not mappings:
+			return
+		decimal_fields = {
+			'capacity_kw', 'battery_ampere_hour', 'battery_kwh', 'regular_price',
+			'cash_promo_price', 'bdo_installment_12mos', 'bdo_installment_18mos',
+			'bdo_installment_24mos', 'potential_monthly_savings',
+			'potential_annual_savings', 'potential_roi',
+		}
+		string_fields = {
+			'system_type', 'upgrade_brands', 'specifications',
+			'warranty_panel', 'warranty_battery', 'warranty_inverter',
+		}
+		for source_header, target_field in mappings.items():
+			if target_field not in allowed_mapping_keys:
+				continue
+			raw_value = row_obj.raw_row.get(source_header, '')
+			if target_field in decimal_fields:
+				setattr(row_obj, target_field, _to_decimal(raw_value))
+			elif target_field == 'panel_qty':
+				setattr(row_obj, target_field, _to_int(raw_value))
+			elif target_field in string_fields:
+				setattr(row_obj, target_field, str(raw_value or '').strip())
+
 	if request.method == 'POST':
 		is_ajax = _is_ajax_request(request)
 		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'preview_import_rows':
+			record_id = (request.POST.get('record_id') or '').strip()
+			page_raw = (request.POST.get('page') or '1').strip()
+			try:
+				record_id_int = int(record_id)
+			except (TypeError, ValueError):
+				record_id_int = 0
+			try:
+				page = int(page_raw)
+			except (TypeError, ValueError):
+				page = 1
+			if page < 1:
+				page = 1
+			record = CalculatorImportRecord.objects.filter(id=record_id_int).first()
+			if not record:
+				return JsonResponse({'ok': False, 'message': 'Quotation history record not found.'}, status=404)
+			headers = record.included_headers if isinstance(record.included_headers, list) and record.included_headers else (
+				record.headers if isinstance(record.headers, list) else []
+			)
+			currency_target_fields = {
+				'regular_price',
+				'cash_promo_price',
+				'bdo_installment_12mos',
+				'bdo_installment_18mos',
+				'bdo_installment_24mos',
+				'potential_monthly_savings',
+				'potential_annual_savings',
+			}
+			record_mappings = record.column_mappings if isinstance(record.column_mappings, dict) else {}
+			currency_headers = [
+				header for header in headers
+				if record_mappings.get(str(header), '') in currency_target_fields
+			]
+			rows_qs = record.rows.order_by('id')
+			page_size = 10
+			total_rows = rows_qs.count()
+			total_pages = max(1, math.ceil(total_rows / page_size))
+			if page > total_pages:
+				page = total_pages
+			start_index = (page - 1) * page_size
+			end_index = start_index + page_size
+			payload_rows = []
+			for row in rows_qs[start_index:end_index]:
+				raw_row = row.raw_row if isinstance(row.raw_row, dict) else {}
+				payload_rows.append(
+					{
+						'id': row.id,
+						'values': {str(header): str(raw_row.get(header, '') or '') for header in headers},
+					}
+				)
+			return JsonResponse(
+				{
+					'ok': True,
+					'record': {
+						'id': record.id,
+						'filename': record.original_filename,
+						'row_count': record.row_count,
+						'is_active': bool(record.is_active),
+					},
+					'headers': headers,
+					'currency_headers': currency_headers,
+					'rows': payload_rows,
+					'pagination': {
+						'page': page,
+						'page_size': page_size,
+						'total_rows': total_rows,
+						'total_pages': total_pages,
+					},
+				}
+			)
+		if form_action == 'update_import_rows':
+			record_id = (request.POST.get('record_id') or '').strip()
+			updates_payload = (request.POST.get('updates_json') or '').strip()
+			try:
+				record_id_int = int(record_id)
+			except (TypeError, ValueError):
+				record_id_int = 0
+			record = CalculatorImportRecord.objects.filter(id=record_id_int).first()
+			if not record:
+				return JsonResponse({'ok': False, 'message': 'Quotation history record not found.'}, status=404)
+			try:
+				updates = json.loads(updates_payload) if updates_payload else []
+			except Exception:
+				return JsonResponse({'ok': False, 'message': 'Invalid updates payload.'}, status=400)
+			if not isinstance(updates, list) or not updates:
+				return JsonResponse({'ok': False, 'message': 'No row updates submitted.'}, status=400)
+			row_ids = []
+			for item in updates:
+				if not isinstance(item, dict):
+					continue
+				try:
+					row_ids.append(int(item.get('row_id')))
+				except (TypeError, ValueError):
+					continue
+			row_map = {
+				row.id: row
+				for row in CalculatorImportRow.objects.filter(import_record=record, id__in=row_ids)
+			}
+			updated_count = 0
+			with transaction.atomic():
+				for item in updates:
+					if not isinstance(item, dict):
+						continue
+					try:
+						row_id = int(item.get('row_id'))
+					except (TypeError, ValueError):
+						continue
+					values = item.get('values')
+					if not isinstance(values, dict):
+						continue
+					row_obj = row_map.get(row_id)
+					if not row_obj:
+						continue
+					raw_row = row_obj.raw_row if isinstance(row_obj.raw_row, dict) else {}
+					for key, value in values.items():
+						raw_row[str(key)] = str(value or '').strip()
+					row_obj.raw_row = raw_row
+					_apply_row_mapping_updates(row_obj, record)
+					row_obj.save()
+					updated_count += 1
+			if updated_count:
+				record.updated_at = timezone.now()
+				record.save(update_fields=['updated_at'])
+			return JsonResponse(
+				{
+					'ok': True,
+					'message': f'Updated {updated_count} row(s).',
+					'updated_count': updated_count,
+				}
+			)
+		if form_action in {'delete_quotation', 'bulk_delete_quotations'}:
+			record_ids = []
+			if form_action == 'delete_quotation':
+				record_id = (request.POST.get('record_id') or '').strip()
+				try:
+					record_ids = [int(record_id)]
+				except (TypeError, ValueError):
+					record_ids = []
+			else:
+				raw_ids = (request.POST.get('record_ids_json') or '').strip()
+				try:
+					parsed_ids = json.loads(raw_ids) if raw_ids else []
+				except Exception:
+					parsed_ids = []
+				if isinstance(parsed_ids, list):
+					for item in parsed_ids:
+						try:
+							record_ids.append(int(item))
+						except (TypeError, ValueError):
+							continue
+			record_ids = [rid for rid in dict.fromkeys(record_ids) if rid > 0]
+			if not record_ids:
+				return JsonResponse({'ok': False, 'message': 'No quotation records selected.'}, status=400)
+			with transaction.atomic():
+				records_qs = CalculatorImportRecord.objects.filter(id__in=record_ids)
+				existing_ids = list(records_qs.values_list('id', flat=True))
+				deleted_count = len(existing_ids)
+				records_qs.delete()
+				active_exists = CalculatorImportRecord.objects.filter(is_active=True).exists()
+				new_active_record_id = None
+				if not active_exists:
+					fallback = CalculatorImportRecord.objects.order_by('-created_at').first()
+					if fallback:
+						fallback.is_active = True
+						fallback.save(update_fields=['is_active'])
+						new_active_record_id = fallback.id
+			if deleted_count <= 0:
+				return JsonResponse({'ok': False, 'message': 'No quotation records were deleted.'}, status=404)
+			return JsonResponse(
+				{
+					'ok': True,
+					'message': f'Deleted {deleted_count} quotation record(s).',
+					'deleted_ids': existing_ids,
+					'new_active_record_id': new_active_record_id,
+				}
+			)
+		if form_action == 'rename_quotation':
+			record_id = (request.POST.get('record_id') or '').strip()
+			new_name = (request.POST.get('new_name') or '').strip()
+			try:
+				record_id_int = int(record_id)
+			except (TypeError, ValueError):
+				record_id_int = 0
+			record = CalculatorImportRecord.objects.filter(id=record_id_int).first()
+			if not record:
+				return JsonResponse({'ok': False, 'message': 'Quotation history record not found.'}, status=404)
+			if not new_name:
+				return JsonResponse({'ok': False, 'message': 'Name is required.'}, status=400)
+			if len(new_name) > 255:
+				return JsonResponse({'ok': False, 'message': 'Name is too long (max 255 characters).'}, status=400)
+			old_name = (record.original_filename or '').strip()
+			record.original_filename = new_name
+			record.updated_at = timezone.now()
+			record.save(update_fields=['original_filename', 'updated_at'])
+			return JsonResponse(
+				{
+					'ok': True,
+					'message': f'Renamed "{old_name or "record"}" to "{new_name}".',
+					'record': {
+						'id': record.id,
+						'original_filename': record.original_filename,
+					},
+				}
+			)
 		if form_action == 'update_calculator_settings':
 			def _parse_decimal(raw_value, field_label):
 				text_value = str(raw_value or '').strip().replace(',', '')
@@ -11447,27 +11700,6 @@ def calculator_page(request):
 				for k, v in column_mappings.items()
 				if str(v or '').strip() in allowed_mapping_keys
 			}
-
-			def _to_decimal(value, places=4):
-				text = str(value or '').strip()
-				if not text:
-					return None
-				clean = re.sub(r'[^0-9.\-]', '', text.replace(',', ''))
-				if not clean:
-					return None
-				try:
-					return Decimal(clean)
-				except (InvalidOperation, ValueError, TypeError):
-					return None
-
-			def _to_int(value):
-				dec = _to_decimal(value)
-				if dec is None:
-					return None
-				try:
-					return int(dec)
-				except (ValueError, TypeError):
-					return None
 
 			db_rows = []
 			for row in rows:
@@ -11881,6 +12113,63 @@ def assets_list(request):
 		'total_stock_units': AssetItem.objects.aggregate(total=Sum('stock_quantity')).get('total') or 0,
 	}
 	return render(request, 'core/assets_list.html', context)
+
+
+@login_required
+def inventory_page(request):
+	restricted_response = _require_permission(request, 'core.view_assetitem')
+	if restricted_response:
+		return restricted_response
+	return render(
+		request,
+		'core/inventory_page.html',
+		{
+			'inventory_section_title': 'Inventory',
+		},
+	)
+
+
+def _inventory_under_maintenance_response(request, section_title):
+	restricted_response = _require_permission(request, 'core.view_assetitem')
+	if restricted_response:
+		return restricted_response
+	return render(
+		request,
+		'core/inventory_page.html',
+		{
+			'inventory_section_title': section_title,
+		},
+	)
+
+
+@login_required
+def inventory_dashboard_page(request):
+	return _inventory_under_maintenance_response(request, 'Dashboard')
+
+
+@login_required
+def inventory_orders_page(request):
+	return _inventory_under_maintenance_response(request, 'Orders')
+
+
+@login_required
+def inventory_purchase_page(request):
+	return _inventory_under_maintenance_response(request, 'Purchase')
+
+
+@login_required
+def inventory_reporting_page(request):
+	return _inventory_under_maintenance_response(request, 'Reporting')
+
+
+@login_required
+def inventory_support_page(request):
+	return _inventory_under_maintenance_response(request, 'Support')
+
+
+@login_required
+def inventory_settings_page(request):
+	return _inventory_under_maintenance_response(request, 'Settings')
 
 
 def _get_default_asset_department():

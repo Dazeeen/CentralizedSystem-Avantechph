@@ -390,6 +390,7 @@ def finance_navigation_state(request):
         or url_name.startswith('consumables_')
         or url_name.startswith('accountability')
     )
+    is_inventory_nav_active = url_name.startswith('inventory_')
     is_support_ticket_nav_active = url_name.startswith('support_ticket')
     is_crm_nav_active = url_name.startswith('crm_')
     is_human_resource_role = bool(
@@ -460,6 +461,7 @@ def finance_navigation_state(request):
         'is_human_resource_role': is_human_resource_role,
         'is_finance_nav_active': is_finance_nav_active,
         'is_asset_tracker_nav_active': is_asset_tracker_nav_active,
+        'is_inventory_nav_active': is_inventory_nav_active,
         'is_support_ticket_nav_active': is_support_ticket_nav_active,
         'important_ticket_count': important_ticket_count,
         'technical_action_required_count': technical_action_required_count,

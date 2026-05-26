@@ -30,19 +30,26 @@
             <table class="table table-sm align-middle mb-0" id="calculatorImportRecordsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Filename</th>
+                        <th style="width:48px;">
+                            <input type="checkbox" class="form-check-input" id="calculatorSelectAllRecords" aria-label="Select all quotation history rows">
+                        </th>
+                        <th>Name</th>
                         <th>Rows</th>
                         <th>Included Headers</th>
                         <th>Status</th>
                         <th>Imported By</th>
                         <th>Imported At</th>
                         <th>Action</th>
+                        <th style="width:64px;">More</th>
                     </tr>
                 </thead>
                 <tbody id="calculatorImportRecordsBody">
                     {% for record in calculator_import_records %}
-                    <tr>
-                        <td>{{ record.original_filename }}</td>
+                    <tr class="js-calculator-record-row" data-record-id="{{ record.id }}" role="button" tabindex="0" aria-label="View imported rows for {{ record.original_filename }}">
+                        <td>
+                            <input type="checkbox" class="form-check-input js-record-checkbox" data-record-id="{{ record.id }}" aria-label="Select {{ record.original_filename }}">
+                        </td>
+                        <td class="js-record-name-cell">{{ record.original_filename }}</td>
                         <td>{{ record.row_count }}</td>
                         <td>{{ record.included_headers|length }}</td>
                         <td>
@@ -66,14 +73,98 @@
                             <button type="button" class="btn btn-sm btn-outline-success" disabled>In Use</button>
                             {% endif %}
                         </td>
+                        <td>
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More actions">
+                                    &hellip;
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><button type="button" class="dropdown-item js-record-action-view" data-record-id="{{ record.id }}">View</button></li>
+                                    <li><button type="button" class="dropdown-item js-record-action-edit" data-record-id="{{ record.id }}">Edit</button></li>
+                                    <li><button type="button" class="dropdown-item js-record-action-rename" data-record-id="{{ record.id }}" data-record-name="{{ record.original_filename|escape }}">Rename</button></li>
+                                    <li><button type="button" class="dropdown-item text-danger js-record-action-delete" data-record-id="{{ record.id }}">Delete</button></li>
+                                </ul>
+                            </div>
+                        </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="7" class="text-secondary">No quotation history yet.</td>
+                        <td colspan="9" class="text-secondary">No quotation history yet.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<div id="calculatorBulkActionBar" class="calculator-bulk-action-bar d-none" role="region" aria-label="Bulk actions">
+    <div class="small fw-semibold" id="calculatorBulkSelectionCount">0 selected</div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-danger" id="calculatorBulkDeleteBtn">Delete</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="calculatorBulkClearBtn">Clear</button>
+    </div>
+</div>
+
+<div class="modal fade" id="calculatorRenameRecordModal" tabindex="-1" aria-labelledby="calculatorRenameRecordModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="calculatorRenameRecordForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="calculatorRenameRecordModalLabel">Rename Quotation Record</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="calculatorRenameRecordId" value="">
+                    <div class="mb-0">
+                        <label class="form-label" for="calculatorRenameRecordName">Name</label>
+                        <input type="text" class="form-control" id="calculatorRenameRecordName" maxlength="255" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="calculatorRenameRecordSubmitBtn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="calculatorImportRowsModal" tabindex="-1" aria-labelledby="calculatorImportRowsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="calculatorImportRowsModalLabel">Imported Data Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                    <div class="small text-secondary" id="calculatorImportRowsMeta">Select a quotation history row.</div>
+                    <div class="small text-secondary" id="calculatorImportRowsStatus"></div>
+                </div>
+                <div class="table-responsive border rounded-3">
+                    <table class="table table-sm table-striped align-middle mb-0" id="calculatorImportRowsTable">
+                        <thead id="calculatorImportRowsHead">
+                            <tr><th class="text-secondary">No data loaded</th></tr>
+                        </thead>
+                        <tbody id="calculatorImportRowsBody">
+                            <tr><td class="text-secondary">Choose a record to preview imported rows.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-end mt-2">
+                    <nav aria-label="Imported data pagination">
+                        <ul class="pagination pagination-sm mb-0" id="calculatorImportRowsPagination"></ul>
+                    </nav>
+                </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary d-none" id="calculatorImportRowsCancelEditBtn">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="calculatorImportRowsEditBtn">Edit</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -250,6 +341,38 @@
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 0.5rem;
 }
+.js-calculator-record-row { cursor: pointer; }
+.js-calculator-record-row:hover td { background: #eef6ff; }
+.js-import-row-cell.is-editing {
+    outline: 1px solid #b8daff;
+    background: #f7fbff;
+}
+#calculatorImportRowsModal .table-responsive {
+    overflow-x: scroll;
+    -webkit-overflow-scrolling: touch;
+}
+#calculatorImportRowsTable {
+    min-width: 1200px;
+}
+#calculatorImportRowsTable th,
+#calculatorImportRowsTable td {
+    white-space: nowrap;
+}
+.calculator-bulk-action-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 1095;
+    background: #ffffff;
+    border: 1px solid #dce3ea;
+    border-radius: 999px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+    padding: 0.5rem 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
 </style>
 <script src="{% static 'vendor/xlsx/0.18.5/xlsx.full.min.js' %}"></script>
 {{ calculator_mapping_choices|json_script:"calculatorMappingChoices" }}
@@ -373,6 +496,26 @@ document.addEventListener('DOMContentLoaded', function () {
     const payloadInput = document.getElementById('calculatorImportPayloadInput');
     const submitBtn = document.getElementById('calculatorImportSubmitBtn');
     const recordsBody = document.getElementById('calculatorImportRecordsBody');
+    const importCsrfInput = importForm ? importForm.querySelector('input[name="csrfmiddlewaretoken"]') : null;
+    const rowsModalEl = document.getElementById('calculatorImportRowsModal');
+    const rowsModalTitle = document.getElementById('calculatorImportRowsModalLabel');
+    const rowsMetaEl = document.getElementById('calculatorImportRowsMeta');
+    const rowsStatusEl = document.getElementById('calculatorImportRowsStatus');
+    const rowsHeadEl = document.getElementById('calculatorImportRowsHead');
+    const rowsBodyEl = document.getElementById('calculatorImportRowsBody');
+    const rowsPaginationEl = document.getElementById('calculatorImportRowsPagination');
+    const rowsEditBtn = document.getElementById('calculatorImportRowsEditBtn');
+    const rowsCancelEditBtn = document.getElementById('calculatorImportRowsCancelEditBtn');
+    const selectAllRecordsCheckbox = document.getElementById('calculatorSelectAllRecords');
+    const bulkActionBar = document.getElementById('calculatorBulkActionBar');
+    const bulkSelectionCountEl = document.getElementById('calculatorBulkSelectionCount');
+    const bulkDeleteBtn = document.getElementById('calculatorBulkDeleteBtn');
+    const bulkClearBtn = document.getElementById('calculatorBulkClearBtn');
+    const renameRecordModalEl = document.getElementById('calculatorRenameRecordModal');
+    const renameRecordForm = document.getElementById('calculatorRenameRecordForm');
+    const renameRecordIdInput = document.getElementById('calculatorRenameRecordId');
+    const renameRecordNameInput = document.getElementById('calculatorRenameRecordName');
+    const renameRecordSubmitBtn = document.getElementById('calculatorRenameRecordSubmitBtn');
     if (!fileInput || !chooseBtn || !dropzone || !filesGrid || !headersWrap || !previewHead || !previewBody || !paginationWrap) return;
 
     const mappingChoicesNode = document.getElementById('calculatorMappingChoices');
@@ -390,6 +533,17 @@ document.addEventListener('DOMContentLoaded', function () {
     let allRows = [];
     let currentPage = 1;
     const pageSize = 5;
+    let selectedRecordId = null;
+    let rowsModal = null;
+    let rowsPreviewHeaders = [];
+    let rowsPreviewCurrencyHeaders = new Set();
+    let rowsPreviewRows = [];
+    let rowsPreviewPagination = { page: 1, total_pages: 1, total_rows: 0, page_size: 10 };
+    let rowsIsEditing = false;
+    let rowsLoading = false;
+    let rowsOpenEditAfterLoad = false;
+    let renameRecordModal = null;
+    let renameTargetRow = null;
 
     function fileSize(bytes) {
         const size = Number(bytes || 0);
@@ -506,6 +660,235 @@ document.addEventListener('DOMContentLoaded', function () {
                 renderPreview();
             });
         });
+    }
+
+    function escapeHtml(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatPhp(value) {
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw) return '';
+        const normalized = raw.replace(/[^0-9.\-]/g, '');
+        const num = Number(normalized);
+        if (!Number.isFinite(num)) return raw;
+        return 'PHP ' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function appendCsrfToken(formData) {
+        if (!formData) return;
+        const token = importCsrfInput ? String(importCsrfInput.value || '') : '';
+        if (token) formData.append('csrfmiddlewaretoken', token);
+    }
+
+    function getRecordCheckboxes() {
+        if (!recordsBody) return [];
+        return Array.from(recordsBody.querySelectorAll('.js-record-checkbox'));
+    }
+
+    function getSelectedRecordIds() {
+        return getRecordCheckboxes()
+            .filter(function (cb) { return cb.checked; })
+            .map(function (cb) { return Number(cb.getAttribute('data-record-id')); })
+            .filter(function (id) { return Number.isFinite(id) && id > 0; });
+    }
+
+    function updateBulkActionState() {
+        const checkboxes = getRecordCheckboxes();
+        const selected = checkboxes.filter(function (cb) { return cb.checked; });
+        const selectedCount = selected.length;
+        if (bulkSelectionCountEl) {
+            bulkSelectionCountEl.textContent = String(selectedCount) + ' selected';
+        }
+        if (bulkActionBar) {
+            bulkActionBar.classList.toggle('d-none', selectedCount === 0);
+        }
+        if (selectAllRecordsCheckbox) {
+            const total = checkboxes.length;
+            const allChecked = total > 0 && selectedCount === total;
+            selectAllRecordsCheckbox.checked = allChecked;
+            selectAllRecordsCheckbox.indeterminate = selectedCount > 0 && selectedCount < total;
+        }
+    }
+
+    function clearRecordSelections() {
+        getRecordCheckboxes().forEach(function (cb) { cb.checked = false; });
+        updateBulkActionState();
+    }
+
+    function markRecordAsActive(activeRecordId) {
+        if (!recordsBody || !activeRecordId) return;
+        recordsBody.querySelectorAll('tr.js-calculator-record-row').forEach(function (tr) {
+            const rowId = Number(tr.getAttribute('data-record-id'));
+            const statusCell = tr.children[4];
+            const actionCell = tr.children[7];
+            if (!statusCell || !actionCell) return;
+            const isActive = rowId === Number(activeRecordId);
+            statusCell.innerHTML = isActive
+                ? '<span class="badge text-bg-success">Active</span>'
+                : '<span class="badge text-bg-secondary">Inactive</span>';
+            if (isActive) {
+                actionCell.innerHTML = '<button type="button" class="btn btn-sm btn-outline-success" disabled>In Use</button>';
+            } else {
+                const csrfValue = importCsrfInput ? String(importCsrfInput.value || '') : '';
+                actionCell.innerHTML = ''
+                    + '<form method="post" class="d-inline">'
+                    + '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfValue) + '">'
+                    + '<input type="hidden" name="form_action" value="set_active_quotation">'
+                    + '<input type="hidden" name="record_id" value="' + String(rowId) + '">'
+                    + '<button type="submit" class="btn btn-sm btn-outline-primary">Set Active</button>'
+                    + '</form>';
+            }
+        });
+    }
+
+    function setRowsEditMode(editing) {
+        rowsIsEditing = !!editing;
+        if (!rowsEditBtn || !rowsCancelEditBtn) return;
+        rowsEditBtn.textContent = rowsIsEditing ? 'Save' : 'Edit';
+        rowsEditBtn.classList.toggle('btn-primary', !rowsIsEditing);
+        rowsEditBtn.classList.toggle('btn-success', rowsIsEditing);
+        rowsCancelEditBtn.classList.toggle('d-none', !rowsIsEditing);
+    }
+
+    function renderRowsPreviewPagination() {
+        if (!rowsPaginationEl) return;
+        const totalPages = Number(rowsPreviewPagination.total_pages || 1);
+        const page = Number(rowsPreviewPagination.page || 1);
+        if (totalPages <= 1) {
+            rowsPaginationEl.innerHTML = '';
+            return;
+        }
+        let html = '';
+        for (let p = 1; p <= totalPages; p += 1) {
+            const active = p === page ? ' active' : '';
+            html += '<li class="page-item' + active + '"><button type="button" class="page-link js-import-rows-page-btn" data-page="' + p + '">' + p + '</button></li>';
+        }
+        rowsPaginationEl.innerHTML = html;
+        rowsPaginationEl.querySelectorAll('.js-import-rows-page-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (rowsIsEditing) {
+                    if (window.showToast) window.showToast('Save or cancel edits before switching page.', 'warning');
+                    return;
+                }
+                const nextPage = Number(btn.getAttribute('data-page'));
+                if (!Number.isFinite(nextPage) || nextPage < 1) return;
+                loadRowsPreview(nextPage);
+            });
+        });
+    }
+
+    function renderRowsPreviewTable() {
+        if (!rowsHeadEl || !rowsBodyEl) return;
+        if (!rowsPreviewHeaders.length) {
+            rowsHeadEl.innerHTML = '<tr><th class="text-secondary">No data loaded</th></tr>';
+            rowsBodyEl.innerHTML = '<tr><td class="text-secondary">No imported rows found for this record.</td></tr>';
+            renderRowsPreviewPagination();
+            return;
+        }
+        rowsHeadEl.innerHTML = '<tr><th style="width:60px;">#</th>' + rowsPreviewHeaders.map(function (header) {
+            return '<th>' + escapeHtml(header) + '</th>';
+        }).join('') + '</tr>';
+        if (!rowsPreviewRows.length) {
+            rowsBodyEl.innerHTML = '<tr><td class="text-secondary" colspan="' + (rowsPreviewHeaders.length + 1) + '">No rows for this page.</td></tr>';
+            renderRowsPreviewPagination();
+            return;
+        }
+        rowsBodyEl.innerHTML = rowsPreviewRows.map(function (row, index) {
+            const rowNo = ((Number(rowsPreviewPagination.page || 1) - 1) * Number(rowsPreviewPagination.page_size || 10)) + index + 1;
+            const cells = rowsPreviewHeaders.map(function (header) {
+                const value = row.values && Object.prototype.hasOwnProperty.call(row.values, header) ? row.values[header] : '';
+                const editableAttrs = rowsIsEditing
+                    ? ' contenteditable="true" class="js-import-row-cell is-editing"'
+                    : ' class="js-import-row-cell"';
+                const renderedValue = (!rowsIsEditing && rowsPreviewCurrencyHeaders.has(header))
+                    ? formatPhp(value)
+                    : String(value == null ? '' : value);
+                return '<td data-header="' + escapeHtml(header) + '"' + editableAttrs + '>' + escapeHtml(renderedValue) + '</td>';
+            }).join('');
+            return '<tr data-row-id="' + String(row.id || '') + '"><td class="text-secondary small">' + rowNo + '</td>' + cells + '</tr>';
+        }).join('');
+        renderRowsPreviewPagination();
+    }
+
+    async function loadRowsPreview(page) {
+        if (!selectedRecordId || rowsLoading) return;
+        rowsLoading = true;
+        if (rowsStatusEl) rowsStatusEl.textContent = 'Loading...';
+        try {
+            const fd = new FormData();
+            appendCsrfToken(fd);
+            fd.append('form_action', 'preview_import_rows');
+            fd.append('record_id', String(selectedRecordId));
+            fd.append('page', String(page || 1));
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: fd,
+                credentials: 'same-origin',
+            });
+            const data = await response.json().catch(function () { return {}; });
+            if (!response.ok || !data.ok) {
+                throw new Error(data.message || 'Unable to load imported rows.');
+            }
+            rowsPreviewHeaders = Array.isArray(data.headers) ? data.headers : [];
+            rowsPreviewCurrencyHeaders = new Set(Array.isArray(data.currency_headers) ? data.currency_headers : []);
+            rowsPreviewRows = Array.isArray(data.rows) ? data.rows : [];
+            rowsPreviewPagination = data.pagination || rowsPreviewPagination;
+            const record = data.record || {};
+            if (rowsModalTitle) rowsModalTitle.textContent = 'Imported Data Preview - ' + String(record.filename || 'Record');
+            if (rowsMetaEl) rowsMetaEl.textContent = 'Showing up to 10 rows per page.';
+            if (rowsStatusEl) rowsStatusEl.textContent = 'Rows: ' + String(rowsPreviewPagination.total_rows || 0);
+            renderRowsPreviewTable();
+            if (rowsOpenEditAfterLoad) {
+                rowsOpenEditAfterLoad = false;
+                setRowsEditMode(true);
+                renderRowsPreviewTable();
+            }
+        } catch (error) {
+            if (rowsStatusEl) rowsStatusEl.textContent = 'Failed to load rows.';
+            if (window.showToast) window.showToast(error.message || 'Unable to load imported rows.', 'danger');
+        } finally {
+            rowsLoading = false;
+        }
+    }
+
+    async function saveRowsPreviewEdits() {
+        if (!selectedRecordId || !rowsBodyEl) return;
+        const updates = [];
+        rowsBodyEl.querySelectorAll('tr[data-row-id]').forEach(function (tr) {
+            const rowId = Number(tr.getAttribute('data-row-id'));
+            if (!Number.isFinite(rowId) || rowId <= 0) return;
+            const values = {};
+            tr.querySelectorAll('.js-import-row-cell').forEach(function (cell) {
+                const header = String(cell.getAttribute('data-header') || '');
+                if (!header) return;
+                values[header] = String(cell.textContent || '').trim();
+            });
+            updates.push({ row_id: rowId, values: values });
+        });
+        if (!updates.length) return;
+        const fd = new FormData();
+        appendCsrfToken(fd);
+        fd.append('form_action', 'update_import_rows');
+        fd.append('record_id', String(selectedRecordId));
+        fd.append('updates_json', JSON.stringify(updates));
+        const response = await fetch(window.location.href, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: fd,
+            credentials: 'same-origin',
+        });
+        const data = await response.json().catch(function () { return {}; });
+        if (!response.ok || !data.ok) {
+            throw new Error(data.message || 'Unable to save row edits.');
+        }
+        if (window.showToast) window.showToast(data.message || 'Rows updated.', 'success');
     }
 
     function renderHeaders() {
@@ -700,13 +1083,19 @@ document.addEventListener('DOMContentLoaded', function () {
                     throw new Error(data.message || 'Import failed.');
                 }
                     if (recordsBody && data.record) {
-                    const hasEmpty = recordsBody.querySelector('td[colspan="7"]');
+                    const hasEmpty = recordsBody.querySelector('td[colspan="9"]');
                     if (hasEmpty) recordsBody.innerHTML = '';
                     const row = document.createElement('tr');
+                    row.className = 'js-calculator-record-row';
+                    row.setAttribute('data-record-id', String(data.record.id || ''));
+                    row.setAttribute('role', 'button');
+                    row.setAttribute('tabindex', '0');
+                    row.setAttribute('aria-label', 'View imported rows for ' + String(data.record.original_filename || 'record'));
                     const csrfInput = importForm.querySelector('input[name="csrfmiddlewaretoken"]');
                     const csrfValue = csrfInput ? String(csrfInput.value || '') : '';
                     row.innerHTML = ''
-                        + '<td>' + String(data.record.original_filename || '-') + '</td>'
+                        + '<td><input type="checkbox" class="form-check-input js-record-checkbox" data-record-id="' + String(data.record.id || '') + '" aria-label="Select ' + String(data.record.original_filename || 'record').replace(/"/g, '&quot;') + '"></td>'
+                        + '<td class="js-record-name-cell">' + String(data.record.original_filename || '-') + '</td>'
                         + '<td>' + String(data.record.row_count || 0) + '</td>'
                         + '<td>' + String(includedHeaders.length) + '</td>'
                         + '<td>' + (data.record.is_active ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>') + '</td>'
@@ -721,8 +1110,20 @@ document.addEventListener('DOMContentLoaded', function () {
                                 + '<input type="hidden" name="record_id" value="' + String(data.record.id || '') + '">'
                                 + '<button type="submit" class="btn btn-sm btn-outline-primary">Set Active</button>'
                               + '</form>')
+                        + '</td>'
+                        + '<td>'
+                        + '  <div class="dropdown">'
+                        + '      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More actions">&hellip;</button>'
+                        + '      <ul class="dropdown-menu dropdown-menu-end">'
+                        + '          <li><button type="button" class="dropdown-item js-record-action-view" data-record-id="' + String(data.record.id || '') + '">View</button></li>'
+                        + '          <li><button type="button" class="dropdown-item js-record-action-edit" data-record-id="' + String(data.record.id || '') + '">Edit</button></li>'
+                        + '          <li><button type="button" class="dropdown-item js-record-action-rename" data-record-id="' + String(data.record.id || '') + '" data-record-name="' + String(data.record.original_filename || 'record').replace(/"/g, '&quot;') + '">Rename</button></li>'
+                        + '          <li><button type="button" class="dropdown-item text-danger js-record-action-delete" data-record-id="' + String(data.record.id || '') + '">Delete</button></li>'
+                        + '      </ul>'
+                        + '  </div>'
                         + '</td>';
                     recordsBody.prepend(row);
+                    updateBulkActionState();
                 }
                 if (window.showToast) window.showToast(data.message || 'Import completed.', 'success');
                 resetUpload();
@@ -763,6 +1164,258 @@ document.addEventListener('DOMContentLoaded', function () {
             fileInput.click();
         }
     });
+
+    function canOpenRecordFromEventTarget(target) {
+        if (!target) return true;
+        return !target.closest('button, a, input, select, textarea, form, .page-link');
+    }
+
+    async function openRowsModalForRecord(recordId) {
+        const parsedId = Number(recordId);
+        if (!Number.isFinite(parsedId) || parsedId <= 0) return;
+        selectedRecordId = parsedId;
+        rowsPreviewHeaders = [];
+        rowsPreviewRows = [];
+        rowsPreviewPagination = { page: 1, total_pages: 1, total_rows: 0, page_size: 10 };
+        setRowsEditMode(false);
+        if (!rowsModal && rowsModalEl && window.bootstrap && window.bootstrap.Modal) {
+            rowsModal = window.bootstrap.Modal.getOrCreateInstance(rowsModalEl);
+        }
+        if (rowsModal) rowsModal.show();
+        await loadRowsPreview(1);
+    }
+
+    function openRenameRecordModal(recordId, currentName, targetRow) {
+        if (!renameRecordModalEl || !renameRecordForm || !renameRecordIdInput || !renameRecordNameInput) return;
+        const parsedId = Number(recordId);
+        if (!Number.isFinite(parsedId) || parsedId <= 0) return;
+        renameTargetRow = targetRow || null;
+        renameRecordIdInput.value = String(parsedId);
+        renameRecordNameInput.value = String(currentName || '').trim();
+        if (!renameRecordModal && window.bootstrap && window.bootstrap.Modal) {
+            renameRecordModal = window.bootstrap.Modal.getOrCreateInstance(renameRecordModalEl);
+        }
+        if (renameRecordModal) renameRecordModal.show();
+        window.setTimeout(function () {
+            renameRecordNameInput.focus();
+            renameRecordNameInput.select();
+        }, 120);
+    }
+
+    if (renameRecordForm) {
+        renameRecordForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const recordId = Number(renameRecordIdInput ? renameRecordIdInput.value : '');
+            const newName = String(renameRecordNameInput ? renameRecordNameInput.value : '').trim();
+            if (!Number.isFinite(recordId) || recordId <= 0) return;
+            if (!newName) {
+                if (window.showToast) window.showToast('Name is required.', 'warning');
+                if (renameRecordNameInput) renameRecordNameInput.focus();
+                return;
+            }
+            if (renameRecordSubmitBtn) renameRecordSubmitBtn.disabled = true;
+            const fd = new FormData();
+            appendCsrfToken(fd);
+            fd.append('form_action', 'rename_quotation');
+            fd.append('record_id', String(recordId));
+            fd.append('new_name', newName);
+            fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: fd,
+                credentials: 'same-origin',
+            })
+                .then(function (response) { return response.json().then(function (d) { return { ok: response.ok, data: d || {} }; }); })
+                .then(function (result) {
+                    if (!result.ok || !result.data.ok) {
+                        throw new Error(result.data.message || 'Unable to rename record.');
+                    }
+                    const tr = renameTargetRow;
+                    if (tr) {
+                        tr.setAttribute('aria-label', 'View imported rows for ' + newName);
+                        const checkbox = tr.querySelector('.js-record-checkbox');
+                        if (checkbox) checkbox.setAttribute('aria-label', 'Select ' + newName);
+                        const nameCell = tr.querySelector('.js-record-name-cell');
+                        if (nameCell) nameCell.textContent = newName;
+                        tr.querySelectorAll('.js-record-action-rename').forEach(function (btn) {
+                            btn.setAttribute('data-record-name', newName);
+                        });
+                    }
+                    if (renameRecordModal) renameRecordModal.hide();
+                    if (window.showToast) window.showToast(result.data.message || 'Record renamed.', 'success');
+                })
+                .catch(function (error) {
+                    if (window.showToast) window.showToast(error.message || 'Unable to rename record.', 'danger');
+                })
+                .finally(function () {
+                    if (renameRecordSubmitBtn) renameRecordSubmitBtn.disabled = false;
+                });
+        });
+    }
+
+    if (recordsBody) {
+        recordsBody.addEventListener('click', function (event) {
+            const rowRenameBtn = event.target.closest('.js-record-action-rename');
+            if (rowRenameBtn) {
+                const recordId = Number(rowRenameBtn.getAttribute('data-record-id'));
+                if (!Number.isFinite(recordId) || recordId <= 0) return;
+                event.preventDefault();
+                const currentName = String(rowRenameBtn.getAttribute('data-record-name') || '').trim();
+                openRenameRecordModal(recordId, currentName, rowRenameBtn.closest('tr.js-calculator-record-row'));
+                return;
+            }
+            const rowDeleteBtn = event.target.closest('.js-record-action-delete');
+            if (rowDeleteBtn) {
+                const recordId = Number(rowDeleteBtn.getAttribute('data-record-id'));
+                if (!Number.isFinite(recordId) || recordId <= 0) return;
+                event.preventDefault();
+                if (!window.confirm('Delete this quotation history record?')) return;
+                const fd = new FormData();
+                appendCsrfToken(fd);
+                fd.append('form_action', 'delete_quotation');
+                fd.append('record_id', String(recordId));
+                fetch(window.location.href, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: fd,
+                    credentials: 'same-origin',
+                })
+                    .then(function (response) { return response.json().then(function (d) { return { ok: response.ok, data: d || {} }; }); })
+                    .then(function (result) {
+                        if (!result.ok || !result.data.ok) {
+                            throw new Error(result.data.message || 'Unable to delete record.');
+                        }
+                        const tr = rowDeleteBtn.closest('tr.js-calculator-record-row');
+                        if (tr) tr.remove();
+                        if (result.data.new_active_record_id) {
+                            markRecordAsActive(result.data.new_active_record_id);
+                        }
+                        updateBulkActionState();
+                        if (window.showToast) window.showToast(result.data.message || 'Record deleted.', 'success');
+                    })
+                    .catch(function (error) {
+                        if (window.showToast) window.showToast(error.message || 'Unable to delete record.', 'danger');
+                    });
+                return;
+            }
+            const rowViewBtn = event.target.closest('.js-record-action-view');
+            if (rowViewBtn) {
+                event.preventDefault();
+                openRowsModalForRecord(rowViewBtn.getAttribute('data-record-id'));
+                return;
+            }
+            const rowEditBtn = event.target.closest('.js-record-action-edit');
+            if (rowEditBtn) {
+                event.preventDefault();
+                rowsOpenEditAfterLoad = true;
+                openRowsModalForRecord(rowEditBtn.getAttribute('data-record-id'));
+                return;
+            }
+            if (!canOpenRecordFromEventTarget(event.target)) return;
+            const row = event.target.closest('.js-calculator-record-row');
+            if (!row) return;
+            openRowsModalForRecord(row.getAttribute('data-record-id'));
+        });
+        recordsBody.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const row = event.target.closest('.js-calculator-record-row');
+            if (!row) return;
+            event.preventDefault();
+            openRowsModalForRecord(row.getAttribute('data-record-id'));
+        });
+        recordsBody.addEventListener('change', function (event) {
+            const cb = event.target.closest('.js-record-checkbox');
+            if (!cb) return;
+            updateBulkActionState();
+        });
+    }
+
+    if (selectAllRecordsCheckbox) {
+        selectAllRecordsCheckbox.addEventListener('change', function () {
+            const shouldCheck = !!selectAllRecordsCheckbox.checked;
+            getRecordCheckboxes().forEach(function (cb) {
+                cb.checked = shouldCheck;
+            });
+            updateBulkActionState();
+        });
+    }
+
+    if (bulkClearBtn) {
+        bulkClearBtn.addEventListener('click', function () {
+            clearRecordSelections();
+        });
+    }
+
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.addEventListener('click', async function () {
+            const ids = getSelectedRecordIds();
+            if (!ids.length) return;
+            if (!window.confirm('Delete ' + ids.length + ' selected quotation record(s)?')) return;
+            bulkDeleteBtn.disabled = true;
+            try {
+                const fd = new FormData();
+                appendCsrfToken(fd);
+                fd.append('form_action', 'bulk_delete_quotations');
+                fd.append('record_ids_json', JSON.stringify(ids));
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: fd,
+                    credentials: 'same-origin',
+                });
+                const data = await response.json().catch(function () { return {}; });
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.message || 'Unable to delete selected records.');
+                }
+                const deletedIds = Array.isArray(data.deleted_ids) ? data.deleted_ids : [];
+                deletedIds.forEach(function (id) {
+                    const tr = recordsBody ? recordsBody.querySelector('tr.js-calculator-record-row[data-record-id="' + String(id) + '"]') : null;
+                    if (tr) tr.remove();
+                });
+                if (data.new_active_record_id) {
+                    markRecordAsActive(data.new_active_record_id);
+                }
+                clearRecordSelections();
+                if (window.showToast) window.showToast(data.message || 'Selected records deleted.', 'success');
+            } catch (error) {
+                if (window.showToast) window.showToast(error.message || 'Unable to delete selected records.', 'danger');
+            } finally {
+                bulkDeleteBtn.disabled = false;
+            }
+        });
+    }
+
+    updateBulkActionState();
+
+    if (rowsEditBtn) {
+        rowsEditBtn.addEventListener('click', async function () {
+            if (!selectedRecordId) return;
+            if (!rowsIsEditing) {
+                setRowsEditMode(true);
+                renderRowsPreviewTable();
+                if (rowsStatusEl) rowsStatusEl.textContent = 'Editing mode enabled.';
+                return;
+            }
+            rowsEditBtn.disabled = true;
+            try {
+                await saveRowsPreviewEdits();
+                setRowsEditMode(false);
+                await loadRowsPreview(Number(rowsPreviewPagination.page || 1));
+            } catch (error) {
+                if (window.showToast) window.showToast(error.message || 'Unable to save row edits.', 'danger');
+            } finally {
+                rowsEditBtn.disabled = false;
+            }
+        });
+    }
+
+    if (rowsCancelEditBtn) {
+        rowsCancelEditBtn.addEventListener('click', function () {
+            setRowsEditMode(false);
+            renderRowsPreviewTable();
+            if (rowsStatusEl) rowsStatusEl.textContent = 'Edits canceled.';
+        });
+    }
 });
 </script>
 {% endblock %}
