@@ -878,6 +878,66 @@ class CRMSalesActivityAttachment(models.Model):
 		return f'CRMSalesActivityAttachment<{self.activity_log_id}:{self.file.name}>'
 
 
+class CRMSalesActivityComment(models.Model):
+	activity_log = models.ForeignKey(CRMSalesActivityLog, on_delete=models.CASCADE, related_name='comments')
+	parent = models.ForeignKey('self', on_delete=models.CASCADE, related_name='replies', null=True, blank=True)
+	reply_to_comment = models.ForeignKey('self', on_delete=models.SET_NULL, related_name='direct_replies', null=True, blank=True)
+	comment = models.TextField()
+	is_deleted = models.BooleanField(default=False)
+	deleted_at = models.DateTimeField(null=True, blank=True)
+	edited_at = models.DateTimeField(null=True, blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_sales_activity_comments_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['created_at']
+
+	def __str__(self):
+		return f'CRMSalesActivityComment<{self.activity_log_id}:{self.pk}>'
+
+
+class CRMSalesActivityCommentLike(models.Model):
+	comment = models.ForeignKey(CRMSalesActivityComment, on_delete=models.CASCADE, related_name='likes')
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='crm_sales_activity_comment_likes',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		unique_together = [('comment', 'user')]
+		ordering = ['-created_at']
+
+	def __str__(self):
+		return f'CRMSalesActivityCommentLike<{self.comment_id}:{self.user_id}>'
+
+
+class CRMSalesCommentReadState(models.Model):
+	sales_record = models.ForeignKey(CRMSalesRecord, on_delete=models.CASCADE, related_name='comment_read_states')
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='crm_sales_comment_read_states',
+	)
+	last_seen_at = models.DateTimeField(default=timezone.now)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		unique_together = [('sales_record', 'user')]
+		ordering = ['-updated_at']
+
+	def __str__(self):
+		return f'CRMSalesCommentReadState<{self.sales_record_id}:{self.user_id}>'
+
+
 class CRMSalesAgingSetting(models.Model):
 	aging_days = models.PositiveIntegerField(default=30)
 	notify_remaining_days = models.PositiveIntegerField(default=5)
@@ -1068,6 +1128,53 @@ class ClientDeletionRequest(models.Model):
 
 	def __str__(self):
 		return f'ClientDeletionRequest<{self.client_name_snapshot}:{self.status}>'
+
+
+class CRMClientDeletionRequest(models.Model):
+	STATUS_CHOICES = [
+		('pending', 'Pending'),
+		('approved', 'Approved'),
+		('rejected', 'Rejected'),
+	]
+
+	client = models.ForeignKey(
+		CRMClient,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='deletion_requests',
+	)
+	client_name_snapshot = models.CharField(max_length=220)
+	customer_id_snapshot = models.CharField(max_length=64, blank=True)
+	reason = models.TextField(blank=True)
+	requested_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_client_deletion_requests_created',
+	)
+	requested_at = models.DateTimeField(auto_now_add=True)
+	resubmission_count = models.PositiveIntegerField(default=0)
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+	reviewed_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_client_deletion_requests_reviewed',
+	)
+	reviewed_at = models.DateTimeField(blank=True, null=True)
+	review_notes = models.TextField(blank=True)
+
+	class Meta:
+		ordering = ['-requested_at']
+		permissions = [
+			('approve_crmclientdeletionrequest', 'Can approve CRM client deletion requests'),
+		]
+
+	def __str__(self):
+		return f'CRMClientDeletionRequest<{self.customer_id_snapshot}:{self.status}>'
 
 
 class ClientQuotation(models.Model):

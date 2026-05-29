@@ -135,11 +135,15 @@ from .models import (
 	CRMSalesRecord,
 	CRMSalesActivityLog,
 	CRMSalesActivityAttachment,
+	CRMSalesActivityComment,
+	CRMSalesActivityCommentLike,
+	CRMSalesCommentReadState,
 	CRMSalesAgingSetting,
 	CRMTechnicalRecord,
 	CRMTechnicalActionLog,
 	CRMTechnicalTeam,
 	CRMTechnicalNotificationSetting,
+	CRMClientDeletionRequest,
 	ClientDeletionRequest,
 	ClientQuotation,
 	ClientQuotationDocument,
@@ -2107,6 +2111,15 @@ def _crm_import_job_set(job_id, payload):
 
 
 def _process_crm_import_payload(rows, columns, user, column_mappings=None):
+	def _normalize_sales_status(value):
+		normalized = str(value or '').strip().lower()
+		alias_map = {
+			'close won': 'closed won',
+			'close lost': 'closed lost',
+			'forproposal': 'for proposal',
+		}
+		return alias_map.get(normalized, normalized)
+
 	def _key(value):
 		return str(value or '').strip().lower().replace(' ', '_')
 	column_mappings = column_mappings if isinstance(column_mappings, dict) else {}
@@ -2127,7 +2140,7 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 	}
 	lead_source_allowed = {'facebook ads', 'referral', 'walkin', 'website', 'developer', 'event', 'telemarketing'}
 	ownership_allowed = {'owner', 'tenant'}
-	sales_status_allowed = {'new', 'contacted', 'for survey', 'forproposal', 'negotiation', 'close won', 'close lost', 'closed won', 'closed lost'}
+	sales_status_allowed = {'new', 'contacted', 'for survey', 'forproposal', 'for proposal', 'negotiation', 'close won', 'close lost', 'closed won', 'closed lost'}
 
 	def _norm_text(value):
 		return str(value or '').strip().lower()
@@ -2239,10 +2252,10 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 
 		lead_source_raw = _pick(normalized, 'lead_source').lower()
 		ownership_raw = _pick(normalized, 'ownership').lower()
-		sales_status_raw = _pick(normalized, 'sales_status').lower()
+		sales_status_raw = _normalize_sales_status(_pick(normalized, 'sales_status'))
 		lead_source = lead_source_raw if lead_source_raw in lead_source_allowed else ''
 		ownership = ownership_raw if ownership_raw in ownership_allowed else ''
-		sales_status = sales_status_raw if sales_status_raw in sales_status_allowed else ''
+		sales_status = sales_status_raw if sales_status_raw in sales_status_allowed else 'new'
 		sales_date = parse_date(_pick(normalized, 'date_created'))
 		monthly_electric_bill = _money(_pick(normalized, 'monthly_electric_bill'))
 		project_cost = _money(_pick(normalized, 'project_cost'))
@@ -2291,7 +2304,7 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 				created_by=user,
 			)
 		else:
-			sales_record = CRMSalesRecord.objects.create(client=record, created_by=user)
+			sales_record = CRMSalesRecord.objects.create(client=record, sales_status='new', created_by=user)
 		has_technical_values = any(
 			[
 				installation_date,
@@ -2394,31 +2407,303 @@ def crm_clients(request):
 		return JsonResponse({'ok': True, **job_state})
 
 	form = CRMClientForm(require_email_dob=True)
+	can_approve_crm_client_deletions = (
+		request.user.is_superuser
+		or request.user.has_perm('core.approve_crmclientdeletionrequest')
+	)
 	if request.method == 'POST':
 		form_action = (request.POST.get('form_action') or '').strip()
-		if form_action == 'bulk_delete':
-			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.delete_client'):
-				restricted_response = _permission_denied_response(request)
+		if form_action == 'update_sales_status_progress':
+			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.change_crmsalesrecord'):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to update sales status.'}, status=403)
+
+			client_id_raw = (request.POST.get('client_id') or '').strip()
+			target_status = str(request.POST.get('sales_status') or '').strip().lower()
+			try:
+				client_id = int(client_id_raw)
+			except (TypeError, ValueError):
+				return JsonResponse({'ok': False, 'message': 'Invalid client id.'}, status=400)
+
+			status_alias_map = {
+				'forproposal': 'for proposal',
+				'close won': 'closed won',
+				'close lost': 'closed lost',
+			}
+			target_status = status_alias_map.get(target_status, target_status)
+			progress_order = ['new', 'contacted', 'for survey', 'for proposal', 'negotiation']
+			terminal_statuses = {'closed won', 'closed lost'}
+			allowed_statuses = set(progress_order) | terminal_statuses
+			if target_status not in allowed_statuses:
+				return JsonResponse({'ok': False, 'message': 'Invalid sales status.'}, status=400)
+
+			client = get_object_or_404(CRMClient, pk=client_id)
+			assignee_name = (request.user.get_full_name() or request.user.username or '').strip()
+			sales_record, _created = CRMSalesRecord.objects.get_or_create(
+				client=client,
+				defaults={'created_by': request.user, 'assigned_sales': assignee_name, 'sales_status': 'new'},
+			)
+			current_status_raw = (sales_record.sales_status or '').strip().lower()
+			current_status = status_alias_map.get(current_status_raw, current_status_raw) or 'new'
+			if current_status not in allowed_statuses:
+				current_status = 'new'
+			if not (sales_record.sales_status or '').strip():
+				sales_record.sales_status = 'new'
+				sales_record.save(update_fields=['sales_status', 'updated_at'])
+				current_status = 'new'
+
+			if target_status in terminal_statuses:
+				can_transition = current_status == 'negotiation'
 			else:
-				restricted_response = None
-			if restricted_response:
-				return restricted_response
+				try:
+					current_index = progress_order.index(current_status)
+				except ValueError:
+					current_index = 0
+				target_index = progress_order.index(target_status)
+				can_transition = target_index == current_index + 1
+
+			if not can_transition:
+				return JsonResponse(
+					{
+						'ok': False,
+						'message': 'Sales status can only move to the next step.',
+						'current_status': current_status,
+					},
+					status=400,
+				)
+
+			sales_record.sales_status = target_status
+			if not (sales_record.assigned_sales or '').strip():
+				sales_record.assigned_sales = assignee_name
+				sales_record.save(update_fields=['sales_status', 'assigned_sales', 'updated_at'])
+			else:
+				sales_record.save(update_fields=['sales_status', 'updated_at'])
+
+			CRMSalesActivityLog.objects.create(
+				sales_record=sales_record,
+				sales_status=target_status,
+				created_by=request.user,
+				interaction_notes=f'Status progressed from "{current_status}" to "{target_status}".',
+			)
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated CRM sales status for {client.customer_id} from {current_status} to {target_status}.',
+				target=sales_record,
+				target_label=f'Sales #{sales_record.id}',
+				metadata={'client_id': client.id, 'from_status': current_status, 'to_status': target_status},
+			)
+			return JsonResponse(
+				{
+					'ok': True,
+					'message': 'Sales status updated.',
+					'client_id': client.id,
+					'sales_status': target_status,
+				}
+			)
+
+		if form_action == 'bulk_delete':
+			message = 'Direct deletion is disabled. Submit a removal request for approval.'
+			if is_ajax:
+				return JsonResponse({'ok': False, 'message': message}, status=400)
+			messages.warning(request, message, extra_tags='toast')
+			return redirect('crm_clients')
+		if form_action == 'submit_delete_request':
 			raw_ids = request.POST.getlist('client_ids')
+			if not raw_ids:
+				raw_selected_ids = (request.POST.get('selected_ids') or '').strip()
+				if raw_selected_ids:
+					raw_ids = [segment.strip() for segment in raw_selected_ids.split(',') if segment.strip()]
 			parsed_ids = []
 			for raw_id in raw_ids:
 				try:
 					parsed_ids.append(int(str(raw_id).strip()))
 				except (TypeError, ValueError):
 					continue
-			deleted_count, _ = CRMClient.objects.filter(id__in=parsed_ids).delete()
-			if deleted_count:
-				message = f'{deleted_count} CRM client record(s) deleted.'
-				messages.success(request, message)
-			else:
-				message = 'No CRM clients selected.'
-				messages.warning(request, message)
+			if not parsed_ids:
+				message = 'No CRM clients selected for removal request.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_clients')
+
+			reason = (request.POST.get('reason') or '').strip()
+			selected_clients = list(CRMClient.objects.filter(id__in=parsed_ids).order_by('last_name', 'first_name'))
+			if not selected_clients:
+				message = 'No matching CRM clients found.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=404)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_clients')
+
+			created_count = 0
+			reopened_count = 0
+			already_pending_count = 0
+			for client in selected_clients:
+				pending_request = CRMClientDeletionRequest.objects.filter(client=client, status='pending').first()
+				if pending_request:
+					already_pending_count += 1
+					continue
+				rejected_request = CRMClientDeletionRequest.objects.filter(client=client, status='rejected').order_by('-requested_at').first()
+				if rejected_request:
+					rejected_request.status = 'pending'
+					rejected_request.reason = reason
+					rejected_request.review_notes = ''
+					rejected_request.reviewed_by = None
+					rejected_request.reviewed_at = None
+					rejected_request.requested_by = request.user
+					rejected_request.requested_at = timezone.now()
+					rejected_request.resubmission_count = int(rejected_request.resubmission_count or 0) + 1
+					rejected_request.client_name_snapshot = f'{client.last_name}, {client.first_name}'.strip(', ')
+					rejected_request.customer_id_snapshot = client.customer_id or ''
+					rejected_request.save(
+						update_fields=[
+							'status', 'reason', 'review_notes', 'reviewed_by', 'reviewed_at',
+							'requested_by', 'requested_at', 'resubmission_count',
+							'client_name_snapshot', 'customer_id_snapshot',
+						]
+					)
+					reopened_count += 1
+					continue
+				CRMClientDeletionRequest.objects.create(
+					client=client,
+					client_name_snapshot=f'{client.last_name}, {client.first_name}'.strip(', '),
+					customer_id_snapshot=client.customer_id or '',
+					reason=reason,
+					requested_by=request.user,
+				)
+				created_count += 1
+
+			if created_count:
+				messages.success(request, f'{created_count} CRM client removal request(s) submitted for approval.', extra_tags='toast')
+			if reopened_count:
+				messages.success(request, f'{reopened_count} rejected CRM client removal request(s) resubmitted.', extra_tags='toast')
+			if already_pending_count:
+				messages.warning(request, f'{already_pending_count} selected client(s) already have pending removal requests.', extra_tags='toast')
+			if not created_count and not reopened_count and not already_pending_count:
+				messages.info(request, 'No removal requests were created.', extra_tags='toast')
 			if is_ajax:
-				return JsonResponse({'ok': True, 'message': message, 'deleted_count': deleted_count})
+				return JsonResponse(
+					{
+						'ok': True,
+						'message': 'Removal request submitted.',
+						'created_count': created_count,
+						'reopened_count': reopened_count,
+						'already_pending_count': already_pending_count,
+					}
+				)
+			return redirect('crm_clients')
+		if form_action == 'approve_delete_request':
+			if not can_approve_crm_client_deletions:
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to approve removal requests.'}, status=403)
+			request_id_raw = (request.POST.get('request_id') or '').strip()
+			try:
+				request_id = int(request_id_raw)
+			except (TypeError, ValueError):
+				return JsonResponse({'ok': False, 'message': 'Invalid removal request id.'}, status=400)
+			deletion_request = get_object_or_404(CRMClientDeletionRequest, pk=request_id)
+			if deletion_request.status != 'pending':
+				return JsonResponse({'ok': False, 'message': 'This removal request is no longer pending.'}, status=400)
+			review_notes = (request.POST.get('review_notes') or '').strip()
+			client = deletion_request.client
+			client_label = deletion_request.client_name_snapshot
+			if client:
+				client_label = f'{client.last_name}, {client.first_name}'.strip(', ')
+				client.delete()
+				deletion_request.client = None
+			deletion_request.status = 'approved'
+			deletion_request.reviewed_by = request.user
+			deletion_request.reviewed_at = timezone.now()
+			deletion_request.review_notes = review_notes
+			deletion_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes', 'client'])
+			if deletion_request.requested_by and deletion_request.requested_by_id != request.user.id:
+				create_notification(
+					deletion_request.requested_by,
+					title='CRM client removal request approved',
+					message=f'Your CRM client removal request for "{client_label}" was approved.',
+					link_url=reverse('crm_clients'),
+				)
+			messages.success(request, f'Approved removal request for "{client_label}".', extra_tags='toast')
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': 'Removal request approved.'})
+			return redirect('crm_clients')
+		if form_action == 'reject_delete_request':
+			if not can_approve_crm_client_deletions:
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to reject removal requests.'}, status=403)
+			request_id_raw = (request.POST.get('request_id') or '').strip()
+			try:
+				request_id = int(request_id_raw)
+			except (TypeError, ValueError):
+				return JsonResponse({'ok': False, 'message': 'Invalid removal request id.'}, status=400)
+			deletion_request = get_object_or_404(CRMClientDeletionRequest, pk=request_id)
+			if deletion_request.status != 'pending':
+				return JsonResponse({'ok': False, 'message': 'This removal request is no longer pending.'}, status=400)
+			review_notes = (request.POST.get('review_notes') or '').strip()
+			deletion_request.status = 'rejected'
+			deletion_request.reviewed_by = request.user
+			deletion_request.reviewed_at = timezone.now()
+			deletion_request.review_notes = review_notes
+			deletion_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes'])
+			if deletion_request.requested_by and deletion_request.requested_by_id != request.user.id:
+				create_notification(
+					deletion_request.requested_by,
+					title='CRM client removal request rejected',
+					message=f'Your CRM client removal request for "{deletion_request.client_name_snapshot}" was rejected.',
+					link_url=reverse('crm_clients'),
+				)
+			messages.info(request, f'Rejected removal request for "{deletion_request.client_name_snapshot}".', extra_tags='toast')
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': 'Removal request rejected.'})
+			return redirect('crm_clients')
+		if form_action == 'cancel_delete_request':
+			request_id_raw = (request.POST.get('request_id') or '').strip()
+			try:
+				request_id = int(request_id_raw)
+			except (TypeError, ValueError):
+				return JsonResponse({'ok': False, 'message': 'Invalid removal request id.'}, status=400)
+			deletion_request = get_object_or_404(CRMClientDeletionRequest, pk=request_id, requested_by=request.user)
+			if deletion_request.status != 'pending':
+				message = 'Only pending requests can be cancelled.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_clients')
+			client_label = deletion_request.client_name_snapshot or deletion_request.customer_id_snapshot or f'Request #{deletion_request.id}'
+			deletion_request.delete()
+			messages.success(request, f'Cancelled removal request for "{client_label}".', extra_tags='toast')
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': 'Removal request cancelled.'})
+			return redirect('crm_clients')
+		if form_action == 'bulk_delete_removal_requests':
+			raw_request_ids = request.POST.getlist('request_ids')
+			if not raw_request_ids:
+				raw_selected_ids = (request.POST.get('selected_request_ids') or '').strip()
+				if raw_selected_ids:
+					raw_request_ids = [segment.strip() for segment in raw_selected_ids.split(',') if segment.strip()]
+			parsed_request_ids = []
+			for raw_id in raw_request_ids:
+				try:
+					parsed_request_ids.append(int(str(raw_id).strip()))
+				except (TypeError, ValueError):
+					continue
+			if not parsed_request_ids:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': 'No removal requests selected.'}, status=400)
+				messages.warning(request, 'No removal requests selected.', extra_tags='toast')
+				return redirect('crm_clients')
+
+			deletion_requests_qs = CRMClientDeletionRequest.objects.filter(id__in=parsed_request_ids)
+			if can_approve_crm_client_deletions:
+				allowed_qs = deletion_requests_qs
+			else:
+				allowed_qs = deletion_requests_qs.filter(requested_by=request.user)
+			deleted_count, _ = allowed_qs.delete()
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': f'Deleted {deleted_count} removal request(s).', 'deleted_count': deleted_count})
+			if deleted_count:
+				messages.success(request, f'Deleted {deleted_count} removal request(s).', extra_tags='toast')
+			else:
+				messages.warning(request, 'No removal requests were deleted.', extra_tags='toast')
 			return redirect('crm_clients')
 		if form_action == 'import_submit':
 			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']) and not request.user.has_perm('core.add_client'):
@@ -2558,11 +2843,17 @@ def crm_clients(request):
 				assignee_name = (request.user.get_full_name() or request.user.username or '').strip()
 				sales_record, created_sales = CRMSalesRecord.objects.get_or_create(
 					client=record,
-					defaults={'created_by': request.user, 'assigned_sales': assignee_name},
+					defaults={'created_by': request.user, 'assigned_sales': assignee_name, 'sales_status': 'new'},
 				)
+				fields_to_update = []
 				if not created_sales and not (sales_record.assigned_sales or '').strip():
 					sales_record.assigned_sales = assignee_name
-					sales_record.save(update_fields=['assigned_sales', 'updated_at'])
+					fields_to_update.append('assigned_sales')
+				if not (sales_record.sales_status or '').strip():
+					sales_record.sales_status = 'new'
+					fields_to_update.append('sales_status')
+				if fields_to_update:
+					sales_record.save(update_fields=fields_to_update + ['updated_at'])
 				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
 				record_activity(
 					request,
@@ -2660,6 +2951,17 @@ def crm_clients(request):
 		return '↑' if sort_dir == 'asc' else '↓'
 
 	sort_indicators = {field: _sort_indicator(field) for field in sortable_fields.keys()}
+	deletion_requests_queryset = CRMClientDeletionRequest.objects.select_related('client', 'requested_by', 'reviewed_by')
+	if can_approve_crm_client_deletions:
+		crm_client_deletion_requests = list(deletion_requests_queryset.filter(status='pending').order_by('-requested_at')[:200])
+		crm_client_deletion_history = list(deletion_requests_queryset.exclude(status='pending').order_by('-reviewed_at', '-requested_at')[:300])
+	else:
+		crm_client_deletion_requests = list(
+			deletion_requests_queryset.filter(requested_by=request.user, status='pending').order_by('-requested_at')[:100]
+		)
+		crm_client_deletion_history = list(
+			deletion_requests_queryset.filter(requested_by=request.user).exclude(status='pending').order_by('-reviewed_at', '-requested_at')[:150]
+		)
 	return render(
 		request,
 		'core/crm_clients.html',
@@ -2676,6 +2978,9 @@ def crm_clients(request):
 			'sort_indicators': sort_indicators,
 			'current_query_string': current_query_string,
 			'can_manage_crm_clients': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients']),
+			'can_approve_crm_client_deletions': can_approve_crm_client_deletions,
+			'crm_client_deletion_requests': crm_client_deletion_requests,
+			'crm_client_deletion_history': crm_client_deletion_history,
 		},
 	)
 
@@ -2778,10 +3083,290 @@ def crm_sales(request):
 	if restricted_response:
 		return restricted_response
 
+	def _user_can_access_sales_record(user, sales_record):
+		if _has_any_permission(user, CRM_MANAGE_PERMISSIONS['sales']):
+			return True
+		user_full_name = (user.get_full_name() or '').strip().lower()
+		user_username = (user.username or '').strip().lower()
+		assigned_values = [segment.strip().lower() for segment in re.split(r'[,;\n|]+', sales_record.assigned_sales or '') if segment.strip()]
+		if sales_record.client and sales_record.client.created_by_id == user.id:
+			return True
+		if user_full_name and user_full_name in assigned_values:
+			return True
+		if user_username and user_username in assigned_values:
+			return True
+		return False
+
+	def _serialize_sales_activity_comments(activity_log, user):
+		parent_comments = list(
+			activity_log.comments.filter(parent__isnull=True)
+			.select_related('created_by')
+			.prefetch_related('likes', 'replies', 'replies__created_by', 'replies__likes', 'replies__reply_to_comment', 'replies__reply_to_comment__created_by')
+			.order_by('created_at')
+		)
+		payload = []
+		for comment in parent_comments:
+			replies_payload = []
+			for reply in comment.replies.all().order_by('created_at'):
+				reply_like_count = reply.likes.count()
+				reply_liked = reply.likes.filter(user=user).exists() if user.is_authenticated else False
+				replies_payload.append(
+					{
+						'id': reply.id,
+						'comment': '' if reply.is_deleted else reply.comment,
+						'is_deleted': bool(reply.is_deleted),
+						'created_by': (reply.created_by.get_full_name() or reply.created_by.username) if reply.created_by else 'System',
+						'created_by_id': reply.created_by_id,
+						'created_at': timezone.localtime(reply.created_at).strftime('%Y-%m-%d %H:%M'),
+						'created_at_iso': timezone.localtime(reply.created_at).isoformat(),
+						'updated_at': timezone.localtime(reply.updated_at).strftime('%Y-%m-%d %H:%M'),
+						'is_edited': bool(reply.edited_at),
+						'can_edit': bool((reply.created_by_id == user.id) and not reply.is_deleted),
+						'can_delete': bool((reply.created_by_id == user.id) and not reply.is_deleted),
+						'like_count': reply_like_count,
+						'is_liked': reply_liked,
+						'parent_id': comment.id,
+						'reply_to_comment_id': reply.reply_to_comment_id,
+						'reply_to_comment_text': (reply.reply_to_comment.comment if reply.reply_to_comment else ''),
+						'reply_to_name': (
+							((reply.reply_to_comment.created_by.get_full_name() or reply.reply_to_comment.created_by.username).strip())
+							if reply.reply_to_comment and reply.reply_to_comment.created_by
+							else ''
+						),
+					}
+				)
+			like_count = comment.likes.count()
+			is_liked = comment.likes.filter(user=user).exists() if user.is_authenticated else False
+			payload.append(
+				{
+					'id': comment.id,
+					'comment': '' if comment.is_deleted else comment.comment,
+					'is_deleted': bool(comment.is_deleted),
+					'created_by': (comment.created_by.get_full_name() or comment.created_by.username) if comment.created_by else 'System',
+					'created_by_id': comment.created_by_id,
+					'created_at': timezone.localtime(comment.created_at).strftime('%Y-%m-%d %H:%M'),
+					'created_at_iso': timezone.localtime(comment.created_at).isoformat(),
+					'updated_at': timezone.localtime(comment.updated_at).strftime('%Y-%m-%d %H:%M'),
+					'is_edited': bool(comment.edited_at),
+					'can_edit': bool((comment.created_by_id == user.id) and not comment.is_deleted),
+					'can_delete': bool((comment.created_by_id == user.id) and not comment.is_deleted),
+					'can_reply': bool(not comment.is_deleted),
+					'like_count': like_count,
+					'is_liked': is_liked,
+					'replies': replies_payload,
+				}
+			)
+		return payload
+
+	def _is_sqlite_locked_error(exc):
+		return 'database is locked' in str(exc).lower()
+
+	def _run_with_sqlite_retry(write_callback):
+		for attempt in range(6):
+			try:
+				return write_callback()
+			except OperationalError as exc:
+				if not _is_sqlite_locked_error(exc):
+					raise
+				if attempt == 5:
+					return None
+				time.sleep(0.15 * (attempt + 1))
+		return None
+
 	if request.method == 'POST':
 		if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']):
-			return _permission_denied_response(request)
+			allowed_for_thread = {
+				'add_history_comment',
+				'edit_history_comment',
+				'delete_history_comment',
+				'toggle_history_comment_like',
+				'list_history_comments',
+				'mark_history_comments_read',
+				'fetch_unread_history_comment_counts',
+			}
+			incoming_action = (request.POST.get('form_action') or '').strip()
+			if incoming_action not in allowed_for_thread:
+				return _permission_denied_response(request)
 		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'list_history_comments':
+			activity_log_id = (request.POST.get('activity_log_id') or '').strip()
+			if not activity_log_id.isdigit():
+				return JsonResponse({'ok': False, 'message': 'Invalid history log id.'}, status=400)
+			activity_log = get_object_or_404(
+				CRMSalesActivityLog.objects.select_related('sales_record', 'sales_record__client'),
+				pk=int(activity_log_id),
+			)
+			if not _user_can_access_sales_record(request.user, activity_log.sales_record):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to access this history.'}, status=403)
+			return JsonResponse({'ok': True, 'comments': _serialize_sales_activity_comments(activity_log, request.user)})
+		if form_action == 'add_history_comment':
+			activity_log_id = (request.POST.get('activity_log_id') or '').strip()
+			parent_id_raw = (request.POST.get('parent_id') or '').strip()
+			comment_text = (request.POST.get('comment') or '').strip()
+			if not activity_log_id.isdigit():
+				return JsonResponse({'ok': False, 'message': 'Invalid history log id.'}, status=400)
+			if not comment_text:
+				return JsonResponse({'ok': False, 'message': 'Comment cannot be empty.'}, status=400)
+			activity_log = get_object_or_404(
+				CRMSalesActivityLog.objects.select_related('sales_record', 'sales_record__client'),
+				pk=int(activity_log_id),
+			)
+			if not _user_can_access_sales_record(request.user, activity_log.sales_record):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to comment on this history.'}, status=403)
+			parent = None
+			if parent_id_raw:
+				if not parent_id_raw.isdigit():
+					return JsonResponse({'ok': False, 'message': 'Invalid parent comment id.'}, status=400)
+				target_comment = get_object_or_404(CRMSalesActivityComment, pk=int(parent_id_raw), activity_log=activity_log)
+				if target_comment.is_deleted:
+					return JsonResponse({'ok': False, 'message': 'Cannot reply to a deleted comment.'}, status=400)
+				parent = target_comment.parent if target_comment.parent_id else target_comment
+				reply_to_comment = target_comment
+			else:
+				reply_to_comment = None
+			def _create_comment():
+				return CRMSalesActivityComment.objects.create(
+					activity_log=activity_log,
+					parent=parent,
+					reply_to_comment=reply_to_comment,
+					comment=comment_text,
+					created_by=request.user,
+				)
+			created_comment = _run_with_sqlite_retry(_create_comment)
+			if created_comment is None:
+				return JsonResponse({'ok': False, 'message': 'Database is busy. Please try again.'}, status=503)
+			# Notify other users with sales visibility about new comment.
+			target_users = User.objects.filter(is_active=True).exclude(id=request.user.id)
+			for target_user in target_users:
+				if not _user_can_access_sales_record(target_user, activity_log.sales_record):
+					continue
+				create_notification(
+					target_user,
+					title='New CRM sales history comment',
+					message=f'New comment on {activity_log.sales_record.client.customer_id if activity_log.sales_record.client_id else "CRM sales"} history.',
+					link_url=reverse('crm_sales'),
+				)
+			return JsonResponse({'ok': True, 'comments': _serialize_sales_activity_comments(activity_log, request.user)})
+		if form_action == 'edit_history_comment':
+			comment_id_raw = (request.POST.get('comment_id') or '').strip()
+			comment_text = (request.POST.get('comment') or '').strip()
+			if not comment_id_raw.isdigit():
+				return JsonResponse({'ok': False, 'message': 'Invalid comment id.'}, status=400)
+			if not comment_text:
+				return JsonResponse({'ok': False, 'message': 'Comment cannot be empty.'}, status=400)
+			comment_obj = get_object_or_404(
+				CRMSalesActivityComment.objects.select_related('activity_log', 'activity_log__sales_record', 'activity_log__sales_record__client'),
+				pk=int(comment_id_raw),
+			)
+			if not _user_can_access_sales_record(request.user, comment_obj.activity_log.sales_record):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to edit this comment.'}, status=403)
+			if comment_obj.created_by_id != request.user.id:
+				return JsonResponse({'ok': False, 'message': 'You can only edit your own comment.'}, status=403)
+			if comment_obj.is_deleted:
+				return JsonResponse({'ok': False, 'message': 'Deleted comments cannot be edited.'}, status=400)
+			comment_obj.comment = comment_text
+			comment_obj.edited_at = timezone.now()
+			def _save_comment_edit():
+				comment_obj.save(update_fields=['comment', 'edited_at', 'updated_at'])
+				return True
+			save_ok = _run_with_sqlite_retry(_save_comment_edit)
+			if save_ok is None:
+				return JsonResponse({'ok': False, 'message': 'Database is busy. Please try again.'}, status=503)
+			return JsonResponse({'ok': True, 'comments': _serialize_sales_activity_comments(comment_obj.activity_log, request.user)})
+		if form_action == 'delete_history_comment':
+			comment_id_raw = (request.POST.get('comment_id') or '').strip()
+			if not comment_id_raw.isdigit():
+				return JsonResponse({'ok': False, 'message': 'Invalid comment id.'}, status=400)
+			comment_obj = get_object_or_404(
+				CRMSalesActivityComment.objects.select_related('activity_log', 'activity_log__sales_record', 'activity_log__sales_record__client'),
+				pk=int(comment_id_raw),
+			)
+			if not _user_can_access_sales_record(request.user, comment_obj.activity_log.sales_record):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to delete this comment.'}, status=403)
+			if comment_obj.created_by_id != request.user.id:
+				return JsonResponse({'ok': False, 'message': 'You can only delete your own comment.'}, status=403)
+			activity_log = comment_obj.activity_log
+			if comment_obj.is_deleted:
+				return JsonResponse({'ok': True, 'comments': _serialize_sales_activity_comments(activity_log, request.user)})
+			def _delete_comment():
+				comment_obj.is_deleted = True
+				comment_obj.comment = ''
+				comment_obj.deleted_at = timezone.now()
+				comment_obj.save(update_fields=['is_deleted', 'comment', 'deleted_at', 'updated_at'])
+				return True
+			delete_ok = _run_with_sqlite_retry(_delete_comment)
+			if delete_ok is None:
+				return JsonResponse({'ok': False, 'message': 'Database is busy. Please try again.'}, status=503)
+			return JsonResponse({'ok': True, 'comments': _serialize_sales_activity_comments(activity_log, request.user)})
+		if form_action == 'toggle_history_comment_like':
+			comment_id_raw = (request.POST.get('comment_id') or '').strip()
+			if not comment_id_raw.isdigit():
+				return JsonResponse({'ok': False, 'message': 'Invalid comment id.'}, status=400)
+			comment_obj = get_object_or_404(
+				CRMSalesActivityComment.objects.select_related('activity_log', 'activity_log__sales_record', 'activity_log__sales_record__client'),
+				pk=int(comment_id_raw),
+			)
+			if not _user_can_access_sales_record(request.user, comment_obj.activity_log.sales_record):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to like this comment.'}, status=403)
+			if comment_obj.is_deleted:
+				return JsonResponse({'ok': False, 'message': 'Deleted comments cannot be liked.'}, status=400)
+			existing_like = CRMSalesActivityCommentLike.objects.filter(comment=comment_obj, user=request.user).first()
+			def _toggle_like():
+				if existing_like:
+					existing_like.delete()
+				else:
+					CRMSalesActivityCommentLike.objects.create(comment=comment_obj, user=request.user)
+				return True
+			toggle_ok = _run_with_sqlite_retry(_toggle_like)
+			if toggle_ok is None:
+				return JsonResponse({'ok': False, 'message': 'Database is busy. Please try again.'}, status=503)
+			return JsonResponse({'ok': True, 'comments': _serialize_sales_activity_comments(comment_obj.activity_log, request.user)})
+		if form_action == 'mark_history_comments_read':
+			sales_record_id_raw = (request.POST.get('sales_record_id') or '').strip()
+			if not sales_record_id_raw.isdigit():
+				return JsonResponse({'ok': False, 'message': 'Invalid sales record id.'}, status=400)
+			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=int(sales_record_id_raw))
+			if not _user_can_access_sales_record(request.user, sales_record):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission.'}, status=403)
+			def _mark_comments_read():
+				CRMSalesCommentReadState.objects.update_or_create(
+					sales_record=sales_record,
+					user=request.user,
+					defaults={'last_seen_at': timezone.now()},
+				)
+				return True
+			mark_ok = _run_with_sqlite_retry(_mark_comments_read)
+			if mark_ok is None:
+				# Avoid breaking UX if sqlite is briefly locked; polling will retry shortly.
+				return JsonResponse({'ok': True, 'deferred': True})
+			return JsonResponse({'ok': True})
+		if form_action == 'fetch_unread_history_comment_counts':
+			sales_record_ids_raw = (request.POST.get('sales_record_ids') or '').strip()
+			parsed_ids = []
+			for token in sales_record_ids_raw.split(','):
+				token = token.strip()
+				if token.isdigit():
+					parsed_ids.append(int(token))
+			if not parsed_ids:
+				return JsonResponse({'ok': True, 'counts': {}, 'total_unread': 0})
+			sales_records = list(CRMSalesRecord.objects.select_related('client').filter(id__in=parsed_ids))
+			states = {
+				state.sales_record_id: state
+				for state in CRMSalesCommentReadState.objects.filter(user=request.user, sales_record_id__in=parsed_ids)
+			}
+			counts = {}
+			total_unread = 0
+			for sales_record in sales_records:
+				if not _user_can_access_sales_record(request.user, sales_record):
+					continue
+				last_seen_at = states.get(sales_record.id).last_seen_at if states.get(sales_record.id) else None
+				comment_qs = CRMSalesActivityComment.objects.filter(activity_log__sales_record=sales_record).exclude(created_by=request.user)
+				if last_seen_at:
+					comment_qs = comment_qs.filter(created_at__gt=last_seen_at)
+				unread_count = comment_qs.count()
+				counts[str(sales_record.id)] = unread_count
+				total_unread += unread_count
+			return JsonResponse({'ok': True, 'counts': counts, 'total_unread': total_unread})
 		if form_action == 'assign_sales_to_client':
 			sales_id = (request.POST.get('sales_record_id') or '').strip()
 			selected_sales_record_ids_raw = (request.POST.get('selected_sales_record_ids') or '').strip()
@@ -3080,6 +3665,14 @@ def crm_sales(request):
 		'activity_logs',
 		'activity_logs__created_by',
 		'activity_logs__attachments',
+		'activity_logs__comments',
+		'activity_logs__comments__created_by',
+		'activity_logs__comments__likes',
+		'activity_logs__comments__replies',
+		'activity_logs__comments__replies__created_by',
+		'activity_logs__comments__replies__likes',
+		'activity_logs__comments__replies__reply_to_comment',
+		'activity_logs__comments__replies__reply_to_comment__created_by',
 	)
 	currency_field = DecimalField(max_digits=12, decimal_places=2)
 	zero_value = Value(Decimal('0.00'), output_field=currency_field)
@@ -3119,6 +3712,8 @@ def crm_sales(request):
 		today = timezone.localdate()
 		month_start = today.replace(day=1)
 		sales_queryset = sales_queryset.filter(created_at__date__gte=month_start, created_at__date__lte=today)
+	# Keep a snapshot before lead-stage-specific filtering so stage counters are initialized by default.
+	pipeline_counts_queryset = sales_queryset
 	if filter_sales_status:
 		status_aliases = {
 			'new': ['new'],
@@ -3174,6 +3769,45 @@ def crm_sales(request):
 	if project_cost_max is not None:
 		sales_queryset = sales_queryset.filter(**{f'{selected_cost_filter_field}__lte': project_cost_max})
 
+	def _normalize_pipeline_status(value):
+		raw = (value or '').strip().lower()
+		if raw in {'for proposal', 'forproposal'}:
+			return 'forproposal'
+		if raw in {'close won', 'closed won'}:
+			return 'closed won'
+		if raw in {'close lost', 'closed lost'}:
+			return 'closed lost'
+		if raw in {'contacted', 'contracted'}:
+			return 'contacted'
+		if raw in {'new', 'for survey', 'negotiation'}:
+			return raw
+		return 'new'
+
+	pipeline_stage_order = ['new', 'contacted', 'for survey', 'forproposal', 'negotiation', 'closed won', 'closed lost']
+	pipeline_stage_counts = {
+		'new': 0,
+		'contacted': 0,
+		'for_survey': 0,
+		'forproposal': 0,
+		'negotiation': 0,
+		'closed_won': 0,
+		'closed_lost': 0,
+	}
+	seen_pipeline_ids = set()
+	for sales_id, raw_status in pipeline_counts_queryset.values_list('id', 'sales_status').distinct():
+		if sales_id in seen_pipeline_ids:
+			continue
+		seen_pipeline_ids.add(sales_id)
+		normalized = _normalize_pipeline_status(raw_status)
+		if normalized == 'for survey':
+			pipeline_stage_counts['for_survey'] += 1
+		elif normalized == 'closed won':
+			pipeline_stage_counts['closed_won'] += 1
+		elif normalized == 'closed lost':
+			pipeline_stage_counts['closed_lost'] += 1
+		else:
+			pipeline_stage_counts[normalized] = int(pipeline_stage_counts.get(normalized, 0)) + 1
+
 	assigned_sales_options = []
 	assignable_sales_users = []
 	seen_option_labels = set()
@@ -3204,6 +3838,11 @@ def crm_sales(request):
 
 	sales_page = Paginator(sales_queryset, 20).get_page(request.GET.get('page'))
 	now_ts = timezone.now()
+	sales_record_ids_on_page = [row.id for row in sales_page.object_list]
+	read_states_map = {
+		state.sales_record_id: state.last_seen_at
+		for state in CRMSalesCommentReadState.objects.filter(user=request.user, sales_record_id__in=sales_record_ids_on_page)
+	}
 	for sales_row in sales_page.object_list:
 		sales_row.assigned_sales_display = (sales_row.assigned_sales or '').strip()
 		last_activity = sales_row.activity_logs.first() if hasattr(sales_row, 'activity_logs') else None
@@ -3224,6 +3863,20 @@ def crm_sales(request):
 		else:
 			selected_cost_value = sales_row.project_cost
 		sales_row.selected_cost_value = selected_cost_value
+		for activity_log in sales_row.activity_logs.all():
+			activity_comments = list(activity_log.comments.all())
+			activity_log.total_comments = len(activity_comments)
+			activity_log.total_likes = sum(len(comment.likes.all()) for comment in activity_comments)
+		unread_count = 0
+		last_seen_at = read_states_map.get(sales_row.id)
+		for activity_log in sales_row.activity_logs.all():
+			for comment in activity_log.comments.all():
+				if comment.created_by_id == request.user.id:
+					continue
+				if last_seen_at and comment.created_at <= last_seen_at:
+					continue
+				unread_count += 1
+		sales_row.unread_history_comments = unread_count
 	base_query_params = request.GET.copy()
 	base_query_params.pop('page', None)
 	current_query_string = base_query_params.urlencode()
@@ -3264,6 +3917,7 @@ def crm_sales(request):
 		'sales_aging_settings': aging_settings,
 		'can_manage_crm_sales': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']),
 		'enable_floating_calculator': CalculatorSetting.load().enable_floating_calculator,
+		'pipeline_stage_counts': pipeline_stage_counts,
 	}
 	return render(request, 'core/crm_sales.html', context)
 

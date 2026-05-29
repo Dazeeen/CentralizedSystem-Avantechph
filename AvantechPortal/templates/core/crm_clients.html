@@ -21,7 +21,7 @@
         </div>
         <form method="post" id="crmBulkForm" class="mb-3 d-flex align-items-center gap-2">
             {% csrf_token %}
-            <input type="hidden" name="form_action" value="bulk_delete">
+            <input type="hidden" name="form_action" value="submit_delete_request">
             <input type="hidden" name="selected_ids" id="crmSelectedIds" value="">
         </form>
         <form method="get" class="row g-2 mb-3">
@@ -114,16 +114,14 @@
                                         {% if can_manage_crm_clients %}
                                             <li><button type="button" class="dropdown-item js-action-edit">Update</button></li>
                                         {% endif %}
-                                        {% if can_manage_crm_clients or perms.core.delete_client %}
-                                            <li>
-                                                <form method="post" class="m-0 js-remove-client-form">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="form_action" value="bulk_delete">
-                                                    <input type="hidden" name="client_ids" value="{{ row.id }}">
-                                                    <button type="submit" class="dropdown-item text-danger">Remove</button>
-                                                </form>
-                                            </li>
-                                        {% endif %}
+                                        <li>
+                                            <form method="post" class="m-0 js-remove-client-form">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="form_action" value="submit_delete_request">
+                                                <input type="hidden" name="client_ids" value="{{ row.id }}">
+                                                <button type="submit" class="dropdown-item text-danger">Request Removal</button>
+                                            </form>
+                                        </li>
                                     </ul>
                                 </div>
                             </td>
@@ -200,6 +198,165 @@
             </div>
         </aside>
         </div>
+        <hr class="my-4">
+        <div id="crmDeletionQueueRoot">
+            <form method="post" id="crmDeletionQueueBulkForm" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="bulk_delete_removal_requests">
+                <input type="hidden" name="selected_request_ids" id="crmSelectedRemovalRequestIds" value="">
+            </form>
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <h3 class="h6 mb-0">Client Removal Approval Queue</h3>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#crmDeletionHistoryModal">History</button>
+                    {% if can_approve_crm_client_deletions %}
+                        <span class="badge text-bg-warning">Pending Approval</span>
+                    {% else %}
+                        <span class="badge text-bg-light border">My Requests</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="table-responsive border rounded-3">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 36px;"><input type="checkbox" id="crmRemovalRequestSelectAll"></th>
+                            <th>Customer ID</th>
+                            <th>Client</th>
+                            <th>Requested By</th>
+                            <th>Requested At</th>
+                            <th>Status</th>
+                            <th style="width: 220px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for deletion_request in crm_client_deletion_requests %}
+                            <tr class="js-queue-client-row" data-client-id="{{ deletion_request.client_id|default:'' }}" data-request-status="{{ deletion_request.status }}" data-requested-by="{{ deletion_request.requested_by.get_full_name|default:deletion_request.requested_by.username|default:'-' }}" data-requested-at="{{ deletion_request.requested_at|date:'Y-m-d H:i' }}" data-request-notes="{{ deletion_request.reason|default:''|escape }}" title="Double-click to view client info">
+                                <td><input type="checkbox" class="crm-removal-request-checkbox" value="{{ deletion_request.id }}"></td>
+                                <td>{{ deletion_request.customer_id_snapshot|default:'-' }}</td>
+                                <td>{{ deletion_request.client_name_snapshot|default:'-' }}</td>
+                                <td>{{ deletion_request.requested_by.get_full_name|default:deletion_request.requested_by.username|default:'-' }}</td>
+                                <td>{{ deletion_request.requested_at|date:'Y-m-d H:i' }}</td>
+                                <td>
+                                    {% if deletion_request.status == 'pending' %}
+                                        <span class="badge text-bg-warning">Pending</span>
+                                    {% elif deletion_request.status == 'approved' %}
+                                        <span class="badge text-bg-success">Approved</span>
+                                    {% else %}
+                                        <span class="badge text-bg-danger">Rejected</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        {% if can_approve_crm_client_deletions and deletion_request.status == 'pending' %}
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-success js-delete-approval-trigger"
+                                                data-action="approve_delete_request"
+                                                data-request-id="{{ deletion_request.id }}"
+                                                data-client-name="{{ deletion_request.client_name_snapshot|default:'Client' }}"
+                                            >
+                                                Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-outline-danger js-delete-approval-trigger"
+                                                data-action="reject_delete_request"
+                                                data-request-id="{{ deletion_request.id }}"
+                                                data-client-name="{{ deletion_request.client_name_snapshot|default:'Client' }}"
+                                            >
+                                                Reject
+                                            </button>
+                                        {% endif %}
+                                        {% if deletion_request.requested_by_id == request.user.id and deletion_request.status == 'pending' %}
+                                            <form method="post" class="m-0 js-cancel-removal-request-form">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="form_action" value="cancel_delete_request">
+                                                <input type="hidden" name="request_id" value="{{ deletion_request.id }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary">Cancel</button>
+                                            </form>
+                                        {% endif %}
+                                        {% if deletion_request.status != 'pending' %}
+                                            <span class="text-secondary small">No action</span>
+                                        {% elif not can_approve_crm_client_deletions and deletion_request.requested_by_id != request.user.id %}
+                                            <span class="text-secondary small">No action</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center text-secondary py-3">
+                                    No removal requests found.
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex align-items-center gap-2 mt-2">
+                <span class="small text-secondary" id="crmRemovalQueueSelectedCountLabel">0 selected</span>
+                <button type="submit" class="btn btn-sm btn-outline-danger" id="crmRemovalQueueBulkDeleteBtn" form="crmDeletionQueueBulkForm" disabled>Delete Selected Request(s)</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="crmDeletionHistoryModal" tabindex="-1" aria-labelledby="crmDeletionHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crmDeletionHistoryModalLabel">Client Removal Request History</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="crmDeletionHistoryRoot" class="table-responsive border rounded-3">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Customer ID</th>
+                                <th>Client</th>
+                                <th>Requested By</th>
+                                <th>Requested At</th>
+                                <th>Status</th>
+                                <th>Reviewed By</th>
+                                <th>Reviewed At</th>
+                                <th>Review Note</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for history_item in crm_client_deletion_history %}
+                                <tr>
+                                    <td>{{ history_item.customer_id_snapshot|default:'-' }}</td>
+                                    <td>{{ history_item.client_name_snapshot|default:'-' }}</td>
+                                    <td>{{ history_item.requested_by.get_full_name|default:history_item.requested_by.username|default:'-' }}</td>
+                                    <td>{{ history_item.requested_at|date:'Y-m-d H:i' }}</td>
+                                    <td>
+                                        {% if history_item.status == 'approved' %}
+                                            <span class="badge text-bg-success">Approved</span>
+                                        {% elif history_item.status == 'rejected' %}
+                                            <span class="badge text-bg-danger">Rejected</span>
+                                        {% else %}
+                                            <span class="badge text-bg-secondary">{{ history_item.status|default:'-' }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ history_item.reviewed_by.get_full_name|default:history_item.reviewed_by.username|default:'-' }}</td>
+                                    <td>{% if history_item.reviewed_at %}{{ history_item.reviewed_at|date:'Y-m-d H:i' }}{% else %}-{% endif %}</td>
+                                    <td class="pending-deletion-notes-value">{{ history_item.review_notes|default:'-' }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center text-secondary py-3">No history records found.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -272,7 +429,7 @@
 <div id="crmBulkActionBar" class="bulk-action-bar d-none" role="region" aria-label="CRM clients bulk actions">
     <div class="bulk-action-content">
         <span class="bulk-action-count" id="selectedCountLabel">0 selected</span>
-        <button type="submit" class="btn btn-sm btn-outline-danger" id="bulkDeleteBtn" form="crmBulkForm" disabled>Bulk Delete</button>
+        <button type="submit" class="btn btn-sm btn-outline-danger" id="bulkDeleteBtn" form="crmBulkForm" disabled>Request Removal</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="crmClearSelectionBtn">Clear</button>
     </div>
 </div>
@@ -281,16 +438,42 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="crmDeleteConfirmModalLabel">Confirm Client Deletion</h5>
+                <h5 class="modal-title" id="crmDeleteConfirmModalLabel">Submit Removal Request</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                Are you sure you want to remove this client record?
+                <div class="mb-2">Submit this client for removal approval?</div>
+                <label class="form-label small mb-1" for="crmDeleteRequestNotes">Notes</label>
+                <textarea class="form-control" id="crmDeleteRequestNotes" rows="3" placeholder="Optional notes/reason for removal request."></textarea>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="crmDeleteConfirmBtn">Delete</button>
+                <button type="button" class="btn btn-danger" id="crmDeleteConfirmBtn">Submit Request</button>
             </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="crmDeleteApprovalConfirmModal" tabindex="-1" aria-labelledby="crmDeleteApprovalConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="crmDeleteApprovalConfirmForm" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" id="crmDeleteApprovalActionInput" value="">
+                <input type="hidden" name="request_id" id="crmDeleteApprovalRequestIdInput" value="">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="crmDeleteApprovalConfirmModalLabel">Confirm Request Action</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="crmDeleteApprovalConfirmMessage" class="mb-2">Are you sure?</div>
+                    <label class="form-label small mb-1" for="crmDeleteApprovalReviewNotesInput">Additional Note</label>
+                    <textarea class="form-control" id="crmDeleteApprovalReviewNotesInput" name="review_notes" rows="3" placeholder="Enter note for this approval/rejection (optional)."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success" id="crmDeleteApprovalConfirmSubmitBtn">Confirm</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -302,6 +485,9 @@
                 <div class="crm-profile-modal-layout">
                     <aside class="crm-profile-modal-nav">
                         <div class="crm-profile-modal-email" id="infoSidebarEmail">-</div>
+                        <button type="button" class="crm-profile-nav-item d-none" id="pendingDeletionMoreNavBtn" data-target-pane="client-more-pane">
+                            <span>Request</span><span>&rsaquo;</span>
+                        </button>
                         <button type="button" class="crm-profile-nav-item active" data-target-pane="client-profile-pane">
                             <span>Client Profile</span><span>&rsaquo;</span>
                         </button>
@@ -310,9 +496,6 @@
                         </button>
                         <button type="button" class="crm-profile-nav-item" data-target-pane="client-technical-pane">
                             <span>Technical</span><span>&rsaquo;</span>
-                        </button>
-                        <button type="button" class="crm-profile-nav-item" data-target-pane="client-more-pane">
-                            <span>More</span><span>&rsaquo;</span>
                         </button>
                     </aside>
                     <section class="crm-profile-modal-content crm-profile-content-shell">
@@ -378,6 +561,18 @@
                         </div>
                         </div>
                         <div class="crm-profile-pane d-none" id="client-sales-pane">
+                            <div class="mb-3">
+                                <div class="form-label mb-2">Sales Pipeline</div>
+                                <div class="crm-sales-pipeline crm-sales-pipeline-compact" id="infoSalesPipeline" aria-label="Client sales pipeline (read only)">
+                                    <div class="crm-sales-pipeline-stage" data-stage="new">Qualification</div>
+                                    <div class="crm-sales-pipeline-stage" data-stage="contacted">Needs Analysis</div>
+                                    <div class="crm-sales-pipeline-stage" data-stage="for survey">Survey</div>
+                                    <div class="crm-sales-pipeline-stage" data-stage="for proposal">Proposal / Quote</div>
+                                    <div class="crm-sales-pipeline-stage" data-stage="negotiation">Negotiation</div>
+                                    <div class="crm-sales-pipeline-stage" data-stage="closed won">Closed Won</div>
+                                    <div class="crm-sales-pipeline-stage" data-stage="closed lost">Closed Lost</div>
+                                </div>
+                            </div>
                             <div class="row g-3">
                                 <div class="col-md-6"><label class="form-label">Date Created</label><input class="form-control bg-light" id="infoSalesDateCreated" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Lead Source</label><input class="form-control bg-light" id="infoSalesLeadSource" readonly></div>
@@ -387,7 +582,6 @@
                                 <div class="col-md-6"><label class="form-label">Project Cost</label><input class="form-control bg-light" id="infoSalesProjectCost" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Return on Investment</label><input class="form-control bg-light" id="infoSalesRoi" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Assigned Sales</label><input class="form-control bg-light" id="infoSalesAssigned" readonly></div>
-                                <div class="col-md-6"><label class="form-label">Sales Status</label><input class="form-control bg-light" id="infoSalesStatus" readonly></div>
                             </div>
                         </div>
                         <div class="crm-profile-pane d-none" id="client-technical-pane">
@@ -405,7 +599,14 @@
                             </div>
                         </div>
                         <div class="crm-profile-pane d-none" id="client-more-pane">
-                            <div class="alert alert-light border mb-0">More client info placeholder for future updates.</div>
+                            <div class="alert alert-light border mb-0">
+                                <div class="fw-semibold mb-2">Pending Deletion Details</div>
+                                <div class="small"><span class="text-secondary">Status:</span> <span id="pendingDeletionStatusValue">-</span></div>
+                                <div class="small"><span class="text-secondary">Requested By:</span> <span id="pendingDeletionRequestedByValue">-</span></div>
+                                <div class="small"><span class="text-secondary">Requested At:</span> <span id="pendingDeletionRequestedAtValue">-</span></div>
+                                <div class="small mt-2"><span class="text-secondary">Notes:</span></div>
+                                <div class="small pending-deletion-notes-value" id="pendingDeletionNotesValue">-</div>
+                            </div>
                         </div>
                         <div class="mt-4 d-flex gap-2 justify-content-end align-items-center crm-profile-actions">
                             {% if can_manage_crm_clients %}
@@ -569,6 +770,32 @@
                     <button type="submit" class="btn btn-success" id="addCrmClientSubmitBtn">Save Client</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if can_manage_crm_clients %}
+<div class="modal fade" id="addClientConfirmSaveModal" tabindex="-1" aria-labelledby="addClientConfirmSaveModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addClientConfirmSaveModalLabel">Confirm Save Client</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">
+                    Once this client is saved, it cannot be deleted directly.
+                    Client removal requires a separate deletion request and approval process.
+                </p>
+                <label for="addClientConfirmTextInput" class="form-label mb-1">Type <strong>I CONFIRM</strong> to continue</label>
+                <input type="text" class="form-control" id="addClientConfirmTextInput" placeholder="I CONFIRM" autocomplete="off">
+                <div class="form-text">This confirmation helps prevent accidental client creation.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="addClientConfirmSaveBtn" disabled>Save Client</button>
+            </div>
         </div>
     </div>
 </div>
@@ -772,6 +999,9 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    .js-queue-client-row {
+        cursor: pointer;
+    }
     .crm-profile-close-btn {
         border: 1px solid #ddd;
         border-radius: 999px;
@@ -790,6 +1020,64 @@
         justify-content: center;
         font-weight: 700;
         color: #444;
+    }
+    .crm-sales-pipeline {
+        display: flex;
+        gap: 0;
+        border-radius: 999px;
+        overflow: hidden;
+        border: 1px solid #b7d8c5;
+        background: #e7f3eb;
+    }
+    .crm-sales-pipeline-stage {
+        position: relative;
+        flex: 1 1 0;
+        text-align: center;
+        font-size: 11px;
+        line-height: 1.2;
+        padding: 10px 16px 10px 18px;
+        color: #15573a;
+        background: #d6eede;
+        border: 0;
+        white-space: nowrap;
+    }
+    .crm-sales-pipeline-stage:first-child {
+        clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
+        border-top-left-radius: 999px;
+        border-bottom-left-radius: 999px;
+    }
+    .crm-sales-pipeline-stage + .crm-sales-pipeline-stage {
+        clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%);
+        margin-left: -10px;
+        padding-left: 28px;
+    }
+    .crm-sales-pipeline-stage:last-child {
+        clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%);
+        border-top-right-radius: 999px;
+        border-bottom-right-radius: 999px;
+    }
+    .crm-sales-pipeline-stage.is-done,
+    .crm-sales-pipeline-stage.is-current {
+        background: #198754;
+        color: #fff;
+    }
+    .crm-sales-pipeline-stage.is-upcoming {
+        background: #e7f3eb;
+        color: #35694f;
+    }
+    .crm-sales-pipeline-compact {
+        width: min(100%, 860px);
+    }
+    .pending-deletion-notes-value {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        max-width: 100%;
+    }
+    #addCrmClientModal.crm-modal-dimmed .modal-content {
+        opacity: 0.45;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
     }
     @media (max-width: 991.98px) {
         .crm-clients-split-layout { grid-template-columns: 1fr; }
@@ -860,6 +1148,40 @@ document.addEventListener('DOMContentLoaded', function () {
         syncBulkSelectionState();
         applyClientRowsUI();
     }
+    async function refreshDeletionQueueRootFromDocument(doc) {
+        var currentQueueRoot = document.getElementById('crmDeletionQueueRoot');
+        if (!currentQueueRoot || !doc) {
+            return;
+        }
+        var nextQueueRoot = doc.getElementById('crmDeletionQueueRoot');
+        if (nextQueueRoot) {
+            currentQueueRoot.innerHTML = nextQueueRoot.innerHTML;
+        }
+        var currentHistoryRoot = document.getElementById('crmDeletionHistoryRoot');
+        var nextHistoryRoot = doc.getElementById('crmDeletionHistoryRoot');
+        if (currentHistoryRoot && nextHistoryRoot) {
+            currentHistoryRoot.innerHTML = nextHistoryRoot.innerHTML;
+        }
+    }
+    async function refreshClientsRealtimeSections() {
+        var response = await fetch(window.location.href, {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        var htmlText = await response.text();
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(htmlText, 'text/html');
+
+        var currentRoot = document.getElementById('crmClientsListRoot');
+        var nextRoot = doc.getElementById('crmClientsListRoot');
+        if (currentRoot && nextRoot) {
+            currentRoot.innerHTML = nextRoot.innerHTML;
+        }
+        await refreshDeletionQueueRootFromDocument(doc);
+        syncBulkSelectionState();
+        syncRemovalQueueSelectionState();
+        applyClientRowsUI();
+    }
     var crmLiveImportRefreshRunning = false;
     var crmLiveImportRefreshTimer = null;
     var crmLiveImportLastRefreshAt = 0;
@@ -870,7 +1192,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         crmLiveImportRefreshRunning = true;
         try {
-            await refreshClientsListRoot();
+            await refreshClientsRealtimeSections();
             crmLiveImportLastRefreshAt = Date.now();
         } catch (error) {
         } finally {
@@ -1027,6 +1349,10 @@ document.addEventListener('DOMContentLoaded', function () {
     var selectedIdsInput = document.getElementById('crmSelectedIds');
     var clearSelectionBtn = document.getElementById('crmClearSelectionBtn');
     var bulkActionBar = document.getElementById('crmBulkActionBar');
+    var removalQueueSelectAll = document.getElementById('crmRemovalRequestSelectAll');
+    var removalQueueSelectedIdsInput = document.getElementById('crmSelectedRemovalRequestIds');
+    var removalQueueSelectedCountLabel = document.getElementById('crmRemovalQueueSelectedCountLabel');
+    var removalQueueBulkDeleteBtn = document.getElementById('crmRemovalQueueBulkDeleteBtn');
 
     function syncBulkSelectionState() {
         selectAll = document.getElementById('crmSelectAll');
@@ -1051,6 +1377,26 @@ document.addEventListener('DOMContentLoaded', function () {
             selectAll.checked = rowChecks.length > 0 && selectedCount === rowChecks.length;
         }
     }
+    function syncRemovalQueueSelectionState() {
+        removalQueueSelectAll = document.getElementById('crmRemovalRequestSelectAll');
+        var rowChecks = Array.from(document.querySelectorAll('.crm-removal-request-checkbox'));
+        var selected = rowChecks.filter(function (cb) { return cb.checked; });
+        var selectedCount = selected.length;
+        var selectedIds = selected.map(function (cb) { return cb.value; });
+        if (removalQueueSelectedCountLabel) {
+            removalQueueSelectedCountLabel.textContent = selectedCount + ' selected';
+        }
+        if (removalQueueBulkDeleteBtn) {
+            removalQueueBulkDeleteBtn.disabled = selectedCount === 0;
+        }
+        if (removalQueueSelectedIdsInput) {
+            removalQueueSelectedIdsInput.value = selectedIds.join(',');
+        }
+        if (removalQueueSelectAll) {
+            removalQueueSelectAll.indeterminate = selectedCount > 0 && selectedCount < rowChecks.length;
+            removalQueueSelectAll.checked = rowChecks.length > 0 && selectedCount === rowChecks.length;
+        }
+    }
 
     document.addEventListener('change', function (event) {
         if (event.target && event.target.id === 'crmSelectAll') {
@@ -1061,6 +1407,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (event.target && event.target.classList && event.target.classList.contains('crm-row-checkbox')) {
             syncBulkSelectionState();
+            return;
+        }
+        if (event.target && event.target.id === 'crmRemovalRequestSelectAll') {
+            var removalChecks = Array.from(document.querySelectorAll('.crm-removal-request-checkbox'));
+            removalChecks.forEach(function (cb) { cb.checked = event.target.checked; });
+            syncRemovalQueueSelectionState();
+            return;
+        }
+        if (event.target && event.target.classList && event.target.classList.contains('crm-removal-request-checkbox')) {
+            syncRemovalQueueSelectionState();
         }
     });
     document.addEventListener('click', function (event) {
@@ -1082,12 +1438,27 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     syncBulkSelectionState();
+    syncRemovalQueueSelectionState();
 
     var clientModalEl = document.getElementById('crmClientInfoModal');
     var clientModal = (clientModalEl && window.bootstrap) ? new bootstrap.Modal(clientModalEl) : null;
     var deleteConfirmModalEl = document.getElementById('crmDeleteConfirmModal');
     var deleteConfirmModal = (deleteConfirmModalEl && window.bootstrap) ? new bootstrap.Modal(deleteConfirmModalEl) : null;
     var deleteConfirmBtn = document.getElementById('crmDeleteConfirmBtn');
+    var deleteRequestNotesInput = document.getElementById('crmDeleteRequestNotes');
+    var deleteApprovalConfirmModalEl = document.getElementById('crmDeleteApprovalConfirmModal');
+    function getBootstrapModalInstance(modalEl) {
+        if (!modalEl || !window.bootstrap || !window.bootstrap.Modal) {
+            return null;
+        }
+        return window.bootstrap.Modal.getOrCreateInstance(modalEl);
+    }
+    var deleteApprovalConfirmForm = document.getElementById('crmDeleteApprovalConfirmForm');
+    var deleteApprovalActionInput = document.getElementById('crmDeleteApprovalActionInput');
+    var deleteApprovalRequestIdInput = document.getElementById('crmDeleteApprovalRequestIdInput');
+    var deleteApprovalReviewNotesInput = document.getElementById('crmDeleteApprovalReviewNotesInput');
+    var deleteApprovalConfirmMessage = document.getElementById('crmDeleteApprovalConfirmMessage');
+    var deleteApprovalConfirmSubmitBtn = document.getElementById('crmDeleteApprovalConfirmSubmitBtn');
     var pendingRemoveForm = null;
     var editModalEl = document.getElementById('crmClientEditModal');
     var editModal = (editModalEl && window.bootstrap) ? new bootstrap.Modal(editModalEl) : null;
@@ -1147,10 +1518,63 @@ document.addEventListener('DOMContentLoaded', function () {
             return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
         });
     }
-    function openClientModalFromRow(row) {
-        if (!row || !clientModal) {
+    function normalizeSalesStatus(rawStatus) {
+        var status = String(rawStatus || '').trim().toLowerCase();
+        if (!status || status === '-') return 'new';
+        var aliasMap = {
+            'forproposal': 'for proposal',
+            'close won': 'closed won',
+            'close lost': 'closed lost'
+        };
+        return aliasMap[status] || status;
+    }
+    function renderSalesProgressUI(status) {
+        var normalizedStatus = normalizeSalesStatus(status);
+        var order = ['new', 'contacted', 'for survey', 'for proposal', 'negotiation', 'closed won', 'closed lost'];
+        var currentIndex = order.indexOf(normalizedStatus);
+        if (currentIndex < 0) {
+            currentIndex = 0;
+        }
+        var pipelineRoot = document.getElementById('infoSalesPipeline');
+        if (!pipelineRoot) return;
+        pipelineRoot.querySelectorAll('.crm-sales-pipeline-stage').forEach(function (stageEl) {
+            var stageStatus = normalizeSalesStatus(stageEl.getAttribute('data-stage'));
+            var stageIndex = order.indexOf(stageStatus);
+            stageEl.classList.remove('is-done', 'is-current', 'is-upcoming');
+            if (stageIndex === currentIndex) {
+                stageEl.classList.add('is-current');
+            } else if (stageIndex >= 0 && stageIndex < currentIndex && normalizedStatus !== 'closed lost') {
+                stageEl.classList.add('is-done');
+            } else {
+                stageEl.classList.add('is-upcoming');
+            }
+        });
+    }
+    function applyPendingDeletionMoreContext(context) {
+        var moreNavBtn = document.getElementById('pendingDeletionMoreNavBtn');
+        var statusEl = document.getElementById('pendingDeletionStatusValue');
+        var requestedByEl = document.getElementById('pendingDeletionRequestedByValue');
+        var requestedAtEl = document.getElementById('pendingDeletionRequestedAtValue');
+        var notesEl = document.getElementById('pendingDeletionNotesValue');
+        var hasPendingContext = !!(context && String(context.status || '').toLowerCase() === 'pending');
+        if (moreNavBtn) {
+            moreNavBtn.classList.toggle('d-none', !hasPendingContext);
+        }
+        if (statusEl) statusEl.textContent = hasPendingContext ? (context.status || '-') : '-';
+        if (requestedByEl) requestedByEl.textContent = hasPendingContext ? (context.requestedBy || '-') : '-';
+        if (requestedAtEl) requestedAtEl.textContent = hasPendingContext ? (context.requestedAt || '-') : '-';
+        if (notesEl) notesEl.textContent = hasPendingContext ? (context.notes || '-') : '-';
+    }
+    function openClientModalFromRow(row, modalContext) {
+        if (!row) {
             return;
         }
+        var clientModalInstance = getBootstrapModalInstance(clientModalEl);
+        if (!clientModalInstance) {
+            alert('Unable to open client info modal. Please refresh the page.');
+            return;
+        }
+        applyPendingDeletionMoreContext(modalContext || null);
         currentRowForModal = row;
         document.getElementById('infoCustomerId').value = row.dataset.customerId || '-';
         document.getElementById('infoFirstName').value = row.dataset.firstName || '';
@@ -1173,7 +1597,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('infoSalesProjectCost').value = row.dataset.salesProjectCost || '-';
         document.getElementById('infoSalesRoi').value = row.dataset.salesRoi || '-';
         document.getElementById('infoSalesAssigned').value = row.dataset.salesAssigned || '-';
-        document.getElementById('infoSalesStatus').value = row.dataset.salesStatus || '-';
+        renderSalesProgressUI(row.dataset.salesStatus || 'new');
         document.getElementById('infoTechInstallationDate').value = row.dataset.techInstallationDate || '-';
         document.getElementById('infoTechTeamAssigned').value = row.dataset.techTeamAssigned || '-';
         document.getElementById('infoTechSystemSizeKwh').value = row.dataset.techSystemSizeKwh || '-';
@@ -1190,13 +1614,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (mediaContainer) {
             mediaContainer.innerHTML = mediaTemplate ? mediaTemplate.innerHTML : '<p class="text-secondary mb-0">No media files uploaded for this client.</p>';
         }
-        var firstNav = document.querySelector('#crmClientInfoModal .crm-profile-nav-item');
+        var firstNav = document.querySelector('#crmClientInfoModal .crm-profile-nav-item:not(.d-none)');
         if (firstNav) {
             firstNav.click();
         }
         setInlineEditMode(false);
         syncInlineActionsVisibility();
-        clientModal.show();
+        clientModalInstance.show();
     }
 
     document.querySelectorAll('#crmClientInfoModal .crm-profile-nav-item').forEach(function (item) {
@@ -1289,6 +1713,20 @@ document.addEventListener('DOMContentLoaded', function () {
         keydown: crmClientsRowKeydownHandler,
         dblclick: crmClientsRowDblclickHandler,
     };
+    var clientsListRootEl = document.getElementById('crmClientsListRoot');
+    if (clientsListRootEl) {
+        clientsListRootEl.addEventListener('dblclick', function (event) {
+            var row = event.target.closest('.crm-client-row');
+            if (!row) {
+                return;
+            }
+            if (event.target.closest('input, button, a, label, form')) {
+                return;
+            }
+            setActiveRow(row);
+            openClientModalFromRow(row);
+        });
+    }
 
     var summaryViewBtn = document.getElementById('crmSummaryViewBtn');
     var summaryEditBtn = document.getElementById('crmSummaryEditBtn');
@@ -1310,6 +1748,56 @@ document.addEventListener('DOMContentLoaded', function () {
     var addClientForm = document.getElementById('addCrmClientForm');
     var addClientDuplicateState = { byName: false, byAddress: false };
     var addClientDuplicateCheckTimer = null;
+    var addClientConfirmModalEl = document.getElementById('addClientConfirmSaveModal');
+    var addClientConfirmTextInput = document.getElementById('addClientConfirmTextInput');
+    var addClientConfirmSaveBtn = document.getElementById('addClientConfirmSaveBtn');
+    var addClientConfirmModal = (addClientConfirmModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(addClientConfirmModalEl) : null;
+    var addClientModalEl = document.getElementById('addCrmClientModal');
+    var addClientModal = (addClientModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(addClientModalEl) : null;
+    var ADD_CLIENT_CONFIRM_PHRASE = 'I CONFIRM';
+    var addClientConfirmSubmitting = false;
+
+    function isAddClientConfirmPhraseValid() {
+        return String((addClientConfirmTextInput && addClientConfirmTextInput.value) || '').trim().toUpperCase() === ADD_CLIENT_CONFIRM_PHRASE;
+    }
+
+    function syncAddClientConfirmButtonState() {
+        if (!addClientConfirmSaveBtn) return;
+        addClientConfirmSaveBtn.disabled = !isAddClientConfirmPhraseValid();
+    }
+
+    function resetAddClientConfirmModalState() {
+        if (!addClientConfirmTextInput) return;
+        addClientConfirmTextInput.value = '';
+        syncAddClientConfirmButtonState();
+    }
+
+    async function submitAddClientFormNow() {
+        addClientConfirmSubmitting = true;
+        await runAddClientDuplicateCheck();
+        if (addClientDuplicateState.byName || addClientDuplicateState.byAddress) {
+            addClientConfirmSubmitting = false;
+            return;
+        }
+        try {
+            await postFormAjax(addClientForm);
+            if (addClientModal) {
+                addClientModalEl.classList.remove('crm-modal-dimmed');
+            }
+            if (addClientConfirmModal) {
+                addClientConfirmModal.hide();
+            }
+            addClientForm.reset();
+            setAddClientDuplicateVisualState({ byName: false, byAddress: false }, {});
+            resetAddClientConfirmModalState();
+            await refreshClientsRealtimeSections();
+        } catch (error) {
+            alert(error.message || 'Unable to add client.');
+        } finally {
+            addClientConfirmSubmitting = false;
+        }
+    }
+
     function setAddClientDuplicateVisualState(state, payload) {
         var firstNameField = addClientForm ? addClientForm.querySelector('input[name="first_name"]') : null;
         var lastNameField = addClientForm ? addClientForm.querySelector('input[name="last_name"]') : null;
@@ -1395,23 +1883,45 @@ document.addEventListener('DOMContentLoaded', function () {
             field.addEventListener('input', scheduleAddClientDuplicateCheck);
             field.addEventListener('blur', scheduleAddClientDuplicateCheck);
         });
-        addClientForm.addEventListener('submit', async function (event) {
+        addClientForm.addEventListener('submit', function (event) {
             event.preventDefault();
-            await runAddClientDuplicateCheck();
             if (addClientDuplicateState.byName || addClientDuplicateState.byAddress) {
                 return;
             }
-            try {
-                await postFormAjax(addClientForm);
-                var addModalEl = document.getElementById('addCrmClientModal');
-                if (addModalEl && window.bootstrap) {
-                    bootstrap.Modal.getOrCreateInstance(addModalEl).hide();
-                }
-                addClientForm.reset();
-                setAddClientDuplicateVisualState({ byName: false, byAddress: false }, {});
-                await refreshClientsListRoot();
-            } catch (error) {
-                alert(error.message || 'Unable to add client.');
+            if (!addClientConfirmModal) {
+                submitAddClientFormNow();
+                return;
+            }
+            resetAddClientConfirmModalState();
+            if (addClientModalEl) {
+                addClientModalEl.classList.add('crm-modal-dimmed');
+            }
+            addClientConfirmModal.show();
+        });
+    }
+    if (addClientConfirmTextInput) {
+        addClientConfirmTextInput.addEventListener('input', syncAddClientConfirmButtonState);
+        addClientConfirmTextInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' && isAddClientConfirmPhraseValid()) {
+                event.preventDefault();
+                if (addClientConfirmSaveBtn) addClientConfirmSaveBtn.click();
+            }
+        });
+    }
+    if (addClientConfirmSaveBtn) {
+        addClientConfirmSaveBtn.addEventListener('click', function () {
+            if (!isAddClientConfirmPhraseValid()) {
+                syncAddClientConfirmButtonState();
+                return;
+            }
+            submitAddClientFormNow();
+        });
+    }
+    if (addClientConfirmModalEl) {
+        addClientConfirmModalEl.addEventListener('hidden.bs.modal', function () {
+            resetAddClientConfirmModalState();
+            if (addClientModalEl && !addClientConfirmSubmitting) {
+                addClientModalEl.classList.remove('crm-modal-dimmed');
             }
         });
     }
@@ -1423,7 +1933,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (editModalEl && window.bootstrap) {
                     bootstrap.Modal.getOrCreateInstance(editModalEl).hide();
                 }
-                await refreshClientsListRoot();
+                await refreshClientsRealtimeSections();
             } catch (error) {
                 alert(error.message || 'Unable to update client.');
             }
@@ -1431,13 +1941,27 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     var bulkForm = document.getElementById('crmBulkForm');
     if (bulkForm) {
-        bulkForm.addEventListener('submit', async function (event) {
+        bulkForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var selectedIdsValue = selectedIdsInput ? String(selectedIdsInput.value || '').trim() : '';
+            if (!selectedIdsValue) {
+                return;
+            }
+            pendingRemoveForm = bulkForm;
+            if (deleteConfirmModal) {
+                deleteConfirmModal.show();
+            }
+        });
+    }
+    var deletionQueueBulkForm = document.getElementById('crmDeletionQueueBulkForm');
+    if (deletionQueueBulkForm) {
+        deletionQueueBulkForm.addEventListener('submit', async function (event) {
             event.preventDefault();
             try {
-                await postFormAjax(bulkForm);
-                await refreshClientsListRoot();
+                await postFormAjax(deletionQueueBulkForm);
+                await refreshClientsRealtimeSections();
             } catch (error) {
-                alert(error.message || 'Bulk delete failed.');
+                alert(error.message || 'Unable to delete selected removal requests.');
             }
         });
     }
@@ -1458,12 +1982,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
             try {
+                var notesValue = deleteRequestNotesInput ? String(deleteRequestNotesInput.value || '').trim() : '';
+                var reasonInput = pendingRemoveForm.querySelector('input[name="reason"]');
+                if (!reasonInput) {
+                    reasonInput = document.createElement('input');
+                    reasonInput.type = 'hidden';
+                    reasonInput.name = 'reason';
+                    pendingRemoveForm.appendChild(reasonInput);
+                }
+                reasonInput.value = notesValue;
                 await postFormAjax(pendingRemoveForm);
                 if (deleteConfirmModal) {
                     deleteConfirmModal.hide();
                 }
                 pendingRemoveForm = null;
-                await refreshClientsListRoot();
+                await refreshClientsRealtimeSections();
             } catch (error) {
                 alert(error.message || 'Remove failed.');
             }
@@ -1472,6 +2005,9 @@ document.addEventListener('DOMContentLoaded', function () {
     if (deleteConfirmModalEl) {
         deleteConfirmModalEl.addEventListener('hidden.bs.modal', function () {
             pendingRemoveForm = null;
+            if (deleteRequestNotesInput) {
+                deleteRequestNotesInput.value = '';
+            }
         });
     }
     document.addEventListener('click', function (event) {
@@ -1494,6 +2030,97 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 window.history.replaceState({}, '', pageLink.href);
             });
+    });
+    document.addEventListener('click', function (event) {
+        var approvalTrigger = event.target.closest('.js-delete-approval-trigger');
+        if (!approvalTrigger) {
+            return;
+        }
+        var actionType = String(approvalTrigger.getAttribute('data-action') || '').trim();
+        var requestId = String(approvalTrigger.getAttribute('data-request-id') || '').trim();
+        var clientName = String(approvalTrigger.getAttribute('data-client-name') || 'this client').trim();
+        if (!actionType || !requestId) {
+            return;
+        }
+        if (deleteApprovalActionInput) deleteApprovalActionInput.value = actionType;
+        if (deleteApprovalRequestIdInput) deleteApprovalRequestIdInput.value = requestId;
+        if (deleteApprovalReviewNotesInput) deleteApprovalReviewNotesInput.value = '';
+        var isReject = actionType === 'reject_delete_request';
+        if (deleteApprovalConfirmModalEl) {
+            var titleEl = deleteApprovalConfirmModalEl.querySelector('.modal-title');
+            if (titleEl) {
+                titleEl.textContent = isReject ? 'Reject Removal Request' : 'Approve Removal Request';
+            }
+        }
+        if (deleteApprovalConfirmMessage) {
+            deleteApprovalConfirmMessage.textContent = isReject
+                ? ('Are you sure you want to reject deletion request for "' + clientName + '"?')
+                : ('Are you sure you want to approve deletion request for "' + clientName + '"?');
+        }
+        if (deleteApprovalConfirmSubmitBtn) {
+            deleteApprovalConfirmSubmitBtn.classList.remove('btn-success', 'btn-danger');
+            deleteApprovalConfirmSubmitBtn.classList.add(isReject ? 'btn-danger' : 'btn-success');
+            deleteApprovalConfirmSubmitBtn.textContent = isReject ? 'Reject Request' : 'Approve Request';
+        }
+        var approvalModalInstance = getBootstrapModalInstance(deleteApprovalConfirmModalEl);
+        if (!approvalModalInstance) {
+            alert('Unable to open confirmation modal. Please refresh the page.');
+            return;
+        }
+        approvalModalInstance.show();
+    });
+    if (deleteApprovalConfirmForm) {
+        deleteApprovalConfirmForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            try {
+                await postFormAjax(deleteApprovalConfirmForm);
+                var approvalModalInstance = getBootstrapModalInstance(deleteApprovalConfirmModalEl);
+                if (approvalModalInstance) {
+                    approvalModalInstance.hide();
+                }
+                await refreshClientsRealtimeSections();
+            } catch (error) {
+                alert(error.message || 'Unable to process removal request.');
+            }
+        });
+    }
+    document.addEventListener('submit', async function (event) {
+        var cancelForm = event.target.closest('.js-cancel-removal-request-form');
+        if (!cancelForm) {
+            return;
+        }
+        event.preventDefault();
+        try {
+            await postFormAjax(cancelForm);
+            await refreshClientsRealtimeSections();
+        } catch (error) {
+            alert(error.message || 'Unable to cancel removal request.');
+        }
+    });
+    document.addEventListener('dblclick', function (event) {
+        if (event.target.closest('button, a, input, select, textarea, label, form')) {
+            return;
+        }
+        var queueRow = event.target.closest('.js-queue-client-row');
+        if (!queueRow) {
+            return;
+        }
+        var clientId = String(queueRow.getAttribute('data-client-id') || '').trim();
+        if (!clientId) {
+            return;
+        }
+        var targetRow = document.querySelector('.crm-client-row[data-client-id="' + clientId + '"]');
+        if (!targetRow) {
+            alert('Client is not on the current page list. Use search/filter to load the client row, then view again.');
+            return;
+        }
+        setActiveRow(targetRow);
+        openClientModalFromRow(targetRow, {
+            status: String(queueRow.getAttribute('data-request-status') || '').trim(),
+            requestedBy: String(queueRow.getAttribute('data-requested-by') || '').trim(),
+            requestedAt: String(queueRow.getAttribute('data-requested-at') || '').trim(),
+            notes: String(queueRow.getAttribute('data-request-notes') || '').trim()
+        });
     });
     {% if form.errors %}
     var modalEl = document.getElementById('addCrmClientModal');
