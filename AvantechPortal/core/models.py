@@ -473,6 +473,245 @@ class SuperUserChatReadState(models.Model):
 		return f'SuperUserChatReadState<{self.user_id}:{self.last_seen_message_id or "none"}>'
 
 
+def _private_chat_fernet():
+	fernet_cls = Fernet
+	if fernet_cls is None:
+		try:
+			from cryptography.fernet import Fernet as fernet_cls
+		except Exception as exc:
+			raise ValidationError('Private chat encryption backend is not available. Install cryptography to continue.') from exc
+	digest = hashlib.sha256((settings.SECRET_KEY or '').encode('utf-8')).digest()
+	return fernet_cls(base64.urlsafe_b64encode(digest))
+
+
+def private_chat_attachment_upload_to(instance, filename):
+	original_name = filename or 'attachment.file'
+	extension = Path(original_name).suffix.lower() or '.file'
+	message_id = getattr(instance, 'message_id', None) or 'pending'
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	name_slug = slugify(Path(original_name).stem) or 'attachment'
+	return f'private_chat_attachments/{message_id}/{name_slug}_{date_stamp}{extension}'
+
+
+class PrivateChatConversation(models.Model):
+	department = models.ForeignKey(
+		'auth.Group',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='private_chat_conversations',
+	)
+	participant_one = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='private_chat_conversations_started',
+	)
+	participant_two = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='private_chat_conversations_received',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-updated_at']
+		constraints = [
+			models.UniqueConstraint(fields=['participant_one', 'participant_two'], name='unique_private_chat_participants'),
+			models.CheckConstraint(condition=~Q(participant_one=F('participant_two')), name='private_chat_distinct_participants'),
+		]
+		indexes = [
+			models.Index(fields=['participant_one', 'participant_two']),
+			models.Index(fields=['-updated_at']),
+		]
+
+	def __str__(self):
+		return f'PrivateChatConversation<{self.participant_one_id}:{self.participant_two_id}>'
+
+	def clean(self):
+		if self.participant_one_id and self.participant_two_id and self.participant_one_id == self.participant_two_id:
+			raise ValidationError('Private chat participants must be different users.')
+
+	def other_participant(self, user):
+		if getattr(user, 'pk', None) == self.participant_one_id:
+			return self.participant_two
+		if getattr(user, 'pk', None) == self.participant_two_id:
+			return self.participant_one
+		return None
+
+
+class PrivateChatMessage(models.Model):
+	conversation = models.ForeignKey(
+		PrivateChatConversation,
+		on_delete=models.CASCADE,
+		related_name='messages',
+	)
+	sender = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='private_chat_messages',
+	)
+	reply_to = models.ForeignKey(
+		'self',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='replies',
+	)
+	encrypted_message = models.TextField()
+	is_deleted = models.BooleanField(default=False)
+	deleted_at = models.DateTimeField(blank=True, null=True)
+	deleted_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='private_chat_messages_deleted',
+	)
+	edited_at = models.DateTimeField(blank=True, null=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['created_at']
+		indexes = [
+			models.Index(fields=['conversation', 'created_at']),
+			models.Index(fields=['sender', 'created_at']),
+		]
+
+	def __str__(self):
+		return f'PrivateChatMessage<{self.conversation_id}:{self.sender_id}:{self.created_at:%Y-%m-%d %H:%M}>'
+
+	def set_message(self, message, allow_blank=False):
+		text = (message or '').strip()
+		if not text and not allow_blank:
+			raise ValidationError('Message cannot be blank.')
+		self.encrypted_message = _private_chat_fernet().encrypt(text.encode('utf-8')).decode('utf-8')
+
+	def get_message(self):
+		if self.is_deleted:
+			return 'This message is no longer available.'
+		try:
+			return _private_chat_fernet().decrypt((self.encrypted_message or '').encode('utf-8')).decode('utf-8')
+		except (InvalidToken, ValueError, TypeError):
+			return '[Encrypted message unavailable]'
+
+
+class PrivateChatAttachment(models.Model):
+	message = models.ForeignKey(
+		PrivateChatMessage,
+		on_delete=models.CASCADE,
+		related_name='attachments',
+	)
+	file = models.FileField(upload_to=private_chat_attachment_upload_to)
+	original_name = models.CharField(max_length=255)
+	file_size = models.PositiveBigIntegerField(default=0)
+	content_type = models.CharField(max_length=120, blank=True, default='')
+	uploaded_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['id']
+		indexes = [
+			models.Index(fields=['message', 'id']),
+		]
+
+	def __str__(self):
+		return f'PrivateChatAttachment<{self.message_id}:{self.original_name}>'
+
+	@property
+	def is_image(self):
+		return (self.content_type or '').lower().startswith('image/')
+
+
+class PrivateChatReaction(models.Model):
+	REACTION_CHOICES = [
+		('like', 'Like'),
+		('laugh', 'Laugh'),
+		('angry', 'Angry'),
+		('sad', 'Sad'),
+		('heart', 'Heart'),
+	]
+
+	message = models.ForeignKey(
+		PrivateChatMessage,
+		on_delete=models.CASCADE,
+		related_name='reactions',
+	)
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='private_chat_reactions',
+	)
+	reaction = models.CharField(max_length=12, choices=REACTION_CHOICES)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['message_id', 'reaction']
+		constraints = [
+			models.UniqueConstraint(fields=['message', 'user'], name='unique_private_chat_reaction'),
+		]
+
+	def __str__(self):
+		return f'PrivateChatReaction<{self.message_id}:{self.user_id}:{self.reaction}>'
+
+
+class PrivateChatPinnedMessage(models.Model):
+	message = models.ForeignKey(
+		PrivateChatMessage,
+		on_delete=models.CASCADE,
+		related_name='pins',
+	)
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='private_chat_pins',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		constraints = [
+			models.UniqueConstraint(fields=['message', 'user'], name='unique_private_chat_pin'),
+		]
+
+	def __str__(self):
+		return f'PrivateChatPinnedMessage<{self.message_id}:{self.user_id}>'
+
+
+class PrivateChatReadState(models.Model):
+	conversation = models.ForeignKey(
+		PrivateChatConversation,
+		on_delete=models.CASCADE,
+		related_name='read_states',
+	)
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='private_chat_read_states',
+	)
+	last_read_message = models.ForeignKey(
+		PrivateChatMessage,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='+',
+	)
+	last_read_at = models.DateTimeField(blank=True, null=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['conversation_id', 'user_id']
+		constraints = [
+			models.UniqueConstraint(fields=['conversation', 'user'], name='unique_private_chat_read_state'),
+		]
+		indexes = [
+			models.Index(fields=['conversation', 'user']),
+		]
+
+	def __str__(self):
+		return f'PrivateChatReadState<{self.conversation_id}:{self.user_id}:{self.last_read_message_id or "none"}>'
+
+
 class EmailVerificationToken(models.Model):
 	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='email_tokens')
 	token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)

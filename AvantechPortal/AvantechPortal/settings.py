@@ -208,6 +208,7 @@ TEMPLATES = [
                 'core.context_processors.notification_summary',
                 'core.context_processors.finance_navigation_state',
                 'core.context_processors.super_user_chat_access',
+                'core.context_processors.private_chat_summary',
                 'core.context_processors.page_access_indicator',
                 'core.context_processors.role_preview',
                 'core.context_processors.calculator_feature_flags',

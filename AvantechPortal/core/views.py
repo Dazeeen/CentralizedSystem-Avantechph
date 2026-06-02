@@ -174,6 +174,12 @@ from .models import (
 	PatchNoteAttachment,
 	PatchNoteComment,
 	PatchNoteReaction,
+	PrivateChatAttachment,
+	PrivateChatConversation,
+	PrivateChatMessage,
+	PrivateChatPinnedMessage,
+	PrivateChatReadState,
+	PrivateChatReaction,
 	UserProfile,
 )
 
@@ -193,6 +199,7 @@ INTERNET_ACCOUNT_UNLOCK_SESSION_KEY = 'company_internet_account_unlocks'
 FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY = 'file-manager:default-hierarchy-synced'
 FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY = 'file-manager:default-hierarchy-sync-lock'
 FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS = 5 * 60
+PRIVATE_CHAT_MESSAGE_PAGE_SIZE = 10
 
 ROLE_PREVIEW_DEFAULT_AUDIENCES = {
 	'All signed-in users',
@@ -676,6 +683,571 @@ def dashboard(request):
 @login_required
 def attendance_page(request):
 	return _render_timekeeping_page(request, page_title='Attendance', page_heading='Attendance')
+
+
+def _chat_user_label(user_obj):
+	return (user_obj.get_full_name() or user_obj.username or '').strip() or f'User {user_obj.pk}'
+
+
+def _department_chat_members(department, current_user):
+	if not department:
+		return User.objects.none()
+	return (
+		User.objects
+		.filter(is_active=True, groups=department)
+		.exclude(pk=current_user.pk)
+		.select_related('profile')
+		.prefetch_related('groups')
+		.distinct()
+		.order_by('first_name', 'last_name', 'username')
+	)
+
+
+def _private_chat_participant_pair(user_a, user_b):
+	if user_a.pk < user_b.pk:
+		return user_a, user_b
+	return user_b, user_a
+
+
+def _private_chat_query_params(department_id=None, user_id=None):
+	params = {}
+	if department_id:
+		params['department'] = department_id
+	if user_id:
+		params['user'] = user_id
+	return urlencode(params)
+
+
+def _private_chat_conversation_for_users(user_a, user_b):
+	participant_one, participant_two = _private_chat_participant_pair(user_a, user_b)
+	return (
+		PrivateChatConversation.objects
+		.filter(participant_one=participant_one, participant_two=participant_two)
+		.select_related('participant_one', 'participant_two', 'department')
+		.first()
+	)
+
+
+def _private_chat_last_read_id(conversation, user):
+	if not conversation or not user:
+		return 0
+	read_state = PrivateChatReadState.objects.filter(conversation=conversation, user=user).first()
+	return int(read_state.last_read_message_id or 0) if read_state else 0
+
+
+def _mark_private_chat_read(conversation, user):
+	if not conversation or not user:
+		return
+	latest_message = conversation.messages.order_by('-id').first()
+	if not latest_message:
+		return
+	read_state = PrivateChatReadState.objects.filter(conversation=conversation, user=user).first()
+	if read_state and int(read_state.last_read_message_id or 0) >= latest_message.pk:
+		return
+	if read_state:
+		read_state.last_read_message = latest_message
+		read_state.last_read_at = timezone.now()
+		read_state.save(update_fields=['last_read_message', 'last_read_at', 'updated_at'])
+	else:
+		PrivateChatReadState.objects.create(
+			conversation=conversation,
+			user=user,
+			last_read_message=latest_message,
+			last_read_at=timezone.now(),
+		)
+
+
+def _private_chat_unread_count_for_conversation(conversation, user):
+	if not conversation or not user:
+		return 0
+	last_read_id = _private_chat_last_read_id(conversation, user)
+	return conversation.messages.exclude(sender=user).filter(id__gt=last_read_id).count()
+
+
+def _private_chat_total_unread_count(user):
+	if not user or not user.is_authenticated:
+		return 0
+	total = 0
+	conversations = PrivateChatConversation.objects.filter(Q(participant_one=user) | Q(participant_two=user)).distinct()
+	for conversation in conversations:
+		total += _private_chat_unread_count_for_conversation(conversation, user)
+	return total
+
+
+def _private_chat_message_status(message, current_user, recipient_read_id=0, ajax_sent=False):
+	if message.sender_id != current_user.pk:
+		return ''
+	if ajax_sent:
+		return 'Sent'
+	if recipient_read_id and message.pk <= recipient_read_id:
+		return 'Seen'
+	return 'Delivered'
+
+
+def _serialize_private_chat_attachment(attachment):
+	file_url = ''
+	try:
+		file_url = attachment.file.url
+	except ValueError:
+		file_url = ''
+	return {
+		'id': attachment.pk,
+		'name': attachment.original_name or Path(getattr(attachment.file, 'name', '') or '').name,
+		'size': attachment.file_size or 0,
+		'content_type': attachment.content_type,
+		'is_image': attachment.is_image,
+		'url': file_url,
+	}
+
+
+def _serialize_private_chat_message(message, current_user, recipient_read_id=0, ajax_sent=False):
+	reply_payload = None
+	if message.reply_to_id and getattr(message, 'reply_to', None):
+		reply_payload = {
+			'id': message.reply_to_id,
+			'sender_label': _chat_user_label(message.reply_to.sender),
+			'body': message.reply_to.get_message(),
+		}
+	reaction_labels = dict(PrivateChatReaction.REACTION_CHOICES)
+	reaction_emoji = {
+		'like': '👍',
+		'laugh': '😂',
+		'angry': '😡',
+		'sad': '😢',
+		'heart': '❤️',
+	}
+	reaction_counts = {}
+	own_reaction = ''
+	for reaction in message.reactions.all():
+		reaction_counts[reaction.reaction] = reaction_counts.get(reaction.reaction, 0) + 1
+		if reaction.user_id == current_user.pk:
+			own_reaction = reaction.reaction
+	return {
+		'id': message.pk,
+		'sender_id': message.sender_id,
+		'sender_label': _chat_user_label(message.sender),
+		'body': message.get_message(),
+		'reply_to': reply_payload,
+		'attachments': [] if message.is_deleted else [
+			_serialize_private_chat_attachment(attachment)
+			for attachment in getattr(message, '_prefetched_objects_cache', {}).get('attachments', message.attachments.all())
+		],
+		'is_deleted': message.is_deleted,
+		'can_edit': message.sender_id == current_user.pk and not message.is_deleted,
+		'can_delete': message.sender_id == current_user.pk and not message.is_deleted,
+		'is_edited': bool(message.edited_at),
+		'is_pinned': message.pins.filter(user=current_user).exists(),
+		'reactions': [
+			{
+				'key': key,
+				'label': reaction_labels.get(key, key),
+				'emoji': reaction_emoji.get(key, ''),
+				'count': count,
+				'is_own': own_reaction == key,
+			}
+			for key, count in reaction_counts.items()
+		],
+		'own_reaction': own_reaction,
+		'created_at': timezone.localtime(message.created_at).strftime('%b %d, %Y %I:%M %p'),
+		'is_own': message.sender_id == current_user.pk,
+		'status': _private_chat_message_status(message, current_user, recipient_read_id=recipient_read_id, ajax_sent=ajax_sent),
+	}
+
+
+def _private_chat_user_payload(user_obj):
+	profile = getattr(user_obj, 'profile', None)
+	return {
+		'id': user_obj.pk,
+		'label': _chat_user_label(user_obj),
+		'status': getattr(profile, 'get_status_display', lambda: 'Offline')(),
+	}
+
+
+def _private_chat_message_window(conversation, current_user, recipient, *, before_id=None, after_id=None, around_id=None, latest=False):
+	if not conversation:
+		return {
+			'messages': [],
+			'has_previous': False,
+			'has_next': False,
+			'oldest_id': None,
+			'newest_id': None,
+			'count': 0,
+		}
+
+	base_queryset = conversation.messages.select_related('sender', 'reply_to', 'reply_to__sender').prefetch_related('attachments', 'reactions', 'pins')
+	if around_id and base_queryset.filter(pk=around_id).exists():
+		before_messages = list(base_queryset.filter(id__lt=around_id).order_by('-id')[:4])
+		before_messages.reverse()
+		target_message = list(base_queryset.filter(id=around_id))
+		after_messages = list(base_queryset.filter(id__gt=around_id).order_by('id')[:PRIVATE_CHAT_MESSAGE_PAGE_SIZE - len(before_messages) - len(target_message)])
+		page_messages = before_messages + target_message + after_messages
+	elif before_id:
+		page_messages = list(base_queryset.filter(id__lt=before_id).order_by('-id')[:PRIVATE_CHAT_MESSAGE_PAGE_SIZE])
+		page_messages.reverse()
+	elif after_id:
+		page_messages = list(base_queryset.filter(id__gt=after_id).order_by('id')[:PRIVATE_CHAT_MESSAGE_PAGE_SIZE])
+	else:
+		page_messages = list(base_queryset.order_by('-id')[:PRIVATE_CHAT_MESSAGE_PAGE_SIZE])
+		page_messages.reverse()
+
+	recipient_read_id = _private_chat_last_read_id(conversation, recipient)
+	messages_payload = [
+		_serialize_private_chat_message(message, current_user, recipient_read_id=recipient_read_id)
+		for message in page_messages
+	]
+	oldest_id = page_messages[0].pk if page_messages else None
+	newest_id = page_messages[-1].pk if page_messages else None
+
+	return {
+		'messages': messages_payload,
+		'has_previous': bool(oldest_id and base_queryset.filter(id__lt=oldest_id).exists()),
+		'has_next': bool(newest_id and base_queryset.filter(id__gt=newest_id).exists()),
+		'oldest_id': oldest_id,
+		'newest_id': newest_id,
+		'count': len(page_messages),
+	}
+
+
+def _save_private_chat_message_with_retry(sender, recipient, department, message_text, reply_to_id=None, attachments=None, attempts=4):
+	attachments = list(attachments or [])
+	last_error = None
+	for attempt in range(attempts):
+		try:
+			participant_one, participant_two = _private_chat_participant_pair(sender, recipient)
+			conversation, _ = PrivateChatConversation.objects.get_or_create(
+				participant_one=participant_one,
+				participant_two=participant_two,
+				defaults={'department': department},
+			)
+			if department and conversation.department_id != department.pk:
+				PrivateChatConversation.objects.filter(pk=conversation.pk).update(department=department)
+			chat_message = PrivateChatMessage(conversation=conversation, sender=sender)
+			if reply_to_id:
+				chat_message.reply_to = PrivateChatMessage.objects.filter(pk=reply_to_id, conversation=conversation).first()
+			chat_message.set_message(message_text, allow_blank=bool(attachments))
+			chat_message.save()
+			for uploaded_file in attachments:
+				PrivateChatAttachment.objects.create(
+					message=chat_message,
+					file=uploaded_file,
+					original_name=getattr(uploaded_file, 'name', '') or 'attachment',
+					file_size=getattr(uploaded_file, 'size', 0) or 0,
+					content_type=getattr(uploaded_file, 'content_type', '') or '',
+				)
+			PrivateChatConversation.objects.filter(pk=conversation.pk).update(updated_at=timezone.now())
+			return conversation, chat_message
+		except OperationalError as exc:
+			if 'database is locked' not in str(exc).lower() or attempt == attempts - 1:
+				raise
+			last_error = exc
+			time.sleep(0.2 * (attempt + 1))
+	if last_error:
+		raise last_error
+	return None
+
+
+@login_required
+def chats_page(request):
+	departments = list(Group.objects.order_by('name'))
+	selected_department = None
+	selected_member = None
+	members = User.objects.none()
+	conversation = None
+	chat_messages = []
+	chat_history = {
+		'has_previous': False,
+		'has_next': False,
+		'oldest_id': None,
+		'newest_id': None,
+	}
+
+	department_id = request.POST.get('department') or request.GET.get('department')
+	user_id = request.POST.get('user') or request.GET.get('user')
+	if department_id:
+		try:
+			selected_department = Group.objects.get(pk=department_id)
+		except (Group.DoesNotExist, ValueError, TypeError):
+			selected_department = None
+
+	if selected_department:
+		members = _department_chat_members(selected_department, request.user)
+		if user_id:
+			try:
+				selected_member = members.get(pk=user_id)
+			except (User.DoesNotExist, ValueError, TypeError):
+				selected_member = None
+
+	if request.method == 'POST':
+		message_text = (request.POST.get('message') or '').strip()
+		reply_to_id = request.POST.get('reply_to') or None
+		attachments = request.FILES.getlist('attachments')
+		if not selected_department or not selected_member:
+			messages.error(request, 'Select a department member before sending a message.')
+		elif not message_text and not attachments:
+			messages.error(request, 'Message or attachment is required.')
+		else:
+			try:
+				_save_private_chat_message_with_retry(request.user, selected_member, selected_department, message_text, reply_to_id=reply_to_id, attachments=attachments)
+				return redirect(f"{reverse('chats_page')}?{_private_chat_query_params(selected_department.pk, selected_member.pk)}")
+			except OperationalError as exc:
+				if 'database is locked' in str(exc).lower():
+					messages.error(request, 'The database is busy. Please send the message again in a moment.')
+				else:
+					raise
+
+	if selected_member:
+		participant_one, participant_two = _private_chat_participant_pair(request.user, selected_member)
+		conversation = (
+			PrivateChatConversation.objects
+			.filter(participant_one=participant_one, participant_two=participant_two)
+			.select_related('participant_one', 'participant_two', 'department')
+			.first()
+		)
+		if conversation:
+			_mark_private_chat_read(conversation, request.user)
+			chat_history = _private_chat_message_window(conversation, request.user, selected_member)
+			chat_messages = chat_history['messages']
+
+	department_rows = []
+	for department in departments:
+		department_members = list(_department_chat_members(department, request.user)) if request.user.is_authenticated else []
+		member_count = len(department_members)
+		if member_count < 1:
+			continue
+		unread_count = 0
+		for member in department_members:
+			member_conversation = _private_chat_conversation_for_users(request.user, member)
+			unread_count += _private_chat_unread_count_for_conversation(member_conversation, request.user)
+		department_rows.append({
+			'department': department,
+			'member_count': member_count,
+			'unread_count': unread_count,
+			'is_active': bool(selected_department and selected_department.pk == department.pk),
+		})
+
+	member_rows = []
+	for member in members:
+		groups = list(member.groups.all())
+		member_conversation = _private_chat_conversation_for_users(request.user, member)
+		member_rows.append({
+			'user': member,
+			'label': _chat_user_label(member),
+			'username': member.username,
+			'status': getattr(getattr(member, 'profile', None), 'get_status_display', lambda: 'Offline')(),
+			'unread_count': _private_chat_unread_count_for_conversation(member_conversation, request.user),
+			'is_active': bool(selected_member and selected_member.pk == member.pk),
+			'role_label': groups[0].name if groups else getattr(getattr(member, 'profile', None), 'branch', ''),
+		})
+
+	return render(request, 'core/chats.html', {
+		'departments': department_rows,
+		'selected_department': selected_department,
+		'members': member_rows,
+		'selected_member': selected_member,
+		'selected_member_label': _chat_user_label(selected_member) if selected_member else '',
+		'conversation': conversation,
+		'chat_messages': chat_messages,
+		'chat_history': chat_history,
+		'private_chat_unread_count': _private_chat_total_unread_count(request.user),
+	})
+
+
+def _resolve_private_chat_selection(request):
+	department_id = request.POST.get('department') or request.GET.get('department')
+	user_id = request.POST.get('user') or request.GET.get('user')
+	try:
+		department = Group.objects.get(pk=department_id)
+	except (Group.DoesNotExist, ValueError, TypeError):
+		return None, None, 'Invalid department.'
+	try:
+		member = _department_chat_members(department, request.user).get(pk=user_id)
+	except (User.DoesNotExist, ValueError, TypeError):
+		return department, None, 'Invalid department member.'
+	return department, member, ''
+
+
+def _private_chat_unread_payload(user):
+	departments_payload = {}
+	members_payload = {}
+	total = 0
+	for department in Group.objects.order_by('name'):
+		department_total = 0
+		for member in _department_chat_members(department, user):
+			conversation = _private_chat_conversation_for_users(user, member)
+			member_unread = _private_chat_unread_count_for_conversation(conversation, user)
+			department_total += member_unread
+			members_payload[str(member.pk)] = member_unread
+		departments_payload[str(department.pk)] = department_total
+		total += department_total
+	return {
+		'total': total,
+		'departments': departments_payload,
+		'members': members_payload,
+	}
+
+
+@login_required
+def chats_messages(request):
+	department, member, error = _resolve_private_chat_selection(request)
+	if error:
+		return JsonResponse({'ok': False, 'message': error}, status=400)
+	conversation = _private_chat_conversation_for_users(request.user, member)
+	window_payload = {
+		'messages': [],
+		'has_previous': False,
+		'has_next': False,
+		'oldest_id': None,
+		'newest_id': None,
+		'count': 0,
+	}
+	if conversation:
+		if request.GET.get('mark_read') == '1':
+			_mark_private_chat_read(conversation, request.user)
+		try:
+			before_id = int(request.GET.get('before') or 0) or None
+		except (TypeError, ValueError):
+			before_id = None
+		try:
+			after_id = int(request.GET.get('after') or 0) or None
+		except (TypeError, ValueError):
+			after_id = None
+		try:
+			around_id = int(request.GET.get('around') or 0) or None
+		except (TypeError, ValueError):
+			around_id = None
+		window_payload = _private_chat_message_window(conversation, request.user, member, before_id=before_id, after_id=after_id, around_id=around_id)
+	return JsonResponse({
+		'ok': True,
+		'messages': window_payload['messages'],
+		'history': {
+			'has_previous': window_payload['has_previous'],
+			'has_next': window_payload['has_next'],
+			'oldest_id': window_payload['oldest_id'],
+			'newest_id': window_payload['newest_id'],
+			'count': window_payload['count'],
+		},
+		'unread': _private_chat_unread_payload(request.user),
+		'selected_member': _private_chat_user_payload(member),
+		'department': {'id': department.pk, 'name': department.name},
+	})
+
+
+@login_required
+@require_POST
+def chats_send(request):
+	department, member, error = _resolve_private_chat_selection(request)
+	if error:
+		return JsonResponse({'ok': False, 'message': error}, status=400)
+	message_text = (request.POST.get('message') or '').strip()
+	attachments = request.FILES.getlist('attachments')
+	if not message_text and not attachments:
+		return JsonResponse({'ok': False, 'message': 'Message or attachment is required.'}, status=400)
+	reply_to_id = request.POST.get('reply_to') or None
+	try:
+		conversation, chat_message = _save_private_chat_message_with_retry(request.user, member, department, message_text, reply_to_id=reply_to_id, attachments=attachments)
+	except OperationalError as exc:
+		if 'database is locked' in str(exc).lower():
+			return JsonResponse({'ok': False, 'message': 'The database is busy. Please send the message again in a moment.'}, status=503)
+		raise
+	recipient_read_id = _private_chat_last_read_id(conversation, member)
+	return JsonResponse({
+		'ok': True,
+		'message': _serialize_private_chat_message(chat_message, request.user, recipient_read_id=recipient_read_id, ajax_sent=True),
+		'unread': _private_chat_unread_payload(request.user),
+	})
+
+
+@login_required
+def chats_unread_count(request):
+	return JsonResponse({'ok': True, 'unread': _private_chat_unread_payload(request.user)})
+
+
+def _private_chat_message_for_action(request, message_id):
+	message = (
+		PrivateChatMessage.objects
+		.select_related('conversation', 'sender', 'reply_to', 'reply_to__sender')
+		.prefetch_related('attachments', 'reactions', 'pins')
+		.filter(pk=message_id)
+		.first()
+	)
+	if not message:
+		return None
+	conversation = message.conversation
+	if conversation.participant_one_id != request.user.pk and conversation.participant_two_id != request.user.pk:
+		return None
+	return message
+
+
+@login_required
+@require_POST
+def chats_message_react(request, message_id):
+	message = _private_chat_message_for_action(request, message_id)
+	if not message or message.is_deleted:
+		return JsonResponse({'ok': False, 'message': 'Message not found.'}, status=404)
+	reaction = (request.POST.get('reaction') or '').strip()
+	valid_reactions = {key for key, _ in PrivateChatReaction.REACTION_CHOICES}
+	if reaction not in valid_reactions:
+		return JsonResponse({'ok': False, 'message': 'Invalid reaction.'}, status=400)
+	existing = PrivateChatReaction.objects.filter(message=message, user=request.user).first()
+	if existing and existing.reaction == reaction:
+		existing.delete()
+	else:
+		PrivateChatReaction.objects.update_or_create(
+			message=message,
+			user=request.user,
+			defaults={'reaction': reaction},
+		)
+	message = _private_chat_message_for_action(request, message_id)
+	recipient = message.conversation.other_participant(request.user)
+	return JsonResponse({'ok': True, 'message': _serialize_private_chat_message(message, request.user, recipient_read_id=_private_chat_last_read_id(message.conversation, recipient))})
+
+
+@login_required
+@require_POST
+def chats_message_delete(request, message_id):
+	message = _private_chat_message_for_action(request, message_id)
+	if not message or message.sender_id != request.user.pk:
+		return JsonResponse({'ok': False, 'message': 'Message not found.'}, status=404)
+	message.is_deleted = True
+	message.deleted_at = timezone.now()
+	message.deleted_by = request.user
+	message.set_message('This message is no longer available.', allow_blank=True)
+	message.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by', 'encrypted_message'])
+	message.attachments.all().delete()
+	recipient = message.conversation.other_participant(request.user)
+	return JsonResponse({'ok': True, 'message': _serialize_private_chat_message(message, request.user, recipient_read_id=_private_chat_last_read_id(message.conversation, recipient))})
+
+
+@login_required
+@require_POST
+def chats_message_edit(request, message_id):
+	message = _private_chat_message_for_action(request, message_id)
+	if not message or message.sender_id != request.user.pk or message.is_deleted:
+		return JsonResponse({'ok': False, 'message': 'Message not found.'}, status=404)
+	body = (request.POST.get('message') or '').strip()
+	if not body:
+		return JsonResponse({'ok': False, 'message': 'Edited message cannot be blank.'}, status=400)
+	message.set_message(body)
+	message.edited_at = timezone.now()
+	message.save(update_fields=['encrypted_message', 'edited_at'])
+	recipient = message.conversation.other_participant(request.user)
+	return JsonResponse({'ok': True, 'message': _serialize_private_chat_message(message, request.user, recipient_read_id=_private_chat_last_read_id(message.conversation, recipient))})
+
+
+@login_required
+@require_POST
+def chats_message_pin(request, message_id):
+	message = _private_chat_message_for_action(request, message_id)
+	if not message or message.is_deleted:
+		return JsonResponse({'ok': False, 'message': 'Message not found.'}, status=404)
+	pin = PrivateChatPinnedMessage.objects.filter(message=message, user=request.user).first()
+	if pin:
+		pin.delete()
+	else:
+		PrivateChatPinnedMessage.objects.create(message=message, user=request.user)
+	message = _private_chat_message_for_action(request, message_id)
+	recipient = message.conversation.other_participant(request.user)
+	return JsonResponse({'ok': True, 'message': _serialize_private_chat_message(message, request.user, recipient_read_id=_private_chat_last_read_id(message.conversation, recipient))})
 
 
 def _resolve_timekeeping_user(employee_id, employee_name, user_by_id, user_by_name):

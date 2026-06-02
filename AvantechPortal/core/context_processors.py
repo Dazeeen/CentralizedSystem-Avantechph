@@ -9,6 +9,8 @@ from .models import (
     CalculatorSetting,
     CalculatorImportRow,
     Notification,
+    PrivateChatConversation,
+    PrivateChatReadState,
     SuperUserChatMessage,
     SuperUserChatReadState,
     SupportTicket,
@@ -38,6 +40,9 @@ CRM_MANAGE_PERMISSIONS = {
 
 PAGE_ACCESS_RULES = {
     'dashboard': {'label': 'Dashboard', 'audience': 'All signed-in users'},
+    'attendance_page': {'label': 'Attendance', 'audience': 'All signed-in users'},
+    'chats_page': {'label': 'Chats', 'audience': 'All signed-in users'},
+    'timekeeping_page': {'label': 'Timekeeping', 'extra_roles': ['Human Resource'], 'audience': 'Human Resource role members and superusers'},
     'profile_page': {'label': 'Profile', 'audience': 'The signed-in account'},
     'notifications_list': {'label': 'Notifications', 'audience': 'All signed-in users'},
     'password_change': {'label': 'Change Password', 'audience': 'The signed-in account'},
@@ -375,6 +380,20 @@ def super_user_chat_access(request):
         'can_access_super_user_chat': has_access,
         'super_user_chat_unread_count': unread_count,
     }
+
+
+def private_chat_summary(request):
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return {'private_chat_unread_count': 0}
+
+    unread_count = 0
+    conversations = PrivateChatConversation.objects.filter(Q(participant_one=user) | Q(participant_two=user)).distinct()
+    for conversation in conversations:
+        read_state = PrivateChatReadState.objects.filter(conversation=conversation, user=user).first()
+        last_read_id = int(read_state.last_read_message_id or 0) if read_state else 0
+        unread_count += conversation.messages.exclude(sender=user).filter(id__gt=last_read_id).count()
+    return {'private_chat_unread_count': unread_count}
 
 
 def finance_navigation_state(request):

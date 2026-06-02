@@ -30,6 +30,12 @@ from .models import (
 	LiquidationTemplate,
 	LoginEvent,
 	Notification,
+	PrivateChatAttachment,
+	PrivateChatConversation,
+	PrivateChatMessage,
+	PrivateChatPinnedMessage,
+	PrivateChatReadState,
+	PrivateChatReaction,
 	SupportTicket,
 	SupportTicketMessage,
 	SuperUserChatMessage,
@@ -89,6 +95,84 @@ class SuperUserChatReadStateAdmin(admin.ModelAdmin):
 	list_display = ('user', 'last_seen_message', 'last_seen_at', 'updated_at')
 	search_fields = ('user__username', 'user__first_name', 'user__last_name')
 	readonly_fields = ('user', 'last_seen_message', 'last_seen_at', 'updated_at')
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
+
+
+@admin.register(PrivateChatConversation)
+class PrivateChatConversationAdmin(admin.ModelAdmin):
+	list_display = ('participant_one', 'participant_two', 'department', 'created_at', 'updated_at')
+	list_filter = ('department', 'created_at', 'updated_at')
+	search_fields = (
+		'participant_one__username',
+		'participant_one__first_name',
+		'participant_one__last_name',
+		'participant_two__username',
+		'participant_two__first_name',
+		'participant_two__last_name',
+		'department__name',
+	)
+	readonly_fields = ('participant_one', 'participant_two', 'department', 'created_at', 'updated_at')
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
+
+
+@admin.register(PrivateChatMessage)
+class PrivateChatMessageAdmin(admin.ModelAdmin):
+	list_display = ('conversation', 'sender', 'reply_to', 'created_at')
+	list_filter = ('created_at',)
+	search_fields = ('sender__username', 'sender__first_name', 'sender__last_name', 'encrypted_message')
+	readonly_fields = ('conversation', 'sender', 'reply_to', 'encrypted_message', 'created_at')
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
+
+
+@admin.register(PrivateChatAttachment)
+class PrivateChatAttachmentAdmin(admin.ModelAdmin):
+	list_display = ('message', 'original_name', 'file_size', 'content_type', 'uploaded_at')
+	list_filter = ('content_type', 'uploaded_at')
+	search_fields = ('original_name', 'file', 'message__sender__username')
+	readonly_fields = ('message', 'file', 'original_name', 'file_size', 'content_type', 'uploaded_at')
+
+	def has_add_permission(self, request):
+		return False
+
+	def has_change_permission(self, request, obj=None):
+		return False
+
+
+@admin.register(PrivateChatReaction)
+class PrivateChatReactionAdmin(admin.ModelAdmin):
+	list_display = ('message', 'user', 'reaction', 'created_at', 'updated_at')
+	list_filter = ('reaction', 'created_at')
+	search_fields = ('user__username', 'message__sender__username')
+
+
+@admin.register(PrivateChatPinnedMessage)
+class PrivateChatPinnedMessageAdmin(admin.ModelAdmin):
+	list_display = ('message', 'user', 'created_at')
+	list_filter = ('created_at',)
+	search_fields = ('user__username', 'message__sender__username')
+
+
+@admin.register(PrivateChatReadState)
+class PrivateChatReadStateAdmin(admin.ModelAdmin):
+	list_display = ('conversation', 'user', 'last_read_message', 'last_read_at', 'updated_at')
+	list_filter = ('last_read_at', 'updated_at')
+	search_fields = ('user__username', 'user__first_name', 'user__last_name')
+	readonly_fields = ('conversation', 'user', 'last_read_message', 'last_read_at', 'updated_at')
 
 	def has_add_permission(self, request):
 		return False
