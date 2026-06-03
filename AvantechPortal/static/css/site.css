@@ -258,19 +258,12 @@ body {
 }
 
 .nav-subgroup {
-    display: none;
+    display: none !important;
+    flex-direction: column;
 }
 
 .nav-group-trigger.is-open+.nav-subgroup {
-    display: block;
-}
-
-.js-inventory-nav-subgroup {
-    display: block;
-}
-
-.nav-group-trigger.is-open+.js-inventory-nav-subgroup {
-    display: block;
+    display: flex !important;
 }
 
 .js-inventory-nav-subgroup .app-nav-link {

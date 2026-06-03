@@ -90,6 +90,54 @@
         flex: 0 0 auto;
     }
 
+    .chat-header-avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: #198754;
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        flex: 0 0 42px;
+        overflow: hidden;
+        border: 1px solid #dbe3ee;
+    }
+
+    .chat-header-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .chat-header-icon-btn {
+        width: 38px;
+        height: 38px;
+        border: 1px solid #dbe3ee;
+        border-radius: 8px;
+        background: #fff;
+        color: #64748b;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .chat-header-icon-btn:hover,
+    .chat-header-icon-btn:focus {
+        color: #198754;
+        border-color: #b7d88d;
+        background: #f3faeb;
+    }
+
+    .chat-header-icon-btn .badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+    }
+
     .chat-thread {
         padding: 16px;
         display: flex;
@@ -144,14 +192,16 @@
     }
 
     .chat-bubble {
-        max-width: min(680px, 82%);
         border: 1px solid #e2e8f0;
         border-radius: 22px;
-        padding: 10px 12px;
+        padding: 9px 12px;
         background: #fff;
         align-self: flex-start;
-        word-break: break-word;
+        overflow-wrap: break-word;
+        word-break: normal;
+        white-space: normal;
         position: relative;
+        z-index: 1;
     }
 
     .chat-message-row {
@@ -159,7 +209,8 @@
         align-items: center;
         gap: 8px;
         align-self: flex-start;
-        max-width: min(760px, 92%);
+        width: 100%;
+        max-width: 100%;
     }
 
     .chat-message-row.has-reactions {
@@ -175,11 +226,28 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
-        max-width: min(680px, 82%);
+        width: fit-content;
+        max-width: 50%;
+        min-width: 0;
     }
 
     .chat-message-row.is-own .chat-message-stack {
         align-items: flex-end;
+        margin-left: auto;
+    }
+
+    .chat-message-body-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: fit-content;
+        max-width: 100%;
+        min-width: 0;
+        position: relative;
+    }
+
+    .chat-message-row.is-own .chat-message-body-row {
+        flex-direction: row-reverse;
     }
 
     .chat-message-row.is-own .chat-message-sender {
@@ -242,12 +310,14 @@
     }
 
     .chat-message-row .chat-bubble {
+        width: fit-content;
+        flex: 0 1 auto;
+        min-width: 0;
         max-width: 100%;
         cursor: pointer;
     }
 
     .chat-message-row:not(.is-own) .chat-bubble,
-    .chat-message-row:not(.is-own) .chat-reply-context,
     .chat-message-row:not(.is-own) .chat-message-meta {
         margin-left: 31px;
     }
@@ -256,6 +326,16 @@
         align-self: flex-end;
         background: #eaf7dc;
         border-color: #c8e6a2;
+    }
+
+    .chat-bubble.is-deleted,
+    .chat-bubble.is-own.is-deleted {
+        background: #f8fafc;
+        border-color: #cbd5e1;
+        border-style: dashed;
+        color: #94a3b8;
+        opacity: .78;
+        font-style: italic;
     }
 
     .chat-bubble.is-highlighted {
@@ -292,11 +372,22 @@
         display: inline-flex;
         gap: 6px;
         align-items: center;
-        align-self: center;
+        flex: 0 0 auto;
+        position: absolute;
+        left: 100%;
+        top: 50%;
+        margin-left: 8px;
         opacity: 0;
         pointer-events: none;
-        transform: translateY(2px);
+        transform: translateY(calc(-50% + 2px));
         transition: opacity .15s ease, transform .15s ease;
+    }
+
+    .chat-message-row.is-own .chat-actions {
+        left: auto;
+        right: 100%;
+        margin-left: 0;
+        margin-right: 8px;
     }
 
     .chat-message-row:hover .chat-actions,
@@ -304,7 +395,7 @@
     .chat-actions:focus-within {
         opacity: 1;
         pointer-events: auto;
-        transform: translateY(0);
+        transform: translateY(-50%);
     }
 
     .chat-reactions {
@@ -370,16 +461,17 @@
     .chat-reply-context {
         align-self: flex-start;
         width: fit-content;
-        max-width: min(320px, 72vw);
+        max-width: min(320px, 100%);
         border: 1px solid rgba(203, 213, 225, .72);
         border-left: 3px solid rgba(148, 196, 65, .72);
-        border-radius: 18px;
+        border-radius: 16px;
         background: rgba(248, 250, 252, .68);
         color: #64748b;
-        padding: 7px 11px;
+        padding: 7px 11px 13px;
         font-size: .82rem;
         cursor: pointer;
         opacity: .76;
+        margin-bottom: -11px;
         box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
     }
 
@@ -389,6 +481,35 @@
         border-right: 3px solid rgba(148, 196, 65, .72);
         background: rgba(234, 247, 220, .62);
         text-align: left;
+    }
+
+    .chat-reply-label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: #64748b;
+        font-size: .78rem;
+        margin: 0 4px -1px;
+        max-width: 100%;
+    }
+
+    .chat-message-row.is-own .chat-reply-label {
+        justify-content: flex-end;
+    }
+
+    .chat-reply-overlap {
+        display: flex;
+        flex-direction: column;
+        max-width: 100%;
+        z-index: 0;
+    }
+
+    .chat-message-row:not(.is-own) .chat-reply-overlap {
+        margin-left: 31px;
+    }
+
+    .chat-message-row.is-own .chat-reply-overlap {
+        align-items: flex-end;
     }
 
     .chat-reply-context .small {
@@ -427,10 +548,7 @@
     }
 
     .chat-message-status {
-        font-size: .72rem;
         color: #64748b;
-        text-align: right;
-        margin-top: 4px;
     }
 
     .chat-send-status {
@@ -493,7 +611,7 @@
 
     .chat-compose {
         border-top: 1px solid #e5e7eb;
-        padding: 12px;
+        padding: 8px 12px;
         background: #fff;
         position: relative;
     }
@@ -506,9 +624,52 @@
         z-index: 2;
     }
 
+    .chat-pin-notice {
+        position: absolute;
+        left: 50%;
+        top: -42px;
+        transform: translateX(-50%) translateY(6px);
+        z-index: 3;
+        max-width: min(92%, 460px);
+        border: 1px solid #b7d88d;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, .12);
+        padding: 7px 12px;
+        color: #334155;
+        font-size: .86rem;
+        text-align: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity .16s ease, transform .16s ease;
+    }
+
+    .chat-pin-notice.is-visible {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .chat-pin-notice button {
+        border: 0;
+        background: transparent;
+        color: #198754;
+        padding: 0;
+        font-weight: 700;
+    }
+
     .chat-compose textarea {
-        min-height: 72px;
-        resize: vertical;
+        min-height: 42px;
+        max-height: 96px;
+        resize: none;
+        line-height: 1.35;
+        padding-top: 8px;
+        padding-bottom: 8px;
+    }
+
+    .chat-compose .form-label {
+        font-size: .82rem;
+        margin-bottom: 4px;
     }
 
     .chat-input-row {
@@ -520,6 +681,7 @@
     .chat-file-btn {
         width: 42px;
         min-width: 42px;
+        height: 42px;
         border: 1px solid #dbe3ee;
         border-radius: 8px;
         background: #fff;
@@ -534,6 +696,13 @@
         color: #198754;
         border-color: #b7d88d;
         background: #f3faeb;
+    }
+
+    .chat-input-row .btn {
+        min-width: 82px;
+        height: 42px;
+        padding-top: 0;
+        padding-bottom: 0;
     }
 
     .chat-drop-target {
@@ -593,6 +762,20 @@
         margin-bottom: 7px;
     }
 
+    .chat-pinned-modal-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .chat-pinned-modal-list .chat-message-row {
+        max-width: 100%;
+    }
+
+    .chat-pinned-modal-list .chat-message-stack {
+        max-width: min(680px, 92%);
+    }
+
     .chat-upload-thumb img {
         width: 100%;
         height: 100%;
@@ -637,10 +820,12 @@
     data-selected-user="{% if selected_member %}{{ selected_member.id }}{% endif %}"
     data-history-oldest="{% if chat_history.oldest_id %}{{ chat_history.oldest_id }}{% endif %}"
     data-history-newest="{% if chat_history.newest_id %}{{ chat_history.newest_id }}{% endif %}"
+    data-history-first="{% if chat_history.first_id %}{{ chat_history.first_id }}{% endif %}"
     data-history-has-previous="{% if chat_history.has_previous %}1{% else %}0{% endif %}"
     data-history-has-next="{% if chat_history.has_next %}1{% else %}0{% endif %}"
     data-history-count="{{ chat_history.count|default:0 }}"
     data-history-total-count="{{ chat_history.total_count|default:0 }}"
+    data-current-user-label="{{ request.user.get_full_name|default:request.user.username|escape }}"
 >
     <section class="chat-panel" aria-label="Chat navigation">
         {% if selected_department %}
@@ -698,14 +883,32 @@
 
     <section class="chat-panel" aria-label="Conversation">
         <div class="chat-panel-header d-flex justify-content-between align-items-center gap-2">
-            <div class="min-w-0">
-                <div class="fw-semibold text-truncate">
-                    {% if selected_member %}{{ selected_member_label }}{% else %}Conversation{% endif %}
-                </div>
-                <div class="small text-secondary">
-                    {% if selected_department %}{{ selected_department.name }}{% else %}Private chat{% endif %}
+            <div class="d-flex align-items-center gap-2 min-w-0">
+                <span class="chat-header-avatar" aria-hidden="true">
+                    {% if selected_member and selected_member.profile.avatar %}
+                        <img src="{{ selected_member.profile.avatar.url }}" alt="">
+                    {% else %}
+                        {% if selected_member %}{{ selected_member_label|first|upper }}{% else %}C{% endif %}
+                    {% endif %}
+                </span>
+                <div class="min-w-0">
+                    <div class="fw-semibold text-truncate">
+                        {% if selected_member %}{{ selected_member_label }}{% else %}Conversation{% endif %}
+                    </div>
+                    <div class="small text-secondary text-truncate">
+                        {% if selected_department %}{{ selected_department.name }}{% else %}Private chat{% endif %}
+                    </div>
                 </div>
             </div>
+            {% if selected_member %}
+                <button type="button" class="chat-header-icon-btn" data-bs-toggle="modal" data-bs-target="#privateChatPinnedModal" aria-label="View pinned messages" title="Pinned messages">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 4.5H15L14.4 10.5L18 14V16H6V14L9.6 10.5L9 4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M12 16V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                    <span class="badge bg-danger {% if not pinned_chat_messages %}d-none{% endif %}" id="privateChatPinnedCount">{{ pinned_chat_messages|length }}</span>
+                </button>
+            {% endif %}
         </div>
         <div class="chat-panel-body chat-thread" id="chatThread">
             {% if selected_member %}
@@ -724,55 +927,84 @@
                                 <span>{{ message.sender_label }}</span>
                             </div>
                             {% if message.reply_to %}
-                                <div class="chat-reply-context" data-jump-message-id="{{ message.reply_to.id }}">
-                                    <div class="small fw-semibold">{{ message.reply_to.sender_label }}</div>
-                                    <div class="chat-reply-context-body">{{ message.reply_to.body }}</div>
+                                <div class="chat-reply-overlap">
+                                    <div class="chat-reply-label">
+                                        <span>{% if message.is_own %}You replied to {{ message.reply_to.sender_label }}{% else %}{{ message.sender_label }} replied to you{% endif %}</span>
+                                    </div>
+                                    <div class="chat-reply-context" data-jump-message-id="{{ message.reply_to.id }}">
+                                        <div class="small fw-semibold">{{ message.reply_to.sender_label }}</div>
+                                        <div class="chat-reply-context-body">{{ message.reply_to.body }}</div>
+                                    </div>
                                 </div>
                             {% endif %}
-                            <article class="chat-bubble {% if message.is_own %}is-own{% endif %}" data-message-id="{{ message.id }}" data-message-body="{{ message.body|escape }}" data-message-sender="{{ message.sender_label|escape }}">
-                                {% if message.body %}
-                                    <div>{{ message.body|linebreaksbr }}</div>
-                                {% endif %}
-                                {% if message.attachments %}
-                                    <div class="chat-attachments">
-                                        {% for attachment in message.attachments %}
-                                            {% if attachment.is_image %}
-                                                <a class="chat-attachment-image" href="{{ attachment.url }}" target="_blank" rel="noopener">
-                                                    <img src="{{ attachment.url }}" alt="{{ attachment.name }}">
-                                                    <span class="chat-attachment-meta d-block">
+                            <div class="chat-message-body-row">
+                                <article class="chat-bubble {% if message.is_own %}is-own{% endif %} {% if message.is_deleted %}is-deleted{% endif %}" data-message-id="{{ message.id }}" data-message-body="{{ message.body|escape }}" data-message-sender="{{ message.sender_label|escape }}">
+                                    {% if message.body %}
+                                        <div>{{ message.body|linebreaksbr }}</div>
+                                    {% endif %}
+                                    {% if message.attachments %}
+                                        <div class="chat-attachments">
+                                            {% for attachment in message.attachments %}
+                                                {% if attachment.is_image %}
+                                                    <a class="chat-attachment-image" href="{{ attachment.url }}" target="_blank" rel="noopener">
+                                                        <img src="{{ attachment.url }}" alt="{{ attachment.name }}">
+                                                        <span class="chat-attachment-meta d-block">
+                                                            <span class="d-block small fw-semibold text-truncate">{{ attachment.name }}</span>
+                                                        </span>
+                                                    </a>
+                                                {% else %}
+                                                    <a class="chat-attachment-card" href="{{ attachment.url }}" target="_blank" rel="noopener">
                                                         <span class="d-block small fw-semibold text-truncate">{{ attachment.name }}</span>
-                                                    </span>
-                                                </a>
-                                            {% else %}
-                                                <a class="chat-attachment-card" href="{{ attachment.url }}" target="_blank" rel="noopener">
-                                                    <span class="d-block small fw-semibold text-truncate">{{ attachment.name }}</span>
-                                                    <span class="d-block small text-secondary">{{ attachment.size }} bytes</span>
-                                                </a>
-                                            {% endif %}
-                                        {% endfor %}
+                                                        <span class="d-block small text-secondary">{{ attachment.size }} bytes</span>
+                                                    </a>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    {% if message.reactions %}
+                                        <div class="chat-reactions">
+                                            {% for reaction in message.reactions %}
+                                                <span class="chat-reaction-pill {% if reaction.is_own %}is-own{% endif %}">{{ reaction.emoji }} {{ reaction.count }}</span>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                </article>
+                                {% if not message.is_deleted %}
+                                    <div class="chat-actions">
+                                        <div class="dropdown">
+                                            <button type="button" class="chat-action-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Message options" title="Options">
+                                                <span aria-hidden="true">...</span>
+                                            </button>
+                                            <div class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                <div class="dropdown-header">React</div>
+                                                <div class="px-2 pb-2 d-flex gap-1">
+                                                    <button type="button" class="btn btn-sm btn-light" data-message-react="{{ message.id }}" data-reaction="like">👍</button>
+                                                    <button type="button" class="btn btn-sm btn-light" data-message-react="{{ message.id }}" data-reaction="laugh">😂</button>
+                                                    <button type="button" class="btn btn-sm btn-light" data-message-react="{{ message.id }}" data-reaction="angry">😡</button>
+                                                    <button type="button" class="btn btn-sm btn-light" data-message-react="{{ message.id }}" data-reaction="sad">😢</button>
+                                                    <button type="button" class="btn btn-sm btn-light" data-message-react="{{ message.id }}" data-reaction="heart">❤️</button>
+                                                </div>
+                                                <button type="button" class="dropdown-item" data-message-pin="{{ message.id }}">{% if message.is_pinned %}Unpin{% else %}Pin{% endif %}</button>
+                                                {% if message.can_edit %}<button type="button" class="dropdown-item" data-message-edit="{{ message.id }}" data-message-body="{{ message.body|escape }}">Edit</button>{% endif %}
+                                                {% if message.can_delete %}<button type="button" class="dropdown-item text-danger" data-message-delete="{{ message.id }}">Delete</button>{% endif %}
+                                            </div>
+                                        </div>
+                                        <button type="button" class="chat-reply-btn" data-reply-message-id="{{ message.id }}" data-reply-sender="{{ message.sender_label|escape }}" data-reply-body="{{ message.body|escape }}" aria-label="Reply to message" title="Reply">
+                                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M9 8L5 12L9 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                                <path d="M5 12H15C18 12 20 14 20 17V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                            </svg>
+                                        </button>
                                     </div>
                                 {% endif %}
-                                {% if message.reactions %}
-                                    <div class="chat-reactions">
-                                        {% for reaction in message.reactions %}
-                                            <span class="chat-reaction-pill {% if reaction.is_own %}is-own{% endif %}">{{ reaction.emoji }} {{ reaction.count }}</span>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </article>
+                            </div>
                             <div class="chat-message-meta">
                                 <span>{{ message.created_at }}</span>
                                 {% if message.is_pinned %}<span class="chat-pinned-label">Pinned</span>{% endif %}
                                 {% if message.is_edited and not message.is_deleted %}<span class="chat-edited-label">Edited</span>{% endif %}
-                                {% if message.status %}<span class="chat-message-status" data-message-status>{{ message.status }}</span>{% endif %}
+                                {% if message.status %}<span class="chat-message-status" data-message-status>&bull; {{ message.status }}</span>{% endif %}
                             </div>
                         </div>
-                        <button type="button" class="chat-reply-btn" data-reply-message-id="{{ message.id }}" data-reply-sender="{{ message.sender_label|escape }}" data-reply-body="{{ message.body|escape }}" aria-label="Reply to message" title="Reply">
-                            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M9 8L5 12L9 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M5 12H15C18 12 20 14 20 17V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
                     </div>
                 {% empty %}
                     <div class="chat-empty">No messages yet.</div>
@@ -784,6 +1016,10 @@
         {% if selected_department and selected_member %}
             <div class="chat-compose">
                 <button type="button" class="chat-history-btn chat-read-next-floating {% if not chat_history.has_next %}d-none{% endif %}" id="chatReadNextBtn">Read next</button>
+                <div class="chat-pin-notice" id="privateChatPinNotice" aria-live="polite">
+                    <span id="privateChatPinNoticeText"></span>
+                    <button type="button" id="privateChatPinNoticeJump">See here</button>
+                </div>
                 <div class="chat-typing-indicator" id="privateChatTypingIndicator" aria-live="polite"></div>
                 <form method="post" id="privateChatForm" enctype="multipart/form-data">
                     {% csrf_token %}
@@ -821,17 +1057,34 @@
                         <div class="chat-drop-target" id="privateChatDropTarget">
                             <textarea id="private-chat-message" name="message" class="form-control" maxlength="2000" placeholder="Write a private message or drop files here"></textarea>
                         </div>
+                        <button type="submit" class="btn btn-success" id="privateChatSendBtn">Send</button>
                     </div>
                     <input id="privateChatFileInput" name="attachments" type="file" class="d-none" multiple>
-                    <div class="d-flex justify-content-between align-items-center mt-2 gap-2">
+                    <div class="mt-2">
                         <div class="small text-secondary chat-send-status" id="privateChatSendStatus"></div>
-                        <button type="submit" class="btn btn-success" id="privateChatSendBtn">Send</button>
                     </div>
                 </form>
             </div>
         {% endif %}
     </section>
 </div>
+
+{% if selected_member %}
+<div class="modal fade" id="privateChatPinnedModal" tabindex="-1" aria-labelledby="privateChatPinnedModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="privateChatPinnedModalLabel">Pinned Messages</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="chat-pinned-modal-list" id="privateChatPinnedList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ pinned_chat_messages|json_script:"privateChatPinnedMessagesData" }}
+{% endif %}
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -845,6 +1098,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const chatFileInput = document.getElementById('privateChatFileInput');
     const chatDropTarget = document.getElementById('privateChatDropTarget');
     const chatAttachmentTray = document.getElementById('privateChatAttachmentTray');
+    const pinnedList = document.getElementById('privateChatPinnedList');
+    const pinnedCountBadge = document.getElementById('privateChatPinnedCount');
+    const pinnedDataNode = document.getElementById('privateChatPinnedMessagesData');
+    const pinnedModal = document.getElementById('privateChatPinnedModal');
+    const pinNotice = document.getElementById('privateChatPinNotice');
+    const pinNoticeText = document.getElementById('privateChatPinNoticeText');
+    const pinNoticeJump = document.getElementById('privateChatPinNoticeJump');
     const replyToInput = document.getElementById('private-chat-reply-to');
     const editMessageInput = document.getElementById('private-chat-edit-message-id');
     const editPreview = document.getElementById('privateChatEditPreview');
@@ -858,14 +1118,24 @@ document.addEventListener('DOMContentLoaded', function () {
     const typingIndicator = document.getElementById('privateChatTypingIndicator');
     const selectedDepartment = workspace ? workspace.dataset.selectedDepartment : '';
     const selectedUser = workspace ? workspace.dataset.selectedUser : '';
+    const currentUserLabel = workspace ? (workspace.dataset.currentUserLabel || 'Someone') : 'Someone';
     let historyOldestId = workspace ? workspace.dataset.historyOldest : '';
     let historyNewestId = workspace ? workspace.dataset.historyNewest : '';
+    let historyFirstId = workspace ? workspace.dataset.historyFirst : '';
     let historyHasPrevious = workspace ? workspace.dataset.historyHasPrevious === '1' : false;
     let historyHasNext = workspace ? workspace.dataset.historyHasNext === '1' : false;
     let historyWindowCount = Number(workspace ? workspace.dataset.historyCount || 0 : 0);
     let historyTotalCount = Number(workspace ? workspace.dataset.historyTotalCount || 0 : 0);
     const historyPageSize = 10;
     let selectedAttachments = [];
+    let pinnedMessages = [];
+    let pinNoticeMessageId = '';
+    let pinNoticeTimer = null;
+    try {
+        pinnedMessages = pinnedDataNode ? JSON.parse(pinnedDataNode.textContent || '[]') : [];
+    } catch (error) {
+        pinnedMessages = [];
+    }
     const messagesUrl = "{% url 'chats_messages' %}";
     const sendUrl = "{% url 'chats_send' %}";
     const typingUrl = "{% url 'chats_typing' %}";
@@ -972,7 +1242,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function shouldShowHistoryPrevious() {
-        return historyTotalCount > historyPageSize && historyHasPrevious;
+        return historyTotalCount > historyPageSize && historyHasPrevious && String(historyOldestId || '') !== String(historyFirstId || '');
     }
 
     function shouldShowHistoryNext() {
@@ -983,10 +1253,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!history) return;
         historyOldestId = history.oldest_id || '';
         historyNewestId = history.newest_id || '';
+        historyFirstId = history.first_id || historyFirstId || '';
         historyWindowCount = Number(history.count || 0);
         historyTotalCount = Number(history.total_count || historyWindowCount || 0);
         const canPageHistory = historyTotalCount > historyPageSize;
-        historyHasPrevious = canPageHistory && !!history.has_previous;
+        historyHasPrevious = canPageHistory && !!history.has_previous && String(historyOldestId || '') !== String(historyFirstId || '');
         historyHasNext = canPageHistory && !!history.has_next;
         const readPreviousBtn = document.getElementById('chatReadPreviousBtn');
         if (readPreviousBtn) {
@@ -1048,6 +1319,27 @@ document.addEventListener('DOMContentLoaded', function () {
         return `${messageActionBaseUrl}${messageId}/${action}/`;
     }
 
+    function isChatDropdownOpen() {
+        return !!(chatThread && chatThread.querySelector('.dropdown-menu.show'));
+    }
+
+    function messageRenderKey(message) {
+        return JSON.stringify({
+            id: message.id,
+            body: message.body || '',
+            created_at: message.created_at || '',
+            is_deleted: !!message.is_deleted,
+            is_edited: !!message.is_edited,
+            is_pinned: !!message.is_pinned,
+            status: message.status || '',
+            can_edit: !!message.can_edit,
+            can_delete: !!message.can_delete,
+            reply_to: message.reply_to || null,
+            attachments: message.attachments || [],
+            reactions: message.reactions || [],
+        });
+    }
+
     function updateTypingIndicator(typing) {
         if (!typingIndicator) return;
         const isTyping = !!(typing && typing.is_typing);
@@ -1092,11 +1384,16 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderMessage(message) {
-        const statusHtml = message.status ? `<span class="chat-message-status" data-message-status>${escapeHtml(message.status)}</span>` : '';
+        const statusHtml = message.status ? `<span class="chat-message-status" data-message-status>&bull; ${escapeHtml(message.status)}</span>` : '';
         const replyHtml = message.reply_to ? `
-            <div class="chat-reply-context" data-jump-message-id="${message.reply_to.id}">
-                <div class="small fw-semibold">${escapeHtml(message.reply_to.sender_label)}</div>
-                <div class="chat-reply-context-body">${escapeHtml(message.reply_to.body)}</div>
+            <div class="chat-reply-overlap">
+                <div class="chat-reply-label">
+                    <span>${message.is_own ? `You replied to ${escapeHtml(message.reply_to.sender_label)}` : `${escapeHtml(message.sender_label)} replied to you`}</span>
+                </div>
+                <div class="chat-reply-context" data-jump-message-id="${message.reply_to.id}">
+                    <div class="small fw-semibold">${escapeHtml(message.reply_to.sender_label)}</div>
+                    <div class="chat-reply-context-body">${escapeHtml(message.reply_to.body)}</div>
+                </div>
             </div>
         ` : '';
         const bodyHtml = message.body ? `<div>${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>` : '';
@@ -1144,18 +1441,24 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         ` : '';
         return `
-            <div class="chat-message-row ${message.is_own ? 'is-own' : ''} ${(message.reactions || []).length ? 'has-reactions' : ''}" data-message-row="${message.id}">
+            <div class="chat-message-row ${message.is_own ? 'is-own' : ''} ${(message.reactions || []).length ? 'has-reactions' : ''}" data-message-row="${message.id}" data-message-render-key="${escapeHtml(messageRenderKey(message))}">
                 <div class="chat-message-stack">
                     <div class="chat-message-sender">
                         ${avatarHtml}
                         <span>${escapeHtml(message.sender_label)}</span>
                     </div>
                     ${replyHtml}
-                    <article class="chat-bubble ${message.is_own ? 'is-own' : ''}" data-message-id="${message.id}" data-message-body="${escapeHtml(message.body)}" data-message-sender="${escapeHtml(message.sender_label)}">
-                        ${bodyHtml}
-                        ${attachmentsHtml}
-                        ${reactionsHtml}
-                    </article>
+                    <div class="chat-message-body-row">
+                        <article class="chat-bubble ${message.is_own ? 'is-own' : ''} ${message.is_deleted ? 'is-deleted' : ''}" data-message-id="${message.id}" data-message-body="${escapeHtml(message.body)}" data-message-sender="${escapeHtml(message.sender_label)}">
+                            ${bodyHtml}
+                            ${attachmentsHtml}
+                            ${reactionsHtml}
+                        </article>
+                        <div class="chat-actions">
+                            ${menuHtml}
+                            ${!message.is_deleted ? `<button type="button" class="chat-reply-btn" data-reply-message-id="${message.id}" data-reply-sender="${escapeHtml(message.sender_label)}" data-reply-body="${escapeHtml(message.body)}" aria-label="Reply to message" title="Reply"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M9 8L5 12L9 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12H15C18 12 20 14 20 17V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                        </div>
+                    </div>
                     <div class="chat-message-meta">
                         <span>${escapeHtml(message.created_at)}</span>
                         ${pinnedHtml}
@@ -1163,22 +1466,114 @@ document.addEventListener('DOMContentLoaded', function () {
                         ${statusHtml}
                     </div>
                 </div>
-                <span class="chat-actions">
-                    ${menuHtml}
-                    ${!message.is_deleted ? `<button type="button" class="chat-reply-btn" data-reply-message-id="${message.id}" data-reply-sender="${escapeHtml(message.sender_label)}" data-reply-body="${escapeHtml(message.body)}" aria-label="Reply to message" title="Reply"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M9 8L5 12L9 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12H15C18 12 20 14 20 17V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                </span>
             </div>
         `;
+    }
+
+    function renderPinnedMessage(message) {
+        const bodyHtml = message.body ? `<div>${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>` : '';
+        const attachmentsHtml = (message.attachments || []).length ? `
+            <div class="chat-attachments">
+                ${(message.attachments || []).map((attachment) => {
+                    if (attachment.is_image) {
+                        return `<a class="chat-attachment-image" href="${escapeHtml(attachment.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(attachment.url)}" alt="${escapeHtml(attachment.name)}"><span class="chat-attachment-meta d-block"><span class="d-block small fw-semibold text-truncate">${escapeHtml(attachment.name)}</span></span></a>`;
+                    }
+                    return `<a class="chat-attachment-card" href="${escapeHtml(attachment.url)}" target="_blank" rel="noopener"><span class="d-block small fw-semibold text-truncate">${escapeHtml(attachment.name)}</span><span class="d-block small text-secondary">${formatBytes(attachment.size)}</span></a>`;
+                }).join('')}
+            </div>
+        ` : '';
+        const reactionsHtml = (message.reactions || []).length ? `
+            <div class="chat-reactions">
+                ${(message.reactions || []).map((reaction) => `<span class="chat-reaction-pill ${reaction.is_own ? 'is-own' : ''}">${reaction.emoji} ${reaction.count}</span>`).join('')}
+            </div>
+        ` : '';
+        const avatar = message.sender_avatar || {};
+        const avatarHtml = avatar.url
+            ? `<img class="chat-message-avatar" src="${escapeHtml(avatar.url)}" alt="${escapeHtml(message.sender_label)}">`
+            : `<span class="chat-message-avatar-fallback">${escapeHtml(avatar.initial || 'U')}</span>`;
+        const editedHtml = message.is_edited && !message.is_deleted ? '<span class="chat-edited-label">Edited</span>' : '';
+        return `
+            <div class="chat-message-row ${message.is_own ? 'is-own' : ''} ${(message.reactions || []).length ? 'has-reactions' : ''}">
+                <div class="chat-message-stack">
+                    <div class="chat-message-sender">
+                        ${avatarHtml}
+                        <span>${escapeHtml(message.sender_label)}</span>
+                    </div>
+                    <article class="chat-bubble ${message.is_own ? 'is-own' : ''} ${message.is_deleted ? 'is-deleted' : ''}" data-pinned-jump-message-id="${message.id}" role="button" tabindex="0">
+                        ${bodyHtml}
+                        ${attachmentsHtml}
+                        ${reactionsHtml}
+                    </article>
+                    <div class="chat-message-meta d-flex">
+                        <span>${escapeHtml(message.created_at)}</span>
+                        <span class="chat-pinned-label">Pinned</span>
+                        ${editedHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function updatePinnedMessages(messages) {
+        pinnedMessages = Array.isArray(messages) ? messages : [];
+        if (pinnedCountBadge) {
+            pinnedCountBadge.textContent = pinnedMessages.length;
+            pinnedCountBadge.classList.toggle('d-none', pinnedMessages.length < 1);
+        }
+        if (!pinnedList) return;
+        pinnedList.innerHTML = pinnedMessages.length
+            ? pinnedMessages.map(renderPinnedMessage).join('')
+            : '<div class="chat-empty">No pinned messages yet.</div>';
     }
 
     function renderMessages(messages) {
         if (!chatThread) return;
         const shouldStick = isNearBottom();
+        if (isChatDropdownOpen()) return;
         if (!messages.length) {
             chatThread.innerHTML = `${historyTopHtml()}<div class="chat-empty">No messages yet.</div>`;
             return;
         }
         chatThread.innerHTML = `${historyTopHtml()}${messages.map(renderMessage).join('')}`;
+        if (shouldStick && !historyHasNext) {
+            chatThread.scrollTop = chatThread.scrollHeight;
+        }
+    }
+
+    function reconcileLatestMessages(messages) {
+        if (!chatThread) return;
+        if (!messages.length) {
+            if (!isChatDropdownOpen()) renderMessages(messages);
+            return;
+        }
+
+        const shouldStick = isNearBottom();
+        const openDropdownRow = chatThread.querySelector('.dropdown-menu.show')?.closest('[data-message-row]') || null;
+        const emptyState = chatThread.querySelector('.chat-empty');
+        if (emptyState) emptyState.remove();
+
+        messages.forEach((message) => {
+            const nextKey = messageRenderKey(message);
+            const row = chatThread.querySelector(`[data-message-row="${message.id}"]`);
+            if (!row) {
+                chatThread.insertAdjacentHTML('beforeend', renderMessage(message));
+                return;
+            }
+            if (row === openDropdownRow || row.dataset.messageRenderKey === nextKey) {
+                return;
+            }
+            row.outerHTML = renderMessage(message);
+        });
+
+        if (!isChatDropdownOpen()) {
+            const latestIds = new Set(messages.map((message) => String(message.id)));
+            chatThread.querySelectorAll('[data-message-row]').forEach((row) => {
+                if (!latestIds.has(String(row.dataset.messageRow))) {
+                    row.remove();
+                }
+            });
+        }
+
         if (shouldStick && !historyHasNext) {
             chatThread.scrollTop = chatThread.scrollHeight;
         }
@@ -1199,12 +1594,34 @@ document.addEventListener('DOMContentLoaded', function () {
         chatThread.scrollTop = chatThread.scrollHeight;
     }
 
-    function highlightMessage(messageId) {
+    function highlightMessage(messageId, options = {}) {
         const bubble = chatThread ? chatThread.querySelector(`[data-message-id="${messageId}"]`) : null;
         if (!bubble) return;
-        bubble.scrollIntoView({behavior: 'smooth', block: 'center'});
+        bubble.scrollIntoView({behavior: 'smooth', block: options.block || 'center'});
         bubble.classList.remove('is-highlighted');
         window.setTimeout(() => bubble.classList.add('is-highlighted'), 50);
+    }
+
+    function jumpToPinnedMessage(messageId) {
+        if (!messageId || !chatThread) return;
+        if (chatThread.querySelector(`[data-message-id="${messageId}"]`)) {
+            highlightMessage(messageId, {block: 'end'});
+            return;
+        }
+        loadMessageWindow({around: messageId, markRead: true}).then(() => {
+            window.setTimeout(() => highlightMessage(messageId, {block: 'end'}), 140);
+        }).catch(() => {});
+    }
+
+    function showPinNotice(messageId, actorLabel) {
+        if (!pinNotice || !pinNoticeText || !messageId) return;
+        pinNoticeMessageId = String(messageId);
+        pinNoticeText.textContent = `${actorLabel || 'Someone'} pinned a message. `;
+        pinNotice.classList.add('is-visible');
+        window.clearTimeout(pinNoticeTimer);
+        pinNoticeTimer = window.setTimeout(() => {
+            pinNotice.classList.remove('is-visible');
+        }, 8500);
     }
 
     function replaceRenderedMessage(message) {
@@ -1224,6 +1641,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const payload = await response.json();
         if (!response.ok || !payload.ok) throw new Error((payload && payload.message) || 'Unable to update message.');
         if (payload.message) replaceRenderedMessage(payload.message);
+        if (payload.pinned_messages) updatePinnedMessages(payload.pinned_messages);
         return payload;
     }
 
@@ -1247,7 +1665,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const data = await response.json();
         if (!data.ok) return;
         updateHistoryState(data.history);
-        renderMessages(data.messages || []);
+        if (data.pinned_messages) updatePinnedMessages(data.pinned_messages);
+        if (options.mergeLatest) {
+            reconcileLatestMessages(data.messages || []);
+        } else {
+            renderMessages(data.messages || []);
+        }
         updateTypingIndicator(data.typing);
         updateUnreadBadges(data.unread);
     }
@@ -1271,7 +1694,7 @@ document.addEventListener('DOMContentLoaded', function () {
             await refreshUnread();
             return;
         }
-        await loadMessageWindow({markRead: true});
+        await loadMessageWindow({markRead: true, mergeLatest: true});
     }
 
     async function refreshUnread() {
@@ -1362,7 +1785,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const pinButton = event.target.closest('[data-message-pin]');
             if (pinButton) {
-                postMessageAction(pinButton.dataset.messagePin, 'pin').catch(() => {});
+                postMessageAction(pinButton.dataset.messagePin, 'pin').then((payload) => {
+                    if (payload && payload.message && payload.message.is_pinned) {
+                        showPinNotice(payload.message.id, currentUserLabel);
+                    }
+                }).catch(() => {});
                 return;
             }
 
@@ -1390,6 +1817,46 @@ document.addEventListener('DOMContentLoaded', function () {
             const replyButton = event.target.closest('[data-reply-message-id]');
             if (!replyButton) return;
             setReplyTarget(replyButton.dataset.replyMessageId, replyButton.dataset.replySender, replyButton.dataset.replyBody);
+        });
+    }
+
+    updatePinnedMessages(pinnedMessages);
+
+    if (pinNoticeJump) {
+        pinNoticeJump.addEventListener('click', function () {
+            if (pinNotice) pinNotice.classList.remove('is-visible');
+            jumpToPinnedMessage(pinNoticeMessageId);
+        });
+    }
+
+    function closePinnedModalAndJump(messageId) {
+        if (!messageId) return;
+        const modalInstance = pinnedModal && window.bootstrap
+            ? bootstrap.Modal.getOrCreateInstance(pinnedModal)
+            : null;
+        if (modalInstance) {
+            pinnedModal.addEventListener('hidden.bs.modal', function handleHidden() {
+                pinnedModal.removeEventListener('hidden.bs.modal', handleHidden);
+                jumpToPinnedMessage(messageId);
+            });
+            modalInstance.hide();
+        } else {
+            jumpToPinnedMessage(messageId);
+        }
+    }
+
+    if (pinnedList) {
+        pinnedList.addEventListener('click', function (event) {
+            const pinnedBubble = event.target.closest('[data-pinned-jump-message-id]');
+            if (!pinnedBubble || event.target.closest('a')) return;
+            closePinnedModalAndJump(pinnedBubble.dataset.pinnedJumpMessageId);
+        });
+        pinnedList.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const pinnedBubble = event.target.closest('[data-pinned-jump-message-id]');
+            if (!pinnedBubble) return;
+            event.preventDefault();
+            closePinnedModalAndJump(pinnedBubble.dataset.pinnedJumpMessageId);
         });
     }
 

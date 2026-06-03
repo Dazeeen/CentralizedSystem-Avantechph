@@ -100,7 +100,7 @@
                             <span class="badge bg-danger ms-auto {% if not private_chat_unread_count %}d-none{% endif %}" data-private-chat-unread-badge>{{ private_chat_unread_count|default:0 }}</span>
                         </a>
                         {% if is_human_resource_role %}
-                        <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent" aria-expanded="false">
+                        <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if request.resolver_match.url_name == 'timekeeping_page' %}active is-open{% endif %}" aria-expanded="{% if request.resolver_match.url_name == 'timekeeping_page' %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -767,7 +767,7 @@
                         <span class="badge bg-danger ms-auto {% if not private_chat_unread_count %}d-none{% endif %}" data-private-chat-unread-badge>{{ private_chat_unread_count|default:0 }}</span>
                     </a>
                     {% if is_human_resource_role %}
-                    <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent" aria-expanded="false">
+                    <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if request.resolver_match.url_name == 'timekeeping_page' %}active is-open{% endif %}" aria-expanded="{% if request.resolver_match.url_name == 'timekeeping_page' %}true{% else %}false{% endif %}">
                         <span class="d-inline-flex align-items-center gap-2">
                             <span class="nav-logo" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2027,6 +2027,42 @@
             });
         }
 
+        const setGroupOpen = (trigger, shouldOpen) => {
+            trigger.classList.toggle('is-open', shouldOpen);
+            trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+        };
+        const navGroupStateKey = 'avantech_sidebar_open_nav_groups_v1';
+        const getNavGroupKey = (trigger) => {
+            return (trigger.querySelector('.nav-label')?.textContent || trigger.textContent || '')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase();
+        };
+        const readOpenNavGroups = () => {
+            try {
+                const raw = localStorage.getItem(navGroupStateKey);
+                const parsed = raw ? JSON.parse(raw) : [];
+                return new Set(Array.isArray(parsed) ? parsed : []);
+            } catch (error) {
+                return new Set();
+            }
+        };
+        const writeOpenNavGroups = () => {
+            const openKeys = Array.from(document.querySelectorAll('.nav-group-trigger.is-open'))
+                .map(getNavGroupKey)
+                .filter(Boolean);
+            try {
+                localStorage.setItem(navGroupStateKey, JSON.stringify(Array.from(new Set(openKeys))));
+            } catch (error) {}
+        };
+
+        const savedOpenNavGroups = readOpenNavGroups();
+        document.querySelectorAll('.nav-group-trigger').forEach((trigger) => {
+            if (savedOpenNavGroups.has(getNavGroupKey(trigger)) || trigger.classList.contains('is-open')) {
+                setGroupOpen(trigger, true);
+            }
+        });
+
         document.querySelectorAll('.nav-group-trigger').forEach((trigger) => {
             trigger.addEventListener('click', () => {
                 if (shell?.classList.contains('sidebar-collapsed') && trigger.closest('.app-sidebar')) {
@@ -2035,12 +2071,13 @@
                         toggle.setAttribute('aria-pressed', 'false');
                     }
                     syncSidebarCaretVisibility(false);
-                    trigger.classList.add('is-open');
-                    trigger.setAttribute('aria-expanded', 'true');
+                    setGroupOpen(trigger, true);
+                    writeOpenNavGroups();
                     return;
                 }
-                const isOpen = trigger.classList.toggle('is-open');
-                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                const shouldOpen = !trigger.classList.contains('is-open');
+                setGroupOpen(trigger, shouldOpen);
+                writeOpenNavGroups();
             });
         });
 

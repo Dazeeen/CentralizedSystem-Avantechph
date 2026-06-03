@@ -57,6 +57,10 @@ def crm_client_media_upload_to(instance, filename):
 	return f'crm_clients/media/{client_slug}_{date_stamp}{extension}'
 
 
+def current_year():
+	return timezone.localdate().year
+
+
 def accountability_return_proof_upload_to(instance, filename):
 	original_name = filename or 'return-proof.jpg'
 	extension = Path(original_name).suffix.lower() or '.jpg'
@@ -1055,6 +1059,7 @@ class CRMSalesRecord(models.Model):
 	return_on_investment = models.CharField(max_length=80, blank=True)
 	assigned_sales = models.CharField(max_length=150, blank=True)
 	sales_status = models.CharField(max_length=50, blank=True)
+	job_order_number = models.CharField(max_length=20, blank=True, db_index=True)
 	client_status = models.CharField(max_length=80, blank=True)
 	interaction_notes = models.TextField(blank=True)
 	created_by = models.ForeignKey(
@@ -1182,6 +1187,8 @@ class CRMSalesAgingSetting(models.Model):
 	aging_days = models.PositiveIntegerField(default=30)
 	notify_remaining_days = models.PositiveIntegerField(default=5)
 	include_closed_won = models.BooleanField(default=False)
+	next_job_order_year = models.PositiveIntegerField(default=current_year)
+	next_job_order_sequence = models.PositiveIntegerField(default=1)
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
@@ -1211,6 +1218,7 @@ class CRMTechnicalRecord(models.Model):
 	battery_model = models.CharField(max_length=150, blank=True)
 	net_metering = models.CharField(max_length=80, blank=True)
 	installation_status = models.CharField(max_length=50, blank=True)
+	job_order_number = models.CharField(max_length=20, blank=True, db_index=True)
 	po_number = models.CharField(max_length=80, blank=True)
 	remarks = models.TextField(blank=True)
 	created_by = models.ForeignKey(
@@ -1231,6 +1239,8 @@ class CRMTechnicalRecord(models.Model):
 		return status in {'completed', 'complete'}
 
 	def save(self, *args, **kwargs):
+		if self.sales_record_id and not (self.job_order_number or '').strip():
+			self.job_order_number = self.sales_record.job_order_number or ''
 		super().save(*args, **kwargs)
 		if not self.sales_record_id or not self._is_installation_completed():
 			return

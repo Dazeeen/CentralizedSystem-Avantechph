@@ -32,7 +32,7 @@
                         <div class="row g-2">
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Search</label>
-                                <input type="text" name="q" value="{{ technical_query }}" class="form-control form-control-sm js-tech-filter-input" placeholder="Fuzzy search name, team, status, PO#, net-metering, panel units">
+                                <input type="text" name="q" value="{{ technical_query }}" class="form-control form-control-sm js-tech-filter-input" placeholder="Fuzzy search name, team, status, JO#, PO#, panel units">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Team Assigned</label>
@@ -55,7 +55,7 @@
                                 </select>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label small mb-1">PO# Range</label>
+                                <label class="form-label small mb-1">JO# Range</label>
                                 <input type="text" name="po_number_range" value="{{ filter_po_number_range }}" class="form-control form-control-sm js-tech-filter-input" placeholder="2026-0001 - 2026-0026">
                             </div>
                             <div class="col-md-3">
@@ -85,6 +85,7 @@
                                 <th><a class="text-decoration-none text-dark" href="{{ sort_urls.client_name }}">Client's Full Name <span class="ms-1">{{ sort_indicators.client_name }}</span></a></th>
                                 <th><a class="text-decoration-none text-dark" href="{{ sort_urls.team_assigned }}">Team Assigned <span class="ms-1">{{ sort_indicators.team_assigned }}</span></a></th>
                                 <th><a class="text-decoration-none text-dark" href="{{ sort_urls.installation_status }}">Installation Status <span class="ms-1">{{ sort_indicators.installation_status }}</span></a></th>
+                                <th><a class="text-decoration-none text-dark" href="{{ sort_urls.job_order_number }}">JO# <span class="ms-1">{{ sort_indicators.job_order_number }}</span></a></th>
                                 <th><a class="text-decoration-none text-dark" href="{{ sort_urls.po_number }}">PO# <span class="ms-1">{{ sort_indicators.po_number }}</span></a></th>
                                 <th style="width: 72px;">Action</th>
                             </tr>
@@ -104,6 +105,7 @@
                                     data-battery-model="{{ tech.battery_model|default:'-' }}"
                                     data-net-metering="{{ tech.net_metering|default:'-' }}"
                                     data-installation-status="{{ tech.installation_status|default:'-' }}"
+                                    data-job-order-number="{{ tech.job_order_number|default:row.job_order_number|default:'-' }}"
                                     data-po-number="{{ tech.po_number|default:'-' }}"
                                     data-remarks="{{ tech.remarks|default:'-' }}">
                                     <td>{{ client.last_name }}, {{ client.first_name }}</td>
@@ -125,6 +127,7 @@
                                             {% endif %}
                                         {% endwith %}
                                     </td>
+                                    <td>{{ tech.job_order_number|default:row.job_order_number|default:"-" }}</td>
                                     <td>{{ tech.po_number|default:"-" }}</td>
                                     <td>
                                         <div class="dropdown">
@@ -140,7 +143,7 @@
                                 </tr>
                                 {% endwith %}
                             {% empty %}
-                                <tr><td colspan="5" class="text-center text-secondary py-3">No closed won technical records with project cost yet.</td></tr>
+                                <tr><td colspan="6" class="text-center text-secondary py-3">No Closed Won records with JO# yet.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -172,6 +175,7 @@
                 <h3 class="crm-tech-summary-name" id="techSummaryClient">Select a technical record</h3>
                 <div class="small text-secondary mb-3">Technical Summary</div>
                 <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Installation Date</div><div class="crm-tech-summary-value" id="techSummaryInstallDate">-</div></div>
+                <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">JO#</div><div class="crm-tech-summary-value" id="techSummaryJobOrder">-</div></div>
                 <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Team Assigned</div><div class="crm-tech-summary-value" id="techSummaryTeam">-</div></div>
                 <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Installation Status</div><div class="crm-tech-summary-value" id="techSummaryInstallStatus">-</div></div>
                 <div class="crm-tech-summary-item"><div class="crm-tech-summary-label">Remarks</div><div class="crm-tech-summary-value" id="techSummaryRemarks">-</div></div>
@@ -330,6 +334,7 @@
                                 <option value="back jobs">Back Jobs</option>
                             </select>
                         </div>
+                        <div class="col-md-6"><label class="form-label">JO#</label><input class="form-control" id="technicalUpdateJobOrderNumber" readonly disabled></div>
                         <div class="col-md-6"><label class="form-label">PO#</label><input class="form-control" name="po_number" id="technicalUpdatePoNumber"></div>
                         <div class="col-12"><label class="form-label">Remarks</label><textarea class="form-control" name="remarks" id="technicalUpdateRemarks" rows="3"></textarea></div>
                     </div>
@@ -682,18 +687,19 @@ document.addEventListener('DOMContentLoaded', function () {
             var clientName = normalizeText(row.dataset.clientName || '');
             var team = normalizeText(row.dataset.teamAssigned || '');
             var status = normalizeText(row.dataset.installationStatus || '');
+            var jobOrderNumber = normalizeText(row.dataset.jobOrderNumber || '');
             var poNumber = normalizeText(row.dataset.poNumber || '');
             var installDate = normalizeText(row.dataset.installationDate || '');
             var panelUnitsRaw = normalizeText(row.dataset.panelUnits || '');
             var panelUnitsNum = Number(panelUnitsRaw);
-            var searchable = [clientName, team, status, poNumber, panelUnitsRaw].join(' ');
+            var searchable = [clientName, team, status, jobOrderNumber, poNumber, panelUnitsRaw].join(' ');
 
             var visible = true;
             if (q && searchable.indexOf(q) === -1) visible = false;
             if (visible && teamAssigned && team !== teamAssigned) visible = false;
             if (visible && installationStatus && status !== installationStatus) visible = false;
             if (visible && poRange) {
-                var parsedPo = parsePoNumber(poNumber);
+                var parsedPo = parsePoNumber(jobOrderNumber);
                 if (!parsedPo) {
                     visible = false;
                 } else {
@@ -792,6 +798,7 @@ document.addEventListener('DOMContentLoaded', function () {
         row.classList.add('is-active');
         setText('techSummaryClient', row.dataset.clientName || '-');
         setText('techSummaryInstallDate', row.dataset.installationDate || '-');
+        setText('techSummaryJobOrder', row.dataset.jobOrderNumber || '-');
         setText('techSummaryTeam', row.dataset.teamAssigned || '-');
         var summaryStatusEl = document.getElementById('techSummaryInstallStatus');
         if (summaryStatusEl) summaryStatusEl.innerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-');
@@ -1306,6 +1313,7 @@ document.addEventListener('DOMContentLoaded', function () {
         setVal('technicalUpdateBatteryModel', row.dataset.batteryModel || '');
         setVal('technicalUpdateNetMetering', row.dataset.netMetering || '');
         setVal('technicalUpdateInstallationStatus', (row.dataset.installationStatus || '').toLowerCase());
+        setVal('technicalUpdateJobOrderNumber', row.dataset.jobOrderNumber || '');
         setVal('technicalUpdatePoNumber', row.dataset.poNumber || '');
         setVal('technicalUpdateRemarks', row.dataset.remarks || '');
         technicalUpdateModal.show();

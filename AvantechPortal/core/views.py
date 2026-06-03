@@ -910,6 +910,7 @@ def _private_chat_message_window(conversation, current_user, recipient, *, befor
 			'has_next': False,
 			'oldest_id': None,
 			'newest_id': None,
+			'first_id': None,
 			'count': 0,
 			'total_count': 0,
 		}
@@ -938,6 +939,7 @@ def _private_chat_message_window(conversation, current_user, recipient, *, befor
 	]
 	oldest_id = page_messages[0].pk if page_messages else None
 	newest_id = page_messages[-1].pk if page_messages else None
+	first_id = base_queryset.order_by('id').values_list('id', flat=True).first()
 	can_page_history = total_count > PRIVATE_CHAT_MESSAGE_PAGE_SIZE
 
 	return {
@@ -946,9 +948,27 @@ def _private_chat_message_window(conversation, current_user, recipient, *, befor
 		'has_next': bool(can_page_history and newest_id and base_queryset.filter(id__gt=newest_id).exists()),
 		'oldest_id': oldest_id,
 		'newest_id': newest_id,
+		'first_id': first_id,
 		'count': len(page_messages),
 		'total_count': total_count,
 	}
+
+
+def _private_chat_pinned_messages(conversation, current_user, recipient):
+	if not conversation:
+		return []
+	recipient_read_id = _private_chat_last_read_id(conversation, recipient)
+	pins = (
+		PrivateChatPinnedMessage.objects
+		.filter(user=current_user, message__conversation=conversation)
+		.select_related('message', 'message__sender', 'message__sender__profile', 'message__reply_to', 'message__reply_to__sender', 'message__reply_to__sender__profile')
+		.prefetch_related('message__attachments', 'message__reactions', 'message__pins')
+		.order_by('-created_at')
+	)
+	return [
+		_serialize_private_chat_message(pin.message, current_user, recipient_read_id=recipient_read_id)
+		for pin in pins
+	]
 
 
 def _save_private_chat_message_with_retry(sender, recipient, department, message_text, reply_to_id=None, attachments=None, attempts=4):
@@ -997,11 +1017,13 @@ def chats_page(request):
 	members = User.objects.none()
 	conversation = None
 	chat_messages = []
+	pinned_chat_messages = []
 	chat_history = {
 		'has_previous': False,
 		'has_next': False,
 		'oldest_id': None,
 		'newest_id': None,
+		'first_id': None,
 		'count': 0,
 		'total_count': 0,
 	}
@@ -1052,6 +1074,7 @@ def chats_page(request):
 			_mark_private_chat_read(conversation, request.user)
 			chat_history = _private_chat_message_window(conversation, request.user, selected_member)
 			chat_messages = chat_history['messages']
+			pinned_chat_messages = _private_chat_pinned_messages(conversation, request.user, selected_member)
 
 	department_rows = []
 	for department in departments:
@@ -1092,6 +1115,7 @@ def chats_page(request):
 		'selected_member_label': _chat_user_label(selected_member) if selected_member else '',
 		'conversation': conversation,
 		'chat_messages': chat_messages,
+		'pinned_chat_messages': pinned_chat_messages,
 		'chat_history': chat_history,
 		'private_chat_unread_count': _private_chat_total_unread_count(request.user),
 	})
@@ -1165,11 +1189,13 @@ def chats_messages(request):
 	return JsonResponse({
 		'ok': True,
 		'messages': window_payload['messages'],
+		'pinned_messages': _private_chat_pinned_messages(conversation, request.user, member) if conversation else [],
 		'history': {
 			'has_previous': window_payload['has_previous'],
 			'has_next': window_payload['has_next'],
 			'oldest_id': window_payload['oldest_id'],
 			'newest_id': window_payload['newest_id'],
+			'first_id': window_payload['first_id'],
 			'count': window_payload['count'],
 			'total_count': window_payload['total_count'],
 		},
@@ -1313,7 +1339,11 @@ def chats_message_pin(request, message_id):
 		PrivateChatPinnedMessage.objects.create(message=message, user=request.user)
 	message = _private_chat_message_for_action(request, message_id)
 	recipient = message.conversation.other_participant(request.user)
-	return JsonResponse({'ok': True, 'message': _serialize_private_chat_message(message, request.user, recipient_read_id=_private_chat_last_read_id(message.conversation, recipient))})
+	return JsonResponse({
+		'ok': True,
+		'message': _serialize_private_chat_message(message, request.user, recipient_read_id=_private_chat_last_read_id(message.conversation, recipient)),
+		'pinned_messages': _private_chat_pinned_messages(message.conversation, request.user, recipient),
+	})
 
 
 def _resolve_timekeeping_user(employee_id, employee_name, user_by_id, user_by_name):
@@ -2968,12 +2998,16 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 				battery_model=battery_model,
 				net_metering=net_metering,
 				installation_status=installation_status,
+				job_order_number=sales_record.job_order_number or '',
 				po_number=po_number,
 				remarks=technical_remarks,
 				created_by=user,
 			)
 		else:
-			CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': user})
+			CRMTechnicalRecord.objects.get_or_create(
+				sales_record=sales_record,
+				defaults={'created_by': user, 'job_order_number': sales_record.job_order_number or ''},
+			)
 		sales_created_count += 1
 
 	return {
@@ -3492,7 +3526,10 @@ def crm_clients(request):
 					fields_to_update.append('sales_status')
 				if fields_to_update:
 					sales_record.save(update_fields=fields_to_update + ['updated_at'])
-				CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+				CRMTechnicalRecord.objects.get_or_create(
+					sales_record=sales_record,
+					defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
+				)
 				record_activity(
 					request,
 					'create',
@@ -3811,6 +3848,9 @@ def crm_sales(request):
 				time.sleep(0.15 * (attempt + 1))
 		return None
 
+	def _format_job_order_number(year, sequence):
+		return f'{int(year):04d}-{int(sequence):04d}'
+
 	if request.method == 'POST':
 		if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']):
 			allowed_for_thread = {
@@ -4088,6 +4128,8 @@ def crm_sales(request):
 		if form_action == 'update_sales_aging_settings':
 			aging_days_raw = (request.POST.get('aging_days') or '').strip()
 			notify_remaining_days_raw = (request.POST.get('notify_remaining_days') or '').strip()
+			next_job_order_year_raw = (request.POST.get('next_job_order_year') or '').strip()
+			next_job_order_sequence_raw = (request.POST.get('next_job_order_sequence') or '').strip()
 			include_closed_won = (request.POST.get('include_closed_won') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
 			try:
 				aging_days = int(aging_days_raw) if aging_days_raw else 30
@@ -4097,10 +4139,22 @@ def crm_sales(request):
 				notify_remaining_days = int(notify_remaining_days_raw) if notify_remaining_days_raw else 5
 			except (TypeError, ValueError):
 				notify_remaining_days = 5
+			try:
+				next_job_order_year = int(next_job_order_year_raw) if next_job_order_year_raw else timezone.localdate().year
+			except (TypeError, ValueError):
+				next_job_order_year = timezone.localdate().year
+			try:
+				next_job_order_sequence = int(next_job_order_sequence_raw) if next_job_order_sequence_raw else 1
+			except (TypeError, ValueError):
+				next_job_order_sequence = 1
 			if aging_days < 1:
 				aging_days = 1
 			if notify_remaining_days < 1:
 				notify_remaining_days = 1
+			if next_job_order_year < 1:
+				next_job_order_year = timezone.localdate().year
+			if next_job_order_sequence < 1:
+				next_job_order_sequence = 1
 			settings_obj, _ = CRMSalesAgingSetting.objects.get_or_create(
 				pk=1,
 				defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
@@ -4108,7 +4162,16 @@ def crm_sales(request):
 			settings_obj.aging_days = aging_days
 			settings_obj.notify_remaining_days = notify_remaining_days
 			settings_obj.include_closed_won = include_closed_won
-			settings_obj.save(update_fields=['aging_days', 'notify_remaining_days', 'include_closed_won', 'updated_at'])
+			settings_obj.next_job_order_year = next_job_order_year
+			settings_obj.next_job_order_sequence = next_job_order_sequence
+			settings_obj.save(update_fields=[
+				'aging_days',
+				'notify_remaining_days',
+				'include_closed_won',
+				'next_job_order_year',
+				'next_job_order_sequence',
+				'updated_at',
+			])
 			record_activity(
 				request,
 				'update',
@@ -4120,6 +4183,7 @@ def crm_sales(request):
 					'aging_days': settings_obj.aging_days,
 					'notify_remaining_days': settings_obj.notify_remaining_days,
 					'include_closed_won': settings_obj.include_closed_won,
+					'next_job_order_number': _format_job_order_number(settings_obj.next_job_order_year, settings_obj.next_job_order_sequence),
 				},
 			)
 			messages.success(request, 'Sales aging settings updated.', extra_tags='toast')
@@ -4151,46 +4215,87 @@ def crm_sales(request):
 			project_cost = _to_decimal(request.POST.get('project_cost'))
 			downpayment = _to_decimal(request.POST.get('downpayment'))
 
-			sales_record.lead_source = lead_source
-			sales_record.monthly_electric_bill = monthly_electric_bill
-			sales_record.roof_type = roof_type
-			sales_record.ownership = ownership
-			sales_record.project_cost = project_cost
-			sales_record.downpayment = downpayment
-			sales_record.return_on_investment = return_on_investment
-			sales_record.sales_status = sales_status
-			sales_record.client_status = client_status
-			sales_record.interaction_notes = interaction_notes
-			sales_record.save(update_fields=[
-				'lead_source',
-				'monthly_electric_bill',
-				'roof_type',
-				'ownership',
-				'project_cost',
-				'downpayment',
-				'return_on_investment',
-				'sales_status',
-				'client_status',
-				'interaction_notes',
-				'updated_at',
-			])
+			generated_job_order_number = ''
 
-			activity_log = CRMSalesActivityLog.objects.create(
-				sales_record=sales_record,
-				client_status=client_status,
-				lead_source=lead_source,
-				monthly_electric_bill=monthly_electric_bill,
-				roof_type=roof_type,
-				ownership=ownership,
-				project_cost=project_cost,
-				downpayment=downpayment,
-				return_on_investment=return_on_investment,
-				sales_status=sales_status,
-				interaction_notes=interaction_notes,
-				created_by=request.user,
-			)
-			for uploaded_file in request.FILES.getlist('activity_files'):
-				CRMSalesActivityAttachment.objects.create(activity_log=activity_log, file=uploaded_file)
+			def _save_sales_activity_write():
+				with transaction.atomic():
+					locked_sales_record = CRMSalesRecord.objects.select_for_update().select_related('client').get(pk=sales_record.pk)
+					locked_sales_record.lead_source = lead_source
+					locked_sales_record.monthly_electric_bill = monthly_electric_bill
+					locked_sales_record.roof_type = roof_type
+					locked_sales_record.ownership = ownership
+					locked_sales_record.project_cost = project_cost
+					locked_sales_record.downpayment = downpayment
+					locked_sales_record.return_on_investment = return_on_investment
+					locked_sales_record.sales_status = sales_status
+					locked_sales_record.client_status = client_status
+					locked_sales_record.interaction_notes = interaction_notes
+					job_order_number = ''
+					update_fields = [
+						'lead_source',
+						'monthly_electric_bill',
+						'roof_type',
+						'ownership',
+						'project_cost',
+						'downpayment',
+						'return_on_investment',
+						'sales_status',
+						'client_status',
+						'interaction_notes',
+						'updated_at',
+					]
+					if sales_status in {'closed won', 'close won'} and not (locked_sales_record.job_order_number or '').strip():
+						settings_obj, _ = CRMSalesAgingSetting.objects.select_for_update().get_or_create(
+							pk=1,
+							defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
+						)
+						jo_year = int(settings_obj.next_job_order_year or timezone.localdate().year)
+						jo_sequence = max(int(settings_obj.next_job_order_sequence or 1), 1)
+						candidate = _format_job_order_number(jo_year, jo_sequence)
+						while CRMSalesRecord.objects.filter(job_order_number=candidate).exclude(pk=locked_sales_record.pk).exists():
+							jo_sequence += 1
+							candidate = _format_job_order_number(jo_year, jo_sequence)
+						locked_sales_record.job_order_number = candidate
+						settings_obj.next_job_order_year = jo_year
+						settings_obj.next_job_order_sequence = jo_sequence + 1
+						settings_obj.save(update_fields=['next_job_order_year', 'next_job_order_sequence', 'updated_at'])
+						job_order_number = candidate
+						update_fields.append('job_order_number')
+					locked_sales_record.save(update_fields=update_fields)
+					if locked_sales_record.job_order_number:
+						tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
+							sales_record=locked_sales_record,
+							defaults={
+								'created_by': request.user,
+								'job_order_number': locked_sales_record.job_order_number,
+							},
+						)
+						if tech_record.job_order_number != locked_sales_record.job_order_number:
+							tech_record.job_order_number = locked_sales_record.job_order_number
+							tech_record.save(update_fields=['job_order_number', 'updated_at'])
+					activity_obj = CRMSalesActivityLog.objects.create(
+						sales_record=locked_sales_record,
+						client_status=client_status,
+						lead_source=lead_source,
+						monthly_electric_bill=monthly_electric_bill,
+						roof_type=roof_type,
+						ownership=ownership,
+						project_cost=project_cost,
+						downpayment=downpayment,
+						return_on_investment=return_on_investment,
+						sales_status=sales_status,
+						interaction_notes=interaction_notes,
+						created_by=request.user,
+					)
+					for uploaded_file in request.FILES.getlist('activity_files'):
+						CRMSalesActivityAttachment.objects.create(activity_log=activity_obj, file=uploaded_file)
+					return locked_sales_record, activity_obj, job_order_number
+
+			save_result = _run_with_sqlite_retry(_save_sales_activity_write)
+			if save_result is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_sales')
+			sales_record, activity_log, generated_job_order_number = save_result
 			record_activity(
 				request,
 				'update',
@@ -4208,12 +4313,17 @@ def crm_sales(request):
 					'sales_status': sales_status,
 					'client_status': client_status,
 					'lead_source': lead_source,
+					'job_order_number': sales_record.job_order_number or '',
+					'generated_job_order_number': generated_job_order_number,
 					'attachment_count': len(request.FILES.getlist('activity_files')),
 				},
 			)
+			success_message = 'Sales information updated successfully.' if is_edit_mode else 'Sales activity logged successfully.'
+			if generated_job_order_number:
+				success_message = f'{success_message} JO# {generated_job_order_number} generated.'
 			messages.success(
 				request,
-				'Sales information updated successfully.' if is_edit_mode else 'Sales activity logged successfully.',
+				success_message,
 				extra_tags='toast',
 			)
 			return redirect('crm_sales')
@@ -4221,6 +4331,10 @@ def crm_sales(request):
 	aging_settings, _ = CRMSalesAgingSetting.objects.get_or_create(
 		pk=1,
 		defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
+	)
+	next_job_order_preview = _format_job_order_number(
+		aging_settings.next_job_order_year or timezone.localdate().year,
+		max(int(aging_settings.next_job_order_sequence or 1), 1),
 	)
 	cutoff = timezone.now() - timedelta(days=aging_settings.aging_days)
 	notify_cutoff_remaining = max(int(aging_settings.notify_remaining_days or 1), 1)
@@ -4553,6 +4667,7 @@ def crm_sales(request):
 		'assigned_sales_options': assigned_sales_options,
 		'assignable_sales_users': assignable_sales_users,
 		'sales_aging_settings': aging_settings,
+		'next_job_order_preview': next_job_order_preview,
 		'can_manage_crm_sales': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']),
 		'enable_floating_calculator': CalculatorSetting.load().enable_floating_calculator,
 		'pipeline_stage_counts': pipeline_stage_counts,
@@ -4696,7 +4811,13 @@ def crm_technicals(request):
 		if form_action == 'set_installation_schedule':
 			sales_record_id = (request.POST.get('sales_record_id') or '').strip()
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
-			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
+				sales_record=sales_record,
+				defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
+			)
+			if tech_record.job_order_number != (sales_record.job_order_number or ''):
+				tech_record.job_order_number = sales_record.job_order_number or ''
+				tech_record.save(update_fields=['job_order_number', 'updated_at'])
 			previous_installation_date = tech_record.installation_date
 			previous_installation_time = tech_record.installation_time
 			previous_team_assigned = tech_record.team_assigned or ''
@@ -4809,7 +4930,13 @@ def crm_technicals(request):
 		if form_action == 'update_technical_info':
 			sales_record_id = (request.POST.get('sales_record_id') or '').strip()
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
-			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(sales_record=sales_record, defaults={'created_by': request.user})
+			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
+				sales_record=sales_record,
+				defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
+			)
+			if tech_record.job_order_number != (sales_record.job_order_number or ''):
+				tech_record.job_order_number = sales_record.job_order_number or ''
+				tech_record.save(update_fields=['job_order_number', 'updated_at'])
 			previous_installation_date = tech_record.installation_date
 			previous_installation_time = tech_record.installation_time
 			previous_team_assigned = tech_record.team_assigned or ''
@@ -4885,10 +5012,8 @@ def crm_technicals(request):
 			return redirect('crm_technicals')
 
 	queryset = CRMSalesRecord.objects.select_related('client', 'technical_record').filter(
-		project_cost__isnull=False
-	).filter(
 		Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won')
-	)
+	).exclude(technical_record__job_order_number='')
 	technical_query = (request.GET.get('q') or '').strip()
 	filter_team_assigned = (request.GET.get('team_assigned') or '').strip()
 	filter_installation_status = (request.GET.get('installation_status') or '').strip()
@@ -4943,6 +5068,7 @@ def crm_technicals(request):
 				| Q(client__last_name__icontains=term)
 				| Q(technical_record__team_assigned__icontains=term)
 				| Q(technical_record__installation_status__icontains=term)
+				| Q(technical_record__job_order_number__icontains=term)
 				| Q(technical_record__po_number__icontains=term)
 				| Q(technical_record__panel_units__icontains=term)
 			)
@@ -4988,6 +5114,7 @@ def crm_technicals(request):
 		'client_name': 'client__last_name',
 		'team_assigned': 'technical_record__team_assigned',
 		'installation_status': 'technical_record__installation_status',
+		'job_order_number': 'technical_record__job_order_number',
 		'po_number': 'technical_record__po_number',
 		'updated_at': 'updated_at',
 	}
@@ -5026,7 +5153,7 @@ def crm_technicals(request):
 		po_start, po_end = po_range
 		filtered_rows = []
 		for sales_row in queryset:
-			po_value = getattr(getattr(sales_row, 'technical_record', None), 'po_number', '')
+			po_value = getattr(getattr(sales_row, 'technical_record', None), 'job_order_number', '')
 			parsed_po = _parse_po_number(po_value)
 			if not parsed_po:
 				continue
