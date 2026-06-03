@@ -207,16 +207,18 @@ ROLE_PREVIEW_DEFAULT_AUDIENCES = {
 	'Ticket participants',
 }
 
+CRM_ADMIN_PERMISSION = 'core.manage_crm_admin'
+
 CRM_VIEW_PERMISSIONS = {
-	'dashboard': ('core.view_crm_dashboard', 'core.view_client'),
-	'clients': ('core.view_crm_clients_section', 'core.view_client'),
-	'sales': ('core.view_crm_sales_section', 'core.view_client'),
-	'technicals': ('core.view_crm_technicals_section', 'core.view_client'),
+	'dashboard': (CRM_ADMIN_PERMISSION, 'core.view_crm_dashboard', 'core.view_client'),
+	'clients': (CRM_ADMIN_PERMISSION, 'core.view_crm_clients_section', 'core.view_client'),
+	'sales': (CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client'),
+	'technicals': (CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'),
 }
 CRM_MANAGE_PERMISSIONS = {
-	'clients': ('core.manage_crm_clients_section', 'core.change_client'),
-	'sales': ('core.manage_crm_sales_section', 'core.change_client'),
-	'technicals': ('core.manage_crm_technicals_section', 'core.change_client'),
+	'clients': (CRM_ADMIN_PERMISSION, 'core.manage_crm_clients_section', 'core.change_client'),
+	'sales': (CRM_ADMIN_PERMISSION, 'core.manage_crm_sales_section', 'core.change_client'),
+	'technicals': (CRM_ADMIN_PERMISSION, 'core.manage_crm_technicals_section', 'core.change_client'),
 }
 
 def _has_any_permission(user, permission_names):
@@ -226,7 +228,15 @@ def _has_any_permission(user, permission_names):
 
 
 def _is_crm_technicals_admin(user):
-	return bool(user and user.is_authenticated and (user.is_superuser or user.has_perm('core.manage_crm_technicals_section')))
+	return bool(
+		user
+		and user.is_authenticated
+		and (
+			user.is_superuser
+			or user.has_perm(CRM_ADMIN_PERMISSION)
+			or user.has_perm('core.manage_crm_technicals_section')
+		)
+	)
 
 
 def _is_human_resource_role_member(user):
@@ -800,6 +810,21 @@ def _serialize_private_chat_attachment(attachment):
 	}
 
 
+def _chat_user_avatar_payload(user_obj):
+	profile = getattr(user_obj, 'profile', None)
+	avatar_url = ''
+	if profile and getattr(profile, 'avatar', None):
+		try:
+			avatar_url = profile.avatar.url
+		except ValueError:
+			avatar_url = ''
+	label = _chat_user_label(user_obj)
+	return {
+		'url': avatar_url,
+		'initial': (label[:1] or 'U').upper(),
+	}
+
+
 def _serialize_private_chat_message(message, current_user, recipient_read_id=0, ajax_sent=False):
 	reply_payload = None
 	if message.reply_to_id and getattr(message, 'reply_to', None):
@@ -826,6 +851,7 @@ def _serialize_private_chat_message(message, current_user, recipient_read_id=0, 
 		'id': message.pk,
 		'sender_id': message.sender_id,
 		'sender_label': _chat_user_label(message.sender),
+		'sender_avatar': _chat_user_avatar_payload(message.sender),
 		'body': message.get_message(),
 		'reply_to': reply_payload,
 		'attachments': [] if message.is_deleted else [
@@ -863,6 +889,19 @@ def _private_chat_user_payload(user_obj):
 	}
 
 
+def _private_chat_typing_cache_key(conversation_id, user_id):
+	return f'private-chat-typing:{conversation_id}:{user_id}'
+
+
+def _private_chat_typing_payload(conversation, typing_user):
+	if not conversation or not typing_user:
+		return {'is_typing': False, 'label': ''}
+	return {
+		'is_typing': bool(cache.get(_private_chat_typing_cache_key(conversation.pk, typing_user.pk))),
+		'label': _chat_user_label(typing_user),
+	}
+
+
 def _private_chat_message_window(conversation, current_user, recipient, *, before_id=None, after_id=None, around_id=None, latest=False):
 	if not conversation:
 		return {
@@ -872,9 +911,11 @@ def _private_chat_message_window(conversation, current_user, recipient, *, befor
 			'oldest_id': None,
 			'newest_id': None,
 			'count': 0,
+			'total_count': 0,
 		}
 
-	base_queryset = conversation.messages.select_related('sender', 'reply_to', 'reply_to__sender').prefetch_related('attachments', 'reactions', 'pins')
+	base_queryset = conversation.messages.select_related('sender', 'sender__profile', 'reply_to', 'reply_to__sender', 'reply_to__sender__profile').prefetch_related('attachments', 'reactions', 'pins')
+	total_count = base_queryset.count()
 	if around_id and base_queryset.filter(pk=around_id).exists():
 		before_messages = list(base_queryset.filter(id__lt=around_id).order_by('-id')[:4])
 		before_messages.reverse()
@@ -897,14 +938,16 @@ def _private_chat_message_window(conversation, current_user, recipient, *, befor
 	]
 	oldest_id = page_messages[0].pk if page_messages else None
 	newest_id = page_messages[-1].pk if page_messages else None
+	can_page_history = total_count > PRIVATE_CHAT_MESSAGE_PAGE_SIZE
 
 	return {
 		'messages': messages_payload,
-		'has_previous': bool(oldest_id and base_queryset.filter(id__lt=oldest_id).exists()),
-		'has_next': bool(newest_id and base_queryset.filter(id__gt=newest_id).exists()),
+		'has_previous': bool(can_page_history and oldest_id and base_queryset.filter(id__lt=oldest_id).exists()),
+		'has_next': bool(can_page_history and newest_id and base_queryset.filter(id__gt=newest_id).exists()),
 		'oldest_id': oldest_id,
 		'newest_id': newest_id,
 		'count': len(page_messages),
+		'total_count': total_count,
 	}
 
 
@@ -959,6 +1002,8 @@ def chats_page(request):
 		'has_next': False,
 		'oldest_id': None,
 		'newest_id': None,
+		'count': 0,
+		'total_count': 0,
 	}
 
 	department_id = request.POST.get('department') or request.GET.get('department')
@@ -1099,6 +1144,7 @@ def chats_messages(request):
 		'oldest_id': None,
 		'newest_id': None,
 		'count': 0,
+		'total_count': 0,
 	}
 	if conversation:
 		if request.GET.get('mark_read') == '1':
@@ -1125,11 +1171,31 @@ def chats_messages(request):
 			'oldest_id': window_payload['oldest_id'],
 			'newest_id': window_payload['newest_id'],
 			'count': window_payload['count'],
+			'total_count': window_payload['total_count'],
 		},
 		'unread': _private_chat_unread_payload(request.user),
 		'selected_member': _private_chat_user_payload(member),
+		'typing': _private_chat_typing_payload(conversation, member),
 		'department': {'id': department.pk, 'name': department.name},
 	})
+
+
+@login_required
+@require_POST
+def chats_typing(request):
+	department, member, error = _resolve_private_chat_selection(request)
+	if error:
+		return JsonResponse({'ok': False, 'message': error}, status=400)
+	conversation = _private_chat_conversation_for_users(request.user, member)
+	if not conversation:
+		return JsonResponse({'ok': True})
+	cache_key = _private_chat_typing_cache_key(conversation.pk, request.user.pk)
+	is_typing = (request.POST.get('typing') or '') == '1'
+	if is_typing:
+		cache.set(cache_key, True, timeout=4)
+	else:
+		cache.delete(cache_key)
+	return JsonResponse({'ok': True})
 
 
 @login_required
@@ -1165,7 +1231,7 @@ def chats_unread_count(request):
 def _private_chat_message_for_action(request, message_id):
 	message = (
 		PrivateChatMessage.objects
-		.select_related('conversation', 'sender', 'reply_to', 'reply_to__sender')
+		.select_related('conversation', 'sender', 'sender__profile', 'reply_to', 'reply_to__sender', 'reply_to__sender__profile')
 		.prefetch_related('attachments', 'reactions', 'pins')
 		.filter(pk=message_id)
 		.first()
@@ -8097,7 +8163,7 @@ def users_create(request):
 		role_permissions_grouped_map[str(role.id)] = build_permission_preview_groups(role.permissions.all())
 
 	if request.method == 'POST':
-		form = StaffUserCreationForm(request.POST)
+		form = StaffUserCreationForm(request.POST, current_user=request.user)
 		if form.is_valid():
 			created_user = form.save()
 			record_activity(
@@ -8113,7 +8179,7 @@ def users_create(request):
 				return JsonResponse({'ok': True, 'message': 'User account created successfully.'})
 			return redirect('users_list')
 	else:
-		form = StaffUserCreationForm()
+		form = StaffUserCreationForm(current_user=request.user)
 
 	context = {
 		'form': form,

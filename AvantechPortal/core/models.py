@@ -337,15 +337,6 @@ class LoginEvent(models.Model):
 
 	class Meta:
 		ordering = ['-created_at']
-		permissions = (
-			('view_crm_dashboard', 'Can view CRM dashboard section'),
-			('view_crm_clients_section', 'Can view CRM clients section'),
-			('manage_crm_clients_section', 'Can manage CRM clients section'),
-			('view_crm_sales_section', 'Can view CRM sales section'),
-			('manage_crm_sales_section', 'Can manage CRM sales section'),
-			('view_crm_technicals_section', 'Can view CRM technicals section'),
-			('manage_crm_technicals_section', 'Can manage CRM technicals section'),
-		)
 
 	def __str__(self):
 		return f'LoginEvent<{self.username_attempt}:{self.reason}>'
@@ -979,6 +970,16 @@ class CRMClient(models.Model):
 
 	class Meta:
 		ordering = ['-created_at']
+		permissions = (
+			('manage_crm_admin', 'Can administer all CRM sections'),
+			('view_crm_dashboard', 'Can view CRM dashboard section'),
+			('view_crm_clients_section', 'Can view CRM clients section'),
+			('manage_crm_clients_section', 'Can manage CRM clients section'),
+			('view_crm_sales_section', 'Can view CRM sales section'),
+			('manage_crm_sales_section', 'Can manage CRM sales section'),
+			('view_crm_technicals_section', 'Can view CRM technicals section'),
+			('manage_crm_technicals_section', 'Can manage CRM technicals section'),
+		)
 
 	@classmethod
 	def _generate_customer_id(cls):

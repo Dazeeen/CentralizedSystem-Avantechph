@@ -5,11 +5,10 @@
 <form method="post" action="{{ form_action_url|default:request.path }}" id="usersEditModalForm">
     {% csrf_token %}
     <input type="hidden" name="modal" value="1">
-    {{ form.admin_current_password }}
 
     <div class="row g-3">
         {% for field in form %}
-            {% if field.name != 'admin_current_password' and field.name != 'groups' and field.name != 'user_permissions' and field.name != 'new_password1' and field.name != 'new_password2' %}
+            {% if field.name != 'groups' and field.name != 'user_permissions' and field.name != 'new_password1' and field.name != 'new_password2' %}
                 <div class="col-12 col-md-6">
                     <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
                     {{ field }}
@@ -72,10 +71,16 @@
             {% if field.name == 'user_permissions' %}
                 <div class="col-12 col-xl-6">
                     <label class="form-label fw-semibold mb-2">{{ field.label }}</label>
-                    <div class="border rounded p-2" style="max-height: 360px; overflow: auto;">
+                    <div class="border rounded p-2" data-field-kind="user_permissions" style="max-height: 360px; overflow: auto;">
                         {% for group in form.grouped_user_permissions %}
-                            <details class="mb-2" {% if forloop.first %}open{% endif %}>
-                                <summary class="fw-semibold text-capitalize">{{ group.app_label }}</summary>
+                            <details class="mb-2 js-modal-permission-category" {% if forloop.first %}open{% endif %}>
+                                <summary class="d-flex justify-content-between align-items-center gap-2">
+                                    <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
+                                    <span class="d-inline-flex align-items-center gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 js-category-user-toggle" data-category-key="modal-user-perm-category-{{ forloop.counter }}" title="Select only user-level access for {{ group.app_label }}">User</button>
+                                        <button type="button" class="btn btn-sm btn-outline-success py-0 js-category-admin-toggle" data-category-key="modal-user-perm-category-{{ forloop.counter }}" title="Select admin/full access for {{ group.app_label }}">Admin</button>
+                                    </span>
+                                </summary>
                                 <div class="table-responsive mt-2">
                                     <table class="table table-sm align-middle mb-0">
                                         <tbody>
@@ -86,7 +91,7 @@
                                                         <div class="small text-secondary">{{ item.description|default:'Controls access to this feature.' }}</div>
                                                     </td>
                                                     <td class="text-center" style="width: 80px;">
-                                                        <input type="checkbox" class="form-check-input" name="user_permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
+                                                        <input type="checkbox" class="form-check-input js-category-item" data-category-key="modal-user-perm-category-{{ forloop.parentloop.counter }}" data-permission-tier="{{ item.tier }}" name="user_permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
                                                     </td>
                                                 </tr>
                                             {% endfor %}
@@ -104,10 +109,6 @@
             {% endif %}
         {% endfor %}
     </div>
-
-    {% if form.admin_current_password.errors %}
-        <div class="text-danger small mt-3">{{ form.admin_current_password.errors|striptags }}</div>
-    {% endif %}
 
     <div class="d-flex justify-content-end gap-2 mt-4">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>

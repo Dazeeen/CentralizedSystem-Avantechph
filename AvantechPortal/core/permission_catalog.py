@@ -180,13 +180,28 @@ CUSTOM_PERMISSION_LABELS = {
     ('core', 'clientdeletionrequest', 'approve_clientdeletionrequest'): 'Approve client deletion requests',
     ('core', 'companyinternetaccount', 'reveal_companyinternetaccount_password'): 'Unlock and view internet account passwords',
     ('core', 'supportticket', 'can_manage_supportticket'): 'Manage all support tickets',
-    ('core', 'crmclient', 'view_crm_dashboard'): 'Open CRM dashboard section',
-    ('core', 'crmclient', 'view_crm_clients_section'): 'Open CRM clients section',
-    ('core', 'crmclient', 'manage_crm_clients_section'): 'Manage CRM clients section',
-    ('core', 'crmclient', 'view_crm_sales_section'): 'Open CRM sales section',
-    ('core', 'crmclient', 'manage_crm_sales_section'): 'Manage CRM sales section',
-    ('core', 'crmclient', 'view_crm_technicals_section'): 'Open CRM technicals section',
-    ('core', 'crmclient', 'manage_crm_technicals_section'): 'Manage CRM technicals section',
+    ('core', 'crmclient', 'manage_crm_admin'): 'CRM Admin (full CRM access)',
+    ('core', 'crmclient', 'view_crm_dashboard'): 'CRM User: Open dashboard',
+    ('core', 'crmclient', 'view_crm_clients_section'): 'CRM User: Open clients',
+    ('core', 'crmclient', 'manage_crm_clients_section'): 'CRM Clients Admin',
+    ('core', 'crmclient', 'view_crm_sales_section'): 'CRM User: Open sales',
+    ('core', 'crmclient', 'manage_crm_sales_section'): 'CRM Sales Admin',
+    ('core', 'crmclient', 'view_crm_technicals_section'): 'CRM User: Open technicals',
+    ('core', 'crmclient', 'manage_crm_technicals_section'): 'CRM Technicals Admin',
+    ('core', 'crmclient', 'add_crmclient'): 'CRM Create clients',
+    ('core', 'crmclient', 'change_crmclient'): 'CRM Edit clients',
+    ('core', 'crmclient', 'delete_crmclient'): 'CRM Delete clients',
+    ('core', 'crmclient', 'view_crmclient'): 'CRM User: View clients',
+}
+
+EXCLUDED_PERMISSION_KEYS = {
+    ('core', 'loginevent', 'view_crm_dashboard'),
+    ('core', 'loginevent', 'view_crm_clients_section'),
+    ('core', 'loginevent', 'manage_crm_clients_section'),
+    ('core', 'loginevent', 'view_crm_sales_section'),
+    ('core', 'loginevent', 'manage_crm_sales_section'),
+    ('core', 'loginevent', 'view_crm_technicals_section'),
+    ('core', 'loginevent', 'manage_crm_technicals_section'),
 }
 
 ACTION_LABELS = {
@@ -194,6 +209,21 @@ ACTION_LABELS = {
     'change': 'Edit',
     'delete': 'Delete',
     'view': 'View',
+}
+
+PERMISSION_TIER_ORDER = {
+    'admin': 0,
+    'user': 1,
+    'specific': 2,
+}
+
+ADMIN_PERMISSION_CODENAMES = {
+    'manage_crm_admin',
+    'can_manage_accountability',
+    'can_manage_supportticket',
+    'approve_clientdeletionrequest',
+    'approve_crmclientdeletionrequest',
+    'reveal_companyinternetaccount_password',
 }
 
 INTERNAL_APP_LABELS = {
@@ -216,6 +246,23 @@ def _split_codename(codename):
 
 def _normalize_words(value):
     return str(value or '').replace('_', ' ').strip().lower()
+
+
+def permission_tier(permission):
+    codename = permission.codename or ''
+    action_key, _ = _split_codename(codename)
+    if (
+        codename in ADMIN_PERMISSION_CODENAMES
+        or codename.startswith('manage_')
+        or codename.startswith('can_manage_')
+        or codename.startswith('approve_')
+        or codename.startswith('reveal_')
+        or action_key in {'change', 'delete'}
+    ):
+        return 'admin'
+    if action_key == 'view' or codename.startswith('view_'):
+        return 'user'
+    return 'specific'
 
 
 def _feature_for_permission(permission):
@@ -241,8 +288,14 @@ def _resource_label_for_permission(permission):
 def describe_permission(permission):
     model_key = (permission.content_type.app_label, permission.content_type.model)
     feature_key, feature_label = _feature_for_permission(permission)
+    tier = permission_tier(permission)
     custom_label = CUSTOM_PERMISSION_LABELS.get((model_key[0], model_key[1], permission.codename))
     if custom_label:
+        label_lower = custom_label.lower()
+        if tier == 'admin' and 'admin' not in label_lower:
+            custom_label = f'{feature_label} Admin: {custom_label}'
+        elif tier == 'user' and 'user:' not in label_lower:
+            custom_label = f'{feature_label} User: {custom_label}'
         return {
             'feature_key': feature_key,
             'feature_label': feature_label,
@@ -253,11 +306,19 @@ def describe_permission(permission):
     resource_label = _resource_label_for_permission(permission)
     if action_key in ACTION_LABELS:
         permission_label = f'{ACTION_LABELS[action_key]} {resource_label}'
+        if tier == 'admin':
+            permission_label = f'{feature_label} Admin: {permission_label}'
+        elif tier == 'user':
+            permission_label = f'{feature_label} User: {permission_label}'
     else:
         fallback_label = str(permission.name or '').strip()
         if fallback_label.lower().startswith('can '):
             fallback_label = fallback_label[4:]
         permission_label = fallback_label[:1].upper() + fallback_label[1:] if fallback_label else 'Use this capability'
+        if tier == 'admin':
+            permission_label = f'{feature_label} Admin: {permission_label}'
+        elif tier == 'user':
+            permission_label = f'{feature_label} User: {permission_label}'
 
     return {
         'feature_key': feature_key,
@@ -285,6 +346,13 @@ def build_permission_groups(permissions, selected_values=None):
     labels_by_key = {}
 
     for permission in permissions:
+        permission_key = (
+            permission.content_type.app_label,
+            permission.content_type.model,
+            permission.codename,
+        )
+        if permission_key in EXCLUDED_PERMISSION_KEYS:
+            continue
         meta = describe_permission(permission)
         feature_key = meta['feature_key']
         labels_by_key[feature_key] = meta['feature_label']
@@ -294,6 +362,7 @@ def build_permission_groups(permissions, selected_values=None):
                 'label': meta['permission_label'],
                 'description': _permission_description(permission),
                 'checked': str(permission.pk) in selected_lookup,
+                'tier': permission_tier(permission),
             }
         )
 
@@ -305,7 +374,7 @@ def build_permission_groups(permissions, selected_values=None):
 
     result = []
     for feature_key in ordered_keys:
-        items = sorted(grouped[feature_key], key=lambda item: item['label'])
+        items = sorted(grouped[feature_key], key=lambda item: (PERMISSION_TIER_ORDER.get(item['tier'], 9), item['label']))
         selected_count = sum(1 for item in items if item['checked'])
         result.append(
             {
@@ -315,6 +384,9 @@ def build_permission_groups(permissions, selected_values=None):
                 'items': items,
                 'selected_count': selected_count,
                 'total_count': len(items),
+                'admin_count': sum(1 for item in items if item['tier'] == 'admin'),
+                'user_count': sum(1 for item in items if item['tier'] == 'user'),
+                'specific_count': sum(1 for item in items if item['tier'] == 'specific'),
             }
         )
 

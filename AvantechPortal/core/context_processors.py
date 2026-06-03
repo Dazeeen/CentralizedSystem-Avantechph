@@ -24,17 +24,19 @@ from .ticketing_services import (
     effective_priority_filter,
 )
 
+CRM_ADMIN_PERMISSION = 'core.manage_crm_admin'
+
 CRM_VIEW_PERMISSIONS = {
-    'dashboard': ('core.view_crm_dashboard', 'core.view_client'),
-    'clients': ('core.view_crm_clients_section', 'core.view_client'),
-    'sales': ('core.view_crm_sales_section', 'core.view_client'),
-    'technicals': ('core.view_crm_technicals_section', 'core.view_client'),
+    'dashboard': (CRM_ADMIN_PERMISSION, 'core.view_crm_dashboard', 'core.view_client'),
+    'clients': (CRM_ADMIN_PERMISSION, 'core.view_crm_clients_section', 'core.view_client'),
+    'sales': (CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client'),
+    'technicals': (CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'),
 }
 
 CRM_MANAGE_PERMISSIONS = {
-    'clients': ('core.manage_crm_clients_section', 'core.change_client'),
-    'sales': ('core.manage_crm_sales_section', 'core.change_client'),
-    'technicals': ('core.manage_crm_technicals_section', 'core.change_client'),
+    'clients': (CRM_ADMIN_PERMISSION, 'core.manage_crm_clients_section', 'core.change_client'),
+    'sales': (CRM_ADMIN_PERMISSION, 'core.manage_crm_sales_section', 'core.change_client'),
+    'technicals': (CRM_ADMIN_PERMISSION, 'core.manage_crm_technicals_section', 'core.change_client'),
 }
 
 
@@ -101,10 +103,10 @@ PAGE_ACCESS_RULES = {
     'clients_delete': {'label': 'Delete Client', 'perms': ['core.delete_client']},
     'clients_quote': {'label': 'Client Quotation', 'perms': ['core.change_clientquotation']},
     'clients_quotation_document': {'label': 'Client Quotation Document', 'perms': ['core.view_clientquotation']},
-    'crm_dashboard': {'label': 'CRM Dashboard', 'perms': ['core.view_crm_dashboard', 'core.view_client']},
-    'crm_clients': {'label': 'CRM Clients', 'perms': ['core.view_crm_clients_section', 'core.view_client']},
-    'crm_sales': {'label': 'CRM Sales', 'perms': ['core.view_crm_sales_section', 'core.view_client']},
-    'crm_technicals': {'label': 'CRM Technicals', 'perms': ['core.view_crm_technicals_section', 'core.view_client']},
+    'crm_dashboard': {'label': 'CRM Dashboard', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_dashboard', 'core.view_client']},
+    'crm_clients': {'label': 'CRM Clients', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_clients_section', 'core.view_client']},
+    'crm_sales': {'label': 'CRM Sales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client']},
+    'crm_technicals': {'label': 'CRM Technicals', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'finance_dashboard': {'label': 'Finance Dashboard', 'perms': ['core.view_fundrequest']},
     'fund_requests_list': {'label': 'Payment Request', 'perms': ['core.view_fundrequest']},
     'fund_request_records': {'label': 'Payment Request Records', 'perms': ['core.view_fundrequest']},

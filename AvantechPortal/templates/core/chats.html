@@ -6,9 +6,11 @@
 {% block content %}
 <style>
     .chat-workspace {
-        min-height: calc(100vh - 10rem);
+        height: calc(100vh - 11.75rem);
+        min-height: 420px;
+        max-height: calc(100vh - 11.75rem);
         display: grid;
-        grid-template-columns: 230px 280px minmax(0, 1fr);
+        grid-template-columns: 320px minmax(0, 1fr);
         gap: 14px;
         align-items: stretch;
     }
@@ -49,6 +51,26 @@
     .chat-nav-link.active {
         background: #eaf7dc;
         color: #0f5132;
+    }
+
+    .chat-nav-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid #dbe3ee;
+        background: #fff;
+        color: #334155;
+        border-radius: 999px;
+        padding: 4px 10px;
+        text-decoration: none;
+        font-size: .82rem;
+    }
+
+    .chat-nav-back:hover,
+    .chat-nav-back:focus {
+        color: #198754;
+        border-color: #b7d88d;
+        background: #f3faeb;
     }
 
     .chat-member-link {
@@ -124,7 +146,7 @@
     .chat-bubble {
         max-width: min(680px, 82%);
         border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        border-radius: 22px;
         padding: 10px 12px;
         background: #fff;
         align-self: flex-start;
@@ -149,11 +171,89 @@
         flex-direction: row-reverse;
     }
 
+    .chat-message-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-width: min(680px, 82%);
+    }
+
+    .chat-message-row.is-own .chat-message-stack {
+        align-items: flex-end;
+    }
+
+    .chat-message-row.is-own .chat-message-sender {
+        display: none;
+    }
+
+    .chat-message-sender,
+    .chat-message-meta {
+        padding: 0 4px;
+        font-size: .74rem;
+        color: #64748b;
+    }
+
+    .chat-message-sender {
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+    }
+
+    .chat-message-avatar,
+    .chat-message-avatar-fallback {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        flex: 0 0 24px;
+    }
+
+    .chat-message-avatar {
+        object-fit: cover;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+    }
+
+    .chat-message-avatar-fallback {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #198754;
+        color: #fff;
+        font-size: .7rem;
+        font-weight: 700;
+    }
+
+    .chat-message-meta {
+        display: none;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+    }
+
+    .chat-message-row.show-time .chat-message-meta {
+        display: flex;
+    }
+
+    .chat-message-row.is-own .chat-message-sender,
+    .chat-message-row.is-own .chat-message-meta {
+        text-align: right;
+        justify-content: flex-end;
+    }
+
     .chat-message-row .chat-bubble {
         max-width: 100%;
+        cursor: pointer;
+    }
+
+    .chat-message-row:not(.is-own) .chat-bubble,
+    .chat-message-row:not(.is-own) .chat-reply-context,
+    .chat-message-row:not(.is-own) .chat-message-meta {
+        margin-left: 31px;
     }
 
     .chat-bubble.is-own {
+        align-self: flex-end;
         background: #eaf7dc;
         border-color: #c8e6a2;
     }
@@ -192,6 +292,19 @@
         display: inline-flex;
         gap: 6px;
         align-items: center;
+        align-self: center;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(2px);
+        transition: opacity .15s ease, transform .15s ease;
+    }
+
+    .chat-message-row:hover .chat-actions,
+    .chat-message-row.show-time .chat-actions,
+    .chat-actions:focus-within {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
     }
 
     .chat-reactions {
@@ -199,9 +312,10 @@
         flex-wrap: wrap;
         gap: 5px;
         position: absolute;
-        left: 8px;
+        right: 8px;
         bottom: -14px;
         z-index: 1;
+        justify-content: flex-end;
     }
 
     .chat-reaction-pill {
@@ -246,8 +360,7 @@
         opacity: 1;
     }
 
-    .chat-reply-preview,
-    .chat-reply-context {
+    .chat-reply-preview {
         border-left: 3px solid #94c441;
         background: #f8fafc;
         border-radius: 6px;
@@ -255,13 +368,53 @@
     }
 
     .chat-reply-context {
-        margin-bottom: 8px;
+        align-self: flex-start;
+        width: fit-content;
+        max-width: min(320px, 72vw);
+        border: 1px solid rgba(203, 213, 225, .72);
+        border-left: 3px solid rgba(148, 196, 65, .72);
+        border-radius: 18px;
+        background: rgba(248, 250, 252, .68);
+        color: #64748b;
+        padding: 7px 11px;
         font-size: .82rem;
         cursor: pointer;
+        opacity: .76;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
+    }
+
+    .chat-message-row.is-own .chat-reply-context {
+        align-self: flex-end;
+        border-left-width: 1px;
+        border-right: 3px solid rgba(148, 196, 65, .72);
+        background: rgba(234, 247, 220, .62);
+        text-align: left;
+    }
+
+    .chat-reply-context .small {
+        display: block;
+        max-width: 100%;
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .chat-reply-preview {
         margin-bottom: 8px;
+    }
+
+    .chat-typing-indicator {
+        display: none;
+        min-height: 18px;
+        margin: 0 0 7px 2px;
+        color: #64748b;
+        font-size: .82rem;
+        font-style: italic;
+    }
+
+    .chat-typing-indicator.is-visible {
+        display: block;
     }
 
     .chat-reply-preview-body,
@@ -459,6 +612,9 @@
     @media (max-width: 1100px) {
         .chat-workspace {
             grid-template-columns: 1fr;
+            height: auto;
+            max-height: none;
+            min-height: 0;
         }
 
         .chat-panel {
@@ -467,10 +623,9 @@
     }
 </style>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
     <div>
-        <h2 class="h4 mb-1">Chats</h2>
-        <p class="text-secondary mb-0">Private department conversations.</p>
+        <h2 class="h5 mb-0">Chats</h2>
     </div>
     <span class="badge text-bg-light border">Encrypted at rest</span>
 </div>
@@ -485,36 +640,21 @@
     data-history-has-previous="{% if chat_history.has_previous %}1{% else %}0{% endif %}"
     data-history-has-next="{% if chat_history.has_next %}1{% else %}0{% endif %}"
     data-history-count="{{ chat_history.count|default:0 }}"
+    data-history-total-count="{{ chat_history.total_count|default:0 }}"
 >
-    <section class="chat-panel" aria-label="Departments">
-        <div class="chat-panel-header">
-            <div class="fw-semibold">Departments</div>
-            <div class="small text-secondary">{{ departments|length }} registered</div>
-        </div>
-        <div class="chat-panel-body">
-            {% for row in departments %}
-                <a class="chat-nav-link {% if row.is_active %}active{% endif %}" href="{% url 'chats_page' %}?department={{ row.department.id }}">
-                    <span class="text-truncate">{{ row.department.name }}</span>
-                    <span class="d-inline-flex align-items-center gap-1">
-                        <span class="badge text-bg-light border">{{ row.member_count }}</span>
-                        <span class="badge bg-danger {% if not row.unread_count %}d-none{% endif %}" data-chat-department-unread="{{ row.department.id }}">{{ row.unread_count }}</span>
-                    </span>
+    <section class="chat-panel" aria-label="Chat navigation">
+        {% if selected_department %}
+            <div class="chat-panel-header">
+                <a class="chat-nav-back mb-2" href="{% url 'chats_page' %}" aria-label="Back to departments">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Departments</span>
                 </a>
-            {% empty %}
-                <div class="chat-empty">No departments registered.</div>
-            {% endfor %}
-        </div>
-    </section>
-
-    <section class="chat-panel" aria-label="Department members">
-        <div class="chat-panel-header">
-            <div class="fw-semibold">Members</div>
-            <div class="small text-secondary">
-                {% if selected_department %}{{ selected_department.name }}{% else %}Select department{% endif %}
+                <div class="fw-semibold text-truncate">{{ selected_department.name }}</div>
+                <div class="small text-secondary">{{ members|length }} members</div>
             </div>
-        </div>
-        <div class="chat-panel-body">
-            {% if selected_department %}
+            <div class="chat-panel-body">
                 {% for row in members %}
                     <a class="chat-nav-link chat-member-link {% if row.is_active %}active{% endif %}" href="{% url 'chats_page' %}?department={{ selected_department.id }}&user={{ row.user.id }}" data-chat-member-link="{{ row.user.id }}">
                         <span class="d-flex gap-2 min-w-0">
@@ -534,10 +674,26 @@
                 {% empty %}
                     <div class="chat-empty">No active members found for this department.</div>
                 {% endfor %}
-            {% else %}
-                <div class="chat-empty">Choose a department.</div>
-            {% endif %}
-        </div>
+            </div>
+        {% else %}
+            <div class="chat-panel-header">
+                <div class="fw-semibold">Departments</div>
+                <div class="small text-secondary">{{ departments|length }} registered</div>
+            </div>
+            <div class="chat-panel-body">
+                {% for row in departments %}
+                    <a class="chat-nav-link {% if row.is_active %}active{% endif %}" href="{% url 'chats_page' %}?department={{ row.department.id }}">
+                        <span class="text-truncate">{{ row.department.name }}</span>
+                        <span class="d-inline-flex align-items-center gap-1">
+                            <span class="badge text-bg-light border">{{ row.member_count }}</span>
+                            <span class="badge bg-danger {% if not row.unread_count %}d-none{% endif %}" data-chat-department-unread="{{ row.department.id }}">{{ row.unread_count }}</span>
+                        </span>
+                    </a>
+                {% empty %}
+                    <div class="chat-empty">No departments registered.</div>
+                {% endfor %}
+            </div>
+        {% endif %}
     </section>
 
     <section class="chat-panel" aria-label="Conversation">
@@ -558,43 +714,59 @@
                 </div>
                 {% for message in chat_messages %}
                     <div class="chat-message-row {% if message.is_own %}is-own{% endif %} {% if message.reactions %}has-reactions{% endif %}" data-message-row="{{ message.id }}">
-                        <article class="chat-bubble {% if message.is_own %}is-own{% endif %}" data-message-id="{{ message.id }}" data-message-body="{{ message.body|escape }}" data-message-sender="{{ message.sender_label|escape }}">
+                        <div class="chat-message-stack">
+                            <div class="chat-message-sender">
+                                {% if message.sender_avatar.url %}
+                                    <img class="chat-message-avatar" src="{{ message.sender_avatar.url }}" alt="{{ message.sender_label }}">
+                                {% else %}
+                                    <span class="chat-message-avatar-fallback">{{ message.sender_avatar.initial }}</span>
+                                {% endif %}
+                                <span>{{ message.sender_label }}</span>
+                            </div>
                             {% if message.reply_to %}
-                                <div class="chat-reply-context">
+                                <div class="chat-reply-context" data-jump-message-id="{{ message.reply_to.id }}">
                                     <div class="small fw-semibold">{{ message.reply_to.sender_label }}</div>
                                     <div class="chat-reply-context-body">{{ message.reply_to.body }}</div>
                                 </div>
                             {% endif %}
-                            <div class="d-flex justify-content-between gap-3 mb-1">
-                                <strong class="small">{{ message.sender_label }}</strong>
-                                <span class="small text-secondary">{{ message.created_at }}</span>
-                            </div>
-                            {% if message.body %}
-                                <div>{{ message.body|linebreaksbr }}</div>
-                            {% endif %}
-                            {% if message.attachments %}
-                                <div class="chat-attachments">
-                                    {% for attachment in message.attachments %}
-                                        {% if attachment.is_image %}
-                                            <a class="chat-attachment-image" href="{{ attachment.url }}" target="_blank" rel="noopener">
-                                                <img src="{{ attachment.url }}" alt="{{ attachment.name }}">
-                                                <span class="chat-attachment-meta d-block">
+                            <article class="chat-bubble {% if message.is_own %}is-own{% endif %}" data-message-id="{{ message.id }}" data-message-body="{{ message.body|escape }}" data-message-sender="{{ message.sender_label|escape }}">
+                                {% if message.body %}
+                                    <div>{{ message.body|linebreaksbr }}</div>
+                                {% endif %}
+                                {% if message.attachments %}
+                                    <div class="chat-attachments">
+                                        {% for attachment in message.attachments %}
+                                            {% if attachment.is_image %}
+                                                <a class="chat-attachment-image" href="{{ attachment.url }}" target="_blank" rel="noopener">
+                                                    <img src="{{ attachment.url }}" alt="{{ attachment.name }}">
+                                                    <span class="chat-attachment-meta d-block">
+                                                        <span class="d-block small fw-semibold text-truncate">{{ attachment.name }}</span>
+                                                    </span>
+                                                </a>
+                                            {% else %}
+                                                <a class="chat-attachment-card" href="{{ attachment.url }}" target="_blank" rel="noopener">
                                                     <span class="d-block small fw-semibold text-truncate">{{ attachment.name }}</span>
-                                                </span>
-                                            </a>
-                                        {% else %}
-                                            <a class="chat-attachment-card" href="{{ attachment.url }}" target="_blank" rel="noopener">
-                                                <span class="d-block small fw-semibold text-truncate">{{ attachment.name }}</span>
-                                                <span class="d-block small text-secondary">{{ attachment.size }} bytes</span>
-                                            </a>
-                                        {% endif %}
-                                    {% endfor %}
-                                </div>
-                            {% endif %}
-                            {% if message.status %}
-                                <div class="chat-message-status" data-message-status>{{ message.status }}</div>
-                            {% endif %}
-                        </article>
+                                                    <span class="d-block small text-secondary">{{ attachment.size }} bytes</span>
+                                                </a>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                {% if message.reactions %}
+                                    <div class="chat-reactions">
+                                        {% for reaction in message.reactions %}
+                                            <span class="chat-reaction-pill {% if reaction.is_own %}is-own{% endif %}">{{ reaction.emoji }} {{ reaction.count }}</span>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </article>
+                            <div class="chat-message-meta">
+                                <span>{{ message.created_at }}</span>
+                                {% if message.is_pinned %}<span class="chat-pinned-label">Pinned</span>{% endif %}
+                                {% if message.is_edited and not message.is_deleted %}<span class="chat-edited-label">Edited</span>{% endif %}
+                                {% if message.status %}<span class="chat-message-status" data-message-status>{{ message.status }}</span>{% endif %}
+                            </div>
+                        </div>
                         <button type="button" class="chat-reply-btn" data-reply-message-id="{{ message.id }}" data-reply-sender="{{ message.sender_label|escape }}" data-reply-body="{{ message.body|escape }}" aria-label="Reply to message" title="Reply">
                             <svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M9 8L5 12L9 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -612,6 +784,7 @@
         {% if selected_department and selected_member %}
             <div class="chat-compose">
                 <button type="button" class="chat-history-btn chat-read-next-floating {% if not chat_history.has_next %}d-none{% endif %}" id="chatReadNextBtn">Read next</button>
+                <div class="chat-typing-indicator" id="privateChatTypingIndicator" aria-live="polite"></div>
                 <form method="post" id="privateChatForm" enctype="multipart/form-data">
                     {% csrf_token %}
                     <input type="hidden" name="department" value="{{ selected_department.id }}">
@@ -682,6 +855,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const replyBody = document.getElementById('privateChatReplyBody');
     const replyClear = document.getElementById('privateChatReplyClear');
     const chatReadNextBtn = document.getElementById('chatReadNextBtn');
+    const typingIndicator = document.getElementById('privateChatTypingIndicator');
     const selectedDepartment = workspace ? workspace.dataset.selectedDepartment : '';
     const selectedUser = workspace ? workspace.dataset.selectedUser : '';
     let historyOldestId = workspace ? workspace.dataset.historyOldest : '';
@@ -689,11 +863,17 @@ document.addEventListener('DOMContentLoaded', function () {
     let historyHasPrevious = workspace ? workspace.dataset.historyHasPrevious === '1' : false;
     let historyHasNext = workspace ? workspace.dataset.historyHasNext === '1' : false;
     let historyWindowCount = Number(workspace ? workspace.dataset.historyCount || 0 : 0);
+    let historyTotalCount = Number(workspace ? workspace.dataset.historyTotalCount || 0 : 0);
+    const historyPageSize = 10;
     let selectedAttachments = [];
     const messagesUrl = "{% url 'chats_messages' %}";
     const sendUrl = "{% url 'chats_send' %}";
+    const typingUrl = "{% url 'chats_typing' %}";
     const unreadUrl = "{% url 'chats_unread_count' %}";
     const messageActionBaseUrl = "{% url 'chats_page' %}messages/";
+    let lastTypingPingAt = 0;
+    let typingStopTimer = null;
+    let typingStateSent = false;
 
     if (chatThread) {
         chatThread.scrollTop = chatThread.scrollHeight;
@@ -788,7 +968,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function historyTopHtml() {
-        return `<div class="chat-history-top"><button type="button" class="chat-history-btn ${historyHasPrevious ? '' : 'd-none'}" id="chatReadPreviousBtn">Read previous</button></div>`;
+        return `<div class="chat-history-top"><button type="button" class="chat-history-btn ${shouldShowHistoryPrevious() ? '' : 'd-none'}" id="chatReadPreviousBtn">Read previous</button></div>`;
+    }
+
+    function shouldShowHistoryPrevious() {
+        return historyTotalCount > historyPageSize && historyHasPrevious;
+    }
+
+    function shouldShowHistoryNext() {
+        return historyTotalCount > historyPageSize && historyHasNext;
     }
 
     function updateHistoryState(history) {
@@ -796,17 +984,18 @@ document.addEventListener('DOMContentLoaded', function () {
         historyOldestId = history.oldest_id || '';
         historyNewestId = history.newest_id || '';
         historyWindowCount = Number(history.count || 0);
-        const hasAnyPaging = !!history.has_previous || !!history.has_next;
-        historyHasPrevious = hasAnyPaging && !!history.has_previous;
-        historyHasNext = hasAnyPaging && !!history.has_next;
+        historyTotalCount = Number(history.total_count || historyWindowCount || 0);
+        const canPageHistory = historyTotalCount > historyPageSize;
+        historyHasPrevious = canPageHistory && !!history.has_previous;
+        historyHasNext = canPageHistory && !!history.has_next;
         const readPreviousBtn = document.getElementById('chatReadPreviousBtn');
         if (readPreviousBtn) {
-            readPreviousBtn.classList.toggle('d-none', !historyHasPrevious);
+            readPreviousBtn.classList.toggle('d-none', !shouldShowHistoryPrevious());
             readPreviousBtn.classList.remove('is-loading');
             readPreviousBtn.textContent = 'Read previous';
         }
         if (chatReadNextBtn) {
-            chatReadNextBtn.classList.toggle('d-none', !historyHasNext);
+            chatReadNextBtn.classList.toggle('d-none', !shouldShowHistoryNext());
             chatReadNextBtn.classList.remove('is-loading');
             chatReadNextBtn.textContent = 'Read next';
         }
@@ -859,8 +1048,51 @@ document.addEventListener('DOMContentLoaded', function () {
         return `${messageActionBaseUrl}${messageId}/${action}/`;
     }
 
+    function updateTypingIndicator(typing) {
+        if (!typingIndicator) return;
+        const isTyping = !!(typing && typing.is_typing);
+        typingIndicator.textContent = isTyping ? `${typing.label || 'User'} is typing...` : '';
+        typingIndicator.classList.toggle('is-visible', isTyping);
+    }
+
+    function postTypingState(isTyping) {
+        if (!selectedDepartment || !selectedUser || !chatForm) return;
+        const formData = new FormData();
+        formData.append('csrfmiddlewaretoken', getCsrfToken());
+        formData.append('department', selectedDepartment);
+        formData.append('user', selectedUser);
+        formData.append('typing', isTyping ? '1' : '0');
+        fetch(typingUrl, {
+            method: 'POST',
+            body: formData,
+            headers: {'X-Requested-With': 'XMLHttpRequest'},
+            keepalive: !isTyping,
+        }).catch(() => {});
+    }
+
+    function notifyTyping() {
+        if (!chatInput) return;
+        const hasText = chatInput.value.trim().length > 0;
+        window.clearTimeout(typingStopTimer);
+        if (!hasText) {
+            if (typingStateSent) postTypingState(false);
+            typingStateSent = false;
+            return;
+        }
+        const now = Date.now();
+        if (!typingStateSent || now - lastTypingPingAt > 1800) {
+            postTypingState(true);
+            typingStateSent = true;
+            lastTypingPingAt = now;
+        }
+        typingStopTimer = window.setTimeout(() => {
+            postTypingState(false);
+            typingStateSent = false;
+        }, 2600);
+    }
+
     function renderMessage(message) {
-        const statusHtml = message.status ? `<div class="chat-message-status" data-message-status>${escapeHtml(message.status)}</div>` : '';
+        const statusHtml = message.status ? `<span class="chat-message-status" data-message-status>${escapeHtml(message.status)}</span>` : '';
         const replyHtml = message.reply_to ? `
             <div class="chat-reply-context" data-jump-message-id="${message.reply_to.id}">
                 <div class="small fw-semibold">${escapeHtml(message.reply_to.sender_label)}</div>
@@ -883,6 +1115,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 ${(message.reactions || []).map((reaction) => `<span class="chat-reaction-pill ${reaction.is_own ? 'is-own' : ''}">${reaction.emoji} ${reaction.count}</span>`).join('')}
             </div>
         ` : '';
+        const avatar = message.sender_avatar || {};
+        const avatarHtml = avatar.url
+            ? `<img class="chat-message-avatar" src="${escapeHtml(avatar.url)}" alt="${escapeHtml(message.sender_label)}">`
+            : `<span class="chat-message-avatar-fallback">${escapeHtml(avatar.initial || 'U')}</span>`;
         const editedHtml = message.is_edited && !message.is_deleted ? '<span class="chat-edited-label">Edited</span>' : '';
         const pinnedHtml = message.is_pinned ? '<span class="chat-pinned-label">Pinned</span>' : '';
         const menuHtml = !message.is_deleted ? `
@@ -909,18 +1145,24 @@ document.addEventListener('DOMContentLoaded', function () {
         ` : '';
         return `
             <div class="chat-message-row ${message.is_own ? 'is-own' : ''} ${(message.reactions || []).length ? 'has-reactions' : ''}" data-message-row="${message.id}">
-                <article class="chat-bubble ${message.is_own ? 'is-own' : ''}" data-message-id="${message.id}" data-message-body="${escapeHtml(message.body)}" data-message-sender="${escapeHtml(message.sender_label)}">
-                    ${replyHtml}
-                    <div class="d-flex justify-content-between gap-3 mb-1">
-                        <strong class="small">${escapeHtml(message.sender_label)}</strong>
-                        <span class="small text-secondary">${escapeHtml(message.created_at)}</span>
+                <div class="chat-message-stack">
+                    <div class="chat-message-sender">
+                        ${avatarHtml}
+                        <span>${escapeHtml(message.sender_label)}</span>
                     </div>
-                    ${bodyHtml}
-                    ${attachmentsHtml}
-                    ${reactionsHtml}
-                    <div class="d-flex justify-content-end gap-2">${pinnedHtml}${editedHtml}</div>
-                    ${statusHtml}
-                </article>
+                    ${replyHtml}
+                    <article class="chat-bubble ${message.is_own ? 'is-own' : ''}" data-message-id="${message.id}" data-message-body="${escapeHtml(message.body)}" data-message-sender="${escapeHtml(message.sender_label)}">
+                        ${bodyHtml}
+                        ${attachmentsHtml}
+                        ${reactionsHtml}
+                    </article>
+                    <div class="chat-message-meta">
+                        <span>${escapeHtml(message.created_at)}</span>
+                        ${pinnedHtml}
+                        ${editedHtml}
+                        ${statusHtml}
+                    </div>
+                </div>
                 <span class="chat-actions">
                     ${menuHtml}
                     ${!message.is_deleted ? `<button type="button" class="chat-reply-btn" data-reply-message-id="${message.id}" data-reply-sender="${escapeHtml(message.sender_label)}" data-reply-body="${escapeHtml(message.body)}" aria-label="Reply to message" title="Reply"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M9 8L5 12L9 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12H15C18 12 20 14 20 17V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
@@ -1006,6 +1248,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!data.ok) return;
         updateHistoryState(data.history);
         renderMessages(data.messages || []);
+        updateTypingIndicator(data.typing);
         updateUnreadBadges(data.unread);
     }
 
@@ -1017,6 +1260,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     async function refreshMessages() {
         if (document.visibilityState !== 'visible') {
+            await refreshUnread();
+            return;
+        }
+        if (!isNearBottom()) {
             await refreshUnread();
             return;
         }
@@ -1100,6 +1347,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
+            const clickedBubble = event.target.closest('[data-message-id]');
+            if (clickedBubble && !event.target.closest('a, button, input, textarea, select, .dropdown-menu')) {
+                const row = clickedBubble.closest('[data-message-row]');
+                if (row) row.classList.toggle('show-time');
+                return;
+            }
+
             const reactButton = event.target.closest('[data-message-react]');
             if (reactButton) {
                 postMessageAction(reactButton.dataset.messageReact, 'react', {reaction: reactButton.dataset.reaction}).catch(() => {});
@@ -1125,7 +1379,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             const readPreviousBtn = event.target.closest('#chatReadPreviousBtn');
-            if (readPreviousBtn && historyOldestId) {
+            if (readPreviousBtn && historyOldestId && shouldShowHistoryPrevious()) {
                 setHistoryLoading(readPreviousBtn, 'Loading');
                 loadMessageWindow({before: historyOldestId, markRead: true}).catch(() => {
                     readPreviousBtn.classList.remove('is-loading');
@@ -1141,7 +1395,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (chatReadNextBtn) {
         chatReadNextBtn.addEventListener('click', function () {
-            if (!historyNewestId) return;
+            if (!historyNewestId || !shouldShowHistoryNext()) return;
             setHistoryLoading(chatReadNextBtn, 'Loading');
             loadMessageWindow({after: historyNewestId, markRead: true}).catch(() => {
                 chatReadNextBtn.classList.remove('is-loading');
@@ -1151,6 +1405,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     if (chatInput && chatForm) {
+        chatInput.addEventListener('input', notifyTyping);
+        chatInput.addEventListener('blur', function () {
+            if (typingStateSent) postTypingState(false);
+            typingStateSent = false;
+            window.clearTimeout(typingStopTimer);
+        });
         chatInput.addEventListener('keydown', function (event) {
             if (event.key !== 'Enter' || event.shiftKey) return;
             event.preventDefault();
@@ -1196,6 +1456,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 formData.append('attachments', item.file);
             });
             chatInput.value = '';
+            if (typingStateSent) postTypingState(false);
+            typingStateSent = false;
+            window.clearTimeout(typingStopTimer);
             if (chatSendBtn) chatSendBtn.disabled = true;
             if (chatSendStatus) chatSendStatus.textContent = 'Sending...';
             try {

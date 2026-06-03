@@ -25,7 +25,7 @@ else:
     register_heif_opener()
 
 from .auth_utils import get_client_ip
-from .permission_catalog import build_permission_groups, get_basic_role_permission_ids
+from .permission_catalog import EXCLUDED_PERMISSION_KEYS, build_permission_groups, get_basic_role_permission_ids
 from .models import (
     AssetAccountability,
     AssetAccountabilityTemplate,
@@ -137,6 +137,16 @@ def prepare_image_uploads(files, *, max_size_bytes, label='image', required=Fals
 
 
 class BaseUserFormMixin:
+    def _available_permissions_queryset(self):
+        queryset = Permission.objects.order_by('content_type__app_label', 'codename')
+        for app_label, model, codename in EXCLUDED_PERMISSION_KEYS:
+            queryset = queryset.exclude(
+                content_type__app_label=app_label,
+                content_type__model=model,
+                codename=codename,
+            )
+        return queryset
+
     def _selected_field_values(self, field_name):
         """Return selected values for a multi-select field as strings.
 
@@ -220,13 +230,14 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
         ]
 
     def __init__(self, *args, **kwargs):
+        self.current_user = kwargs.pop('current_user', None)
         super().__init__(*args, **kwargs)
         self.fields['groups'].queryset = Group.objects.order_by('name')
         self.fields['groups'].label = 'Roles'
         self.fields['groups'].widget = forms.CheckboxSelectMultiple()
         self.fields['groups'].widget.choices = self.fields['groups'].choices
         self.fields['groups'].help_text = 'Check one or more roles to assign to this user.'
-        self.fields['user_permissions'].queryset = Permission.objects.order_by('content_type__app_label', 'codename')
+        self.fields['user_permissions'].queryset = self._available_permissions_queryset()
         self.fields['user_permissions'].widget = forms.CheckboxSelectMultiple()
         self.fields['user_permissions'].widget.choices = self.fields['user_permissions'].choices
         self.fields['user_permissions'].label = 'Feature Access Overrides'
@@ -240,6 +251,11 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
         self.fields['contact_number'].label = 'Contact Number'
         self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
         self._style_fields()
+
+    def validate_password_for_user(self, user, password_field_name='password2'):
+        if self.current_user and self.current_user.is_superuser:
+            return
+        return super().validate_password_for_user(user, password_field_name)
 
     def save(self, commit=True):
         user = super().save(commit=commit)
@@ -279,11 +295,6 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         label='Confirm New Password',
         widget=forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
     )
-    admin_current_password = forms.CharField(
-        required=False,
-        label='Admin Current Password',
-        widget=forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'current-password'}),
-    )
 
     class Meta:
         model = User
@@ -309,7 +320,7 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         self.fields['groups'].widget = forms.CheckboxSelectMultiple()
         self.fields['groups'].widget.choices = self.fields['groups'].choices
         self.fields['groups'].help_text = 'Check one or more roles to assign to this user.'
-        self.fields['user_permissions'].queryset = Permission.objects.order_by('content_type__app_label', 'codename')
+        self.fields['user_permissions'].queryset = self._available_permissions_queryset()
         self.fields['user_permissions'].widget = forms.CheckboxSelectMultiple()
         self.fields['user_permissions'].widget.choices = self.fields['user_permissions'].choices
         self.fields['user_permissions'].label = 'Feature Access Overrides'
@@ -328,7 +339,6 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
         self.fields['new_password1'].help_text = 'Leave blank if you do not want to change this user password.'
         self.fields['new_password2'].help_text = 'Type the same password again to confirm.'
-        self.fields['admin_current_password'].widget = forms.HiddenInput()
         self._style_fields()
 
     def save(self, commit=True):
@@ -359,7 +369,6 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
         cleaned_data = super().clean()
         new_password1 = (cleaned_data.get('new_password1') or '').strip()
         new_password2 = (cleaned_data.get('new_password2') or '').strip()
-        admin_current_password = cleaned_data.get('admin_current_password') or ''
 
         if new_password1 or new_password2:
             if not new_password1:
@@ -368,15 +377,11 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
                 self.add_error('new_password2', 'Please confirm the new password.')
             if new_password1 and new_password2 and new_password1 != new_password2:
                 self.add_error('new_password2', 'New password and confirmation do not match.')
-            if new_password1:
+            if new_password1 and not (self.current_user and self.current_user.is_superuser):
                 try:
                     password_validation.validate_password(new_password1, self.instance)
                 except ValidationError as exc:
                     self.add_error('new_password1', exc)
-            if not admin_current_password:
-                self.add_error('admin_current_password', 'Current admin password is required to save password changes.')
-            elif not self.current_user or not self.current_user.check_password(admin_current_password):
-                self.add_error('admin_current_password', 'Current admin password is incorrect.')
 
         return cleaned_data
 
@@ -392,7 +397,7 @@ class RoleForm(BaseUserFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['permissions'].queryset = Permission.objects.order_by('content_type__app_label', 'codename')
+        self.fields['permissions'].queryset = self._available_permissions_queryset()
         self.fields['permissions'].widget = forms.CheckboxSelectMultiple()
         self.fields['permissions'].widget.choices = self.fields['permissions'].choices
         self.fields['permissions'].label = 'Feature Access'

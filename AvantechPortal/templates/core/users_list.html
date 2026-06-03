@@ -418,6 +418,38 @@
             });
         };
 
+        const bindModalPermissionTierControls = (bodyEl) => {
+            if (!bodyEl) {
+                return;
+            }
+            bodyEl.querySelectorAll('.js-category-user-toggle').forEach((button) => {
+                if (button.dataset.permissionTierBound === '1') {
+                    return;
+                }
+                button.dataset.permissionTierBound = '1';
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    bodyEl.querySelectorAll(`.js-category-item[data-category-key="${button.dataset.categoryKey}"]`).forEach((item) => {
+                        item.checked = item.dataset.permissionTier === 'user';
+                    });
+                });
+            });
+            bodyEl.querySelectorAll('.js-category-admin-toggle').forEach((button) => {
+                if (button.dataset.permissionTierBound === '1') {
+                    return;
+                }
+                button.dataset.permissionTierBound = '1';
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    bodyEl.querySelectorAll(`.js-category-item[data-category-key="${button.dataset.categoryKey}"]`).forEach((item) => {
+                        item.checked = true;
+                    });
+                });
+            });
+        };
+
         const bindModalFormSubmit = (bodyEl, editModal) => {
             const form = bodyEl.querySelector('#usersEditModalForm');
             if (!form || form.dataset.bound === '1') {
@@ -447,6 +479,7 @@
                     }
                     const html = await response.text();
                     bodyEl.innerHTML = html;
+                    bindModalPermissionTierControls(bodyEl);
                     bindModalFormSubmit(bodyEl, editModal);
                 } catch (error) {
                     bodyEl.innerHTML = '<div class="alert alert-danger mb-0">Unable to save user changes right now.</div>';
@@ -475,6 +508,7 @@
                 });
                 const html = await response.text();
                 bodyEl.innerHTML = html;
+                bindModalPermissionTierControls(bodyEl);
                 bindModalFormSubmit(bodyEl, editModal);
             } catch (error) {
                 bodyEl.innerHTML = '<div class="alert alert-danger mb-0">Unable to load edit form.</div>';

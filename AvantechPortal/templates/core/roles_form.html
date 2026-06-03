@@ -40,6 +40,8 @@
                                 <summary class="permission-category-summary d-flex justify-content-between align-items-center">
                                     <span class="fw-semibold text-capitalize">{{ group.app_label }}</span>
                                     <span class="d-inline-flex align-items-center gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 js-category-user-toggle" title="Select only user-level access for {{ group.app_label }}">User</button>
+                                        <button type="button" class="btn btn-sm btn-outline-success py-0 js-category-admin-toggle" title="Select admin/full access for {{ group.app_label }}">Admin</button>
                                         <label class="form-check-label small d-inline-flex align-items-center gap-1 mb-0">
                                             <input type="checkbox" class="form-check-input js-category-toggle" aria-label="Select or unselect all permissions under {{ group.app_label }}">
                                         </label>
@@ -62,7 +64,7 @@
                                                         <div class="small text-secondary">{{ item.description|default:'Controls access to this feature.' }}</div>
                                                     </td>
                                                     <td class="text-center">
-                                                        <input type="checkbox" class="form-check-input" name="permissions" value="{{ item.value }}" {% if item.checked %}checked{% endif %}>
+                                                        <input type="checkbox" class="form-check-input" name="permissions" value="{{ item.value }}" data-permission-tier="{{ item.tier }}" {% if item.checked %}checked{% endif %}>
                                                     </td>
                                                 </tr>
                                             {% endfor %}
@@ -177,6 +179,30 @@
                 const checkboxes = getCategoryPermissionCheckboxes(category);
                 checkboxes.forEach((checkbox) => {
                     checkbox.checked = categoryToggle.checked;
+                });
+                syncCategoryCounts();
+                syncToggle();
+            });
+        });
+        document.querySelectorAll('.js-category-user-toggle').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const category = button.closest('.js-role-permission-category');
+                getCategoryPermissionCheckboxes(category).forEach((checkbox) => {
+                    checkbox.checked = checkbox.dataset.permissionTier === 'user';
+                });
+                syncCategoryCounts();
+                syncToggle();
+            });
+        });
+        document.querySelectorAll('.js-category-admin-toggle').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const category = button.closest('.js-role-permission-category');
+                getCategoryPermissionCheckboxes(category).forEach((checkbox) => {
+                    checkbox.checked = true;
                 });
                 syncCategoryCounts();
                 syncToggle();
