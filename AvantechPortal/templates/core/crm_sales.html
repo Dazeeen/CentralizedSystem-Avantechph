@@ -1017,7 +1017,8 @@
 }
 .crm-sales-pipeline-editable .crm-sales-pipeline-stage {
     cursor: pointer;
-    transition: transform .14s ease, filter .14s ease;
+    pointer-events: auto;
+    transition: transform .14s ease, filter .14s ease, background-color .14s ease, color .14s ease;
 }
 .crm-sales-pipeline-editable .crm-sales-pipeline-stage:hover {
     filter: brightness(0.97);
@@ -1029,6 +1030,29 @@
     outline: 2px solid #0d6efd;
     outline-offset: -2px;
     z-index: 2;
+}
+#logSalesPipeline .crm-sales-pipeline-stage.is-done {
+    background: #8fd2ad;
+    color: #17462e;
+}
+#logSalesPipeline .crm-sales-pipeline-stage.is-current {
+    background: #198754;
+    color: #fff;
+    font-weight: 700;
+    z-index: 3;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.75);
+}
+#logSalesPipeline .crm-sales-pipeline-stage.is-upcoming {
+    background: #e7f3eb;
+    color: #35694f;
+}
+#logSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-upcoming {
+    background: #f9d7d7;
+    color: #a32525;
+}
+#logSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-current {
+    background: #d93a3a;
+    color: #fff;
 }
 .crm-sales-pipeline-compact {
     width: min(100%, 860px);
@@ -1415,6 +1439,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function normalizeSalesStatus(value) {
         var status = String(value || '').trim().toLowerCase();
         if (!status || status === '-') return 'new';
+        if (status === 'contracted') return 'contacted';
         if (status === 'for proposal') return 'forproposal';
         if (status === 'close won') return 'closed won';
         if (status === 'close lost') return 'closed lost';
@@ -2239,13 +2264,13 @@ document.addEventListener('DOMContentLoaded', function () {
     var logSalesPipeline = document.getElementById('logSalesPipeline');
     var logSalesStatusInput = document.getElementById('logSalesStatus');
     if (logSalesPipeline && logSalesStatusInput) {
-        logSalesPipeline.querySelectorAll('.crm-sales-pipeline-stage').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                var nextStatus = normalizeSalesStatus(btn.getAttribute('data-stage') || '');
-                if (!nextStatus) return;
-                logSalesStatusInput.value = nextStatus;
-                renderSalesPipeline(logSalesPipeline, nextStatus);
-            });
+        logSalesPipeline.addEventListener('click', function (event) {
+            var btn = event.target.closest('.crm-sales-pipeline-stage');
+            if (!btn || !logSalesPipeline.contains(btn)) return;
+            var nextStatus = normalizeSalesStatus(btn.getAttribute('data-stage') || '');
+            if (!nextStatus) return;
+            logSalesStatusInput.value = nextStatus;
+            renderSalesPipeline(logSalesPipeline, nextStatus);
         });
     }
     if (logSalesForm) {
