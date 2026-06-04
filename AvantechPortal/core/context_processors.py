@@ -31,6 +31,7 @@ CRM_VIEW_PERMISSIONS = {
     'clients': (CRM_ADMIN_PERMISSION, 'core.view_crm_clients_section', 'core.view_client'),
     'sales': (CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client'),
     'technicals': (CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'),
+    'aftersales': (CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'),
 }
 
 CRM_MANAGE_PERMISSIONS = {
@@ -89,8 +90,8 @@ PAGE_ACCESS_RULES = {
     'file_manager_search': {'label': 'File Manager Search', 'perms': ['core.view_managedfilenode']},
     'file_manager_download': {'label': 'File Manager Download', 'perms': ['core.view_managedfilenode']},
     'file_manager_preview': {'label': 'File Manager Preview', 'perms': ['core.view_managedfilenode']},
-    'file_manager_setup': {'label': 'File Manager Setup', 'perms': ['core.change_managedfilenode']},
-    'file_manager_browse_directories': {'label': 'File Manager Directory Browser', 'perms': ['core.change_managedfilenode']},
+    'file_manager_setup': {'label': 'File Manager Setup', 'audience': 'Django superusers only'},
+    'file_manager_browse_directories': {'label': 'File Manager Directory Browser', 'audience': 'Django superusers only'},
     'file_manager_create_folder': {'label': 'Create File Manager Folder', 'perms': ['core.add_managedfilenode']},
     'file_manager_upload': {'label': 'Upload File Manager File', 'perms': ['core.add_managedfilenode']},
     'file_manager_rename': {'label': 'Rename File Manager Item', 'perms': ['core.change_managedfilenode']},
@@ -107,6 +108,7 @@ PAGE_ACCESS_RULES = {
     'crm_clients': {'label': 'CRM Clients', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_clients_section', 'core.view_client']},
     'crm_sales': {'label': 'CRM Sales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client']},
     'crm_technicals': {'label': 'CRM Technicals', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'crm_aftersales': {'label': 'CRM Aftersales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'finance_dashboard': {'label': 'Finance Dashboard', 'perms': ['core.view_fundrequest']},
     'fund_requests_list': {'label': 'Payment Request', 'perms': ['core.view_fundrequest']},
     'fund_request_records': {'label': 'Payment Request Records', 'perms': ['core.view_fundrequest']},
@@ -445,6 +447,7 @@ def finance_navigation_state(request):
             or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['clients'])
             or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['sales'])
             or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['technicals'])
+            or _has_any_perm(request.user, CRM_VIEW_PERMISSIONS['aftersales'])
         )
         if can_view_crm:
             setting = CRMTechnicalNotificationSetting.objects.order_by('id').first()

@@ -240,6 +240,18 @@
                         <div class="js-tech-modal-panel" data-tech-panel="technical">
                             <h4 class="mb-3">Technical</h4>
                             <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="tech-info-number-card">
+                                        <div class="tech-info-number-label">JO#</div>
+                                        <div class="tech-info-number-value" id="techInfoJobOrderNumber">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="tech-info-number-card">
+                                        <div class="tech-info-number-label">PO#</div>
+                                        <div class="tech-info-number-value" id="techInfoPoNumber">-</div>
+                                    </div>
+                                </div>
                                 <div class="col-md-6"><label class="form-label">Client's Full Name</label><input class="form-control" id="techInfoClientName" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Installation Date</label><input class="form-control" id="techInfoInstallationDate" readonly></div>
                                 <div class="col-md-6"><label class="form-label">Team Assigned</label><input class="form-control" id="techInfoTeamAssigned" readonly></div>
@@ -254,7 +266,6 @@
                                         <span id="techInfoInstallationStatusBadge" class="badge text-bg-light border text-dark">-</span>
                                     </div>
                                 </div>
-                                <div class="col-md-6"><label class="form-label">PO#</label><input class="form-control" id="techInfoPoNumber" readonly></div>
                                 <div class="col-12"><label class="form-label">Remarks</label><textarea class="form-control" id="techInfoRemarks" rows="3" readonly></textarea></div>
                             </div>
                         </div>
@@ -538,6 +549,9 @@
     .crm-profile-modal-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 640px; }
     .crm-profile-modal-nav { border-right: 1px solid #e4e4e4; background: #fbfbfb; padding: 20px 18px; }
     .crm-profile-modal-content { padding: 22px 24px 24px; background: #f7f7f7; }
+    .tech-info-number-card { min-height: 86px; border: 1px solid #dbe7df; border-radius: 8px; background: #fff; padding: 14px 16px; box-shadow: 0 1px 2px rgba(20, 35, 28, .05); }
+    .tech-info-number-label { font-size: 11px; font-weight: 700; letter-spacing: 0; color: #627168; text-transform: uppercase; margin-bottom: 8px; }
+    .tech-info-number-value { font-size: 1.35rem; font-weight: 700; color: #1f5138; line-height: 1.2; overflow-wrap: anywhere; }
     .crm-profile-nav-item {
         width: 100%;
         text-align: left;
@@ -1267,6 +1281,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!row || !technicalInfoModal) return;
         setTechModalTab('technical');
         document.getElementById('techInfoSidebarClient').textContent = row.dataset.clientName || '-';
+        document.getElementById('techInfoJobOrderNumber').textContent = row.dataset.jobOrderNumber || '-';
+        document.getElementById('techInfoPoNumber').textContent = row.dataset.poNumber || '-';
         document.getElementById('techInfoClientName').value = row.dataset.clientName || '-';
         document.getElementById('techInfoInstallationDate').value = row.dataset.installationDate || '-';
         document.getElementById('techInfoTeamAssigned').value = row.dataset.teamAssigned || '-';
@@ -1277,7 +1293,6 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('techInfoNetMetering').value = row.dataset.netMetering || '-';
         var infoStatusEl = document.getElementById('techInfoInstallationStatusBadge');
         if (infoStatusEl) infoStatusEl.outerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-').replace('<span', '<span id="techInfoInstallationStatusBadge"');
-        document.getElementById('techInfoPoNumber').value = row.dataset.poNumber || '-';
         document.getElementById('techInfoRemarks').value = row.dataset.remarks || '-';
         renderTechnicalHistory(row.dataset.salesRecordId || '');
         technicalInfoModal.show();
