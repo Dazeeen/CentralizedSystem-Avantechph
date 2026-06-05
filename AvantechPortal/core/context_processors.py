@@ -109,6 +109,8 @@ PAGE_ACCESS_RULES = {
     'crm_sales': {'label': 'CRM Sales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client']},
     'crm_technicals': {'label': 'CRM Technicals', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'crm_aftersales': {'label': 'CRM Aftersales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'crm_aftersales_warranty': {'label': 'CRM Aftersales Warranty', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'crm_aftersales_concern': {'label': 'CRM Aftersales Concern', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'finance_dashboard': {'label': 'Finance Dashboard', 'perms': ['core.view_fundrequest']},
     'fund_requests_list': {'label': 'Payment Request', 'perms': ['core.view_fundrequest']},
     'fund_request_records': {'label': 'Payment Request Records', 'perms': ['core.view_fundrequest']},

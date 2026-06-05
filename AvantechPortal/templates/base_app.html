@@ -190,11 +190,17 @@
                                         {% endif %}
                                     </span>
                                 </a>
-                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales' %}active{% endif %}" href="{% url 'crm_aftersales' %}" style="font-size: 0.9rem;">
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales_warranty' %}active{% endif %}" href="{% url 'crm_aftersales_warranty' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
-                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6.5H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 11.5H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16 15L18 17L21 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
+                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3.8L18.5 6.2V11.2C18.5 15.1 16 18.2 12 20.2C8 18.2 5.5 15.1 5.5 11.2V6.2L12 3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 12L11.2 14L15 9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                     </span>
-                                    <span class="nav-label">Aftersales</span>
+                                    <span class="nav-label">Warranty</span>
+                                </a>
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales_concern' %}active{% endif %}" href="{% url 'crm_aftersales_concern' %}" style="font-size: 0.9rem;">
+                                    <span class="nav-logo" aria-hidden="true">
+                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 5.5H18V16.5H10L6 20V5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 9H15M9 12.5H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                                    </span>
+                                    <span class="nav-label">Concern</span>
                                 </a>
                                 {% endif %}
                             </div>
@@ -863,11 +869,17 @@
                                     {% endif %}
                                 </span>
                             </a>
-                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales' %}active{% endif %}" href="{% url 'crm_aftersales' %}" style="font-size: 0.9rem;">
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales_warranty' %}active{% endif %}" href="{% url 'crm_aftersales_warranty' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
-                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6.5H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 11.5H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16 15L18 17L21 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3.8L18.5 6.2V11.2C18.5 15.1 16 18.2 12 20.2C8 18.2 5.5 15.1 5.5 11.2V6.2L12 3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 12L11.2 14L15 9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 </span>
-                                <span class="nav-label">Aftersales</span>
+                                <span class="nav-label">Warranty</span>
+                            </a>
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales_concern' %}active{% endif %}" href="{% url 'crm_aftersales_concern' %}" style="font-size: 0.9rem;">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 5.5H18V16.5H10L6 20V5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 9H15M9 12.5H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                                </span>
+                                <span class="nav-label">Concern</span>
                             </a>
                             {% endif %}
                         </div>

@@ -1,0 +1,842 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | CRM Warranty{% endblock %}
+{% block page_heading %}CRM Warranty{% endblock %}
+
+{% block content %}
+<div class="warranty-dashboard">
+    <section class="warranty-metrics" aria-label="Warranty summary">
+        <div class="warranty-metric-card">
+            <div class="warranty-metric-icon is-green">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5H15L19 8.5V19.5H7V4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.5 4.5V9H19" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 14L12 16L16 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <div class="warranty-metric-label">Total Warranties</div>
+                <div class="warranty-metric-value">{{ total_warranties|default:0 }}</div>
+                <div class="warranty-metric-note">All time records</div>
+            </div>
+        </div>
+        <div class="warranty-metric-card">
+            <div class="warranty-metric-icon is-mint">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.8L18.5 6.2V11.2C18.5 15.1 16 18.2 12 20.2C8 18.2 5.5 15.1 5.5 11.2V6.2L12 3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <div class="warranty-metric-label">Active</div>
+                <div class="warranty-metric-value">{{ active_warranties|default:0 }}</div>
+                <div class="warranty-metric-note">{{ active_percentage|default:0 }}% of total</div>
+            </div>
+        </div>
+        <div class="warranty-metric-card">
+            <div class="warranty-metric-icon is-amber">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12L15.2 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <div class="warranty-metric-label">Near Expiration</div>
+                <div class="warranty-metric-value">{{ near_expiration_warranties|default:0 }}</div>
+                <div class="warranty-metric-note">Next 60 days</div>
+            </div>
+        </div>
+        <div class="warranty-metric-card">
+            <div class="warranty-metric-icon is-red">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M9.5 9.5L14.5 14.5M14.5 9.5L9.5 14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+                <div class="warranty-metric-label">Expired</div>
+                <div class="warranty-metric-value">{{ expired_warranties|default:0 }}</div>
+                <div class="warranty-metric-note">{{ expired_percentage|default:0 }}% of total</div>
+            </div>
+        </div>
+        <div class="warranty-metric-card">
+            <div class="warranty-metric-icon is-blue">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M8 6H6.5C5.7 6 5 6.7 5 7.5V19H19V7.5C19 6.7 18.3 6 17.5 6H16" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 4.5H15.5V8H8.5V4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 12H16M8 15.5H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+                <div class="warranty-metric-label">Claims This Month</div>
+                <div class="warranty-metric-value">{{ warranty_claims_this_month|default:0 }}</div>
+                <div class="warranty-metric-note">Total claims raised</div>
+            </div>
+        </div>
+    </section>
+
+    <div class="warranty-layout">
+        <main class="warranty-main">
+            <section class="warranty-filter-panel" aria-label="Warranty filters">
+                <div class="warranty-filter-grid">
+                    <label class="warranty-field warranty-field-search">
+                        <span>Search warranty number or client name</span>
+                        <span class="warranty-search-control">
+                            <input id="warrantySearchInput" type="search" placeholder="Search by warranty no. or client name...">
+                            <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8"/><path d="M16 16L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                        </span>
+                    </label>
+                    <label class="warranty-field">
+                        <span>Status</span>
+                        <select id="warrantyStatusFilter">
+                            <option value="">All Statuses</option>
+                            <option value="Active">Active</option>
+                            <option value="Near Expiration">Near Expiration</option>
+                            <option value="Expired">Expired</option>
+                            <option value="For Review">For Review</option>
+                        </select>
+                    </label>
+                    <label class="warranty-field">
+                        <span>Product / System</span>
+                        <select id="warrantyProductFilter">
+                            <option value="">All System Sizes</option>
+                            {% for product_option in warranty_product_options %}
+                            <option value="{{ product_option }}">{{ product_option }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="warranty-field">
+                        <span>Warranty Type</span>
+                        <select id="warrantyTypeFilter">
+                            <option value="">All Types</option>
+                            <option value="Product">Product</option>
+                            <option value="Labor">Labor</option>
+                            <option value="Performance">Performance</option>
+                            <option value="Service">Service</option>
+                        </select>
+                    </label>
+                    <label class="warranty-field">
+                        <span>Date Range</span>
+                        <span class="warranty-date-range">
+                            <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="5.5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 3.8V7M16 3.8V7M5 9H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                            <span>05/01/2024</span>
+                            <span>-</span>
+                            <span>05/31/2024</span>
+                        </span>
+                    </label>
+                    <div class="warranty-actions">
+                        <button type="button" class="warranty-btn warranty-btn-light">
+                            <svg viewBox="0 0 24 24" fill="none"><path d="M12 4V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 11L12 15L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                            Export
+                        </button>
+                        <button type="button" class="warranty-btn warranty-btn-primary" data-bs-toggle="modal" data-bs-target="#addWarrantyRecordModal">
+                            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                            Add Warranty Record
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="warranty-table-card" aria-label="Warranty records">
+                <div class="table-responsive">
+                    <table class="warranty-table">
+                        <thead>
+                            <tr>
+                                <th>Warranty No.</th>
+                                <th>Client Name</th>
+                                <th>Product/System</th>
+                                <th>Warranty Type</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Status</th>
+                                <th>Assigned CSR</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="warrantyTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="warranty-table-footer">
+                    <div id="warrantyShowingText">Showing warranty records</div>
+                    <div class="warranty-pagination" aria-label="Warranty pagination">
+                        <button type="button" disabled>&lsaquo;</button>
+                        <button type="button" class="is-active">1</button>
+                        <button type="button">2</button>
+                        <button type="button">3</button>
+                        <span>...</span>
+                        <button type="button">31</button>
+                        <button type="button">&rsaquo;</button>
+                    </div>
+                    <select id="warrantyPageSize">
+                        <option value="8">8 / page</option>
+                        <option value="10">10 / page</option>
+                        <option value="20">20 / page</option>
+                    </select>
+                </div>
+            </section>
+        </main>
+
+        <aside class="warranty-sidebar" aria-label="Warranty details">
+            <section class="warranty-side-card">
+                <div class="warranty-side-head">
+                    <h3>Warranty Details</h3>
+                    <button type="button" class="warranty-icon-btn" title="Expand">
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M9 4H4V9M15 4H20V9M4 15V20H9M20 15V20H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                </div>
+                <div id="warrantyDetailsPanel"></div>
+            </section>
+
+            <section class="warranty-side-card">
+                <div class="warranty-side-head">
+                    <div class="warranty-expiring-title">
+                        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12L15.2 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <h3>Expiring Soon</h3>
+                    </div>
+                    <button type="button" class="warranty-text-btn">View all</button>
+                </div>
+                <div class="warranty-expiring-list">
+                    {% for expiring_record in expiring_soon_records %}
+                    <div class="warranty-expiring-item {% if expiring_record.days_remaining <= 30 %}is-amber{% else %}is-green{% endif %}">
+                        <div>
+                            <strong>{{ expiring_record.no }}</strong>
+                            <span>{{ expiring_record.client }} - {{ expiring_record.product }}</span>
+                            <small>Ends on {{ expiring_record.end }}</small>
+                        </div>
+                        <b>{{ expiring_record.days_remaining }} days</b>
+                    </div>
+                    {% empty %}
+                    <div class="text-secondary small">No warranties expiring in the next 60 days.</div>
+                    {% endfor %}
+                </div>
+                <button type="button" class="warranty-link-btn">View all expiring warranties &rarr;</button>
+            </section>
+        </aside>
+    </div>
+</div>
+
+<div class="modal fade" id="addWarrantyRecordModal" tabindex="-1" aria-labelledby="addWarrantyRecordModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="create_warranty_record">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addWarrantyRecordModalLabel">Add Warranty Record</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Client</label>
+                            <select class="form-select" name="client_id" id="warrantyClientSelect" required>
+                                <option value="">Select client</option>
+                                {% for client_option in warranty_client_options %}
+                                <option value="{{ client_option.id }}" data-system-size="{{ client_option.system_size }}">{{ client_option.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Product/System</label>
+                            <input type="text" class="form-control" id="warrantyClientSystemSize" value="Select a client to load System Size Kwh" readonly>
+                            <div class="form-text">This comes from the selected client's Technicals System Size Kwh.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Warranty Type</label>
+                            <select class="form-select" name="warranty_type" required>
+                                <option value="">Select type</option>
+                                <option value="product">Product</option>
+                                <option value="labor">Labor</option>
+                                <option value="performance">Performance</option>
+                                <option value="service">Service</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Start Date</label>
+                            <input type="date" class="form-control" name="start_date" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">End Date</label>
+                            <input type="date" class="form-control" name="end_date" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Exclusions</label>
+                            <textarea class="form-control" name="exclusions" rows="2" placeholder="Coverage exclusions"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Notes</label>
+                            <textarea class="form-control" name="notes" rows="3" placeholder="Warranty notes"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Warranty</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .warranty-dashboard {
+        color: #18231d;
+    }
+    .warranty-metrics {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+    .warranty-metric-card,
+    .warranty-filter-panel,
+    .warranty-table-card,
+    .warranty-side-card {
+        background: #fff;
+        border: 1px solid #e7ece9;
+        border-radius: 8px;
+        box-shadow: 0 10px 26px rgba(30, 45, 38, .07);
+    }
+    .warranty-metric-card {
+        min-height: 118px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 18px;
+    }
+    .warranty-metric-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+    }
+    .warranty-metric-icon svg {
+        width: 28px;
+        height: 28px;
+    }
+    .warranty-metric-icon.is-green { background: #cbf1d4; color: #087f3d; }
+    .warranty-metric-icon.is-mint { background: #d6f3d9; color: #0d8a47; }
+    .warranty-metric-icon.is-amber { background: #ffe1a8; color: #d78600; }
+    .warranty-metric-icon.is-red { background: #ffd0d0; color: #dc3545; }
+    .warranty-metric-icon.is-blue { background: #d8eaff; color: #1f7bd8; }
+    .warranty-metric-label {
+        font-size: 13px;
+        font-weight: 700;
+        color: #1e2923;
+        margin-bottom: 6px;
+    }
+    .warranty-metric-value {
+        font-size: 30px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: 0;
+    }
+    .warranty-metric-note {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #65726b;
+    }
+    .warranty-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 16px;
+        align-items: start;
+    }
+    .warranty-main {
+        min-width: 0;
+    }
+    .warranty-filter-panel {
+        padding: 18px;
+        margin-bottom: 16px;
+    }
+    .warranty-filter-grid {
+        display: grid;
+        grid-template-columns: 1.2fr .9fr .9fr .9fr;
+        gap: 16px;
+        align-items: end;
+    }
+    .warranty-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+    }
+    .warranty-field span:first-child {
+        font-size: 12px;
+        font-weight: 700;
+        color: #27322c;
+    }
+    .warranty-field input,
+    .warranty-field select,
+    #warrantyPageSize {
+        height: 42px;
+        border: 1px solid #d7e1dc;
+        border-radius: 5px;
+        background: #fff;
+        color: #223029;
+        font-size: 13px;
+        padding: 0 12px;
+        width: 100%;
+    }
+    .warranty-search-control,
+    .warranty-date-range {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 42px;
+        border: 1px solid #d7e1dc;
+        border-radius: 5px;
+        background: #fff;
+        color: #536158;
+        padding: 0 12px;
+    }
+    .warranty-search-control input {
+        border: 0;
+        height: auto;
+        padding: 0;
+        outline: 0;
+    }
+    .warranty-search-control svg,
+    .warranty-date-range svg {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+    }
+    .warranty-actions {
+        grid-column: 3 / 5;
+        display: flex;
+        justify-content: flex-end;
+        gap: 14px;
+    }
+    .warranty-btn {
+        height: 42px;
+        border-radius: 5px;
+        border: 1px solid #d7e1dc;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 20px;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .warranty-btn svg,
+    .warranty-icon-btn svg,
+    .warranty-expiring-title svg {
+        width: 18px;
+        height: 18px;
+    }
+    .warranty-btn-light {
+        color: #1d2a24;
+        background: #fff;
+    }
+    .warranty-btn-primary {
+        color: #fff;
+        background: #087436;
+        border-color: #087436;
+        min-width: 220px;
+    }
+    .warranty-table-card {
+        padding: 14px 14px 0;
+    }
+    .warranty-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        min-width: 980px;
+    }
+    .warranty-table th {
+        background: #fbfdfc;
+        color: #1f2d25;
+        font-weight: 800;
+        padding: 14px 12px;
+        border-top: 1px solid #e1e8e4;
+        border-bottom: 1px solid #e1e8e4;
+        white-space: nowrap;
+    }
+    .warranty-table th:first-child {
+        border-left: 1px solid #e1e8e4;
+        border-radius: 6px 0 0 0;
+    }
+    .warranty-table th:last-child {
+        border-right: 1px solid #e1e8e4;
+        border-radius: 0 6px 0 0;
+    }
+    .warranty-table td {
+        padding: 13px 12px;
+        border-bottom: 1px solid #edf1ef;
+        color: #243129;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+    .warranty-table tbody tr {
+        cursor: pointer;
+    }
+    .warranty-table tbody tr:hover td,
+    .warranty-table tbody tr.is-selected td {
+        background: #f1faf4;
+    }
+    .warranty-client-link {
+        color: #0b7f3b;
+        font-weight: 800;
+    }
+    .warranty-status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 76px;
+        height: 24px;
+        border-radius: 4px;
+        padding: 0 8px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+    .warranty-status.is-active { background: #d7f4db; color: #087436; }
+    .warranty-status.is-near { background: #fff0cd; color: #cc7a00; }
+    .warranty-status.is-expired { background: #ffd9d9; color: #d93636; }
+    .warranty-status.is-review { background: #dcebff; color: #1b78d4; }
+    .warranty-row-actions {
+        display: inline-flex;
+        gap: 14px;
+        color: #17241d;
+    }
+    .warranty-row-actions button {
+        width: 20px;
+        height: 20px;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: inherit;
+    }
+    .warranty-row-actions svg {
+        width: 16px;
+        height: 16px;
+    }
+    .warranty-table-footer {
+        min-height: 74px;
+        display: grid;
+        grid-template-columns: 1fr auto 110px;
+        gap: 16px;
+        align-items: center;
+        color: #28362e;
+        font-size: 13px;
+    }
+    .warranty-pagination {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .warranty-pagination button {
+        width: 34px;
+        height: 34px;
+        border: 1px solid #dce5e0;
+        border-radius: 5px;
+        background: #fff;
+        color: #27342c;
+    }
+    .warranty-pagination button.is-active {
+        background: #087436;
+        color: #fff;
+        border-color: #087436;
+    }
+    .warranty-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-width: 0;
+    }
+    .warranty-side-card {
+        padding: 16px;
+    }
+    .warranty-side-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .warranty-side-head h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 800;
+    }
+    .warranty-icon-btn {
+        border: 0;
+        background: transparent;
+        color: #29362e;
+        width: 28px;
+        height: 28px;
+    }
+    .warranty-detail-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .warranty-detail-item {
+        font-size: 13px;
+    }
+    .warranty-detail-item span {
+        display: block;
+        color: #68736d;
+        font-size: 12px;
+        margin-bottom: 2px;
+    }
+    .warranty-detail-item b {
+        color: #1c2b23;
+        font-weight: 800;
+    }
+    .warranty-detail-item.is-warranty-no b {
+        color: #087436;
+        font-size: 15px;
+    }
+    .warranty-doc-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .warranty-doc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid #e2e8e5;
+        border-radius: 5px;
+        padding: 8px;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .warranty-doc-badge {
+        width: 22px;
+        height: 22px;
+        border-radius: 4px;
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 800;
+        flex: 0 0 auto;
+    }
+    .warranty-doc-badge.is-red { background: #df3b36; }
+    .warranty-doc-badge.is-blue { background: #2b7ed2; }
+    .warranty-doc-badge.is-green { background: #1c9b57; }
+    .warranty-divider {
+        border-top: 1px dashed #d9e1dd;
+        margin: 4px 0;
+    }
+    .warranty-expiring-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #d93636;
+    }
+    .warranty-text-btn,
+    .warranty-link-btn {
+        border: 0;
+        background: transparent;
+        color: #087436;
+        font-size: 12px;
+        font-weight: 800;
+        padding: 0;
+    }
+    .warranty-expiring-list {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+    .warranty-expiring-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        position: relative;
+        padding-left: 16px;
+        font-size: 12px;
+    }
+    .warranty-expiring-item::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        position: absolute;
+        left: 0;
+        top: 5px;
+    }
+    .warranty-expiring-item.is-amber::before { background: #f0a000; }
+    .warranty-expiring-item.is-green::before { background: #0b8a44; }
+    .warranty-expiring-item strong,
+    .warranty-expiring-item span,
+    .warranty-expiring-item small {
+        display: block;
+    }
+    .warranty-expiring-item span {
+        color: #2e3b34;
+        margin-top: 2px;
+    }
+    .warranty-expiring-item small {
+        color: #7a867f;
+        margin-top: 2px;
+    }
+    .warranty-expiring-item b {
+        color: #d48600;
+        font-size: 11px;
+        align-self: end;
+        white-space: nowrap;
+    }
+    .warranty-link-btn {
+        margin-top: 18px;
+    }
+    @media (max-width: 1400px) {
+        .warranty-metrics {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .warranty-layout {
+            grid-template-columns: 1fr;
+        }
+        .warranty-sidebar {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 900px) {
+        .warranty-metrics,
+        .warranty-sidebar {
+            grid-template-columns: 1fr;
+        }
+        .warranty-filter-grid {
+            grid-template-columns: 1fr;
+        }
+        .warranty-actions {
+            grid-column: auto;
+            justify-content: stretch;
+            flex-wrap: wrap;
+        }
+        .warranty-btn {
+            flex: 1 1 180px;
+        }
+        .warranty-table-footer {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var records = {{ warranty_records_json|safe }};
+
+    var tbody = document.getElementById('warrantyTableBody');
+    var searchInput = document.getElementById('warrantySearchInput');
+    var statusFilter = document.getElementById('warrantyStatusFilter');
+    var productFilter = document.getElementById('warrantyProductFilter');
+    var typeFilter = document.getElementById('warrantyTypeFilter');
+    var showingText = document.getElementById('warrantyShowingText');
+    var detailsPanel = document.getElementById('warrantyDetailsPanel');
+    var pageSizeSelect = document.getElementById('warrantyPageSize');
+    var warrantyClientSelect = document.getElementById('warrantyClientSelect');
+    var warrantyClientSystemSize = document.getElementById('warrantyClientSystemSize');
+    var selectedNo = records.length ? records[0].no : '';
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (m) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[m];
+        });
+    }
+
+    function statusClass(status) {
+        if (status === 'Active') return 'is-active';
+        if (status === 'Near Expiration') return 'is-near';
+        if (status === 'Expired') return 'is-expired';
+        return 'is-review';
+    }
+
+    function filteredRecords() {
+        var q = String(searchInput ? searchInput.value : '').trim().toLowerCase();
+        var status = statusFilter ? statusFilter.value : '';
+        var product = productFilter ? productFilter.value : '';
+        var type = typeFilter ? typeFilter.value : '';
+        return records.filter(function (item) {
+            var matchesSearch = !q || item.no.toLowerCase().includes(q) || item.client.toLowerCase().includes(q);
+            var matchesStatus = !status || item.status === status;
+            var matchesProduct = !product || item.product === product;
+            var matchesType = !type || item.type === type;
+            return matchesSearch && matchesStatus && matchesProduct && matchesType;
+        });
+    }
+
+    function renderDetails(item) {
+        if (!detailsPanel) return;
+        if (!item) {
+            detailsPanel.innerHTML = '<div class="text-secondary small">No warranty record selected.</div>';
+            return;
+        }
+        detailsPanel.innerHTML = ''
+            + '<div class="warranty-detail-list">'
+            + '<div class="warranty-detail-item is-warranty-no"><span>Warranty No.</span><b>' + escapeHtml(item.no) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Client Name</span><b>' + escapeHtml(item.client) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Installation Date</span><b>' + escapeHtml(item.start) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Warranty Duration</span><b>' + escapeHtml(item.duration) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Product/System</span><b>' + escapeHtml(item.product) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Assigned CSR</span><b>' + escapeHtml(item.staff) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Covered Items</span><b>' + escapeHtml(item.covered) + '</b></div>'
+            + '<div class="warranty-detail-item"><span>Exclusions</span><b>' + escapeHtml(item.exclusions) + '</b></div>'
+            + '<div class="warranty-divider"></div>'
+            + '<div class="warranty-detail-item"><span>Attached Documents</span>'
+            + '<div class="warranty-doc-list">'
+            + '<div class="warranty-doc"><span class="warranty-doc-badge is-red">A</span> Warranty Certificate.pdf</div>'
+            + '<div class="warranty-doc"><span class="warranty-doc-badge is-blue">B</span> Inverter Specs.pdf</div>'
+            + '<div class="warranty-doc"><span class="warranty-doc-badge is-green">C</span> Site Acceptance Report.pdf</div>'
+            + '</div></div>'
+            + '<div class="warranty-detail-item"><span>Notes</span><b>' + escapeHtml(item.notes) + '</b></div>'
+            + '</div>';
+    }
+
+    function renderTable() {
+        if (!tbody) return;
+        var pageSize = parseInt(pageSizeSelect ? pageSizeSelect.value : '8', 10) || 8;
+        var list = filteredRecords();
+        var visible = list.slice(0, pageSize);
+        if (!visible.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-secondary py-4">No warranty records yet. Add a warranty record manually to show it here.</td></tr>';
+            if (showingText) showingText.textContent = 'Showing 0 entries';
+            renderDetails(null);
+            return;
+        }
+        tbody.innerHTML = visible.map(function (item) {
+            return ''
+                + '<tr data-warranty-no="' + escapeHtml(item.no) + '" class="' + (item.no === selectedNo ? 'is-selected' : '') + '">'
+                + '<td>' + escapeHtml(item.no) + '</td>'
+                + '<td><span class="warranty-client-link">' + escapeHtml(item.client) + '</span></td>'
+                + '<td>' + escapeHtml(item.product) + '</td>'
+                + '<td>' + escapeHtml(item.type) + '</td>'
+                + '<td>' + escapeHtml(item.start) + '</td>'
+                + '<td>' + escapeHtml(item.end) + '</td>'
+                + '<td><span class="warranty-status ' + statusClass(item.status) + '">' + escapeHtml(item.status) + '</span></td>'
+                + '<td>' + escapeHtml(item.staff) + '</td>'
+                + '<td><span class="warranty-row-actions">'
+                + '<button type="button" title="View"><svg viewBox="0 0 24 24" fill="none"><path d="M3.5 12C5.5 8.5 8.3 6.8 12 6.8C15.7 6.8 18.5 8.5 20.5 12C18.5 15.5 15.7 17.2 12 17.2C8.3 17.2 5.5 15.5 3.5 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.8"/></svg></button>'
+                + '<button type="button" title="Edit"><svg viewBox="0 0 24 24" fill="none"><path d="M5 18.5L8.5 17.8L18 8.3L15.7 6L6.2 15.5L5 18.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.8 6.9L17.1 9.2" stroke="currentColor" stroke-width="1.8"/></svg></button>'
+                + '<button type="button" title="More"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="6.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg></button>'
+                + '</span></td>'
+                + '</tr>';
+        }).join('');
+        if (showingText) {
+            showingText.textContent = list.length
+                ? 'Showing 1 to ' + visible.length + ' of ' + list.length + ' entries'
+                : 'Showing 0 entries';
+        }
+        var selected = list.find(function (item) { return item.no === selectedNo; }) || list[0] || null;
+        selectedNo = selected ? selected.no : '';
+        renderDetails(selected);
+    }
+
+    [searchInput, statusFilter, productFilter, typeFilter, pageSizeSelect].forEach(function (el) {
+        if (!el) return;
+        el.addEventListener('input', renderTable);
+        el.addEventListener('change', renderTable);
+    });
+    if (tbody) {
+        tbody.addEventListener('click', function (event) {
+            var row = event.target.closest('tr[data-warranty-no]');
+            if (!row) return;
+            selectedNo = row.getAttribute('data-warranty-no');
+            renderTable();
+        });
+    }
+    if (warrantyClientSelect && warrantyClientSystemSize) {
+        function updateWarrantyClientSystemSize() {
+            var selectedOption = warrantyClientSelect.options[warrantyClientSelect.selectedIndex];
+            var systemSize = selectedOption ? String(selectedOption.getAttribute('data-system-size') || '').trim() : '';
+            warrantyClientSystemSize.value = systemSize || (warrantyClientSelect.value ? 'No System Size Kwh encoded in Technicals' : 'Select a client to load System Size Kwh');
+        }
+        warrantyClientSelect.addEventListener('change', updateWarrantyClientSystemSize);
+        updateWarrantyClientSystemSize();
+    }
+    renderTable();
+});
+</script>
+{% endblock %}

@@ -319,6 +319,7 @@ AXES_LOCKOUT_CALLABLE = 'core.axes_handlers.axes_lockout_response'
 # CAPTCHA controls.
 CAPTCHA_TIMEOUT = env_int('CAPTCHA_TIMEOUT', 5)
 CAPTCHA_LENGTH = env_int('CAPTCHA_LENGTH', 5)
+CAPTCHA_CHALLENGE_FUNCT = 'core.captcha_challenges.numeric_challenge'
 
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 

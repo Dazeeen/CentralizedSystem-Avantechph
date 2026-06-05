@@ -143,6 +143,7 @@ from .models import (
 	CRMTechnicalActionLog,
 	CRMTechnicalTeam,
 	CRMTechnicalNotificationSetting,
+	CRMWarrantyRecord,
 	CRMClientDeletionRequest,
 	ClientDeletionRequest,
 	ClientQuotation,
@@ -200,6 +201,7 @@ FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY = 'file-manager:default-hierarchy-synced'
 FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY = 'file-manager:default-hierarchy-sync-lock'
 FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS = 5 * 60
 PRIVATE_CHAT_MESSAGE_PAGE_SIZE = 10
+TECHNICAL_ACTIVE_INSTALLATION_STATUSES = ('scheduled', 'ongoing', 'rescheduled', 'back jobs')
 
 ROLE_PREVIEW_DEFAULT_AUDIENCES = {
 	'All signed-in users',
@@ -221,6 +223,14 @@ CRM_MANAGE_PERMISSIONS = {
 	'sales': (CRM_ADMIN_PERMISSION, 'core.manage_crm_sales_section', 'core.change_client'),
 	'technicals': (CRM_ADMIN_PERMISSION, 'core.manage_crm_technicals_section', 'core.change_client'),
 }
+
+
+def _technical_active_status_q(field_name='installation_status'):
+	status_q = Q()
+	for status in TECHNICAL_ACTIVE_INSTALLATION_STATUSES:
+		status_q |= Q(**{f'{field_name}__iexact': status})
+	return status_q
+
 
 def _has_any_permission(user, permission_names):
 	if user.is_superuser:
@@ -2512,17 +2522,11 @@ def crm_dashboard(request):
 	)
 	closed_won_sales = closed_won_sales_qs.count()
 	closed_lost_sales = closed_lost_sales_qs.count()
-	technical_active_jobs = technical_qs.filter(
-		Q(installation_status__iexact='scheduled')
-		| Q(installation_status__iexact='ongoing')
-		| Q(installation_status__iexact='rescheduled')
-		| Q(installation_status__iexact='back jobs')
+	technical_active_jobs = technical_qs.exclude(job_order_number='').filter(
+		_technical_active_status_q()
 	).count()
 	actionable_technical_qs = technical_qs.filter(
-		Q(installation_status__iexact='scheduled')
-		| Q(installation_status__iexact='rescheduled')
-		| Q(installation_status__iexact='back jobs')
-		| Q(installation_status__iexact='ongoing')
+		_technical_active_status_q()
 	).exclude(installation_date__isnull=True)
 	technical_responsibility_notifications_count = actionable_technical_qs.count()
 	technical_schedule_dates = list(actionable_technical_qs.values_list('installation_date', flat=True))
@@ -3745,10 +3749,11 @@ def crm_client_profile(request, client_id):
 		return restricted_response
 
 	client = get_object_or_404(
-		CRMClient.objects.select_related('created_by').prefetch_related('media_files'),
+		CRMClient.objects.select_related('created_by').prefetch_related('media_files', 'sales_records'),
 		pk=client_id,
 	)
-	return render(request, 'core/crm_client_profile.html', {'client': client})
+	sales_record = client.sales_records.order_by('-updated_at', '-created_at').first()
+	return render(request, 'core/crm_client_profile.html', {'client': client, 'sales_record': sales_record})
 
 
 @login_required
@@ -4047,6 +4052,110 @@ def crm_sales(request):
 				counts[str(sales_record.id)] = unread_count
 				total_unread += unread_count
 			return JsonResponse({'ok': True, 'counts': counts, 'total_unread': total_unread})
+		if form_action == 'update_sales_status_progress':
+			if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']) and not request.user.has_perm('core.change_crmsalesrecord'):
+				return JsonResponse({'ok': False, 'message': 'You do not have permission to update sales status.'}, status=403)
+
+			status_alias_map = {
+				'forproposal': 'for proposal',
+				'close won': 'closed won',
+				'close lost': 'closed lost',
+			}
+			target_status = str(request.POST.get('sales_status') or '').strip().lower()
+			target_status = status_alias_map.get(target_status, target_status)
+			progress_order = ['new', 'contacted', 'for survey', 'for proposal', 'negotiation']
+			terminal_statuses = {'closed won', 'closed lost'}
+			allowed_statuses = set(progress_order) | terminal_statuses
+			if target_status not in allowed_statuses:
+				return JsonResponse({'ok': False, 'message': 'Invalid sales status.'}, status=400)
+
+			sales_record_id_raw = (request.POST.get('sales_record_id') or '').strip()
+			client_id_raw = (request.POST.get('client_id') or '').strip()
+			assignee_name = (request.user.get_full_name() or request.user.username or '').strip()
+			if sales_record_id_raw:
+				if not sales_record_id_raw.isdigit():
+					return JsonResponse({'ok': False, 'message': 'Invalid sales record id.'}, status=400)
+				sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=int(sales_record_id_raw))
+			else:
+				if not client_id_raw.isdigit():
+					return JsonResponse({'ok': False, 'message': 'Invalid client id.'}, status=400)
+				client = get_object_or_404(CRMClient, pk=int(client_id_raw))
+				sales_record, _created = CRMSalesRecord.objects.get_or_create(
+					client=client,
+					defaults={'created_by': request.user, 'assigned_sales': assignee_name, 'sales_status': 'new'},
+				)
+
+			current_status_raw = (sales_record.sales_status or '').strip().lower()
+			current_status = status_alias_map.get(current_status_raw, current_status_raw) or 'new'
+			if current_status not in allowed_statuses:
+				current_status = 'new'
+			if not (sales_record.sales_status or '').strip():
+				sales_record.sales_status = 'new'
+				sales_record.save(update_fields=['sales_status', 'updated_at'])
+				current_status = 'new'
+			if current_status == target_status:
+				return JsonResponse(
+					{
+						'ok': True,
+						'message': 'Sales status already up to date.',
+						'sales_record_id': sales_record.id,
+						'client_id': sales_record.client_id,
+						'sales_status': target_status,
+						'assigned_sales': sales_record.assigned_sales,
+					}
+				)
+
+			if target_status in terminal_statuses:
+				can_transition = current_status == 'negotiation'
+			else:
+				try:
+					current_index = progress_order.index(current_status)
+					target_index = progress_order.index(target_status)
+				except ValueError:
+					current_index = 0
+					target_index = -1
+				can_transition = target_index == current_index + 1
+			if not can_transition:
+				return JsonResponse(
+					{
+						'ok': False,
+						'message': 'Sales status can only move to the next step.',
+						'current_status': current_status,
+					},
+					status=400,
+				)
+
+			sales_record.sales_status = target_status
+			update_fields = ['sales_status', 'updated_at']
+			if not (sales_record.assigned_sales or '').strip():
+				sales_record.assigned_sales = assignee_name
+				update_fields.append('assigned_sales')
+			sales_record.save(update_fields=update_fields)
+			CRMSalesActivityLog.objects.create(
+				sales_record=sales_record,
+				sales_status=target_status,
+				created_by=request.user,
+				interaction_notes=f'Status progressed from "{current_status}" to "{target_status}".',
+			)
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated CRM sales status for {sales_record.client.customer_id if sales_record.client_id else sales_record.id} from {current_status} to {target_status}.',
+				target=sales_record,
+				target_label=f'Sales #{sales_record.id}',
+				metadata={'sales_record_id': sales_record.id, 'client_id': sales_record.client_id, 'from_status': current_status, 'to_status': target_status},
+			)
+			return JsonResponse(
+				{
+					'ok': True,
+					'message': 'Sales status updated.',
+					'sales_record_id': sales_record.id,
+					'client_id': sales_record.client_id,
+					'sales_status': target_status,
+					'assigned_sales': sales_record.assigned_sales,
+				}
+			)
 		if form_action == 'assign_sales_to_client':
 			sales_id = (request.POST.get('sales_record_id') or '').strip()
 			selected_sales_record_ids_raw = (request.POST.get('selected_sales_record_ids') or '').strip()
@@ -4194,7 +4303,13 @@ def crm_sales(request):
 			sales_id = (request.POST.get('sales_record_id') or '').strip()
 			entry_mode = (request.POST.get('entry_mode') or 'log').strip().lower()
 			is_edit_mode = entry_mode == 'edit'
-			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_id)
+			if not sales_id.isdigit():
+				message = 'Please select a valid sales record before saving sales activity.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
+			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=int(sales_id))
 
 			lead_source = (request.POST.get('lead_source') or '').strip().lower()
 			roof_type = (request.POST.get('roof_type') or '').strip()
@@ -4702,6 +4817,7 @@ def crm_technicals(request):
 		return None
 
 	can_manage_crm_technicals = _is_crm_technicals_admin(request.user)
+	can_edit_crm_technical_info = request.user.is_superuser
 
 	if request.method == 'POST':
 		if not can_manage_crm_technicals:
@@ -4930,20 +5046,23 @@ def crm_technicals(request):
 			return redirect('crm_technicals')
 
 		if form_action == 'update_technical_info':
+			if not can_edit_crm_technical_info:
+				return _permission_denied_response(request, 'Only super users can edit technical information.')
 			sales_record_id = (request.POST.get('sales_record_id') or '').strip()
+			if not sales_record_id.isdigit():
+				messages.warning(request, 'Please select a valid technical record before editing.', extra_tags='toast')
+				return redirect('crm_technicals')
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
 			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
 				sales_record=sales_record,
 				defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
 			)
-			if tech_record.job_order_number != (sales_record.job_order_number or ''):
-				tech_record.job_order_number = sales_record.job_order_number or ''
-				tech_record.save(update_fields=['job_order_number', 'updated_at'])
 			previous_installation_date = tech_record.installation_date
 			previous_installation_time = tech_record.installation_time
 			previous_team_assigned = tech_record.team_assigned or ''
 			previous_status = tech_record.installation_status or ''
 			previous_remarks = tech_record.remarks or ''
+			previous_job_order_number = sales_record.job_order_number or tech_record.job_order_number or ''
 
 			installation_date = parse_date((request.POST.get('installation_date') or '').strip())
 			team_assigned = (request.POST.get('team_assigned') or '').strip()
@@ -4953,15 +5072,21 @@ def crm_technicals(request):
 			battery_model = (request.POST.get('battery_model') or '').strip()
 			net_metering = (request.POST.get('net_metering') or '').strip()
 			installation_status_raw = (request.POST.get('installation_status') or '').strip().lower()
+			job_order_number = (request.POST.get('job_order_number') or '').strip()
 			po_number = (request.POST.get('po_number') or '').strip()
 			remarks = (request.POST.get('remarks') or '').strip()
 			if installation_status_raw == 'backjob':
 				installation_status_raw = 'back jobs'
 			allowed_installation_statuses = {'ongoing', 'completed', 'back jobs'}
 			installation_status = installation_status_raw if installation_status_raw in allowed_installation_statuses else ''
+			if job_order_number and CRMSalesRecord.objects.filter(job_order_number__iexact=job_order_number).exclude(pk=sales_record.pk).exists():
+				messages.error(request, f'JO# {job_order_number} is already assigned to another sales record.', extra_tags='toast')
+				return redirect('crm_technicals')
 
 			def _save_technical_info_write():
 				with transaction.atomic():
+					sales_record.job_order_number = job_order_number
+					sales_record.save(update_fields=['job_order_number', 'updated_at'])
 					tech_record.installation_date = installation_date
 					tech_record.team_assigned = team_assigned
 					tech_record.system_size_kwh = system_size_kwh
@@ -4970,6 +5095,7 @@ def crm_technicals(request):
 					tech_record.battery_model = battery_model
 					tech_record.net_metering = net_metering
 					tech_record.installation_status = installation_status
+					tech_record.job_order_number = job_order_number
 					tech_record.po_number = po_number
 					tech_record.remarks = remarks
 					tech_record.save()
@@ -4986,8 +5112,8 @@ def crm_technicals(request):
 						new_team_assigned=tech_record.team_assigned or '',
 						previous_status=previous_status,
 						new_status=tech_record.installation_status or '',
-						previous_remarks=previous_remarks,
-						new_remarks=tech_record.remarks or '',
+						previous_remarks=f'{previous_remarks}\nPrevious JO#: {previous_job_order_number}'.strip(),
+						new_remarks=f'{tech_record.remarks or ""}\nNew JO#: {job_order_number}'.strip(),
 						created_by=request.user,
 					)
 				return True
@@ -5006,6 +5132,8 @@ def crm_technicals(request):
 				target_label=f'Technical #{tech_record.id}',
 				metadata={
 					'sales_record_id': sales_record.id,
+					'job_order_number': job_order_number,
+					'previous_job_order_number': previous_job_order_number,
 					'team_assigned': tech_record.team_assigned or '',
 					'installation_status': tech_record.installation_status or '',
 				},
@@ -5103,10 +5231,7 @@ def crm_technicals(request):
 		queryset = queryset.filter(technical_record__installation_status__iexact=filter_installation_status)
 	elif filter_active_jobs in {'1', 'true', 'yes'}:
 		queryset = queryset.filter(
-			Q(technical_record__installation_status__iexact='scheduled')
-			| Q(technical_record__installation_status__iexact='ongoing')
-			| Q(technical_record__installation_status__iexact='rescheduled')
-			| Q(technical_record__installation_status__iexact='back jobs')
+			_technical_active_status_q('technical_record__installation_status')
 		)
 	if filter_installation_date_from:
 		queryset = queryset.filter(technical_record__installation_date__gte=filter_installation_date_from)
@@ -5320,6 +5445,7 @@ def crm_technicals(request):
 			'sort_indicators': sort_indicators,
 			'technical_page_qs_prefix': technical_page_qs_prefix,
 			'can_manage_crm_technicals': can_manage_crm_technicals,
+			'can_edit_crm_technical_info': can_edit_crm_technical_info,
 		},
 	)
 
@@ -5334,6 +5460,283 @@ def crm_aftersales(request):
 		return restricted_response
 
 	return render(request, 'core/crm_aftersales.html')
+
+
+@login_required
+def crm_aftersales_warranty(request):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['aftersales']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
+	if restricted_response:
+		return restricted_response
+
+	today = timezone.localdate()
+	can_view_all_warranties = request.user.is_superuser
+	clients_queryset = (
+		CRMClient.objects
+		.prefetch_related('sales_records', 'sales_records__technical_record', 'sales_records__created_by')
+		.order_by('last_name', 'first_name', 'id')
+	)
+	if not can_view_all_warranties:
+		clients_queryset = clients_queryset.filter(created_by=request.user)
+
+	def _client_label(client):
+		return f'{client.first_name} {client.last_name}'.strip() or client.customer_id or f'Client #{client.id}'
+
+	def _latest_sales_and_technical(client):
+		sales_records = sorted(
+			list(client.sales_records.all()),
+			key=lambda row: (row.updated_at or row.created_at, row.id),
+			reverse=True,
+		)
+		sales_record = sales_records[0] if sales_records else None
+		technical_record = getattr(sales_record, 'technical_record', None) if sales_record else None
+		return sales_record, technical_record
+
+	def _next_warranty_number(start_date):
+		year = start_date.year
+		prefix = f'WAR-{year}-'
+		latest_numbers = CRMWarrantyRecord.objects.filter(warranty_number__startswith=prefix).values_list('warranty_number', flat=True)
+		max_sequence = 0
+		for number in latest_numbers:
+			match = re.match(rf'^WAR-{year}-(\d{{4}})$', number or '')
+			if match:
+				max_sequence = max(max_sequence, int(match.group(1)))
+		return f'{prefix}{max_sequence + 1:04d}'
+
+	def _is_sqlite_locked_error(exc):
+		return 'database is locked' in str(exc).lower()
+
+	def _run_with_sqlite_retry(write_callback):
+		for attempt in range(8):
+			try:
+				return write_callback()
+			except OperationalError as exc:
+				if not _is_sqlite_locked_error(exc):
+					raise
+				if attempt == 7:
+					return None
+				time.sleep(0.25 * (attempt + 1))
+		return None
+
+	if request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'create_warranty_record':
+			client_id_raw = (request.POST.get('client_id') or '').strip()
+			warranty_type = (request.POST.get('warranty_type') or '').strip().lower()
+			start_date = parse_date((request.POST.get('start_date') or '').strip())
+			end_date = parse_date((request.POST.get('end_date') or '').strip())
+			exclusions = (request.POST.get('exclusions') or '').strip()
+			notes = (request.POST.get('notes') or '').strip()
+			allowed_types = {value for value, _label in CRMWarrantyRecord.WARRANTY_TYPE_CHOICES}
+			if not client_id_raw.isdigit():
+				messages.error(request, 'Please select a client for this warranty.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			if warranty_type not in allowed_types:
+				messages.error(request, 'Please select a valid warranty type.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			if not start_date or not end_date:
+				messages.error(request, 'Start date and end date are required.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			if end_date < start_date:
+				messages.error(request, 'End date cannot be earlier than start date.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			client = get_object_or_404(clients_queryset, pk=int(client_id_raw))
+			sales_record, technical_record = _latest_sales_and_technical(client)
+			product_system = (technical_record.system_size_kwh or '').strip() if technical_record else ''
+			def _create_warranty_write():
+				with transaction.atomic():
+					warranty_number = _next_warranty_number(start_date)
+					warranty_record = CRMWarrantyRecord.objects.create(
+						warranty_number=warranty_number,
+						client=client,
+						sales_record=sales_record,
+						technical_record=technical_record,
+						product_system=product_system,
+						warranty_type=warranty_type,
+						start_date=start_date,
+						end_date=end_date,
+						exclusions=exclusions,
+						notes=notes,
+						created_by=request.user,
+					)
+				return warranty_record
+
+			warranty_record = _run_with_sqlite_retry(_create_warranty_write)
+			if not warranty_record:
+				messages.error(request, 'Database is busy right now. Please try adding the warranty again in a few seconds.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+
+			def _record_warranty_activity():
+				record_activity(
+					request,
+					'create',
+					'clients',
+					f'Created CRM warranty record {warranty_record.warranty_number}.',
+					target=warranty_record,
+					target_label=warranty_record.warranty_number,
+					metadata={'warranty_record_id': warranty_record.id, 'client_id': client.id, 'warranty_type': warranty_type},
+				)
+				return True
+
+			_run_with_sqlite_retry(_record_warranty_activity)
+			messages.success(request, f'Warranty {warranty_record.warranty_number} added successfully.', extra_tags='toast')
+			return redirect('crm_aftersales_warranty')
+
+	warranty_queryset = (
+		CRMWarrantyRecord.objects
+		.select_related('client', 'sales_record', 'technical_record', 'created_by')
+		.order_by('-created_at', '-id')
+	)
+	if not can_view_all_warranties:
+		warranty_queryset = warranty_queryset.filter(created_by=request.user)
+	warranty_records = []
+	for warranty_record in warranty_queryset:
+		days_remaining = (warranty_record.end_date - today).days
+		if days_remaining < 0:
+			status = 'Expired'
+		elif days_remaining <= 60:
+			status = 'Near Expiration'
+		else:
+			status = 'Active'
+		assigned_csr = (
+			warranty_record.created_by.get_full_name()
+			or warranty_record.created_by.username
+			if warranty_record.created_by
+			else '-'
+		)
+		duration_days = max((warranty_record.end_date - warranty_record.start_date).days, 0)
+		duration_years = round(duration_days / 365, 1) if duration_days else 0
+		duration_display = f'{duration_years:g} Year{"s" if duration_years != 1 else ""}' if duration_years else f'{duration_days} Days'
+		warranty_records.append(
+			{
+				'no': warranty_record.warranty_number,
+				'client': _client_label(warranty_record.client),
+				'client_id': warranty_record.client_id,
+				'sales_record_id': warranty_record.sales_record_id or '',
+				'product': warranty_record.product_system or '-',
+				'type': warranty_record.get_warranty_type_display(),
+				'start': warranty_record.start_date.strftime('%d/%m/%Y'),
+				'end': warranty_record.end_date.strftime('%d/%m/%Y'),
+				'status': status,
+				'staff': assigned_csr,
+				'duration': duration_display,
+				'covered': warranty_record.product_system or 'System size not encoded in technicals.',
+				'exclusions': warranty_record.exclusions or '-',
+				'notes': warranty_record.notes or '-',
+				'days_remaining': days_remaining,
+			}
+		)
+
+	total_warranties = len(warranty_records)
+	active_warranties = sum(1 for row in warranty_records if row['status'] == 'Active')
+	near_expiration_warranties = sum(1 for row in warranty_records if row['status'] == 'Near Expiration')
+	expired_warranties = sum(1 for row in warranty_records if row['status'] == 'Expired')
+	active_percentage = round((active_warranties / total_warranties) * 100, 1) if total_warranties else 0
+	expired_percentage = round((expired_warranties / total_warranties) * 100, 1) if total_warranties else 0
+	product_options = sorted({row['product'] for row in warranty_records if row['product'] and row['product'] != '-'})
+	expiring_soon_records = sorted(
+		[row for row in warranty_records if 0 <= row['days_remaining'] <= 60],
+		key=lambda row: row['days_remaining'],
+	)[:3]
+	client_options = []
+	for client in clients_queryset:
+		_sales_record, technical_record = _latest_sales_and_technical(client)
+		client_options.append(
+			{
+				'id': client.id,
+				'label': _client_label(client),
+				'system_size': (technical_record.system_size_kwh or '').strip() if technical_record else '',
+			}
+		)
+
+	return render(
+		request,
+		'core/crm_aftersales_warranty.html',
+		{
+			'warranty_records_json': dumps(warranty_records),
+			'warranty_product_options': product_options,
+			'total_warranties': total_warranties,
+			'active_warranties': active_warranties,
+			'near_expiration_warranties': near_expiration_warranties,
+			'expired_warranties': expired_warranties,
+			'active_percentage': active_percentage,
+			'expired_percentage': expired_percentage,
+			'warranty_claims_this_month': 0,
+			'expiring_soon_records': expiring_soon_records,
+			'warranty_client_options': client_options,
+		},
+	)
+
+
+@login_required
+def crm_aftersales_concern(request):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['aftersales']):
+		restricted_response = _permission_denied_response(request)
+	else:
+		restricted_response = None
+	if restricted_response:
+		return restricted_response
+
+	today = timezone.localdate()
+	assigned_user_label = (request.user.get_full_name() or request.user.username or '').strip()
+	warranty_queryset = (
+		CRMWarrantyRecord.objects
+		.select_related('client', 'created_by')
+		.order_by('-created_at', '-id')
+	)
+	if not request.user.is_superuser:
+		warranty_queryset = warranty_queryset.filter(created_by=request.user)
+
+	def _client_label(client):
+		return f'{client.first_name} {client.last_name}'.strip() or client.customer_id or f'Client #{client.id}'
+
+	def _warranty_status(warranty_record):
+		days_remaining = (warranty_record.end_date - today).days
+		if days_remaining < 0:
+			return 'Expired'
+		if days_remaining <= 60:
+			return 'Near Expiration'
+		return 'Active'
+
+	warranty_options = []
+	for warranty_record in warranty_queryset:
+		days_remaining = (warranty_record.end_date - today).days
+		warranty_options.append(
+			{
+				'id': warranty_record.id,
+				'no': warranty_record.warranty_number,
+				'client': _client_label(warranty_record.client),
+				'client_id': warranty_record.client_id,
+				'product': warranty_record.product_system or '-',
+				'warranty_status': _warranty_status(warranty_record),
+				'start': warranty_record.start_date.strftime('%m/%d/%Y'),
+				'end': warranty_record.end_date.strftime('%m/%d/%Y'),
+				'warranty_type': warranty_record.get_warranty_type_display(),
+				'covered_items': warranty_record.product_system or 'System size not encoded in technicals.',
+				'exclusions': warranty_record.exclusions or '-',
+				'days_remaining': days_remaining,
+			}
+		)
+
+	concern_records = []
+
+	return render(
+		request,
+		'core/crm_aftersales_concern.html',
+		{
+			'concern_records_json': dumps(concern_records),
+			'total_concerns': 0,
+			'new_concerns': 0,
+			'under_review_concerns': 0,
+			'for_site_visit_concerns': 0,
+			'resolved_this_month': 0,
+			'concern_warranty_options': warranty_options,
+			'concern_warranty_options_json': dumps(warranty_options),
+			'concern_assigned_user_json': dumps(assigned_user_label),
+		},
+	)
 
 
 @login_required
@@ -8745,12 +9148,14 @@ def _get_accessible_managed_file_node_ids(user, *, writable=False):
 		.values_list('id', flat=True)
 		.distinct()
 	)
-	user_scope_ids = _collect_descendant_ids(user_folder_ids)
 
 	if writable:
 		permission_query = Q(permissions__user=user, permissions__access_level__in=['write', 'read_write'])
 	else:
 		permission_query = Q(permissions__user=user)
+	shared_folder_ids = _get_user_shared_file_manager_folder_ids(user, writable=writable)
+	index_root_ids = user_folder_ids | shared_folder_ids
+	user_scope_ids = _collect_descendant_ids(index_root_ids)
 	owned_ids = set(
 		ManagedFileNode.objects
 		.filter(owner=user, pk__in=user_scope_ids)
@@ -8768,7 +9173,7 @@ def _get_accessible_managed_file_node_ids(user, *, writable=False):
 		.values_list('id', flat=True)
 		.distinct()
 	)
-	direct_ids = owned_ids | permission_ids
+	direct_ids = owned_ids | permission_ids | shared_folder_ids
 
 	accessible_ids = set(direct_ids)
 	inheritable_folder_ids = {
@@ -8798,6 +9203,21 @@ def _get_accessible_managed_file_node_ids(user, *, writable=False):
 				queue.append(child_id)
 		accessible_ids -= trash_ids
 	return accessible_ids
+
+
+def _get_user_shared_file_manager_folder_ids(user, *, writable=False):
+	if not user or not user.is_authenticated:
+		return set()
+	if writable:
+		permission_query = Q(permissions__user=user, permissions__access_level__in=['write', 'read_write'])
+	else:
+		permission_query = Q(permissions__user=user)
+	return set(
+		ManagedFileNode.objects
+		.filter(permission_query, node_type='shared_folder')
+		.values_list('id', flat=True)
+		.distinct()
+	)
 
 
 def _get_file_manager_descendant_ids(root_node_id, *, include_self=False):
@@ -9496,8 +9916,16 @@ def file_manager_list(request):
 	if scope_root:
 		if not selected_node:
 			selected_node = scope_root
-		elif selected_node.pk != scope_root.pk and not _is_file_manager_descendant(selected_node, scope_root):
-			selected_node = scope_root
+		else:
+			allowed_scope_roots = [scope_root] + list(
+				ManagedFileNode.objects.filter(pk__in=_get_user_shared_file_manager_folder_ids(request.user))
+			)
+			selected_within_allowed_scope = any(
+				_is_file_manager_descendant(selected_node, allowed_root)
+				for allowed_root in allowed_scope_roots
+			)
+			if not selected_within_allowed_scope:
+				selected_node = scope_root
 
 	parent_node = selected_node.parent if selected_node and selected_node.parent_id else None
 	if scope_root and selected_node and selected_node.pk == scope_root.pk:
@@ -9673,6 +10101,9 @@ def file_manager_search(request):
 		scope_node = ManagedFileNode.objects.select_related('parent').filter(pk=int(scope_id)).first()
 		if scope_node and _user_can_access_node(request.user, scope_node):
 			scope_ids = _get_file_manager_descendant_ids(scope_node.pk, include_self=True)
+			if not can_view_all:
+				for shared_folder_id in _get_user_shared_file_manager_folder_ids(request.user):
+					scope_ids.update(_get_file_manager_descendant_ids(shared_folder_id, include_self=True))
 			qs = qs.filter(pk__in=scope_ids)
 	qs = qs.filter(name__icontains=query).order_by('name')[:50]
 

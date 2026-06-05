@@ -1,0 +1,836 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | CRM Concern{% endblock %}
+{% block page_heading %}CRM Concern{% endblock %}
+
+{% block content %}
+<div class="concern-dashboard">
+    <section class="concern-metrics" aria-label="Concern summary">
+        <div class="concern-metric-card">
+            <div class="concern-metric-icon is-green">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 5.5H16.5V15H10L6 18.5V5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M15 16.2L17 18.2L21 13.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <div class="concern-metric-label">Total Concern Records</div>
+                <div class="concern-metric-value">{{ total_concerns|default:0 }}</div>
+                <div class="concern-metric-note">All warranty-based concerns</div>
+            </div>
+        </div>
+        <div class="concern-metric-card">
+            <div class="concern-metric-icon is-blue">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5H15L19 8.5V19.5H7V4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.5 4.5V9H19M10 12H15M10 15H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M17.5 15.5V20M15.2 17.8H19.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+                <div class="concern-metric-label">New</div>
+                <div class="concern-metric-value">{{ new_concerns|default:0 }}</div>
+                <div class="concern-metric-note">Received today / awaiting review</div>
+            </div>
+        </div>
+        <div class="concern-metric-card">
+            <div class="concern-metric-icon is-amber">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12L15.2 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <div class="concern-metric-label">Under Review</div>
+                <div class="concern-metric-value">{{ under_review_concerns|default:0 }}</div>
+                <div class="concern-metric-note">Being assessed</div>
+            </div>
+        </div>
+        <div class="concern-metric-card">
+            <div class="concern-metric-icon is-orange">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 7H14.5V16H4.5V7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.5 10H18.5L21 13.5V16H14.5V10Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8" cy="17" r="1.8" stroke="currentColor" stroke-width="1.8"/><circle cx="17.5" cy="17" r="1.8" stroke="currentColor" stroke-width="1.8"/></svg>
+            </div>
+            <div>
+                <div class="concern-metric-label">For Site Visit</div>
+                <div class="concern-metric-value">{{ for_site_visit_concerns|default:0 }}</div>
+                <div class="concern-metric-note">Requires technician visit</div>
+            </div>
+        </div>
+        <div class="concern-metric-card">
+            <div class="concern-metric-icon is-teal">
+                <svg viewBox="0 0 24 24" fill="none"><rect x="5.5" y="4.5" width="13" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M9 12L11.2 14.2L15.8 9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <div class="concern-metric-label">Resolved This Month</div>
+                <div class="concern-metric-value">{{ resolved_this_month|default:0 }}</div>
+                <div class="concern-metric-note">Closed successfully</div>
+            </div>
+        </div>
+    </section>
+
+    <div class="concern-layout">
+        <main class="concern-main">
+            <section class="concern-filter-panel" aria-label="Concern filters">
+                <div class="concern-filter-grid">
+                    <label class="concern-field concern-field-search">
+                        <span>Search ticket no., warranty no., or client name</span>
+                        <span class="concern-search-control">
+                            <input id="concernSearchInput" type="search" placeholder="Search ticket no., warranty no., or client name...">
+                            <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8"/><path d="M16 16L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                        </span>
+                    </label>
+                    <label class="concern-field">
+                        <span>Concern Status</span>
+                        <select id="concernStatusFilter">
+                            <option value="">All Statuses</option>
+                            <option>New</option>
+                            <option>Under Review</option>
+                            <option>In Progress</option>
+                            <option>For Site Visit</option>
+                            <option>Waiting for Client</option>
+                            <option>Resolved</option>
+                        </select>
+                    </label>
+                    <label class="concern-field">
+                        <span>Warranty Status</span>
+                        <select id="concernWarrantyStatusFilter">
+                            <option value="">All Statuses</option>
+                            <option>Active</option>
+                            <option>Near Expiration</option>
+                            <option>Expired</option>
+                        </select>
+                    </label>
+                    <label class="concern-field">
+                        <span>Warranty Coverage</span>
+                        <select id="concernCoverageFilter">
+                            <option value="">All</option>
+                            <option>Covered</option>
+                            <option>For Verification</option>
+                            <option>Not Covered</option>
+                        </select>
+                    </label>
+                    <label class="concern-field">
+                        <span>Product / System</span>
+                        <select id="concernProductFilter">
+                            <option value="">All Products</option>
+                        </select>
+                    </label>
+                    <label class="concern-field">
+                        <span>Date Range</span>
+                        <span class="concern-date-range">
+                            <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="5.5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 3.8V7M16 3.8V7M5 9H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                            <span>05/01/2024</span>
+                            <span>-</span>
+                            <span>05/31/2024</span>
+                        </span>
+                    </label>
+                    <div class="concern-actions">
+                        <button type="button" class="concern-btn concern-btn-light">
+                            <svg viewBox="0 0 24 24" fill="none"><path d="M12 4V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 11L12 15L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                            Export
+                        </button>
+                        <button type="button" class="concern-btn concern-btn-primary" data-bs-toggle="modal" data-bs-target="#addConcernRecordModal">
+                            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                            Add Concern Record
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="concern-table-card" aria-label="Concern records">
+                <div class="table-responsive">
+                    <table class="concern-table">
+                        <thead>
+                            <tr>
+                                <th>Ticket No.</th>
+                                <th>Date Received</th>
+                                <th>Warranty No.</th>
+                                <th>Client Name</th>
+                                <th>Product / System</th>
+                                <th>Concern Type</th>
+                                <th>Priority</th>
+                                <th>Assigned To</th>
+                            </tr>
+                        </thead>
+                        <tbody id="concernTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="concern-table-footer">
+                    <div id="concernShowingText">Showing concern records</div>
+                    <div class="concern-pagination" aria-label="Concern pagination">
+                        <button type="button" disabled>&lsaquo;</button>
+                        <button type="button" class="is-active">1</button>
+                        <button type="button">2</button>
+                        <button type="button">3</button>
+                        <span>...</span>
+                        <button type="button">39</button>
+                        <button type="button">&rsaquo;</button>
+                    </div>
+                    <select id="concernPageSize">
+                        <option value="8">8 / page</option>
+                        <option value="10">10 / page</option>
+                        <option value="20">20 / page</option>
+                    </select>
+                </div>
+            </section>
+        </main>
+
+        <aside class="concern-sidebar" aria-label="Concern details">
+            <section class="concern-side-card">
+                <div class="concern-side-head">
+                    <h3>Concern Details</h3>
+                    <button type="button" class="concern-icon-btn" title="Collapse">
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M7 14L12 9L17 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                </div>
+                <div id="concernDetailsPanel"></div>
+            </section>
+
+            <section class="concern-side-card">
+                <div class="concern-side-head">
+                    <h3>Warranty Snapshot</h3>
+                    <button type="button" class="concern-icon-btn" title="Collapse">
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M7 14L12 9L17 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                </div>
+                <div id="concernWarrantyPanel"></div>
+            </section>
+        </aside>
+    </div>
+</div>
+
+<div class="modal fade" id="addConcernRecordModal" tabindex="-1" aria-labelledby="addConcernRecordModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <form id="addConcernRecordForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addConcernRecordModalLabel">Add Concern Record</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Warranty No.</label>
+                            <select class="form-select" name="warranty_id" id="concernWarrantySelect" required>
+                                <option value="">Select warranty record</option>
+                                {% for warranty_option in concern_warranty_options %}
+                                <option value="{{ warranty_option.id }}">{{ warranty_option.no }} - {{ warranty_option.client }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Concern Type</label>
+                            <select class="form-select" name="type" required>
+                                <option value="">Select type</option>
+                                <option>Technical Issue</option>
+                                <option>Warranty Claim</option>
+                                <option>Maintenance Concern</option>
+                                <option>Performance Concern</option>
+                                <option>Follow-up</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Coverage</label>
+                            <select class="form-select" name="coverage" required>
+                                <option>Covered</option>
+                                <option>For Verification</option>
+                                <option>Not Covered</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Priority</label>
+                            <select class="form-select" name="priority" required>
+                                <option>High</option>
+                                <option>Medium</option>
+                                <option>Low</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" name="status" required>
+                                <option>New</option>
+                                <option>Under Review</option>
+                                <option>In Progress</option>
+                                <option>For Site Visit</option>
+                                <option>Waiting for Client</option>
+                                <option>Resolved</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Concern Description</label>
+                            <textarea class="form-control" name="description" rows="2"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Call Summary</label>
+                            <textarea class="form-control" name="summary" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Concern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .concern-dashboard { color: #18231d; }
+    .concern-metrics {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+    .concern-metric-card,
+    .concern-filter-panel,
+    .concern-table-card,
+    .concern-side-card {
+        background: #fff;
+        border: 1px solid #e7ece9;
+        border-radius: 8px;
+        box-shadow: 0 10px 26px rgba(30, 45, 38, .07);
+    }
+    .concern-metric-card {
+        min-height: 118px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 18px;
+    }
+    .concern-metric-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+    }
+    .concern-metric-icon svg { width: 28px; height: 28px; }
+    .concern-metric-icon.is-green { background: #cbf1d4; color: #087f3d; }
+    .concern-metric-icon.is-blue { background: #d8eaff; color: #1f7bd8; }
+    .concern-metric-icon.is-amber { background: #ffe6ad; color: #d78600; }
+    .concern-metric-icon.is-orange { background: #ffd9bd; color: #f26c12; }
+    .concern-metric-icon.is-teal { background: #d2f3ee; color: #0aa99b; }
+    .concern-metric-label {
+        font-size: 13px;
+        font-weight: 800;
+        color: #1e2923;
+        margin-bottom: 8px;
+    }
+    .concern-metric-value {
+        font-size: 30px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: 0;
+    }
+    .concern-metric-note {
+        margin-top: 12px;
+        font-size: 12px;
+        color: #65726b;
+    }
+    .concern-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 330px;
+        gap: 16px;
+        align-items: start;
+    }
+    .concern-main { min-width: 0; }
+    .concern-filter-panel { padding: 16px; margin-bottom: 16px; }
+    .concern-filter-grid {
+        display: grid;
+        grid-template-columns: 1.35fr .9fr .9fr .9fr .9fr;
+        gap: 14px;
+        align-items: end;
+    }
+    .concern-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+        font-size: 12px;
+        font-weight: 800;
+        color: #1e2923;
+    }
+    .concern-field input,
+    .concern-field select,
+    .concern-date-range {
+        width: 100%;
+        min-height: 38px;
+        border: 1px solid #dce4df;
+        border-radius: 5px;
+        background: #fff;
+        color: #27332d;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 0 12px;
+    }
+    .concern-field input::placeholder { color: #8b9890; font-weight: 500; }
+    .concern-search-control,
+    .concern-date-range {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .concern-search-control {
+        position: relative;
+    }
+    .concern-search-control input { padding-right: 36px; }
+    .concern-search-control svg {
+        width: 18px;
+        height: 18px;
+        color: #5b6861;
+        position: absolute;
+        right: 12px;
+    }
+    .concern-date-range svg { width: 17px; height: 17px; color: #4f5e56; flex: 0 0 auto; }
+    .concern-actions {
+        grid-column: 4 / span 2;
+        display: flex;
+        gap: 14px;
+        justify-content: flex-end;
+        align-items: center;
+    }
+    .concern-btn {
+        min-height: 40px;
+        border-radius: 5px;
+        padding: 0 18px;
+        border: 1px solid #dce4df;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-weight: 800;
+        font-size: 14px;
+    }
+    .concern-btn svg { width: 18px; height: 18px; }
+    .concern-btn-light { background: #fff; color: #1f2b25; }
+    .concern-btn-primary {
+        background: #087436;
+        border-color: #087436;
+        color: #fff;
+        box-shadow: 0 8px 14px rgba(8, 116, 54, .18);
+    }
+    .concern-table-card { overflow: hidden; }
+    .concern-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        min-width: 1080px;
+    }
+    .concern-table th,
+    .concern-table td {
+        padding: 15px 14px;
+        border-bottom: 1px solid #eef2f0;
+        font-size: 12px;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .concern-table th {
+        background: #fbfcfb;
+        color: #202b25;
+        font-weight: 800;
+    }
+    .concern-table td { color: #26332d; font-weight: 650; }
+    .concern-table tbody tr { cursor: pointer; }
+    .concern-table tbody tr:hover,
+    .concern-table tbody tr.is-selected { background: #f6fbf8; }
+    .concern-link {
+        color: #087436;
+        font-weight: 800;
+    }
+    .concern-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 74px;
+        min-height: 24px;
+        padding: 0 10px;
+        border-radius: 5px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+    .concern-badge.is-covered,
+    .concern-badge.is-resolved { background: #d9f4df; color: #087436; }
+    .concern-badge.is-verify,
+    .concern-badge.is-review,
+    .concern-badge.is-site { background: #fff0c8; color: #cf7b00; }
+    .concern-badge.is-not-covered,
+    .concern-badge.is-high { background: #ffd9dd; color: #d52035; }
+    .concern-badge.is-medium { background: #ffe5cf; color: #e27312; }
+    .concern-badge.is-low { background: #dff5e7; color: #16834b; }
+    .concern-badge.is-new,
+    .concern-badge.is-progress { background: #ddecff; color: #1473d2; }
+    .concern-badge.is-waiting { background: #eadcff; color: #6e3dc8; }
+    .concern-row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .concern-row-actions button,
+    .concern-icon-btn {
+        width: 28px;
+        height: 28px;
+        border: 0;
+        background: transparent;
+        color: #1c2c24;
+        padding: 0;
+    }
+    .concern-row-actions svg,
+    .concern-icon-btn svg { width: 18px; height: 18px; }
+    .concern-row-actions button:first-child { color: #087436; }
+    .concern-table-footer {
+        min-height: 62px;
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 18px;
+        align-items: center;
+        padding: 12px 16px;
+        color: #34443c;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    .concern-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+    }
+    .concern-pagination button,
+    .concern-table-footer select {
+        min-width: 34px;
+        height: 34px;
+        border: 1px solid #dce4df;
+        border-radius: 6px;
+        background: #fff;
+        color: #2d3933;
+        font-weight: 700;
+    }
+    .concern-pagination button.is-active {
+        background: #087436;
+        border-color: #087436;
+        color: #fff;
+    }
+    .concern-table-footer select {
+        min-width: 96px;
+        padding: 0 10px;
+    }
+    .concern-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-width: 0;
+    }
+    .concern-side-card { padding: 16px; }
+    .concern-side-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .concern-side-head h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 800;
+        color: #1f2d26;
+    }
+    .concern-detail-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .concern-detail-item {
+        display: grid;
+        grid-template-columns: 128px 1fr;
+        gap: 10px;
+        font-size: 12px;
+        color: #29362f;
+    }
+    .concern-detail-item span { color: #53635b; font-weight: 800; }
+    .concern-detail-item b { font-weight: 800; color: #17231d; }
+    .concern-detail-item.is-green b { color: #087436; }
+    .concern-detail-item.is-red b { color: #d52035; }
+    .concern-divider {
+        height: 1px;
+        background: #e8eeeb;
+        margin: 6px 0;
+    }
+    .concern-doc-list {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #e6ece9;
+        border-radius: 6px;
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .concern-doc {
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        border-bottom: 1px solid #edf1ef;
+    }
+    .concern-doc:last-child { border-bottom: 0; }
+    .concern-doc-badge {
+        width: 18px;
+        height: 18px;
+        border-radius: 3px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 800;
+    }
+    .concern-doc-badge.is-green { background: #1fa660; }
+    .concern-doc-badge.is-red { background: #e02d34; }
+    @media (max-width: 1500px) {
+        .concern-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .concern-layout { grid-template-columns: 1fr; }
+        .concern-sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 920px) {
+        .concern-metrics,
+        .concern-sidebar { grid-template-columns: 1fr; }
+        .concern-filter-grid { grid-template-columns: 1fr; }
+        .concern-actions {
+            grid-column: auto;
+            justify-content: stretch;
+            flex-wrap: wrap;
+        }
+        .concern-btn { flex: 1 1 180px; }
+        .concern-table-footer { grid-template-columns: 1fr; }
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var records = {{ concern_records_json|safe }};
+    var warrantyOptions = {{ concern_warranty_options_json|safe }};
+    var assignedUserName = {{ concern_assigned_user_json|safe }};
+    var tbody = document.getElementById('concernTableBody');
+    var detailsPanel = document.getElementById('concernDetailsPanel');
+    var warrantyPanel = document.getElementById('concernWarrantyPanel');
+    var showingText = document.getElementById('concernShowingText');
+    var searchInput = document.getElementById('concernSearchInput');
+    var statusFilter = document.getElementById('concernStatusFilter');
+    var warrantyStatusFilter = document.getElementById('concernWarrantyStatusFilter');
+    var coverageFilter = document.getElementById('concernCoverageFilter');
+    var productFilter = document.getElementById('concernProductFilter');
+    var pageSizeSelect = document.getElementById('concernPageSize');
+    var addConcernForm = document.getElementById('addConcernRecordForm');
+    var concernWarrantySelect = document.getElementById('concernWarrantySelect');
+    var selectedTicket = records.length ? records[0].ticket : '';
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (m) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[m];
+        });
+    }
+
+    function badgeClass(value) {
+        var key = String(value || '').toLowerCase();
+        if (key === 'covered') return 'is-covered';
+        if (key === 'for verification') return 'is-verify';
+        if (key === 'not covered') return 'is-not-covered';
+        if (key === 'high') return 'is-high';
+        if (key === 'medium') return 'is-medium';
+        if (key === 'low') return 'is-low';
+        if (key === 'new') return 'is-new';
+        if (key === 'under review') return 'is-review';
+        if (key === 'in progress') return 'is-progress';
+        if (key === 'for site visit') return 'is-site';
+        if (key === 'waiting for client') return 'is-waiting';
+        if (key === 'resolved') return 'is-resolved';
+        return 'is-new';
+    }
+
+    function filteredRecords() {
+        var q = String(searchInput ? searchInput.value : '').trim().toLowerCase();
+        var status = statusFilter ? statusFilter.value : '';
+        var warrantyStatus = warrantyStatusFilter ? warrantyStatusFilter.value : '';
+        var coverage = coverageFilter ? coverageFilter.value : '';
+        var product = productFilter ? productFilter.value : '';
+        return records.filter(function (item) {
+            var text = [item.ticket, item.warranty, item.client].join(' ').toLowerCase();
+            return (!q || text.includes(q))
+                && (!status || item.status === status)
+                && (!warrantyStatus || item.warranty_status === warrantyStatus)
+                && (!coverage || item.coverage === coverage)
+                && (!product || item.product === product);
+        });
+    }
+
+    function renderDetails(item) {
+        if (!detailsPanel || !warrantyPanel) return;
+        if (!item) {
+            detailsPanel.innerHTML = '<div class="text-secondary small">No concern record selected.</div>';
+            warrantyPanel.innerHTML = '<div class="text-secondary small">No warranty snapshot selected.</div>';
+            return;
+        }
+        detailsPanel.innerHTML = ''
+            + '<div class="concern-detail-list">'
+            + '<div class="concern-detail-item"><span>Ticket No.</span><b class="text-success">' + escapeHtml(item.ticket) + '</b></div>'
+            + '<div class="concern-detail-item is-green"><span>Warranty No.</span><b>' + escapeHtml(item.warranty) + '</b></div>'
+            + '<div class="concern-detail-item is-green"><span>Client Name</span><b>' + escapeHtml(item.client) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Product / System</span><b>' + escapeHtml(item.product) + '</b></div>'
+            + '<div class="concern-detail-item is-green"><span>Warranty Status</span><b>' + escapeHtml(item.warranty_status) + '</b></div>'
+            + '<div class="concern-detail-item is-green"><span>Coverage</span><b>' + escapeHtml(item.coverage) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Date & Time Received</span><b>' + escapeHtml(item.received) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Concern Type</span><b>' + escapeHtml(item.type) + '</b></div>'
+            + '<div class="concern-detail-item ' + (item.priority === 'High' ? 'is-red' : '') + '"><span>Priority</span><b>' + escapeHtml(item.priority) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Assigned To</span><b>' + escapeHtml(item.assigned) + '</b></div>'
+            + '<div class="concern-divider"></div>'
+            + '<div class="concern-detail-list"><b>Concern Description</b><div class="small">' + escapeHtml(item.description) + '</div></div>'
+            + '<div class="concern-detail-list"><b>Call Summary</b><div class="small">' + escapeHtml(item.summary) + '</div></div>'
+            + '<div class="concern-detail-list"><b>Attached Files</b><div class="concern-doc-list">'
+            + '<div class="concern-doc"><span class="concern-doc-badge is-green">I</span> inverter_error_log.jpg</div>'
+            + '<div class="concern-doc"><span class="concern-doc-badge is-red">R</span> system_status_report.pdf</div>'
+            + '<div class="concern-doc"><span class="concern-doc-badge is-green">S</span> site_photo_01.jpg</div>'
+            + '</div></div>'
+            + '</div>';
+        warrantyPanel.innerHTML = ''
+            + '<div class="concern-detail-list">'
+            + '<div class="concern-detail-item is-green"><span>Warranty No.</span><b>' + escapeHtml(item.warranty) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Start Date</span><b>' + escapeHtml(item.start) + '</b></div>'
+            + '<div class="concern-detail-item"><span>End Date</span><b>' + escapeHtml(item.end) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Warranty Type</span><b>' + escapeHtml(item.warranty_type) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Covered Items</span><b>' + escapeHtml(item.covered_items) + '</b></div>'
+            + '<div class="concern-detail-item"><span>Exclusions</span><b>' + escapeHtml(item.exclusions) + '</b></div>'
+            + '<div class="concern-detail-item is-green"><span>Days Remaining</span><b>' + escapeHtml(item.days_remaining) + ' days</b></div>'
+            + '</div>';
+    }
+
+    function renderTable() {
+        if (!tbody) return;
+        var pageSize = parseInt(pageSizeSelect ? pageSizeSelect.value : '8', 10) || 8;
+        var list = filteredRecords();
+        var visible = list.slice(0, pageSize);
+        if (!visible.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary py-4">No concern records found.</td></tr>';
+            if (showingText) showingText.textContent = 'Showing 0 entries';
+            renderDetails(null);
+            return;
+        }
+        tbody.innerHTML = visible.map(function (item) {
+            return ''
+                + '<tr data-ticket="' + escapeHtml(item.ticket) + '" class="' + (item.ticket === selectedTicket ? 'is-selected' : '') + '">'
+                + '<td>' + escapeHtml(item.ticket) + '</td>'
+                + '<td>' + escapeHtml(item.received) + '</td>'
+                + '<td><span class="concern-link">' + escapeHtml(item.warranty) + '</span></td>'
+                + '<td>' + escapeHtml(item.client) + '</td>'
+                + '<td>' + escapeHtml(item.product) + '</td>'
+                + '<td>' + escapeHtml(item.type) + '</td>'
+                + '<td><span class="concern-badge ' + badgeClass(item.priority) + '">' + escapeHtml(item.priority) + '</span></td>'
+                + '<td>' + escapeHtml(item.assigned) + '</td>'
+                + '</tr>';
+        }).join('');
+        if (showingText) showingText.textContent = 'Showing 1 to ' + visible.length + ' of ' + list.length + ' entries';
+        var selected = list.find(function (item) { return item.ticket === selectedTicket; }) || list[0] || null;
+        selectedTicket = selected ? selected.ticket : '';
+        renderDetails(selected);
+    }
+
+    function buildProductOptions() {
+        if (!productFilter) return;
+        var products = [];
+        records.forEach(function (item) {
+            if (products.indexOf(item.product) === -1) products.push(item.product);
+        });
+        products.sort().forEach(function (product) {
+            var option = document.createElement('option');
+            option.value = product;
+            option.textContent = product;
+            productFilter.appendChild(option);
+        });
+    }
+
+    function selectedWarrantyOption() {
+        if (!concernWarrantySelect) return null;
+        var warrantyId = String(concernWarrantySelect.value || '');
+        return warrantyOptions.find(function (item) { return String(item.id) === warrantyId; }) || null;
+    }
+
+    function nextConcernTicketNumber() {
+        var year = new Date().getFullYear();
+        var prefix = 'CON-' + year + '-';
+        var maxSequence = 0;
+        records.forEach(function (item) {
+            var ticket = String(item.ticket || '');
+            if (ticket.indexOf(prefix) !== 0) return;
+            var sequence = parseInt(ticket.slice(prefix.length), 10);
+            if (!Number.isNaN(sequence)) maxSequence = Math.max(maxSequence, sequence);
+        });
+        return prefix + String(maxSequence + 1).padStart(4, '0');
+    }
+
+    function currentConcernReceivedLabel() {
+        var now = new Date();
+        var month = String(now.getMonth() + 1).padStart(2, '0');
+        var day = String(now.getDate()).padStart(2, '0');
+        var year = now.getFullYear();
+        var hours = now.getHours();
+        var minutes = String(now.getMinutes()).padStart(2, '0');
+        var meridiem = hours >= 12 ? 'PM' : 'AM';
+        var hour12 = hours % 12 || 12;
+        return month + '/' + day + '/' + year + ' ' + String(hour12).padStart(2, '0') + ':' + minutes + ' ' + meridiem;
+    }
+
+    [searchInput, statusFilter, warrantyStatusFilter, coverageFilter, productFilter, pageSizeSelect].forEach(function (el) {
+        if (!el) return;
+        el.addEventListener('input', renderTable);
+        el.addEventListener('change', renderTable);
+    });
+    if (tbody) {
+        tbody.addEventListener('click', function (event) {
+            var row = event.target.closest('tr[data-ticket]');
+            if (!row) return;
+            selectedTicket = row.getAttribute('data-ticket');
+            renderTable();
+        });
+    }
+    if (addConcernForm) {
+        addConcernForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var formData = new FormData(addConcernForm);
+            var warranty = selectedWarrantyOption();
+            if (!warranty) return;
+            var newRecord = {
+                ticket: nextConcernTicketNumber(),
+                received: currentConcernReceivedLabel(),
+                warranty: warranty.no,
+                client: warranty.client,
+                product: warranty.product,
+                type: String(formData.get('type') || '').trim(),
+                coverage: String(formData.get('coverage') || 'Covered').trim(),
+                priority: String(formData.get('priority') || 'Medium').trim(),
+                status: String(formData.get('status') || 'New').trim(),
+                assigned: assignedUserName || '-',
+                warranty_status: warranty.warranty_status,
+                description: String(formData.get('description') || '-').trim() || '-',
+                summary: String(formData.get('summary') || '-').trim() || '-',
+                start: warranty.start,
+                end: warranty.end,
+                warranty_type: warranty.warranty_type,
+                covered_items: warranty.covered_items,
+                exclusions: warranty.exclusions,
+                days_remaining: warranty.days_remaining
+            };
+            if (!newRecord.warranty || !newRecord.client || !newRecord.product) return;
+            records.unshift(newRecord);
+            selectedTicket = newRecord.ticket;
+            if (productFilter && Array.from(productFilter.options).every(function (option) { return option.value !== newRecord.product; })) {
+                var option = document.createElement('option');
+                option.value = newRecord.product;
+                option.textContent = newRecord.product;
+                productFilter.appendChild(option);
+            }
+            renderTable();
+            var modalEl = document.getElementById('addConcernRecordModal');
+            if (window.bootstrap && modalEl) {
+                var modal = window.bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+            addConcernForm.reset();
+        });
+    }
+    buildProductOptions();
+    renderTable();
+});
+</script>
+{% endblock %}

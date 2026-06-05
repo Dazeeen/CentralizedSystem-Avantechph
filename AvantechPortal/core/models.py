@@ -1334,6 +1334,41 @@ class CRMTechnicalNotificationSetting(models.Model):
 		return f'CRMTechnicalNotificationSetting<notify_days_before={self.notify_days_before}, include_backlogs={self.include_backlogs}>'
 
 
+class CRMWarrantyRecord(models.Model):
+	WARRANTY_TYPE_CHOICES = [
+		('product', 'Product'),
+		('labor', 'Labor'),
+		('performance', 'Performance'),
+		('service', 'Service'),
+	]
+
+	warranty_number = models.CharField(max_length=20, unique=True, db_index=True)
+	client = models.ForeignKey(CRMClient, on_delete=models.CASCADE, related_name='warranty_records')
+	sales_record = models.ForeignKey(CRMSalesRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='warranty_records')
+	technical_record = models.ForeignKey(CRMTechnicalRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='warranty_records')
+	product_system = models.CharField(max_length=120, blank=True)
+	warranty_type = models.CharField(max_length=20, choices=WARRANTY_TYPE_CHOICES)
+	start_date = models.DateField()
+	end_date = models.DateField()
+	exclusions = models.TextField(blank=True)
+	notes = models.TextField(blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_warranty_records_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-created_at', '-id']
+
+	def __str__(self):
+		return f'CRMWarrantyRecord<{self.warranty_number}:{self.client_id}>'
+
+
 class ClientDeletionRequest(models.Model):
 	STATUS_CHOICES = [
 		('pending', 'Pending'),

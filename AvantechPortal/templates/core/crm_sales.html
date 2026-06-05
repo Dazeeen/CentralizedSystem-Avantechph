@@ -182,7 +182,7 @@
                                     {{ row.unread_history_comments|default:0 }}
                                 </span>
                             </td>
-                            <td>{{ row.sales_status|default:"-" }}</td>
+                            <td class="js-sales-status-cell">{{ row.sales_status|default:"-" }}</td>
                             <td>
                                 {% if row.sales_status|lower == 'closed won' or row.sales_status|lower == 'close won' %}
                                     {% if not row.job_order_number %}
@@ -878,7 +878,7 @@
         padding-right: 10px;
     }
     .crm-sales-table { table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
-    .crm-sales-table thead th { position: sticky; top: 0; z-index: 2; background: #f7fbf8; border-bottom: 0; }
+    .crm-sales-table thead th { position: sticky; top: 0; z-index: 5; background: #f7fbf8; border-bottom: 0; }
     .crm-sales-table tbody tr { background: #f4f7f5; height: 42px; transition: background-color 0.15s ease, color 0.15s ease; }
     .crm-sales-table tbody tr td { border-top: 0; border-bottom: 0; transition: background-color 0.15s ease, color 0.15s ease; }
     .crm-sales-table tbody tr td:first-child { border-radius: 8px 0 0 8px; }
@@ -889,7 +889,7 @@
         position: absolute;
         top: 3px;
         right: 3px;
-        z-index: 3;
+        z-index: 1;
         width: 18px;
         height: 18px;
         border-radius: 999px;
@@ -986,6 +986,15 @@
     background: #e7f3eb;
     color: #35694f;
 }
+#salesInfoPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-upcoming {
+    background: #f9d7d7;
+    color: #a32525;
+}
+#salesInfoPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-current,
+#salesInfoPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-done {
+    background: #d93a3a;
+    color: #fff;
+}
 .crm-sales-pipeline-stage[data-stage="closed lost"] {
     background: #f9d7d7;
     color: #a32525;
@@ -1031,26 +1040,31 @@
     outline-offset: -2px;
     z-index: 2;
 }
-#logSalesPipeline .crm-sales-pipeline-stage.is-done {
+#logSalesPipeline .crm-sales-pipeline-stage.is-done,
+#salesClientSalesPipeline .crm-sales-pipeline-stage.is-done {
     background: #8fd2ad;
     color: #17462e;
 }
-#logSalesPipeline .crm-sales-pipeline-stage.is-current {
+#logSalesPipeline .crm-sales-pipeline-stage.is-current,
+#salesClientSalesPipeline .crm-sales-pipeline-stage.is-current {
     background: #198754;
     color: #fff;
     font-weight: 700;
     z-index: 3;
     box-shadow: inset 0 0 0 2px rgba(255,255,255,.75);
 }
-#logSalesPipeline .crm-sales-pipeline-stage.is-upcoming {
+#logSalesPipeline .crm-sales-pipeline-stage.is-upcoming,
+#salesClientSalesPipeline .crm-sales-pipeline-stage.is-upcoming {
     background: #e7f3eb;
     color: #35694f;
 }
-#logSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-upcoming {
+#logSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-upcoming,
+#salesClientSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-upcoming {
     background: #f9d7d7;
     color: #a32525;
 }
-#logSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-current {
+#logSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-current,
+#salesClientSalesPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-current {
     background: #d93a3a;
     color: #fff;
 }
@@ -1445,6 +1459,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (status === 'close lost') return 'closed lost';
         return status;
     }
+    function displaySalesStatus(value) {
+        var status = normalizeSalesStatus(value);
+        if (status === 'forproposal') return 'for proposal';
+        return status || 'new';
+    }
     function salesStatusRank(status) {
         var order = ['new', 'contacted', 'for survey', 'forproposal', 'negotiation', 'closed won', 'closed lost'];
         var normalized = normalizeSalesStatus(status);
@@ -1466,6 +1485,40 @@ document.addEventListener('DOMContentLoaded', function () {
                 stageEl.classList.add('is-upcoming');
             }
         });
+    }
+
+    function updatePagePipelineCount(stage, delta) {
+        var normalizedStage = normalizeSalesStatus(stage);
+        var stageEl = document.querySelector('.crm-sales-page-pipeline .crm-sales-pipeline-stage[data-stage="' + normalizedStage + '"]');
+        if (!stageEl) return;
+        var text = stageEl.textContent || '';
+        var match = text.match(/^(.*)\((\d+)\)\s*$/);
+        if (!match) return;
+        var nextCount = Math.max(0, parseInt(match[2], 10) + delta);
+        stageEl.textContent = match[1] + '(' + nextCount + ')';
+    }
+
+    function applySalesStatusToRow(row, status) {
+        if (!row) return;
+        var previousStatus = normalizeSalesStatus(row.dataset.salesStatus || 'new');
+        var nextStatus = normalizeSalesStatus(status || 'new');
+        var displayStatus = displaySalesStatus(nextStatus);
+        row.dataset.salesStatus = displayStatus;
+        var statusCell = row.querySelector('.js-sales-status-cell');
+        if (statusCell) statusCell.textContent = displayStatus;
+        if (previousStatus !== nextStatus) {
+            updatePagePipelineCount(previousStatus, -1);
+            updatePagePipelineCount(nextStatus, 1);
+        }
+        if (row.classList.contains('is-active')) {
+            renderSalesSummaryFromRow(row);
+        }
+        var clientProfileStatusInput = document.getElementById('salesClientSalesStatus');
+        if (clientProfileStatusInput && row.classList.contains('is-active')) {
+            clientProfileStatusInput.value = displayStatus;
+        }
+        renderSalesPipeline(document.getElementById('salesClientSalesPipeline'), nextStatus);
+        renderSalesPipeline(document.getElementById('salesInfoPipeline'), nextStatus);
     }
 
     function escapeHtml(value) {
@@ -1810,6 +1863,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function openLogSalesModalFromRow(row, mode) {
         if (!row || !logSalesModal) return;
+        var selectedSalesRecordId = String(row.dataset.salesRecordId || '').trim();
+        if (!selectedSalesRecordId) {
+            alert('Please select a valid sales record first.');
+            return;
+        }
         var entryMode = mode === 'edit' ? 'edit' : 'log';
         var modalTitle = document.getElementById('crmLogSalesActivityModalLabel');
         var submitBtn = document.getElementById('crmLogSalesSubmitBtn');
@@ -1818,7 +1876,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (submitBtn) submitBtn.textContent = entryMode === 'edit' ? 'Save Changes' : 'Save Activity';
         if (entryModeInput) entryModeInput.value = entryMode;
         var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
-        if (salesRecordIdInput) salesRecordIdInput.value = row.dataset.salesRecordId || '';
+        if (salesRecordIdInput) salesRecordIdInput.value = selectedSalesRecordId;
         var leadSource = document.getElementById('logLeadSource');
         var monthlyBill = document.getElementById('logMonthlyElectricBill');
         var roofType = document.getElementById('logRoofType');
@@ -2278,6 +2336,11 @@ document.addEventListener('DOMContentLoaded', function () {
             var status = normalizeSalesStatus(logSalesStatusInput ? logSalesStatusInput.value : '');
             var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
             var salesRecordId = salesRecordIdInput ? String(salesRecordIdInput.value || '').trim() : '';
+            if (!salesRecordId) {
+                event.preventDefault();
+                alert('Please select a valid sales record before saving sales activity.');
+                return;
+            }
             var row = salesRecordId ? document.querySelector('.crm-sales-row[data-sales-record-id="' + salesRecordId + '"]') : null;
             var hasJobOrder = !!(row && String(row.dataset.jobOrderNumber || '').trim());
             if (status !== 'closed won' || hasJobOrder || jobOrderSubmitConfirmed) {
