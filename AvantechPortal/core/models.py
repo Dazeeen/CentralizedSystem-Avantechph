@@ -1059,6 +1059,7 @@ class CRMSalesRecord(models.Model):
 	return_on_investment = models.CharField(max_length=80, blank=True)
 	assigned_sales = models.CharField(max_length=150, blank=True)
 	sales_status = models.CharField(max_length=50, blank=True)
+	ocular_date = models.DateField(blank=True, null=True, db_index=True)
 	job_order_number = models.CharField(max_length=20, blank=True, db_index=True)
 	client_status = models.CharField(max_length=80, blank=True)
 	interaction_notes = models.TextField(blank=True)
@@ -1090,6 +1091,7 @@ class CRMSalesActivityLog(models.Model):
 	downpayment = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
 	return_on_investment = models.CharField(max_length=80, blank=True)
 	sales_status = models.CharField(max_length=50, blank=True)
+	ocular_date = models.DateField(blank=True, null=True)
 	interaction_notes = models.TextField(blank=True)
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,

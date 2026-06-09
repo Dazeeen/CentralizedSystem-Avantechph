@@ -13,6 +13,7 @@
                 <h2 class="crm-page-title mb-0">Clients</h2>
             </div>
             <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-secondary" id="crmScanQrBtn" data-bs-toggle="modal" data-bs-target="#crmQrScannerModal">Scan QR Code</button>
                 <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#crmImportModal">Import</button>
                 {% if can_manage_crm_clients %}
                     <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCrmClientModal">Add Client</button>
@@ -24,7 +25,7 @@
             <input type="hidden" name="form_action" value="submit_delete_request">
             <input type="hidden" name="selected_ids" id="crmSelectedIds" value="">
         </form>
-        <form method="get" class="row g-2 mb-3">
+        <form method="get" class="row g-2 mb-3" id="crmClientSearchForm">
             <div class="col-lg-4 col-md-6">
                 <label class="form-label mb-1" for="crmSearchInput">Search (fuzzy)</label>
                 <input type="text" class="form-control" id="crmSearchInput" name="q" value="{{ q }}" placeholder="Search name, id, contact, city...">
@@ -78,7 +79,7 @@
                 </thead>
                 <tbody>
                     {% for row in clients_page %}
-                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'F j, Y' }}{% elif row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-registered-at-iso="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'Y-m-d' }}{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}"
+                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'F j, Y' }}{% elif row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-registered-at-iso="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'Y-m-d' }}{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}" data-qr-payload="{{ row.crm_qr_payload }}" data-qr-image="{{ row.crm_qr_data_uri }}"
                             {% with sales=row.sales_records.first %}
                                 data-sales-date-created="{% if sales and sales.date_created %}{{ sales.date_created|date:'F j, Y' }}{% else %}-{% endif %}"
                                 data-sales-lead-source="{% if sales and sales.lead_source %}{{ sales.lead_source }}{% else %}-{% endif %}"
@@ -502,9 +503,23 @@
                         <div class="d-flex align-items-start justify-content-between mb-3">
                             <h5 class="modal-title mb-0" id="crmClientInfoModalLabel">Profile</h5>
                             <button type="button" class="btn-close crm-profile-close-btn" data-bs-dismiss="modal" aria-label="Close"></button>
+	                        </div>
+	                        <div class="crm-profile-pane" id="client-profile-pane">
+                        <div class="crm-client-qr-card mb-3">
+	                            <div>
+	                                <div class="small text-secondary">Profile QR Code</div>
+	                                <div class="fw-semibold" id="infoQrCustomerId">-</div>
+	                                <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+	                                    <a class="small" id="infoQrProfileLink" href="#" target="_blank" rel="noopener">Open QR link</a>
+	                                    <a class="btn btn-sm btn-outline-success" id="infoQrDownloadLink" href="#" download>Download QR</a>
+	                                </div>
+	                            </div>
+                            <div class="crm-client-qr-image-wrap">
+                                <img id="infoQrImage" class="crm-client-qr-image d-none" alt="Client profile QR code">
+                                <div id="infoQrUnavailable" class="small text-secondary text-center">QR unavailable</div>
+                            </div>
                         </div>
-                        <div class="crm-profile-pane" id="client-profile-pane">
-                        <form id="crmInlineProfileForm" class="row g-3">
+	                        <form id="crmInlineProfileForm" class="row g-3">
                             {% csrf_token %}
                             <div class="col-md-6">
                                 <label class="form-label">Customer ID</label>
@@ -555,7 +570,7 @@
                                 <textarea class="form-control bg-light crm-inline-editable" id="infoNotes" name="notes" rows="2" readonly></textarea>
                             </div>
                         </form>
-                        <div class="mt-3">
+	                        <div class="mt-3">
                             <h6 class="mb-2">Attached Media</h6>
                             <div id="infoMediaFiles"></div>
                         </div>
@@ -620,6 +635,41 @@
                         </div>
                     </section>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="crmQrScannerModal" tabindex="-1" aria-labelledby="crmQrScannerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crmQrScannerModalLabel">Scan Client QR Code</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+	            </div>
+	            <div class="modal-body">
+	                <div class="btn-group w-100 mb-3" role="group" aria-label="QR scan source">
+	                    <button type="button" class="btn btn-success active" id="crmQrCameraModeBtn" data-qr-mode="camera">Camera</button>
+	                    <button type="button" class="btn btn-outline-success" id="crmQrUploadModeBtn" data-qr-mode="upload">Upload / Paste</button>
+	                </div>
+	                <div id="crmQrCameraPane">
+	                    <div class="crm-qr-scanner-frame mb-3">
+	                        <video id="crmQrScannerVideo" autoplay muted playsinline></video>
+	                    </div>
+	                </div>
+	                <div id="crmQrUploadPane" class="d-none">
+	                    <input type="file" class="d-none" id="crmQrImageInput" accept="image/*">
+	                    <div class="crm-qr-drop-zone mb-3" id="crmQrDropZone" role="button" tabindex="0">
+	                        <div class="fw-semibold">Drop QR image here</div>
+	                        <div class="small text-secondary">Choose an image file, drag and drop, or paste an image from clipboard.</div>
+	                        <button type="button" class="btn btn-sm btn-outline-success mt-2" id="crmQrChooseFileBtn">Choose File</button>
+	                    </div>
+	                    <div class="small text-secondary mb-3">Tip: click inside the box, then press Ctrl+V if the QR image is in your clipboard.</div>
+	                </div>
+	                <div class="small text-secondary" id="crmQrScannerStatus">Camera is starting...</div>
+	            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -999,6 +1049,65 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    .crm-client-qr-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        border: 1px solid #d7e6db;
+        border-radius: 10px;
+        background: #fff;
+        padding: 12px;
+    }
+    .crm-client-qr-image-wrap {
+        width: 132px;
+        height: 132px;
+        border: 1px solid #e4e9e6;
+        border-radius: 8px;
+        background: #f8fbf9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        padding: 8px;
+    }
+    .crm-client-qr-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+    .crm-qr-scanner-frame {
+        position: relative;
+        overflow: hidden;
+        border-radius: 10px;
+        background: #111;
+        aspect-ratio: 1 / 1;
+    }
+	    .crm-qr-scanner-frame video {
+	        width: 100%;
+	        height: 100%;
+	        object-fit: cover;
+	        display: block;
+	    }
+	    .crm-qr-drop-zone {
+	        min-height: 190px;
+	        border: 2px dashed #94c7a9;
+	        border-radius: 10px;
+	        background: #f8fbf9;
+	        display: flex;
+	        flex-direction: column;
+	        align-items: center;
+	        justify-content: center;
+	        text-align: center;
+	        padding: 18px;
+	        outline: none;
+	    }
+	    .crm-qr-drop-zone:hover,
+	    .crm-qr-drop-zone:focus,
+	    .crm-qr-drop-zone.is-dragging {
+	        border-color: #198754;
+	        background: #e9f5ee;
+	    }
     .js-queue-client-row {
         cursor: pointer;
     }
@@ -1087,9 +1196,11 @@
     }
 </style>
 <script src="{% static 'vendor/xlsx/0.18.5/xlsx.full.min.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';"></script>
+<script src="{% static 'vendor/jsqr/1.4.0/jsQR.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    var activeClientId = null;
+	document.addEventListener('DOMContentLoaded', function () {
+	    var activeClientId = null;
+	    var qrClientLookup = '{{ qr_client_lookup|default:""|escapejs }}';
 
     function safeText(value) {
         return value == null || String(value).trim() === '' ? '-' : String(value);
@@ -1470,6 +1581,23 @@ document.addEventListener('DOMContentLoaded', function () {
     var inlineActionsWrap = document.getElementById('crmInlineActionsWrap');
     var currentRowForModal = null;
     var isInlineEditing = false;
+	    var qrScannerModalEl = document.getElementById('crmQrScannerModal');
+	    var qrScannerVideo = document.getElementById('crmQrScannerVideo');
+	    var qrScannerStatus = document.getElementById('crmQrScannerStatus');
+	    var qrCameraPane = document.getElementById('crmQrCameraPane');
+	    var qrUploadPane = document.getElementById('crmQrUploadPane');
+	    var qrCameraModeBtn = document.getElementById('crmQrCameraModeBtn');
+	    var qrUploadModeBtn = document.getElementById('crmQrUploadModeBtn');
+	    var qrImageInput = document.getElementById('crmQrImageInput');
+	    var qrDropZone = document.getElementById('crmQrDropZone');
+	    var qrChooseFileBtn = document.getElementById('crmQrChooseFileBtn');
+	    var qrScannerStream = null;
+	    var qrScannerDetector = null;
+	    var qrScannerTimer = null;
+	    var qrScannerBusy = false;
+	    var qrScannerMode = 'camera';
+	    var qrFallbackCanvas = document.createElement('canvas');
+	    var qrFallbackContext = qrFallbackCanvas.getContext('2d');
     function syncInlineActionsVisibility() {
         if (!inlineActionsWrap) return;
         var activePane = document.querySelector('#crmClientInfoModal .crm-profile-pane:not(.d-none)');
@@ -1565,6 +1693,33 @@ document.addEventListener('DOMContentLoaded', function () {
         if (requestedAtEl) requestedAtEl.textContent = hasPendingContext ? (context.requestedAt || '-') : '-';
         if (notesEl) notesEl.textContent = hasPendingContext ? (context.notes || '-') : '-';
     }
+	    function syncQrProfileFromRow(row) {
+	        var qrCustomerId = document.getElementById('infoQrCustomerId');
+	        var qrLink = document.getElementById('infoQrProfileLink');
+	        var qrDownloadLink = document.getElementById('infoQrDownloadLink');
+	        var qrImage = document.getElementById('infoQrImage');
+	        var qrUnavailable = document.getElementById('infoQrUnavailable');
+	        var qrPayload = row ? (row.dataset.qrPayload || '') : '';
+	        var qrImageSrc = row ? (row.dataset.qrImage || '') : '';
+	        var customerId = row ? (row.dataset.customerId || 'client') : 'client';
+	        if (qrCustomerId) qrCustomerId.textContent = row ? (row.dataset.customerId || '-') : '-';
+	        if (qrLink) {
+	            qrLink.href = qrPayload || '#';
+	            qrLink.classList.toggle('d-none', !qrPayload);
+	        }
+	        if (qrDownloadLink) {
+	            qrDownloadLink.href = qrImageSrc || '#';
+	            qrDownloadLink.download = 'client-qr-' + customerId.replace(/[^A-Za-z0-9_-]+/g, '-') + '.svg';
+	            qrDownloadLink.classList.toggle('d-none', !qrImageSrc);
+	        }
+	        if (qrImage) {
+	            qrImage.src = qrImageSrc || '';
+	            qrImage.classList.toggle('d-none', !qrImageSrc);
+        }
+        if (qrUnavailable) {
+            qrUnavailable.classList.toggle('d-none', !!qrImageSrc);
+        }
+    }
     function openClientModalFromRow(row, modalContext) {
         if (!row) {
             return;
@@ -1608,6 +1763,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('infoTechInstallationStatus').value = formatInstallationStatusLabel(row.dataset.techInstallationStatus || '-');
         document.getElementById('infoTechPoNumber').value = row.dataset.techPoNumber || '-';
         document.getElementById('infoTechRemarks').value = row.dataset.techRemarks || '-';
+        syncQrProfileFromRow(row);
         var mediaContainer = document.getElementById('infoMediaFiles');
         var mediaTemplateId = row.dataset.mediaTemplateId;
         var mediaTemplate = mediaTemplateId ? document.getElementById(mediaTemplateId) : null;
@@ -1736,14 +1892,442 @@ document.addEventListener('DOMContentLoaded', function () {
             if (row) openClientModalFromRow(row);
         });
     }
-    if (summaryEditBtn) {
-        summaryEditBtn.addEventListener('click', function () {
-            var row = document.querySelector('.crm-client-row.is-active');
-            if (!row) return;
-            openClientModalFromRow(row);
-            setInlineEditMode(true);
-        });
+	    if (summaryEditBtn) {
+	        summaryEditBtn.addEventListener('click', function () {
+	            var row = document.querySelector('.crm-client-row.is-active');
+	            if (!row) return;
+	            openClientModalFromRow(row);
+	            setInlineEditMode(true);
+	        });
+	    }
+	    if (qrClientLookup) {
+	        window.setTimeout(function () {
+	            var row = findClientRowBySearchValue(qrClientLookup);
+	            if (row) {
+	                setActiveRow(row);
+	                openClientModalFromRow(row);
+	            }
+	        }, 250);
+	    }
+
+    function stopQrScanner() {
+        if (qrScannerTimer) {
+            window.clearInterval(qrScannerTimer);
+            qrScannerTimer = null;
+        }
+        if (qrScannerStream) {
+            qrScannerStream.getTracks().forEach(function (track) { track.stop(); });
+            qrScannerStream = null;
+        }
+        if (qrScannerVideo) {
+            qrScannerVideo.srcObject = null;
+        }
+        qrScannerBusy = false;
     }
+
+	    function setQrScannerStatus(message) {
+	        if (qrScannerStatus) {
+	            qrScannerStatus.textContent = message;
+	        }
+	    }
+
+	    async function getNativeQrScannerDetector() {
+	        if (qrScannerDetector) {
+	            return qrScannerDetector;
+	        }
+	        if (!('BarcodeDetector' in window)) {
+	            return null;
+	        }
+	        try {
+	            var supportedFormats = await window.BarcodeDetector.getSupportedFormats();
+	            if (supportedFormats.indexOf('qr_code') === -1) {
+	                return null;
+	            }
+	            qrScannerDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+	            return qrScannerDetector;
+	        } catch (error) {
+	            return null;
+	        }
+	    }
+
+	    function decodeQrFromCanvasSource(source, width, height) {
+	        if (!window.jsQR || !qrFallbackContext || !source || !width || !height) {
+	            return '';
+	        }
+	        qrFallbackCanvas.width = width;
+	        qrFallbackCanvas.height = height;
+	        qrFallbackContext.drawImage(source, 0, 0, width, height);
+	        var imageData = qrFallbackContext.getImageData(0, 0, width, height);
+	        var decoded = window.jsQR(imageData.data, imageData.width, imageData.height);
+	        return decoded && decoded.data ? decoded.data : '';
+	    }
+
+	    function decodeQrFromImageElement(image) {
+	        return decodeQrFromCanvasSource(image, image.naturalWidth || image.width, image.naturalHeight || image.height);
+	    }
+
+	    function decodeQrFromImageUrl(imageUrl) {
+	        return new Promise(function (resolve, reject) {
+	            var image = new Image();
+	            image.onload = function () {
+	                resolve(decodeQrFromImageElement(image));
+	            };
+	            image.onerror = function () {
+	                reject(new Error('Unable to load QR image.'));
+	            };
+	            image.src = imageUrl;
+	        });
+	    }
+
+	    function decodeQrFromObjectUrl(file) {
+	        return new Promise(function (resolve, reject) {
+	            var objectUrl = URL.createObjectURL(file);
+	            decodeQrFromImageUrl(objectUrl)
+	                .then(resolve)
+	                .catch(reject)
+	                .finally(function () {
+	                    URL.revokeObjectURL(objectUrl);
+	                });
+	        });
+	    }
+
+	    async function decodeQrFromVideo(videoEl) {
+	        var detector = await getNativeQrScannerDetector();
+	        if (detector) {
+	            var codes = await detector.detect(videoEl);
+	            if (codes && codes.length && codes[0].rawValue) {
+	                return codes[0].rawValue;
+	            }
+	        }
+	        return decodeQrFromCanvasSource(videoEl, videoEl.videoWidth, videoEl.videoHeight);
+	    }
+
+	    async function decodeQrFromImageFile(file) {
+	        if (typeof createImageBitmap === 'function') {
+	            try {
+	                var bitmap = await createImageBitmap(file);
+	                try {
+	                    var nativeDetector = await getNativeQrScannerDetector();
+	                    if (nativeDetector) {
+	                        var nativeCodes = await nativeDetector.detect(bitmap);
+	                        if (nativeCodes && nativeCodes.length && nativeCodes[0].rawValue) {
+	                            return nativeCodes[0].rawValue;
+	                        }
+	                    }
+	                    return decodeQrFromCanvasSource(bitmap, bitmap.width, bitmap.height);
+	                } finally {
+	                    if (bitmap && typeof bitmap.close === 'function') {
+	                        bitmap.close();
+	                    }
+	                }
+	            } catch (error) {
+	                return decodeQrFromObjectUrl(file);
+	            }
+	        }
+	        return decodeQrFromObjectUrl(file);
+	    }
+
+    function extractClientSearchValue(rawValue) {
+        var value = String(rawValue || '').trim();
+        if (!value) return '';
+	        try {
+	            var parsedUrl = new URL(value, window.location.origin);
+	            var qrValue = (parsedUrl.searchParams.get('client_qr') || '').trim();
+	            if (qrValue) return qrValue;
+	            var queryValue = (parsedUrl.searchParams.get('q') || '').trim();
+	            if (queryValue) return queryValue;
+        } catch (error) {
+        }
+        var prefixedMatch = value.match(/(?:client|customer)[\s:_-]*id[\s:=_-]*([A-Za-z0-9-]+)/i);
+        if (prefixedMatch && prefixedMatch[1]) {
+            return prefixedMatch[1].trim();
+        }
+        return value;
+    }
+
+    function findClientRowBySearchValue(value) {
+        var needle = String(value || '').trim().toLowerCase();
+        if (!needle) return null;
+        return Array.from(document.querySelectorAll('.crm-client-row')).find(function (row) {
+            return String(row.dataset.customerId || '').trim().toLowerCase() === needle;
+        }) || null;
+    }
+
+	    function handleQrScannerResult(rawValue) {
+        var searchValue = extractClientSearchValue(rawValue);
+        if (!searchValue) {
+            setQrScannerStatus('QR code was scanned, but no client ID was found.');
+            return;
+        }
+        stopQrScanner();
+        var scannerModal = getBootstrapModalInstance(qrScannerModalEl);
+        if (scannerModal) scannerModal.hide();
+        var matchingRow = findClientRowBySearchValue(searchValue);
+	        if (matchingRow) {
+	            setActiveRow(matchingRow);
+	            openClientModalFromRow(matchingRow);
+	            return;
+	        }
+	        window.location.href = '{% url "crm_clients" %}?client_qr=' + encodeURIComponent(searchValue);
+    }
+
+	    async function scanQrFrame() {
+	        if (!qrScannerDetector || !qrScannerVideo || qrScannerBusy || qrScannerVideo.readyState < 2) {
+	            if (!window.jsQR || !qrScannerVideo || qrScannerBusy || qrScannerVideo.readyState < 2) {
+	                return;
+	            }
+	        }
+	        qrScannerBusy = true;
+	        try {
+	            var decodedValue = await decodeQrFromVideo(qrScannerVideo);
+	            if (decodedValue) {
+	                handleQrScannerResult(decodedValue);
+	            }
+	        } catch (error) {
+	            setQrScannerStatus('Unable to read QR code. Keep the code inside the frame.');
+        } finally {
+            qrScannerBusy = false;
+        }
+    }
+
+	    async function startQrScanner() {
+	        if (!qrScannerVideo) return;
+	        stopQrScanner();
+	        try {
+	            var nativeDetector = await getNativeQrScannerDetector();
+	            if (!nativeDetector && !window.jsQR) {
+	                setQrScannerStatus('QR scanner is still loading. Please try again in a moment.');
+	                return;
+	            }
+	            setQrScannerStatus('Allow camera access, then point it at the client QR code.');
+	            qrScannerStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' } },
+                audio: false
+            });
+            qrScannerVideo.srcObject = qrScannerStream;
+            await qrScannerVideo.play();
+            setQrScannerStatus('Scanning...');
+            qrScannerTimer = window.setInterval(scanQrFrame, 350);
+	        } catch (error) {
+	            stopQrScanner();
+	            setQrScannerStatus(error.message || 'Camera could not start. Check browser permission or HTTPS access.');
+	        }
+	    }
+
+	    function handlePastedQrText(value) {
+	        var searchValue = extractClientSearchValue(value);
+	        if (!searchValue) {
+	            return false;
+	        }
+	        handleQrScannerResult(value);
+	        return true;
+	    }
+
+	    async function handlePastedQrHtml(htmlValue) {
+	        if (!htmlValue) {
+	            return false;
+	        }
+	        var doc = new DOMParser().parseFromString(htmlValue, 'text/html');
+	        var image = doc.querySelector('img[src]');
+	        if (image && image.getAttribute('src')) {
+	            var imageSrc = image.getAttribute('src');
+	            if (imageSrc.indexOf('data:image/') === 0) {
+	                try {
+	                    setQrScannerStatus('Reading pasted QR image...');
+	                    var decodedValue = await decodeQrFromImageUrl(imageSrc);
+	                    if (decodedValue) {
+	                        handleQrScannerResult(decodedValue);
+	                        return true;
+	                    }
+	                } catch (error) {
+	                    setQrScannerStatus(error.message || 'Unable to read pasted QR image.');
+	                }
+	            }
+	        }
+	        var plainText = doc.body ? doc.body.textContent : '';
+	        return handlePastedQrText(plainText);
+	    }
+
+	    function setQrScannerMode(mode) {
+	        qrScannerMode = mode === 'upload' ? 'upload' : 'camera';
+	        var isCamera = qrScannerMode === 'camera';
+	        if (qrCameraPane) qrCameraPane.classList.toggle('d-none', !isCamera);
+	        if (qrUploadPane) qrUploadPane.classList.toggle('d-none', isCamera);
+	        if (qrCameraModeBtn) {
+	            qrCameraModeBtn.classList.toggle('active', isCamera);
+	            qrCameraModeBtn.classList.toggle('btn-success', isCamera);
+	            qrCameraModeBtn.classList.toggle('btn-outline-success', !isCamera);
+	        }
+	        if (qrUploadModeBtn) {
+	            qrUploadModeBtn.classList.toggle('active', !isCamera);
+	            qrUploadModeBtn.classList.toggle('btn-success', !isCamera);
+	            qrUploadModeBtn.classList.toggle('btn-outline-success', isCamera);
+	        }
+	        if (isCamera) {
+	            startQrScanner();
+	        } else {
+	            stopQrScanner();
+	            setQrScannerStatus('Choose, drop, or paste a QR image to scan.');
+	            if (qrDropZone) qrDropZone.focus();
+	        }
+	    }
+
+	    async function decodeQrImageFile(file) {
+	        if (!file || !String(file.type || '').startsWith('image/')) {
+	            setQrScannerStatus('Please choose an image file that contains a QR code.');
+	            return;
+	        }
+	        try {
+	            var imageNativeDetector = await getNativeQrScannerDetector();
+	            if (!window.jsQR && !imageNativeDetector) {
+	                setQrScannerStatus('QR scanner is still loading. Please try again in a moment.');
+	                return;
+	            }
+	            setQrScannerStatus('Reading QR image...');
+	            var decodedValue = await decodeQrFromImageFile(file);
+	            if (decodedValue) {
+	                handleQrScannerResult(decodedValue);
+	            } else {
+	                setQrScannerStatus('No QR code found in that image.');
+	            }
+	        } catch (error) {
+	            setQrScannerStatus(error.message || 'Unable to read QR image.');
+	        }
+	    }
+
+	    function handleQrImageFiles(files) {
+	        var fileList = Array.from(files || []);
+	        var imageFile = fileList.find(function (file) {
+	            return String(file.type || '').startsWith('image/');
+	        });
+	        if (!imageFile) {
+	            setQrScannerStatus('Please provide an image file with a QR code.');
+	            return;
+	        }
+	        decodeQrImageFile(imageFile);
+	    }
+
+	    if (qrScannerModalEl) {
+	        qrScannerModalEl.addEventListener('shown.bs.modal', function () {
+	            setQrScannerMode(qrScannerMode);
+	        });
+	        qrScannerModalEl.addEventListener('hidden.bs.modal', stopQrScanner);
+	    }
+	    if (qrCameraModeBtn) {
+	        qrCameraModeBtn.addEventListener('click', function () { setQrScannerMode('camera'); });
+	    }
+	    if (qrUploadModeBtn) {
+	        qrUploadModeBtn.addEventListener('click', function () { setQrScannerMode('upload'); });
+	    }
+	    if (qrChooseFileBtn && qrImageInput) {
+	        qrChooseFileBtn.addEventListener('click', function (event) {
+	            event.stopPropagation();
+	            qrImageInput.click();
+	        });
+	    }
+	    if (qrImageInput) {
+	        qrImageInput.addEventListener('change', function () {
+	            handleQrImageFiles(qrImageInput.files);
+	            qrImageInput.value = '';
+	        });
+	    }
+	    if (qrDropZone) {
+	        qrDropZone.addEventListener('click', function () {
+	            if (qrImageInput) qrImageInput.click();
+	        });
+	        qrDropZone.addEventListener('keydown', function (event) {
+	            if (event.key === 'Enter' || event.key === ' ') {
+	                event.preventDefault();
+	                if (qrImageInput) qrImageInput.click();
+	            }
+	        });
+	        ['dragenter', 'dragover'].forEach(function (eventName) {
+	            qrDropZone.addEventListener(eventName, function (event) {
+	                event.preventDefault();
+	                event.stopPropagation();
+	                qrDropZone.classList.add('is-dragging');
+	            });
+	        });
+	        ['dragleave', 'drop'].forEach(function (eventName) {
+	            qrDropZone.addEventListener(eventName, function (event) {
+	                event.preventDefault();
+	                event.stopPropagation();
+	                qrDropZone.classList.remove('is-dragging');
+	            });
+	        });
+	        qrDropZone.addEventListener('drop', function (event) {
+	            handleQrImageFiles(event.dataTransfer ? event.dataTransfer.files : null);
+	        });
+	        qrDropZone.addEventListener('paste', async function (event) {
+	            var items = event.clipboardData ? Array.from(event.clipboardData.items || []) : [];
+	            var imageItem = items.find(function (item) {
+	                return String(item.type || '').startsWith('image/');
+	            });
+	            if (imageItem) {
+	                event.preventDefault();
+	                event.stopPropagation();
+	                var pastedFile = imageItem.getAsFile();
+	                handleQrImageFiles(pastedFile ? [pastedFile] : []);
+	                return;
+	            }
+	            var htmlItem = items.find(function (item) { return item.type === 'text/html'; });
+	            if (htmlItem) {
+	                event.preventDefault();
+	                event.stopPropagation();
+	                htmlItem.getAsString(function (htmlValue) {
+	                    handlePastedQrHtml(htmlValue);
+	                });
+	                return;
+	            }
+	            var textItem = items.find(function (item) { return item.type === 'text/plain'; });
+	            if (textItem) {
+	                event.preventDefault();
+	                event.stopPropagation();
+	                textItem.getAsString(function (textValue) {
+	                    if (!handlePastedQrText(textValue)) {
+	                        setQrScannerStatus('Pasted content is not a client QR code.');
+	                    }
+	                });
+	            }
+	        });
+	    }
+	    document.addEventListener('paste', function (event) {
+	        if (!qrScannerModalEl || !qrScannerModalEl.classList.contains('show') || qrScannerMode !== 'upload') {
+	            return;
+	        }
+	        var items = event.clipboardData ? Array.from(event.clipboardData.items || []) : [];
+	        var files = event.clipboardData ? Array.from(event.clipboardData.files || []) : [];
+	        if (files.length) {
+	            event.preventDefault();
+	            handleQrImageFiles(files);
+	            return;
+	        }
+	        var htmlItem = items.find(function (item) { return item.type === 'text/html'; });
+	        if (htmlItem) {
+	            event.preventDefault();
+	            htmlItem.getAsString(function (htmlValue) {
+	                handlePastedQrHtml(htmlValue);
+	            });
+	            return;
+	        }
+	        var textItem = items.find(function (item) { return item.type === 'text/plain'; });
+	        if (textItem) {
+	            event.preventDefault();
+	            textItem.getAsString(function (textValue) {
+	                if (!handlePastedQrText(textValue)) {
+	                    setQrScannerStatus('Pasted content is not a client QR code.');
+	                }
+	            });
+	        }
+	    });
+
+    var previousPageCleanup = window.__appPageCleanup;
+    window.__appPageCleanup = function () {
+        stopQrScanner();
+        if (typeof previousPageCleanup === 'function') {
+            previousPageCleanup();
+        }
+    };
 
     var addClientForm = document.getElementById('addCrmClientForm');
     var addClientDuplicateState = { byName: false, byAddress: false };
@@ -1761,10 +2345,23 @@ document.addEventListener('DOMContentLoaded', function () {
         return String((addClientConfirmTextInput && addClientConfirmTextInput.value) || '').trim().toUpperCase() === ADD_CLIENT_CONFIRM_PHRASE;
     }
 
-    function syncAddClientConfirmButtonState() {
-        if (!addClientConfirmSaveBtn) return;
-        addClientConfirmSaveBtn.disabled = !isAddClientConfirmPhraseValid();
-    }
+	    function syncAddClientConfirmButtonState() {
+	        if (!addClientConfirmSaveBtn) return;
+	        addClientConfirmSaveBtn.disabled = addClientConfirmSubmitting || !isAddClientConfirmPhraseValid();
+	    }
+
+	    function setAddClientSubmittingState(isSubmitting) {
+	        addClientConfirmSubmitting = !!isSubmitting;
+	        var submitBtn = document.getElementById('addCrmClientSubmitBtn');
+	        if (submitBtn) {
+	            submitBtn.disabled = addClientConfirmSubmitting || addClientDuplicateState.byName || addClientDuplicateState.byAddress;
+	            submitBtn.textContent = addClientConfirmSubmitting ? 'Saving...' : 'Save Client';
+	        }
+	        if (addClientConfirmSaveBtn) {
+	            addClientConfirmSaveBtn.textContent = addClientConfirmSubmitting ? 'Saving...' : 'Save Client';
+	        }
+	        syncAddClientConfirmButtonState();
+	    }
 
     function resetAddClientConfirmModalState() {
         if (!addClientConfirmTextInput) return;
@@ -1772,14 +2369,17 @@ document.addEventListener('DOMContentLoaded', function () {
         syncAddClientConfirmButtonState();
     }
 
-    async function submitAddClientFormNow() {
-        addClientConfirmSubmitting = true;
-        await runAddClientDuplicateCheck();
-        if (addClientDuplicateState.byName || addClientDuplicateState.byAddress) {
-            addClientConfirmSubmitting = false;
-            return;
-        }
-        try {
+	    async function submitAddClientFormNow() {
+	        if (addClientConfirmSubmitting) {
+	            return;
+	        }
+	        setAddClientSubmittingState(true);
+	        await runAddClientDuplicateCheck();
+	        if (addClientDuplicateState.byName || addClientDuplicateState.byAddress) {
+	            setAddClientSubmittingState(false);
+	            return;
+	        }
+	        try {
             await postFormAjax(addClientForm);
             if (addClientModal) {
                 addClientModalEl.classList.remove('crm-modal-dimmed');
@@ -1792,11 +2392,11 @@ document.addEventListener('DOMContentLoaded', function () {
             resetAddClientConfirmModalState();
             await refreshClientsRealtimeSections();
         } catch (error) {
-            alert(error.message || 'Unable to add client.');
-        } finally {
-            addClientConfirmSubmitting = false;
-        }
-    }
+	            alert(error.message || 'Unable to add client.');
+	        } finally {
+	            setAddClientSubmittingState(false);
+	        }
+	    }
 
     function setAddClientDuplicateVisualState(state, payload) {
         var firstNameField = addClientForm ? addClientForm.querySelector('input[name="first_name"]') : null;
@@ -1812,8 +2412,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (lastNameField) lastNameField.classList.toggle('is-invalid', addClientDuplicateState.byName);
         if (addressField) addressField.classList.toggle('is-invalid', addClientDuplicateState.byAddress);
 
-        var shouldBlock = addClientDuplicateState.byName || addClientDuplicateState.byAddress;
-        if (submitBtn) submitBtn.disabled = shouldBlock;
+	        var shouldBlock = addClientDuplicateState.byName || addClientDuplicateState.byAddress;
+	        if (submitBtn) submitBtn.disabled = addClientConfirmSubmitting || shouldBlock;
 
         if (!hintWrap || !hintNode) return;
         if (!shouldBlock) {
@@ -1883,10 +2483,13 @@ document.addEventListener('DOMContentLoaded', function () {
             field.addEventListener('input', scheduleAddClientDuplicateCheck);
             field.addEventListener('blur', scheduleAddClientDuplicateCheck);
         });
-        addClientForm.addEventListener('submit', function (event) {
-            event.preventDefault();
-            if (addClientDuplicateState.byName || addClientDuplicateState.byAddress) {
-                return;
+	        addClientForm.addEventListener('submit', function (event) {
+	            event.preventDefault();
+	            if (addClientConfirmSubmitting) {
+	                return;
+	            }
+	            if (addClientDuplicateState.byName || addClientDuplicateState.byAddress) {
+	                return;
             }
             if (!addClientConfirmModal) {
                 submitAddClientFormNow();
@@ -1908,10 +2511,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
-    if (addClientConfirmSaveBtn) {
-        addClientConfirmSaveBtn.addEventListener('click', function () {
-            if (!isAddClientConfirmPhraseValid()) {
-                syncAddClientConfirmButtonState();
+	    if (addClientConfirmSaveBtn) {
+	        addClientConfirmSaveBtn.addEventListener('click', function () {
+	            if (addClientConfirmSubmitting) {
+	                return;
+	            }
+	            if (!isAddClientConfirmPhraseValid()) {
+	                syncAddClientConfirmButtonState();
                 return;
             }
             submitAddClientFormNow();

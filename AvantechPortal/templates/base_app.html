@@ -13,38 +13,180 @@
             --z-assistive-fab: 1080;
             --z-calculator-panel: 1082;
         }
-        .attendance-assist-fab {
+        .floating-assist-nav {
             position: fixed;
-            right: 20px;
-            bottom: 20px;
-            width: 62px;
-            height: 62px;
+            right: 24px;
+            bottom: 24px;
+            z-index: var(--z-assistive-fab);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 12px;
+            pointer-events: none;
+        }
+        .floating-assist-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 12px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(14px);
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+        }
+        .floating-assist-nav.is-open .floating-assist-actions {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+            pointer-events: auto;
+            transition-delay: 0s;
+        }
+        .floating-assist-action-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            transform: translateY(8px) scale(0.96);
+            opacity: 0;
+            transition: transform 0.2s cubic-bezier(.2, 1.25, .4, 1), opacity 0.16s ease;
+        }
+        .floating-assist-nav.is-open .floating-assist-action-wrap {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+        .floating-assist-nav.is-open .floating-assist-action-wrap:nth-child(1) {
+            transition-delay: 0.04s;
+        }
+        .floating-assist-nav.is-open .floating-assist-action-wrap:nth-child(2) {
+            transition-delay: 0.08s;
+        }
+        .floating-assist-label {
+            color: #66737a;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(25, 135, 84, 0.12);
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            box-shadow: 0 6px 16px rgba(21, 45, 35, 0.12);
+            white-space: nowrap;
+        }
+        .floating-assist-btn {
+            width: 48px;
+            height: 48px;
             border-radius: 50%;
             border: 0;
-            background: radial-gradient(circle at 30% 30%, #63e6be, #0ca678 60%, #087f5b 100%);
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-            z-index: var(--z-assistive-fab);
+            box-shadow: 0 8px 20px rgba(18, 50, 37, 0.24);
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            cursor: grab;
-            touch-action: none;
-            user-select: none;
-            -webkit-user-select: none;
+            color: #fff;
+            font-weight: 700;
+            transition: transform 0.16s ease, box-shadow 0.16s ease;
         }
-        .attendance-assist-fab.is-dragging { cursor: grabbing; }
-        .attendance-assist-fab-dot {
-            width: 16px;
-            height: 16px;
+        .floating-assist-nav.is-open .floating-assist-actions .floating-assist-btn,
+        .floating-assist-toggle {
+            pointer-events: auto;
+        }
+        .floating-assist-btn:hover,
+        .floating-assist-btn:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(18, 50, 37, 0.3);
+        }
+        .floating-assist-btn svg {
+            width: 22px;
+            height: 22px;
+        }
+        .floating-assist-toggle {
+            width: 56px;
+            height: 56px;
+            background: #0f8f54;
+            pointer-events: auto;
+            position: relative;
+            animation: floatingAssistPulse 2.4s ease-in-out infinite;
+        }
+        .floating-assist-toggle::before {
+            content: "";
+            position: absolute;
+            inset: -6px;
             border-radius: 50%;
-            background: #fff;
-            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8);
-            animation: attendancePulse 1.8s infinite;
+            border: 2px solid rgba(25, 135, 84, 0.22);
+            opacity: 0;
+            transform: scale(0.8);
+            animation: floatingAssistRing 2.4s ease-out infinite;
         }
-        @keyframes attendancePulse {
-            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
-            70% { box-shadow: 0 0 0 14px rgba(255, 255, 255, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        .floating-assist-nav.is-open .floating-assist-toggle {
+            animation: floatingAssistPop 0.28s cubic-bezier(.2, 1.35, .4, 1) both;
+        }
+        .floating-assist-nav.is-open .floating-assist-toggle::before {
+            animation: none;
+        }
+        .floating-assist-toggle-icon {
+            position: relative;
+            width: 22px;
+            height: 22px;
+        }
+        .floating-assist-toggle-icon::before,
+        .floating-assist-toggle-icon::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 22px;
+            height: 3px;
+            border-radius: 999px;
+            background: #fff;
+            transform: translate(-50%, -50%);
+            transition: transform 0.18s ease;
+        }
+        .floating-assist-toggle-icon::after {
+            transform: translate(-50%, -50%) rotate(90deg);
+        }
+        .floating-assist-nav.is-open .floating-assist-toggle-icon::before {
+            transform: translate(-50%, -50%) rotate(45deg);
+        }
+        .floating-assist-nav.is-open .floating-assist-toggle-icon::after {
+            transform: translate(-50%, -50%) rotate(135deg);
+        }
+        .floating-assist-calculator {
+            background: #198754;
+        }
+        .floating-assist-attendance {
+            background: #4d8794;
+        }
+        .floating-assist-nav:not(.has-actions) {
+            display: none;
+        }
+        @keyframes floatingAssistPulse {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-2px) scale(1.035); }
+        }
+        @keyframes floatingAssistRing {
+            0% { opacity: 0.65; transform: scale(0.82); }
+            72% { opacity: 0; transform: scale(1.35); }
+            100% { opacity: 0; transform: scale(1.35); }
+        }
+        @keyframes floatingAssistPop {
+            0% { transform: scale(0.92) rotate(-8deg); }
+            60% { transform: scale(1.08) rotate(4deg); }
+            100% { transform: scale(1) rotate(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .floating-assist-toggle,
+            .floating-assist-toggle::before,
+            .floating-assist-nav.is-open .floating-assist-toggle {
+                animation: none;
+            }
+            .floating-assist-actions,
+            .floating-assist-action-wrap,
+            .floating-assist-btn,
+            .floating-assist-toggle-icon::before,
+            .floating-assist-toggle-icon::after {
+                transition: none;
+            }
         }
     </style>
 </head>
@@ -694,15 +836,47 @@
         </div>
     </div>
 
-    <button
-        type="button"
-        id="attendanceAssistFab"
-        class="attendance-assist-fab d-none"
-        aria-label="Attendance Assistant"
-        title="Attendance Assistant"
-    >
-        <span class="attendance-assist-fab-dot"></span>
-    </button>
+    <div class="floating-assist-nav" id="floatingAssistNav">
+        <div class="floating-assist-actions" id="floatingAssistActions">
+            <div class="floating-assist-action-wrap">
+                <span class="floating-assist-label">Attendance</span>
+                <button
+                    type="button"
+                    id="attendanceAssistFab"
+                    class="floating-assist-btn floating-assist-attendance d-none"
+                    aria-label="Attendance Assistant"
+                    title="Attendance Assistant"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="5" y="4.5" width="14" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M8.5 3.8V6.2M15.5 3.8V6.2M5.5 9H18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M8.5 13H12.5M8.5 16H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="floating-assist-action-wrap">
+                <span class="floating-assist-label">Calculator</span>
+                <button
+                    type="button"
+                    id="kwCalculatorFab"
+                    class="floating-assist-btn floating-assist-calculator d-none"
+                    title="Open Watt Calculator"
+                    aria-label="Open Watt Calculator"
+                >
+                    kW
+                </button>
+            </div>
+        </div>
+        <button
+            type="button"
+            id="floatingAssistToggle"
+            class="floating-assist-btn floating-assist-toggle"
+            aria-label="Open floating tools"
+            aria-expanded="false"
+        >
+            <span class="floating-assist-toggle-icon" aria-hidden="true"></span>
+        </button>
+    </div>
 
     <div class="modal fade" id="attendanceAssistModal" tabindex="-1" aria-labelledby="attendanceAssistModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -1332,16 +1506,6 @@
 
     <div class="toast-container position-fixed top-0 end-0 p-3" id="appToastContainer" style="z-index: 1080;"></div>
     <div class="toast-container position-fixed bottom-0 end-0 p-3" id="appBottomToastContainer" style="z-index: 1090;"></div>
-    <button
-        type="button"
-        id="kwCalculatorFab"
-        class="btn btn-success rounded-circle shadow position-fixed"
-        style="width:56px;height:56px;right:24px;bottom:24px;z-index:var(--z-calculator-fab);"
-        title="Open Watt Calculator"
-    >
-        kW
-    </button>
-
     <div id="kwCalculatorPanel" class="card shadow position-fixed d-none" style="right:24px;bottom:90px;width:min(560px,92vw);max-height:78vh;z-index:var(--z-calculator-panel);">
         <div id="kwCalculatorDragHandle" class="card-header bg-success text-white d-flex justify-content-between align-items-center" style="cursor:move;">
             <strong>Calculator</strong>
@@ -1800,11 +1964,58 @@
     </style>
 
     {{ calculator_system_options|json_script:"calculatorSystemOptionsData" }}
-    <script src="{% static 'vendor/bootstrap/5.3.8/js/bootstrap.bundle.min.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js';"></script>
-    <script src="{% static 'js/form_enhancements.js' %}?v=20260428-captcha"></script>
-    <script>
-        (function () {
-            const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }};
+	    <script src="{% static 'vendor/bootstrap/5.3.8/js/bootstrap.bundle.min.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js';"></script>
+	    <script src="{% static 'js/form_enhancements.js' %}?v=20260428-captcha"></script>
+	    <script>
+	        (function () {
+	            const nav = document.getElementById('floatingAssistNav');
+	            const toggle = document.getElementById('floatingAssistToggle');
+	            const actions = document.getElementById('floatingAssistActions');
+	            if (!nav || !toggle || !actions) return;
+
+	            const actionButtons = Array.from(actions.querySelectorAll('.floating-assist-btn'));
+	            const syncVisibility = () => {
+	                const hasActions = actionButtons.some((button) => !button.classList.contains('d-none'));
+	                nav.classList.toggle('has-actions', hasActions);
+	                if (!hasActions) {
+	                    nav.classList.remove('is-open');
+	                    toggle.setAttribute('aria-expanded', 'false');
+	                }
+	            };
+	            const observer = new MutationObserver(syncVisibility);
+	            actionButtons.forEach((button) => {
+	                observer.observe(button, { attributes: true, attributeFilter: ['class'] });
+	                button.addEventListener('click', () => {
+	                    nav.classList.remove('is-open');
+	                    toggle.setAttribute('aria-expanded', 'false');
+	                });
+	            });
+	            let toggleBusy = false;
+	            toggle.addEventListener('click', () => {
+	                if (toggleBusy) return;
+	                toggleBusy = true;
+	                const isOpen = nav.classList.toggle('is-open');
+	                toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+	                window.setTimeout(() => {
+	                    toggleBusy = false;
+	                }, 180);
+	            });
+	            document.addEventListener('click', (event) => {
+	                if (!nav.classList.contains('is-open')) return;
+	                if (nav.contains(event.target)) return;
+	                nav.classList.remove('is-open');
+	                toggle.setAttribute('aria-expanded', 'false');
+	            });
+	            document.addEventListener('keydown', (event) => {
+	                if (event.key !== 'Escape') return;
+	                nav.classList.remove('is-open');
+	                toggle.setAttribute('aria-expanded', 'false');
+	            });
+	            syncVisibility();
+	        })();
+
+	        (function () {
+	            const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }};
             if (isSuperuser) {
                 return;
             }
@@ -1825,6 +2036,7 @@
                 event.preventDefault();
                 event.stopPropagation();
                 if (maintenanceModal) {
+                    if (maintenanceModalEl && maintenanceModalEl.classList.contains('show')) return;
                     maintenanceModal.show();
                     return;
                 }
@@ -1839,6 +2051,7 @@
                 event.preventDefault();
                 event.stopPropagation();
                 if (attendanceMaintenanceModal) {
+                    if (attendanceMaintenanceModalEl && attendanceMaintenanceModalEl.classList.contains('show')) return;
                     attendanceMaintenanceModal.show();
                     return;
                 }
@@ -2338,6 +2551,7 @@
                     return;
                 }
                 fab.classList.remove('d-none');
+                fab.classList.add('floating-assist-btn', 'floating-assist-calculator');
                 if (state.visible) {
                     panel.classList.remove('d-none');
                 } else {
@@ -4549,8 +4763,7 @@
                 });
             };
 
-            loadFabPosition();
-            setupFabDrag();
+            // Positioning is handled by the shared floating assist nav.
 
             const syncTimemarkSettingsFromServer = async () => {
                 try {
@@ -4731,6 +4944,7 @@
                     mode = payload.mode || 'time_in';
                     const shouldShowFab = !!payload.visible && mode !== 'done';
                     fab.classList.toggle('d-none', !shouldShowFab);
+                    fab.classList.add('floating-assist-btn', 'floating-assist-attendance');
                     fab.style.opacity = '1';
                     fab.setAttribute('title', payload.message || 'Attendance Assistant');
                     const prettyMode = mode === 'time_out' ? 'Time Out' : (mode === 'time_in' ? 'Time In' : 'Done');
@@ -5062,18 +5276,28 @@
                 }
             };
 
+            let openingAttendanceAssist = false;
             fab.addEventListener('click', async () => {
-                if (isFabDragging || Date.now() < suppressFabClickUntil) return;
-                await refreshStatus();
-                if (fab.classList.contains('d-none')) return;
-                modal.show();
+                if (openingAttendanceAssist) return;
+                openingAttendanceAssist = true;
+                fab.disabled = true;
                 try {
-                    await startCamera();
-                } catch (error) {
-                    if (!isMobileAssist) {
-                        showRequestButton('Click "Enable Camera Access" to request camera permission.');
+                    await refreshStatus();
+                    if (fab.classList.contains('d-none')) return;
+                    if (!modalEl.classList.contains('show')) {
+                        modal.show();
                     }
-                    return;
+                    try {
+                        await startCamera();
+                    } catch (error) {
+                        if (!isMobileAssist) {
+                            showRequestButton('Click "Enable Camera Access" to request camera permission.');
+                        }
+                        return;
+                    }
+                } finally {
+                    openingAttendanceAssist = false;
+                    fab.disabled = false;
                 }
             });
 
@@ -5352,24 +5576,46 @@
                 }
             };
 
+            let activeNavigationController = null;
+            let activeNavigationId = 0;
+            let activeNavigationUrl = '';
+
             const loadPage = async (nextUrl, pushState) => {
+                if (activeNavigationUrl && samePathAndQuery(nextUrl, activeNavigationUrl)) {
+                    return;
+                }
+                if (activeNavigationController) {
+                    activeNavigationController.abort();
+                }
+                const navigationId = activeNavigationId + 1;
+                activeNavigationId = navigationId;
+                activeNavigationUrl = nextUrl;
+                activeNavigationController = window.AbortController ? new AbortController() : null;
                 document.body.classList.add('app-nav-loading');
                 try {
                     const response = await fetch(nextUrl, {
                         method: 'GET',
                         credentials: 'same-origin',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        signal: activeNavigationController ? activeNavigationController.signal : undefined,
                     });
+                    if (navigationId !== activeNavigationId) return;
                     if (!response.ok) {
                         window.location.href = nextUrl;
                         return;
                     }
                     const html = await response.text();
+                    if (navigationId !== activeNavigationId) return;
                     swapPageFromHtml(html, nextUrl, pushState);
                 } catch (error) {
+                    if (error && error.name === 'AbortError') return;
                     window.location.href = nextUrl;
                 } finally {
-                    document.body.classList.remove('app-nav-loading');
+                    if (navigationId === activeNavigationId) {
+                        activeNavigationController = null;
+                        activeNavigationUrl = '';
+                        document.body.classList.remove('app-nav-loading');
+                    }
                 }
             };
 

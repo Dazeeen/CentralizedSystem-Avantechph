@@ -1,8 +1,10 @@
 from datetime import timedelta, datetime
+import calendar
 from decimal import Decimal, InvalidOperation
 from concurrent.futures import ThreadPoolExecutor
 import base64
 import csv
+import hashlib
 import json
 import math
 import mimetypes
@@ -3067,6 +3069,7 @@ def crm_clients(request):
 		return restricted_response
 
 	is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+	qr_client_lookup = (request.GET.get('client_qr') or '').strip()
 	query = (request.GET.get('q') or '').strip()
 	filter_customer_type = (request.GET.get('customer_type') or '').strip().lower()
 	filter_customer_id_from = (request.GET.get('customer_id_from') or '').strip()
@@ -3487,12 +3490,33 @@ def crm_clients(request):
 				first_name = (form.cleaned_data.get('first_name') or '').strip()
 				last_name = (form.cleaned_data.get('last_name') or '').strip()
 				home_address = (form.cleaned_data.get('home_address') or '').strip()
+				contact_number = (form.cleaned_data.get('contact_number') or '').strip()
+				submission_fingerprint = hashlib.sha256(
+					json.dumps(
+						{
+							'user_id': request.user.pk,
+							'first_name': first_name.lower(),
+							'last_name': last_name.lower(),
+							'home_address': home_address.lower(),
+							'contact_number': contact_number.lower(),
+						},
+						sort_keys=True,
+					).encode('utf-8')
+				).hexdigest()
+				submission_lock_key = f'crm_client_create_lock:{submission_fingerprint}'
+				if not cache.add(submission_lock_key, '1', timeout=12):
+					message = 'Client save is already processing. Please wait a moment before submitting again.'
+					messages.warning(request, message, extra_tags='toast')
+					if is_ajax:
+						return JsonResponse({'ok': False, 'message': message}, status=429)
+					return redirect('crm_clients')
 				duplicate_name, duplicate_address = _find_crm_client_duplicates(
 					first_name=first_name,
 					last_name=last_name,
 					home_address=home_address,
 				)
 				if duplicate_name or duplicate_address:
+					cache.delete(submission_lock_key)
 					if duplicate_name and duplicate_address:
 						message = (
 							f'Existing customer already found by name and address '
@@ -3566,7 +3590,9 @@ def crm_clients(request):
 		if user_username:
 			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
 		clients_queryset = clients_queryset.filter(ownership_filter).distinct()
-	if query:
+	if qr_client_lookup:
+		clients_queryset = clients_queryset.filter(customer_id__iexact=qr_client_lookup)
+	elif query:
 		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
 		for term in search_terms:
 			clients_queryset = clients_queryset.filter(
@@ -3614,6 +3640,27 @@ def crm_clients(request):
 	base_query_params.pop('page', None)
 	current_query_string = base_query_params.urlencode()
 
+	def _build_client_qr_payload(client):
+		params = {'client_qr': client.customer_id or str(client.pk)}
+		return request.build_absolute_uri(f"{reverse('crm_clients')}?{urlencode(params)}")
+
+	def _build_client_qr_data_uri(payload):
+		if not qrcode or not SvgImage:
+			return ''
+		try:
+			qr_img = qrcode.make(payload, image_factory=SvgImage, box_size=8, border=2)
+			buffer = BytesIO()
+			qr_img.save(buffer)
+			svg_data = buffer.getvalue()
+			return f"data:image/svg+xml;base64,{base64.b64encode(svg_data).decode('ascii')}"
+		except Exception:
+			return ''
+
+	for client in clients_page:
+		client_qr_payload = _build_client_qr_payload(client)
+		client.crm_qr_payload = client_qr_payload
+		client.crm_qr_data_uri = _build_client_qr_data_uri(client_qr_payload)
+
 	def _build_sort_url(field_name):
 		params = request.GET.copy()
 		params.pop('page', None)
@@ -3649,6 +3696,7 @@ def crm_clients(request):
 		{
 			'form': form,
 			'clients_page': clients_page,
+			'qr_client_lookup': qr_client_lookup,
 			'q': query,
 			'filter_customer_type': filter_customer_type,
 			'filter_customer_id_from': filter_customer_id_from,
@@ -4315,9 +4363,39 @@ def crm_sales(request):
 			roof_type = (request.POST.get('roof_type') or '').strip()
 			ownership = (request.POST.get('ownership') or '').strip().lower()
 			return_on_investment = (request.POST.get('return_on_investment') or '').strip()
-			sales_status = (request.POST.get('sales_status') or '').strip().lower()
+			status_alias_map = {
+				'contracted': 'contacted',
+				'forproposal': 'for proposal',
+				'close won': 'closed won',
+				'close lost': 'closed lost',
+			}
+			progress_order = ['new', 'contacted', 'for survey', 'for proposal', 'negotiation']
+			terminal_statuses = {'closed won', 'closed lost'}
+			allowed_statuses = set(progress_order) | terminal_statuses
+			sales_status_raw = (request.POST.get('sales_status') or '').strip().lower()
+			sales_status = status_alias_map.get(sales_status_raw, sales_status_raw) or 'new'
+			ocular_date_raw = (request.POST.get('ocular_date') or '').strip()
+			ocular_date = parse_date(ocular_date_raw) if ocular_date_raw else None
 			client_status = (request.POST.get('client_status') or '').strip()
 			interaction_notes = (request.POST.get('interaction_notes') or '').strip()
+			if sales_status not in allowed_statuses:
+				message = 'Invalid sales status.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
+			if ocular_date_raw and ocular_date is None:
+				message = 'Please enter a valid ocular date.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
+			if sales_status == 'for survey' and ocular_date is None:
+				message = 'Please set an ocular date before saving the Survey stage.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
 
 			def _to_decimal(raw_value):
 				value = (raw_value or '').strip()
@@ -4333,10 +4411,36 @@ def crm_sales(request):
 			downpayment = _to_decimal(request.POST.get('downpayment'))
 
 			generated_job_order_number = ''
+			transition_error = {}
+
+			def _normalize_sales_status_for_progress(raw_status):
+				normalized = (raw_status or '').strip().lower()
+				normalized = status_alias_map.get(normalized, normalized) or 'new'
+				return normalized if normalized in allowed_statuses else 'new'
+
+			def _can_save_sales_status_progress(current_status, target_status):
+				if is_edit_mode and current_status == target_status:
+					return True
+				if target_status in terminal_statuses:
+					return current_status == 'negotiation'
+				try:
+					current_index = progress_order.index(current_status)
+					target_index = progress_order.index(target_status)
+				except ValueError:
+					return False
+				return target_index == current_index + 1
 
 			def _save_sales_activity_write():
 				with transaction.atomic():
 					locked_sales_record = CRMSalesRecord.objects.select_for_update().select_related('client').get(pk=sales_record.pk)
+					current_sales_status = _normalize_sales_status_for_progress(locked_sales_record.sales_status)
+					if not _can_save_sales_status_progress(current_sales_status, sales_status):
+						if current_sales_status in terminal_statuses:
+							message = 'This sales record is already closed. Progress can no longer be changed.'
+						else:
+							message = 'Sales progress can only move to the next step.'
+						transition_error.update({'message': message, 'current_status': current_sales_status, 'target_status': sales_status})
+						return None
 					locked_sales_record.lead_source = lead_source
 					locked_sales_record.monthly_electric_bill = monthly_electric_bill
 					locked_sales_record.roof_type = roof_type
@@ -4345,6 +4449,7 @@ def crm_sales(request):
 					locked_sales_record.downpayment = downpayment
 					locked_sales_record.return_on_investment = return_on_investment
 					locked_sales_record.sales_status = sales_status
+					locked_sales_record.ocular_date = ocular_date
 					locked_sales_record.client_status = client_status
 					locked_sales_record.interaction_notes = interaction_notes
 					job_order_number = ''
@@ -4357,6 +4462,7 @@ def crm_sales(request):
 						'downpayment',
 						'return_on_investment',
 						'sales_status',
+						'ocular_date',
 						'client_status',
 						'interaction_notes',
 						'updated_at',
@@ -4401,6 +4507,7 @@ def crm_sales(request):
 						downpayment=downpayment,
 						return_on_investment=return_on_investment,
 						sales_status=sales_status,
+						ocular_date=ocular_date,
 						interaction_notes=interaction_notes,
 						created_by=request.user,
 					)
@@ -4410,6 +4517,20 @@ def crm_sales(request):
 
 			save_result = _run_with_sqlite_retry(_save_sales_activity_write)
 			if save_result is None:
+				if transition_error:
+					message = transition_error.get('message') or 'Sales progress can only move to the next step.'
+					if _is_ajax_request(request):
+						return JsonResponse(
+							{
+								'ok': False,
+								'message': message,
+								'current_status': transition_error.get('current_status'),
+								'target_status': transition_error.get('target_status'),
+							},
+							status=400,
+						)
+					messages.warning(request, message, extra_tags='toast')
+					return redirect('crm_sales')
 				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 				return redirect('crm_sales')
 			sales_record, activity_log, generated_job_order_number = save_result
@@ -4561,6 +4682,7 @@ def crm_sales(request):
 		if user_username:
 			ownership_filter |= Q(assigned_sales__icontains=user_username)
 		sales_queryset = sales_queryset.filter(ownership_filter).distinct()
+	ocular_calendar_queryset = sales_queryset.filter(ocular_date__isnull=False).order_by('ocular_date', 'client__last_name', 'client__first_name')
 	if query:
 		search_terms = [segment.strip() for segment in re.split(r'\s+', query) if segment.strip()]
 		for term in search_terms:
@@ -4767,6 +4889,50 @@ def crm_sales(request):
 	if sort_field in sort_indicators:
 		sort_indicators[sort_field] = '↑' if sort_dir == 'asc' else '↓'
 
+	ocular_today = timezone.localdate()
+	ocular_year = ocular_today.year
+	ocular_month = ocular_today.month
+	ocular_calendar_records = list(ocular_calendar_queryset)
+	ocular_schedule_payload = []
+	ocular_events_by_date = {}
+	for ocular_record in ocular_calendar_records:
+		if not ocular_record.ocular_date:
+			continue
+		ocular_schedule_payload.append(
+			{
+				'date': ocular_record.ocular_date.isoformat(),
+				'sales_record_id': ocular_record.id,
+				'client_name': f'{ocular_record.client.last_name}, {ocular_record.client.first_name}' if ocular_record.client_id else f'Sales #{ocular_record.id}',
+				'customer_id': ocular_record.client.customer_id if ocular_record.client_id else '',
+				'assigned_sales': (ocular_record.assigned_sales or '').strip() or '-',
+				'sales_status': (ocular_record.sales_status or '').strip() or 'new',
+			}
+		)
+		ocular_events_by_date.setdefault(ocular_record.ocular_date.isoformat(), []).append(
+			{
+				'client_name': f'{ocular_record.client.last_name}, {ocular_record.client.first_name}' if ocular_record.client_id else f'Sales #{ocular_record.id}',
+				'customer_id': ocular_record.client.customer_id if ocular_record.client_id else '',
+				'assigned_sales': (ocular_record.assigned_sales or '').strip() or '-',
+				'sales_status': (ocular_record.sales_status or '').strip() or 'new',
+			}
+		)
+	ocular_calendar_weeks = []
+	for week in calendar.Calendar(firstweekday=6).monthdatescalendar(ocular_year, ocular_month):
+		week_days = []
+		for day in week:
+			day_key = day.isoformat()
+			week_days.append(
+				{
+					'date': day,
+					'day': day.day,
+					'iso': day_key,
+					'in_month': day.month == ocular_month,
+					'is_today': day == ocular_today,
+					'events': ocular_events_by_date.get(day_key, []),
+				}
+			)
+		ocular_calendar_weeks.append(week_days)
+
 	context = {
 		'sales_page': sales_page,
 		'q': query,
@@ -4788,6 +4954,10 @@ def crm_sales(request):
 		'can_manage_crm_sales': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']),
 		'enable_floating_calculator': CalculatorSetting.load().enable_floating_calculator,
 		'pipeline_stage_counts': pipeline_stage_counts,
+		'ocular_calendar_weeks': ocular_calendar_weeks,
+		'ocular_calendar_records': ocular_calendar_records,
+		'ocular_calendar_month_label': ocular_today.strftime('%B %Y'),
+		'ocular_schedule_payload': ocular_schedule_payload,
 	}
 	return render(request, 'core/crm_sales.html', context)
 
