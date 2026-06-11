@@ -1,9 +1,19 @@
+from concurrent.futures import ThreadPoolExecutor
+import os
+import subprocess
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
 from django.db.utils import OperationalError
-from django.http import FileResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -21,6 +31,39 @@ from .system_backup_services import (
     restore_system_backup,
     run_due_system_backups,
 )
+from .system_database_transfer import (
+    SUPPORTED_DATABASE_VENDORS,
+    build_target_database_environment,
+    create_database_export_archive,
+    current_database_profile,
+    current_system_version,
+    import_database_export_payload,
+    read_database_import_payload,
+    update_active_database_env,
+    write_database_profile,
+)
+
+_SYSTEM_DB_JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_SYSTEM_DB_JOB_TIMEOUT_SECONDS = 60 * 60 * 2
+
+
+def _system_db_job_cache_key(job_id):
+    return f'system_database_job:{job_id}'
+
+
+def _system_db_job_get(job_id):
+    return cache.get(_system_db_job_cache_key(job_id))
+
+
+def _system_db_job_set(job_id, payload):
+    cache.set(_system_db_job_cache_key(job_id), payload, timeout=_SYSTEM_DB_JOB_TIMEOUT_SECONDS)
+
+
+def _system_db_job_update(job_id, **updates):
+    payload = _system_db_job_get(job_id) or {'job_id': job_id}
+    payload.update(updates)
+    _system_db_job_set(job_id, payload)
+    return payload
 
 
 def _can_manage_system_backups(user):
@@ -331,8 +374,283 @@ def system_hub(request):
         'selected_scopes': selected_scopes,
         'cron_expression': f'{schedule.cron_minute} * * * *',
         'format_file_size': _format_file_size,
+        'current_system_version': current_system_version(),
+        'current_database_profile': current_database_profile(),
     }
     return render(request, 'core/system_hub.html', context)
+
+
+def _run_system_database_export_job(job_id, user_id):
+    temp_path = None
+    try:
+        _system_db_job_update(job_id, status='running', progress=15, message='Preparing portable export...', started_at=timezone.now().isoformat())
+        temp_path, filename, manifest = create_database_export_archive()
+        _system_db_job_update(job_id, status='running', progress=85, message='Finalizing export archive...')
+        _system_db_job_update(
+            job_id,
+            status='completed',
+            progress=100,
+            message='Database export is ready to download.',
+            finished_at=timezone.now().isoformat(),
+            filename=filename,
+            file_path=str(temp_path),
+            manifest=manifest,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        _system_db_job_update(job_id, status='failed', progress=100, message=str(exc) or 'Database export failed.', finished_at=timezone.now().isoformat(), user_id=user_id)
+
+
+def _run_system_database_migration_job(job_id, user_id, target_config):
+    temp_path = None
+    try:
+        target_database, target_env, _profile_dir = build_target_database_environment(target_config)
+        target_label = SUPPORTED_DATABASE_VENDORS.get(target_database, target_database)
+        _system_db_job_update(job_id, status='running', progress=8, message=f'Exporting current data before switching to {target_label}...', started_at=timezone.now().isoformat())
+        temp_path, filename, manifest = create_database_export_archive(target_database_vendor=target_database, archive_kind='migration')
+
+        command_env = os.environ.copy()
+        command_env.update(target_env)
+        manage_py = settings.BASE_DIR / 'manage.py'
+        _system_db_job_update(job_id, status='running', progress=32, message=f'Running Django migrations on {target_label}...')
+        migrate_result = subprocess.run(
+            [sys.executable, str(manage_py), 'migrate', '--noinput'],
+            cwd=str(settings.BASE_DIR),
+            env=command_env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if migrate_result.returncode != 0:
+            raise RuntimeError((migrate_result.stderr or migrate_result.stdout or 'Target database migration failed.').strip())
+
+        _system_db_job_update(job_id, status='running', progress=62, message=f'Importing current data into {target_label}...')
+        import_result = subprocess.run(
+            [sys.executable, str(manage_py), 'import_portable_database', str(temp_path)],
+            cwd=str(settings.BASE_DIR),
+            env=command_env,
+            capture_output=True,
+            text=True,
+            timeout=1200,
+        )
+        if import_result.returncode != 0:
+            raise RuntimeError((import_result.stderr or import_result.stdout or 'Target database import failed.').strip())
+
+        _system_db_job_update(job_id, status='running', progress=88, message='Activating new database configuration for next restart...')
+        env_path = update_active_database_env(target_env)
+        profile_path = write_database_profile(target_config, target_env)
+        temp_path.unlink(missing_ok=True)
+        _system_db_job_update(
+            job_id,
+            status='completed',
+            progress=100,
+            message=f'{target_label} is now configured as the system database. Restart the server to use it.',
+            finished_at=timezone.now().isoformat(),
+            manifest=manifest,
+            env_file=str(env_path),
+            profile_path=str(profile_path),
+            target_database=target_database,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        _system_db_job_update(job_id, status='failed', progress=100, message=str(exc) or 'Database migration failed.', finished_at=timezone.now().isoformat(), user_id=user_id)
+
+
+def _run_system_database_import_job(job_id, user_id, upload_path, upload_name):
+    try:
+        _system_db_job_update(job_id, status='running', progress=10, message='Reading import file...', started_at=timezone.now().isoformat())
+
+        class TempUpload:
+            def __init__(self, path, name):
+                self.path = Path(path)
+                self.name = name
+
+            def read(self):
+                return self.path.read_bytes()
+
+        payload = read_database_import_payload(TempUpload(upload_path, upload_name))
+        _system_db_job_update(job_id, status='running', progress=30, message='Validating version and schema...')
+        summary = import_database_export_payload(payload)
+        _system_db_job_update(job_id, status='running', progress=90, message='Finalizing import summary...')
+        totals = {'added': 0, 'updated': 0, 'removed': 0}
+        for model_summary in summary.get('models', {}).values():
+            for key in totals:
+                totals[key] += int(model_summary.get(key) or 0)
+        message = f'Database import complete. Added: {totals["added"]}, updated: {totals["updated"]}, removed: {totals["removed"]}.'
+        _system_db_job_update(
+            job_id,
+            status='completed',
+            progress=100,
+            message=message,
+            finished_at=timezone.now().isoformat(),
+            summary=summary,
+            totals=totals,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        _system_db_job_update(job_id, status='failed', progress=100, message=str(exc) or 'Database import failed.', finished_at=timezone.now().isoformat(), user_id=user_id)
+    finally:
+        Path(upload_path).unlink(missing_ok=True)
+
+
+@login_required
+def system_database_job_status(request, job_id):
+    if not _can_manage_system_backups(request.user):
+        return JsonResponse({'ok': False, 'message': 'You do not have permission to view database jobs.'}, status=403)
+    job = _system_db_job_get(job_id)
+    if not job:
+        return JsonResponse({'ok': False, 'status': 'not_found', 'message': 'Database job not found.'}, status=404)
+    if int(job.get('user_id') or 0) != request.user.id and not request.user.is_superuser:
+        return JsonResponse({'ok': False, 'message': 'You do not have permission to view this database job.'}, status=403)
+    return JsonResponse({'ok': True, **job})
+
+
+@login_required
+def system_database_job_download(request, job_id):
+    if not _can_manage_system_backups(request.user):
+        return _permission_denied_response(request, 'You do not have permission to download database job files.')
+    job = _system_db_job_get(job_id)
+    if not job or job.get('status') != 'completed' or not job.get('file_path'):
+        messages.error(request, 'Database job file is not ready.')
+        return redirect('system_hub')
+    if int(job.get('user_id') or 0) != request.user.id and not request.user.is_superuser:
+        return _permission_denied_response(request, 'You do not have permission to download this database job file.')
+    file_path = Path(job.get('file_path'))
+    if not file_path.exists():
+        messages.error(request, 'Database job file is missing or expired.')
+        return redirect('system_hub')
+    return FileResponse(file_path.open('rb'), as_attachment=True, filename=job.get('filename') or 'database_job.zip')
+
+
+@login_required
+@require_POST
+def system_database_export_start(request):
+    if not _can_manage_system_backups(request.user):
+        return JsonResponse({'ok': False, 'message': 'You do not have permission to export database data.'}, status=403)
+    job_id = uuid.uuid4().hex
+    _system_db_job_set(job_id, {'job_id': job_id, 'type': 'export', 'status': 'queued', 'progress': 3, 'message': 'Export queued.', 'user_id': request.user.id})
+    _SYSTEM_DB_JOB_EXECUTOR.submit(_run_system_database_export_job, job_id, request.user.id)
+    return JsonResponse({'ok': True, 'job_id': job_id, 'message': 'Database export started.'})
+
+
+@login_required
+@require_POST
+def system_database_migration_start(request):
+    if not _can_manage_system_backups(request.user):
+        return JsonResponse({'ok': False, 'message': 'You do not have permission to migrate database data.'}, status=403)
+    target_database = (request.POST.get('target_database') or '').strip().lower()
+    if target_database not in SUPPORTED_DATABASE_VENDORS:
+        return JsonResponse({'ok': False, 'message': 'Please select a supported target database.'}, status=400)
+    target_config = {
+        'vendor': target_database,
+        'name': (request.POST.get('database_name') or '').strip(),
+        'file': (request.POST.get('database_file') or '').strip(),
+        'host': (request.POST.get('database_host') or '').strip(),
+        'port': (request.POST.get('database_port') or '').strip(),
+        'user': (request.POST.get('database_user') or '').strip(),
+        'password': (request.POST.get('database_password') or '').strip(),
+    }
+    job_id = uuid.uuid4().hex
+    _system_db_job_set(job_id, {'job_id': job_id, 'type': 'migration', 'status': 'queued', 'progress': 3, 'message': 'Migration package queued.', 'target_database': target_database, 'user_id': request.user.id})
+    _SYSTEM_DB_JOB_EXECUTOR.submit(_run_system_database_migration_job, job_id, request.user.id, target_config)
+    return JsonResponse({'ok': True, 'job_id': job_id, 'message': 'Database migration started.'})
+
+
+@login_required
+def system_database_export(request):
+    if not _can_manage_system_backups(request.user):
+        return _permission_denied_response(request, 'You do not have permission to export database data.')
+
+    temp_path = None
+    try:
+        temp_path, filename, manifest = create_database_export_archive()
+        record_activity(
+            request,
+            'generate',
+            'system',
+            f'Exported database data for system v{current_system_version()}.',
+            target_label=filename,
+            metadata={
+                'system_version': current_system_version(),
+                'data_hash': manifest.get('data_hash'),
+                'source_database': manifest.get('source_database', {}),
+                'schema_signature': manifest.get('schema_signature'),
+                'model_counts': manifest.get('model_counts', {}),
+            },
+        )
+        archive_bytes = temp_path.read_bytes()
+        temp_path.unlink(missing_ok=True)
+        response = HttpResponse(archive_bytes, content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    except Exception as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        messages.error(request, f'Database export failed: {exc}')
+        return redirect('system_hub')
+
+
+@login_required
+@require_POST
+def system_database_import(request):
+    if not _can_manage_system_backups(request.user):
+        return _permission_denied_response(request, 'You do not have permission to import database data.')
+
+    upload = request.FILES.get('database_import_file')
+    if not upload:
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'ok': False, 'message': 'Please choose a database export file to import.'}, status=400)
+        messages.error(request, 'Please choose a database export file to import.')
+        return redirect('system_hub')
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        with tempfile.NamedTemporaryFile(suffix=Path(upload.name or 'database-import.zip').suffix or '.zip', delete=False) as tmp:
+            for chunk in upload.chunks():
+                tmp.write(chunk)
+            upload_path = tmp.name
+        job_id = uuid.uuid4().hex
+        _system_db_job_set(job_id, {'job_id': job_id, 'type': 'import', 'status': 'queued', 'progress': 3, 'message': 'Import queued.', 'user_id': request.user.id})
+        _SYSTEM_DB_JOB_EXECUTOR.submit(_run_system_database_import_job, job_id, request.user.id, upload_path, upload.name or 'database-import.zip')
+        return JsonResponse({'ok': True, 'job_id': job_id, 'message': 'Database import started.'})
+
+    try:
+        payload = read_database_import_payload(upload)
+        summary = import_database_export_payload(payload)
+    except Exception as exc:
+        messages.error(request, f'Database import rejected: {exc}')
+        return redirect('system_hub')
+
+    totals = {'added': 0, 'updated': 0, 'removed': 0}
+    for model_summary in summary.get('models', {}).values():
+        for key in totals:
+            totals[key] += int(model_summary.get(key) or 0)
+    try:
+        record_activity(
+            request,
+            'restore',
+            'system',
+            f'Imported database data for system v{current_system_version()}.',
+            metadata={
+                'system_version': current_system_version(),
+                'data_hash': summary.get('data_hash'),
+                'source_database': summary.get('source_database', {}),
+                'target_database': summary.get('target_database', {}),
+                'schema_signature': summary.get('schema_signature'),
+                'sequence_resets': summary.get('sequence_resets', 0),
+                'totals': totals,
+            },
+        )
+    except Exception:
+        pass
+    messages.success(
+        request,
+        f'Database import complete. Added: {totals["added"]}, updated: {totals["updated"]}, removed: {totals["removed"]}.',
+    )
+    return redirect('system_hub')
 
 
 @login_required

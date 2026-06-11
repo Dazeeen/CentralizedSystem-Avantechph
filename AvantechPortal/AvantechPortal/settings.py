@@ -16,6 +16,15 @@ from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 
 try:
+    import MySQLdb  # noqa: F401
+except ModuleNotFoundError:
+    try:
+        import pymysql
+        pymysql.install_as_MySQLdb()
+    except ModuleNotFoundError:
+        pass
+
+try:
     from dotenv import load_dotenv
 except ModuleNotFoundError:
     def load_dotenv(dotenv_path):
@@ -38,6 +47,7 @@ except ModuleNotFoundError:
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+APP_VERSION = (os.getenv('AVANTECH_APP_VERSION', '1.1.10') or '1.1.10').strip()
 APP_ENV = (os.getenv('DJANGO_ENV', 'development') or 'development').strip().lower()
 ENV_FILE = os.getenv('DJANGO_ENV_FILE', '').strip()
 if ENV_FILE:
@@ -212,6 +222,7 @@ TEMPLATES = [
                 'core.context_processors.page_access_indicator',
                 'core.context_processors.role_preview',
                 'core.context_processors.calculator_feature_flags',
+                'core.context_processors.welcome_responsibility_reminders',
             ],
         },
     },

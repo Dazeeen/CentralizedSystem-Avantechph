@@ -326,7 +326,11 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-6"><label class="form-label">System Size Kwh</label><input class="form-control" name="system_size_kwh" id="technicalUpdateSystemSizeKwh"></div>
+                        <div class="col-md-6">
+                            <label class="form-label">System Size Kwh</label>
+                            <input class="form-control" name="system_size_kwh" id="technicalUpdateSystemSizeKwh" readonly>
+                            <div class="form-text">Auto-reflected from the selected Sales proposal system.</div>
+                        </div>
                         <div class="col-md-6"><label class="form-label">Panel Units</label><input class="form-control" name="panel_units" id="technicalUpdatePanelUnits"></div>
                         <div class="col-md-6"><label class="form-label">Inverter Model</label><input class="form-control" name="inverter_model" id="technicalUpdateInverterModel"></div>
                         <div class="col-md-6"><label class="form-label">Battery Model</label><input class="form-control" name="battery_model" id="technicalUpdateBatteryModel"></div>

@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib.auth.models import Group, Permission, User
 from django.db.utils import OperationalError, ProgrammingError
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
@@ -14,8 +15,10 @@ from .models import (
     SuperUserChatMessage,
     SuperUserChatReadState,
     SupportTicket,
+    CRMSalesRecord,
     CRMTechnicalRecord,
     CRMTechnicalNotificationSetting,
+    CRMTechnicalTeam,
 )
 from .ticketing_services import (
     IMPORTANT_PRIORITY_VALUES,
@@ -339,6 +342,105 @@ def calculator_feature_flags(request):
         'calculator_default_vdrop_percent': vdrop_percent,
         'calculator_default_battery_health_drop_percent': battery_health_drop_percent,
         'calculator_system_options': calculator_system_options,
+    }
+
+
+def welcome_responsibility_reminders(request):
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return {'welcome_reminders_modal': None}
+
+    should_show = bool(request.session.pop('show_welcome_reminders_modal', False))
+    if not should_show:
+        return {'welcome_reminders_modal': None}
+
+    today = timezone.localdate()
+    due_until = today + timedelta(days=7)
+    display_name = user.get_full_name() or user.username
+    reminders = []
+
+    try:
+        can_view_sales = _has_any_perm(user, CRM_VIEW_PERMISSIONS['sales'])
+        can_manage_sales = _has_any_perm(user, CRM_MANAGE_PERMISSIONS['sales'])
+        if can_view_sales:
+            sales_q = (
+                CRMSalesRecord.objects
+                .select_related('client')
+                .filter(ocular_date__isnull=False, ocular_date__lte=due_until)
+                .exclude(sales_status__iexact='closed won')
+                .exclude(sales_status__iexact='closed lost')
+                .order_by('ocular_date', 'client__last_name')
+            )
+            if not can_manage_sales and not user.is_superuser:
+                name_tokens = {
+                    (user.get_full_name() or '').strip().lower(),
+                    (user.username or '').strip().lower(),
+                    (user.email or '').strip().lower(),
+                }
+                sales_filter = Q()
+                for token in {token for token in name_tokens if token}:
+                    sales_filter |= Q(assigned_sales__icontains=token)
+                sales_q = sales_q.filter(sales_filter) if sales_filter else sales_q.none()
+            for record in sales_q[:8]:
+                client = record.client
+                client_name = f'{client.last_name}, {client.first_name}' if getattr(record, 'client_id', None) else f'Sales #{record.id}'
+                reminders.append({
+                    'category': 'Ocular',
+                    'title': client_name,
+                    'detail': f'Survey schedule on {record.ocular_date:%b %d, %Y}',
+                    'date': record.ocular_date,
+                    'urgency': 'Today' if record.ocular_date == today else f'{max((record.ocular_date - today).days, 0)} day(s)',
+                    'link': reverse('crm_sales'),
+                })
+
+        can_view_technicals = _has_any_perm(user, CRM_VIEW_PERMISSIONS['technicals'])
+        can_manage_technicals = _has_any_perm(user, CRM_MANAGE_PERMISSIONS['technicals'])
+        if can_view_technicals:
+            technical_q = (
+                CRMTechnicalRecord.objects
+                .select_related('sales_record__client')
+                .filter(installation_date__isnull=False, installation_date__lte=due_until)
+                .exclude(installation_status__iexact='completed')
+                .order_by('installation_date', 'installation_time')
+            )
+            if not can_manage_technicals and not user.is_superuser:
+                team_names = list(
+                    CRMTechnicalTeam.objects
+                    .filter(members=user)
+                    .exclude(name__isnull=True)
+                    .exclude(name__exact='')
+                    .values_list('name', flat=True)
+                    .distinct()
+                )
+                team_q = Q()
+                for team_name in team_names:
+                    team_q |= Q(team_assigned__iexact=team_name)
+                technical_q = technical_q.filter(team_q) if team_q else technical_q.none()
+            for tech in technical_q[:10]:
+                sales_record = tech.sales_record
+                client = sales_record.client if sales_record and sales_record.client_id else None
+                client_name = f'{client.last_name}, {client.first_name}' if client else f'Technical #{tech.id}'
+                schedule_text = tech.installation_date.strftime('%b %d, %Y')
+                if tech.installation_time:
+                    schedule_text += f' {tech.installation_time:%I:%M %p}'
+                reminders.append({
+                    'category': 'Technical',
+                    'title': client_name,
+                    'detail': f'Installation schedule on {schedule_text}',
+                    'date': tech.installation_date,
+                    'urgency': 'Today' if tech.installation_date == today else f'{max((tech.installation_date - today).days, 0)} day(s)',
+                    'link': reverse('crm_technicals'),
+                })
+    except (OperationalError, ProgrammingError):
+        reminders = []
+
+    reminders = sorted(reminders, key=lambda item: (item.get('date') or due_until, item.get('category', '')))[:10]
+    return {
+        'welcome_reminders_modal': {
+            'display_name': display_name,
+            'reminders': reminders,
+            'has_reminders': bool(reminders),
+        }
     }
 
 

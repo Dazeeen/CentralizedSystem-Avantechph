@@ -49,7 +49,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime, parse_time
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.http import urlencode
 from django.views import View
@@ -232,6 +232,43 @@ def _technical_active_status_q(field_name='installation_status'):
 	for status in TECHNICAL_ACTIVE_INSTALLATION_STATUSES:
 		status_q |= Q(**{f'{field_name}__iexact': status})
 	return status_q
+
+
+def _sales_selected_system_display(sales_record):
+	if not sales_record:
+		return ''
+	proposal_data = getattr(sales_record, 'quotation_proposal_snapshot', None) or {}
+	if not isinstance(proposal_data, dict):
+		return ''
+	selected_label = str(proposal_data.get('selected_system_label') or '').strip()
+	system_type = str(proposal_data.get('system_type') or proposal_data.get('selected_system_type') or '').strip()
+	capacity = str(proposal_data.get('selected_system_capacity_kw') or '').strip()
+	battery = str(proposal_data.get('selected_battery_kwh') or '').strip()
+	parts = []
+	if selected_label:
+		parts.append(selected_label)
+	elif capacity:
+		parts.append(f'{capacity} kW')
+	if system_type and (not parts or system_type.lower() not in parts[0].lower()):
+		parts.append(system_type.title())
+	if battery and battery not in {'-', '0', '0.0', '0.00'}:
+		parts.append(f'Battery: {battery} kWh')
+	return ' | '.join(parts)
+
+
+def _sync_technical_system_from_sales(technical_record, sales_record=None, save=False):
+	if not technical_record:
+		return False
+	sales_record = sales_record or getattr(technical_record, 'sales_record', None)
+	selected_system = _sales_selected_system_display(sales_record)
+	if not selected_system:
+		return False
+	if (technical_record.system_size_kwh or '').strip() == selected_system:
+		return False
+	technical_record.system_size_kwh = selected_system
+	if save:
+		technical_record.save(update_fields=['system_size_kwh', 'updated_at'])
+	return True
 
 
 def _has_any_permission(user, permission_names):
@@ -474,6 +511,7 @@ class SecureLoginView(FormView):
 			return redirect('otp_verify')
 
 		login(self.request, user)
+		self.request.session['show_welcome_reminders_modal'] = True
 		_set_user_status(user, 'active')
 		_sync_presence_session(self.request, 'active')
 		return redirect(self.request.session.pop('post_login_redirect', reverse('dashboard')))
@@ -497,6 +535,7 @@ class OTPVerifyView(FormView):
 		for device in devices_for_user(user, confirmed=True):
 			if device.verify_token(token):
 				login(self.request, user)
+				self.request.session['show_welcome_reminders_modal'] = True
 				_set_user_status(user, 'active')
 				_sync_presence_session(self.request, 'active')
 				self.request.session.pop('pre_2fa_user_id', None)
@@ -3132,7 +3171,9 @@ def crm_clients(request):
 				sales_record.save(update_fields=['sales_status', 'updated_at'])
 				current_status = 'new'
 
-			if target_status in terminal_statuses:
+			if target_status == 'closed lost':
+				can_transition = current_status not in terminal_statuses
+			elif target_status == 'closed won':
 				can_transition = current_status == 'negotiation'
 			else:
 				try:
@@ -4359,9 +4400,25 @@ def crm_sales(request):
 				return redirect('crm_sales')
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=int(sales_id))
 
+			lead_source_input_present = 'lead_source' in request.POST
+			service_type_input_present = 'service_type' in request.POST
+			project_cost_input_present = 'project_cost' in request.POST
+			downpayment_input_present = 'downpayment' in request.POST
+			roi_input_present = 'return_on_investment' in request.POST
+
 			lead_source = (request.POST.get('lead_source') or '').strip().lower()
 			roof_type = (request.POST.get('roof_type') or '').strip()
 			ownership = (request.POST.get('ownership') or '').strip().lower()
+			service_type = (request.POST.get('service_type') or '').strip().lower()
+			if service_type not in {'solar', 'hvac', 'security'}:
+				service_type = ''
+			monthly_electric_bill_unit = (request.POST.get('monthly_electric_bill_unit') or '').strip().lower()
+			if monthly_electric_bill_unit not in {'kw', 'w'}:
+				monthly_electric_bill_unit = (sales_record.monthly_electric_bill_unit or 'kw').strip().lower()
+			if not lead_source_input_present:
+				lead_source = (sales_record.lead_source or '').strip().lower()
+			if not service_type_input_present:
+				service_type = (sales_record.service_type or '').strip().lower()
 			return_on_investment = (request.POST.get('return_on_investment') or '').strip()
 			status_alias_map = {
 				'contracted': 'contacted',
@@ -4376,6 +4433,10 @@ def crm_sales(request):
 			sales_status = status_alias_map.get(sales_status_raw, sales_status_raw) or 'new'
 			ocular_date_raw = (request.POST.get('ocular_date') or '').strip()
 			ocular_date = parse_date(ocular_date_raw) if ocular_date_raw else None
+			ocular_start_time_raw = (request.POST.get('ocular_start_time') or '').strip()
+			ocular_end_time_raw = (request.POST.get('ocular_end_time') or '').strip()
+			ocular_start_time = parse_time(ocular_start_time_raw) if ocular_start_time_raw else None
+			ocular_end_time = parse_time(ocular_end_time_raw) if ocular_end_time_raw else None
 			client_status = (request.POST.get('client_status') or '').strip()
 			interaction_notes = (request.POST.get('interaction_notes') or '').strip()
 			if sales_status not in allowed_statuses:
@@ -4396,15 +4457,136 @@ def crm_sales(request):
 					return JsonResponse({'ok': False, 'message': message}, status=400)
 				messages.warning(request, message, extra_tags='toast')
 				return redirect('crm_sales')
+			if sales_status == 'for survey' and (ocular_start_time is None or ocular_end_time is None):
+				message = 'Please set the ocular start and end time before saving the Survey stage.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
+			if ocular_start_time and ocular_end_time and ocular_end_time <= ocular_start_time:
+				message = 'Ocular end time must be later than the start time.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
+			if sales_status == 'closed lost' and not interaction_notes:
+				message = 'Please enter a reason before saving as Closed Lost.'
+				if _is_ajax_request(request):
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect('crm_sales')
 
 			def _to_decimal(raw_value):
-				value = (raw_value or '').strip()
+				if raw_value is None:
+					return None
+				value = str(raw_value).strip()
 				if not value:
 					return None
 				try:
 					return Decimal(value)
 				except (InvalidOperation, TypeError, ValueError):
 					return None
+
+			def _json_safe_decimal(value):
+				if value is None:
+					return None
+				try:
+					return str(Decimal(str(value)))
+				except (InvalidOperation, TypeError, ValueError):
+					return None
+
+			def _safe_text(value, limit=255):
+				return str(value or '').strip()[:limit]
+
+			def _safe_appliance_rows(value):
+				if not isinstance(value, list):
+					return []
+				rows = []
+				for item in value[:100]:
+					if not isinstance(item, dict):
+						continue
+					rows.append(
+						{
+							'name': _safe_text(item.get('name'), 120),
+							'watts': _json_safe_decimal(item.get('watts')),
+							'unit': 'kw' if str(item.get('unit') or '').strip().lower() == 'kw' else 'w',
+							'qty': _json_safe_decimal(item.get('qty')),
+							'hours': _json_safe_decimal(item.get('hours')),
+							'daily_kwh': _json_safe_decimal(item.get('daily_kwh')),
+						}
+					)
+				return rows
+
+			def _parse_proposal_data():
+				raw_payload = (request.POST.get('proposal_data') or '').strip()
+				if not raw_payload:
+					return {}
+				try:
+					payload = json.loads(raw_payload)
+				except (TypeError, ValueError):
+					return {}
+				if not isinstance(payload, dict):
+					return {}
+				allowed_system_types = {'ongrid', 'offgrid', 'hybrid'}
+				system_type = str(payload.get('system_type') or '').strip().lower()
+				source = str(payload.get('source') or '').strip().lower()
+				monthly_unit = str(payload.get('consumption_unit') or '').strip().lower()
+				monthly_value = _to_decimal(payload.get('consumption_value'))
+				load_kw = _to_decimal(payload.get('load_kw'))
+				if load_kw is None and monthly_value is not None:
+					load_kw = monthly_value / Decimal('1000') if monthly_unit == 'w' else monthly_value
+				selected_system_id = str(payload.get('selected_system_id') or '').strip()
+				selected_battery_kwh = _to_decimal(payload.get('selected_battery_kwh'))
+				normalized_payload = {
+					'system_type': system_type if system_type in allowed_system_types else '',
+					'range': _safe_text(payload.get('range'), 30),
+					'source': source if source in {'bill', 'appliances'} else '',
+					'consumption_value': _json_safe_decimal(monthly_value),
+					'consumption_unit': monthly_unit if monthly_unit in {'kw', 'w'} else '',
+					'load_kw': _json_safe_decimal(load_kw),
+					'selected_system_id': selected_system_id if selected_system_id.isdigit() else '',
+					'selected_system_label': _safe_text(payload.get('selected_system_label'), 255),
+					'selected_system_type': _safe_text(payload.get('selected_system_type'), 255),
+					'selected_system_capacity_kw': _json_safe_decimal(payload.get('selected_system_capacity_kw')),
+					'selected_system_panel_qty': _json_safe_decimal(payload.get('selected_system_panel_qty')),
+					'selected_system_regular_price': _json_safe_decimal(payload.get('selected_system_regular_price')),
+					'selected_system_cash_promo_price': _json_safe_decimal(payload.get('selected_system_cash_promo_price')),
+					'selected_battery_kwh': _json_safe_decimal(selected_battery_kwh),
+					'selected_battery_ah': _json_safe_decimal(payload.get('selected_battery_ah')),
+					'panel_wattage': _json_safe_decimal(payload.get('panel_wattage')),
+					'panel_count': _json_safe_decimal(payload.get('panel_count')),
+					'vdrop_percent': _json_safe_decimal(payload.get('vdrop_percent')),
+					'sun_peak_hours': _json_safe_decimal(payload.get('sun_peak_hours')),
+					'reserve_percent': _json_safe_decimal(payload.get('reserve_percent')),
+					'meralco_rate': _json_safe_decimal(payload.get('meralco_rate')),
+					'appliance_rows': _safe_appliance_rows(payload.get('appliance_rows')),
+					'daily_harvest_kwh': _json_safe_decimal(payload.get('daily_harvest_kwh')),
+					'monthly_harvest_kwh': _json_safe_decimal(payload.get('monthly_harvest_kwh')),
+					'yearly_harvest_kwh': _json_safe_decimal(payload.get('yearly_harvest_kwh')),
+					'daily_savings': _json_safe_decimal(payload.get('daily_savings')),
+					'monthly_savings': _json_safe_decimal(payload.get('monthly_savings')),
+					'yearly_savings': _json_safe_decimal(payload.get('yearly_savings')),
+				}
+				return {key: value for key, value in normalized_payload.items() if value not in (None, '')}
+
+			proposal_data = _parse_proposal_data()
+			quotation_proposal_inputs = proposal_data
+			proposal_load_kw = _to_decimal(proposal_data.get('load_kw'))
+			selected_system_id = str(proposal_data.get('selected_system_id') or '').strip()
+			if sales_status == 'for proposal' and service_type == 'solar' and selected_system_id:
+				selected_system = CalculatorImportRow.objects.filter(pk=int(selected_system_id)).first()
+				if not selected_system:
+					message = 'Selected compatible system was not found in calculator data.'
+					if _is_ajax_request(request):
+						return JsonResponse({'ok': False, 'message': message}, status=400)
+					messages.warning(request, message, extra_tags='toast')
+					return redirect('crm_sales')
+				if proposal_load_kw is not None and selected_system.capacity_kw is not None and selected_system.capacity_kw < proposal_load_kw:
+					message = 'Selected compatible system must be equal or higher than the client load in kW.'
+					if _is_ajax_request(request):
+						return JsonResponse({'ok': False, 'message': message}, status=400)
+					messages.warning(request, message, extra_tags='toast')
+					return redirect('crm_sales')
 
 			monthly_electric_bill = _to_decimal(request.POST.get('monthly_electric_bill'))
 			project_cost = _to_decimal(request.POST.get('project_cost'))
@@ -4421,7 +4603,9 @@ def crm_sales(request):
 			def _can_save_sales_status_progress(current_status, target_status):
 				if is_edit_mode and current_status == target_status:
 					return True
-				if target_status in terminal_statuses:
+				if target_status == 'closed lost':
+					return current_status not in terminal_statuses
+				if target_status == 'closed won':
 					return current_status == 'negotiation'
 				try:
 					current_index = progress_order.index(current_status)
@@ -4441,28 +4625,60 @@ def crm_sales(request):
 							message = 'Sales progress can only move to the next step.'
 						transition_error.update({'message': message, 'current_status': current_sales_status, 'target_status': sales_status})
 						return None
-					locked_sales_record.lead_source = lead_source
+					if not lead_source_input_present:
+						lead_source_to_save = locked_sales_record.lead_source
+					else:
+						lead_source_to_save = lead_source
+					if not service_type_input_present:
+						service_type_to_save = locked_sales_record.service_type
+					else:
+						service_type_to_save = service_type
+					if not project_cost_input_present:
+						project_cost_to_save = locked_sales_record.project_cost
+					else:
+						project_cost_to_save = project_cost
+					if not downpayment_input_present:
+						downpayment_to_save = locked_sales_record.downpayment
+					else:
+						downpayment_to_save = downpayment
+					if not roi_input_present:
+						return_on_investment_to_save = locked_sales_record.return_on_investment
+					else:
+						return_on_investment_to_save = return_on_investment
+					locked_sales_record.lead_source = lead_source_to_save
 					locked_sales_record.monthly_electric_bill = monthly_electric_bill
+					locked_sales_record.monthly_electric_bill_unit = monthly_electric_bill_unit
 					locked_sales_record.roof_type = roof_type
 					locked_sales_record.ownership = ownership
-					locked_sales_record.project_cost = project_cost
-					locked_sales_record.downpayment = downpayment
-					locked_sales_record.return_on_investment = return_on_investment
+					locked_sales_record.service_type = service_type_to_save
+					locked_sales_record.project_cost = project_cost_to_save
+					locked_sales_record.downpayment = downpayment_to_save
+					locked_sales_record.return_on_investment = return_on_investment_to_save
+					locked_sales_record.proposal_data = proposal_data
+					locked_sales_record.quotation_proposal_inputs = quotation_proposal_inputs
 					locked_sales_record.sales_status = sales_status
 					locked_sales_record.ocular_date = ocular_date
+					locked_sales_record.ocular_start_time = ocular_start_time
+					locked_sales_record.ocular_end_time = ocular_end_time
 					locked_sales_record.client_status = client_status
 					locked_sales_record.interaction_notes = interaction_notes
 					job_order_number = ''
 					update_fields = [
 						'lead_source',
 						'monthly_electric_bill',
+						'monthly_electric_bill_unit',
 						'roof_type',
 						'ownership',
+						'service_type',
 						'project_cost',
 						'downpayment',
 						'return_on_investment',
+						'proposal_data',
+						'quotation_proposal_inputs',
 						'sales_status',
 						'ocular_date',
+						'ocular_start_time',
+						'ocular_end_time',
 						'client_status',
 						'interaction_notes',
 						'updated_at',
@@ -4491,23 +4707,36 @@ def crm_sales(request):
 							defaults={
 								'created_by': request.user,
 								'job_order_number': locked_sales_record.job_order_number,
+								'system_size_kwh': _sales_selected_system_display(locked_sales_record),
 							},
 						)
+						technical_update_fields = []
 						if tech_record.job_order_number != locked_sales_record.job_order_number:
 							tech_record.job_order_number = locked_sales_record.job_order_number
-							tech_record.save(update_fields=['job_order_number', 'updated_at'])
+							technical_update_fields.append('job_order_number')
+						if _sync_technical_system_from_sales(tech_record, locked_sales_record, save=False):
+							technical_update_fields.append('system_size_kwh')
+						if technical_update_fields:
+							technical_update_fields.append('updated_at')
+							tech_record.save(update_fields=technical_update_fields)
 					activity_obj = CRMSalesActivityLog.objects.create(
 						sales_record=locked_sales_record,
 						client_status=client_status,
-						lead_source=lead_source,
+						lead_source=lead_source_to_save,
 						monthly_electric_bill=monthly_electric_bill,
+						monthly_electric_bill_unit=monthly_electric_bill_unit,
 						roof_type=roof_type,
 						ownership=ownership,
-						project_cost=project_cost,
-						downpayment=downpayment,
-						return_on_investment=return_on_investment,
+						service_type=service_type_to_save,
+						project_cost=project_cost_to_save,
+						downpayment=downpayment_to_save,
+						return_on_investment=return_on_investment_to_save,
+						proposal_data=proposal_data,
+						quotation_proposal_inputs=quotation_proposal_inputs,
 						sales_status=sales_status,
 						ocular_date=ocular_date,
+						ocular_start_time=ocular_start_time,
+						ocular_end_time=ocular_end_time,
 						interaction_notes=interaction_notes,
 						created_by=request.user,
 					)
@@ -4553,6 +4782,8 @@ def crm_sales(request):
 					'lead_source': lead_source,
 					'job_order_number': sales_record.job_order_number or '',
 					'generated_job_order_number': generated_job_order_number,
+					'proposal_data': proposal_data,
+					'quotation_proposal_inputs': quotation_proposal_inputs,
 					'attachment_count': len(request.FILES.getlist('activity_files')),
 				},
 			)
@@ -4623,12 +4854,17 @@ def crm_sales(request):
 				client_status=sales_row.client_status,
 				lead_source=sales_row.lead_source,
 				monthly_electric_bill=sales_row.monthly_electric_bill,
+				monthly_electric_bill_unit=sales_row.monthly_electric_bill_unit,
 				roof_type=sales_row.roof_type,
 				ownership=sales_row.ownership,
+				service_type=sales_row.service_type,
 				project_cost=sales_row.project_cost,
 				downpayment=sales_row.downpayment,
 				return_on_investment=sales_row.return_on_investment,
 				sales_status='closed lost',
+				ocular_date=sales_row.ocular_date,
+				ocular_start_time=sales_row.ocular_start_time,
+				ocular_end_time=sales_row.ocular_end_time,
 				interaction_notes='System auto-aging: no updates received within configured aging period.',
 				created_by=None,
 			)
@@ -4898,23 +5134,33 @@ def crm_sales(request):
 	for ocular_record in ocular_calendar_records:
 		if not ocular_record.ocular_date:
 			continue
+		start_minutes = (ocular_record.ocular_start_time.hour * 60 + ocular_record.ocular_start_time.minute) if ocular_record.ocular_start_time else 9 * 60
+		end_minutes = (ocular_record.ocular_end_time.hour * 60 + ocular_record.ocular_end_time.minute) if ocular_record.ocular_end_time else start_minutes + 60
+		time_label = ''
+		if ocular_record.ocular_start_time and ocular_record.ocular_end_time:
+			time_label = f'{ocular_record.ocular_start_time.strftime("%I:%M %p").lstrip("0")} - {ocular_record.ocular_end_time.strftime("%I:%M %p").lstrip("0")}'
+		elif ocular_record.ocular_start_time:
+			time_label = ocular_record.ocular_start_time.strftime('%I:%M %p').lstrip('0')
+		else:
+			time_label = 'Time not set'
+		event_payload = {
+			'date': ocular_record.ocular_date.isoformat(),
+			'sales_record_id': ocular_record.id,
+			'client_name': f'{ocular_record.client.last_name}, {ocular_record.client.first_name}' if ocular_record.client_id else f'Sales #{ocular_record.id}',
+			'customer_id': ocular_record.client.customer_id if ocular_record.client_id else '',
+			'assigned_sales': (ocular_record.assigned_sales or '').strip() or '-',
+			'sales_status': (ocular_record.sales_status or '').strip() or 'new',
+			'start_time': ocular_record.ocular_start_time.strftime('%H:%M') if ocular_record.ocular_start_time else '',
+			'end_time': ocular_record.ocular_end_time.strftime('%H:%M') if ocular_record.ocular_end_time else '',
+			'start_minutes': start_minutes,
+			'end_minutes': end_minutes,
+			'time_label': time_label,
+		}
 		ocular_schedule_payload.append(
-			{
-				'date': ocular_record.ocular_date.isoformat(),
-				'sales_record_id': ocular_record.id,
-				'client_name': f'{ocular_record.client.last_name}, {ocular_record.client.first_name}' if ocular_record.client_id else f'Sales #{ocular_record.id}',
-				'customer_id': ocular_record.client.customer_id if ocular_record.client_id else '',
-				'assigned_sales': (ocular_record.assigned_sales or '').strip() or '-',
-				'sales_status': (ocular_record.sales_status or '').strip() or 'new',
-			}
+			event_payload
 		)
 		ocular_events_by_date.setdefault(ocular_record.ocular_date.isoformat(), []).append(
-			{
-				'client_name': f'{ocular_record.client.last_name}, {ocular_record.client.first_name}' if ocular_record.client_id else f'Sales #{ocular_record.id}',
-				'customer_id': ocular_record.client.customer_id if ocular_record.client_id else '',
-				'assigned_sales': (ocular_record.assigned_sales or '').strip() or '-',
-				'sales_status': (ocular_record.sales_status or '').strip() or 'new',
-			}
+			event_payload
 		)
 	ocular_calendar_weeks = []
 	for week in calendar.Calendar(firstweekday=6).monthdatescalendar(ocular_year, ocular_month):
@@ -5101,11 +5347,21 @@ def crm_technicals(request):
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
 			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
 				sales_record=sales_record,
-				defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
+				defaults={
+					'created_by': request.user,
+					'job_order_number': sales_record.job_order_number or '',
+					'system_size_kwh': _sales_selected_system_display(sales_record),
+				},
 			)
+			technical_update_fields = []
 			if tech_record.job_order_number != (sales_record.job_order_number or ''):
 				tech_record.job_order_number = sales_record.job_order_number or ''
-				tech_record.save(update_fields=['job_order_number', 'updated_at'])
+				technical_update_fields.append('job_order_number')
+			if _sync_technical_system_from_sales(tech_record, sales_record, save=False):
+				technical_update_fields.append('system_size_kwh')
+			if technical_update_fields:
+				technical_update_fields.append('updated_at')
+				tech_record.save(update_fields=technical_update_fields)
 			previous_installation_date = tech_record.installation_date
 			previous_installation_time = tech_record.installation_time
 			previous_team_assigned = tech_record.team_assigned or ''
@@ -5225,7 +5481,11 @@ def crm_technicals(request):
 			sales_record = get_object_or_404(CRMSalesRecord.objects.select_related('client'), pk=sales_record_id)
 			tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
 				sales_record=sales_record,
-				defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
+				defaults={
+					'created_by': request.user,
+					'job_order_number': sales_record.job_order_number or '',
+					'system_size_kwh': _sales_selected_system_display(sales_record),
+				},
 			)
 			previous_installation_date = tech_record.installation_date
 			previous_installation_time = tech_record.installation_time
@@ -5236,7 +5496,7 @@ def crm_technicals(request):
 
 			installation_date = parse_date((request.POST.get('installation_date') or '').strip())
 			team_assigned = (request.POST.get('team_assigned') or '').strip()
-			system_size_kwh = (request.POST.get('system_size_kwh') or '').strip()
+			system_size_kwh = _sales_selected_system_display(sales_record) or (request.POST.get('system_size_kwh') or '').strip()
 			panel_units = (request.POST.get('panel_units') or '').strip()
 			inverter_model = (request.POST.get('inverter_model') or '').strip()
 			battery_model = (request.POST.get('battery_model') or '').strip()
@@ -5470,6 +5730,10 @@ def crm_technicals(request):
 		]
 	)
 	technical_page = Paginator(queryset, 20).get_page(request.GET.get('page'))
+	for sales_row in technical_page.object_list:
+		tech_record = getattr(sales_row, 'technical_record', None)
+		if tech_record:
+			_sync_technical_system_from_sales(tech_record, sales_row, save=True)
 	base_query_params = request.GET.copy()
 	base_query_params.pop('page', None)
 	base_query_string = base_query_params.urlencode()
@@ -5701,7 +5965,7 @@ def crm_aftersales_warranty(request):
 			notes = (request.POST.get('notes') or '').strip()
 			allowed_types = {value for value, _label in CRMWarrantyRecord.WARRANTY_TYPE_CHOICES}
 			if not client_id_raw.isdigit():
-				messages.error(request, 'Please select a client for this warranty.', extra_tags='toast')
+				messages.error(request, 'No existing client found in the records. Please select an existing client before saving.', extra_tags='toast')
 				return redirect('crm_aftersales_warranty')
 			if warranty_type not in allowed_types:
 				messages.error(request, 'Please select a valid warranty type.', extra_tags='toast')
@@ -5712,7 +5976,10 @@ def crm_aftersales_warranty(request):
 			if end_date < start_date:
 				messages.error(request, 'End date cannot be earlier than start date.', extra_tags='toast')
 				return redirect('crm_aftersales_warranty')
-			client = get_object_or_404(clients_queryset, pk=int(client_id_raw))
+			client = clients_queryset.filter(pk=int(client_id_raw)).first()
+			if not client:
+				messages.error(request, 'No existing client found in the records. Please select an existing client before saving.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
 			sales_record, technical_record = _latest_sales_and_technical(client)
 			product_system = (technical_record.system_size_kwh or '').strip() if technical_record else ''
 			def _create_warranty_write():
@@ -5813,10 +6080,12 @@ def crm_aftersales_warranty(request):
 	client_options = []
 	for client in clients_queryset:
 		_sales_record, technical_record = _latest_sales_and_technical(client)
+		client_label = _client_label(client)
+		suggestion_label = f'{client_label} ({client.customer_id})' if client.customer_id else client_label
 		client_options.append(
 			{
 				'id': client.id,
-				'label': _client_label(client),
+				'label': suggestion_label,
 				'system_size': (technical_record.system_size_kwh or '').strip() if technical_record else '',
 			}
 		)
@@ -5836,6 +6105,7 @@ def crm_aftersales_warranty(request):
 			'warranty_claims_this_month': 0,
 			'expiring_soon_records': expiring_soon_records,
 			'warranty_client_options': client_options,
+			'warranty_client_options_json': dumps(client_options),
 		},
 	)
 

@@ -1504,6 +1504,50 @@
         </div>
     </div>
 
+    {% if welcome_reminders_modal %}
+    <div class="modal fade" id="welcomeResponsibilitiesModal" tabindex="-1" aria-labelledby="welcomeResponsibilitiesModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-sm">
+                <div class="modal-header bg-white">
+                    <div>
+                        <h5 class="modal-title" id="welcomeResponsibilitiesModalLabel">Welcome, {{ welcome_reminders_modal.display_name }}</h5>
+                        <div class="small text-secondary">Here are your active responsibilities and upcoming schedules.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    {% if welcome_reminders_modal.has_reminders %}
+                        <div class="list-group list-group-flush">
+                            {% for item in welcome_reminders_modal.reminders %}
+                                <a class="list-group-item list-group-item-action px-0" href="{{ item.link }}">
+                                    <div class="d-flex justify-content-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="fw-semibold text-truncate">{{ item.title }}</div>
+                                            <div class="small text-secondary">{{ item.detail }}</div>
+                                        </div>
+                                        <div class="text-end flex-shrink-0">
+                                            <span class="badge text-bg-success">{{ item.category }}</span>
+                                            <div class="small text-secondary mt-1">{{ item.urgency }}</div>
+                                        </div>
+                                    </div>
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="border rounded-3 p-3 bg-light-subtle">
+                            <div class="fw-semibold">No urgent schedules right now.</div>
+                            <div class="small text-secondary">You are clear for upcoming ocular and technical schedule reminders within the next 7 days.</div>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" data-bs-dismiss="modal">Start</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="toast-container position-fixed top-0 end-0 p-3" id="appToastContainer" style="z-index: 1080;"></div>
     <div class="toast-container position-fixed bottom-0 end-0 p-3" id="appBottomToastContainer" style="z-index: 1090;"></div>
     <div id="kwCalculatorPanel" class="card shadow position-fixed d-none" style="right:24px;bottom:90px;width:min(560px,92vw);max-height:78vh;z-index:var(--z-calculator-panel);">
@@ -1966,6 +2010,15 @@
     {{ calculator_system_options|json_script:"calculatorSystemOptionsData" }}
 	    <script src="{% static 'vendor/bootstrap/5.3.8/js/bootstrap.bundle.min.js' %}" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js';"></script>
 	    <script src="{% static 'js/form_enhancements.js' %}?v=20260428-captcha"></script>
+        {% if welcome_reminders_modal %}
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var modalEl = document.getElementById('welcomeResponsibilitiesModal');
+                if (!modalEl || !window.bootstrap) return;
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            });
+        </script>
+        {% endif %}
 	    <script>
 	        (function () {
 	            const nav = document.getElementById('floatingAssistNav');

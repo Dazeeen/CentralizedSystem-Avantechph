@@ -145,20 +145,33 @@
                             data-client-notes="{{ row.client.notes|default:'-' }}"
                             data-date-created="{{ row.date_created|date:'Y-m-d'|default:'-' }}"
                             data-lead-source="{{ row.lead_source|default:'-' }}"
-                            data-monthly-electric-bill="{{ row.monthly_electric_bill|default:'-' }}"
+                            data-monthly-electric-bill="{% if row.monthly_electric_bill is not None %}{{ row.monthly_electric_bill|comma2 }} {% if row.monthly_electric_bill_unit == 'w' %}W{% else %}kW{% endif %}{% else %}-{% endif %}"
+                            data-monthly-electric-bill-unit="{{ row.monthly_electric_bill_unit|default:'kw' }}"
                             data-roof-type="{{ row.roof_type|default:'-' }}"
                             data-ownership="{{ row.ownership|default:'-' }}"
+                            data-service-type="{{ row.service_type|default:'' }}"
                             data-project-cost="{% if row.project_cost is not None %}PHP {{ row.project_cost|comma2 }}{% else %}-{% endif %}"
                             data-project-cost-raw="{% if row.project_cost is not None %}{{ row.project_cost }}{% endif %}"
                             data-downpayment="{% if row.downpayment is not None %}PHP {{ row.downpayment|comma2 }}{% else %}-{% endif %}"
                             data-downpayment-raw="{% if row.downpayment is not None %}{{ row.downpayment }}{% endif %}"
                             data-monthly-electric-bill-raw="{% if row.monthly_electric_bill is not None %}{{ row.monthly_electric_bill }}{% endif %}"
                             data-return-on-investment="{{ row.return_on_investment|default:'-' }}"
+                            data-proposal-system-type="{{ row.quotation_proposal_snapshot.system_type|default:'-' }}"
+                            data-proposal-source="{{ row.quotation_proposal_snapshot.source|default:'' }}"
+                            data-proposal-consumption-value="{{ row.quotation_proposal_snapshot.consumption_value|default:'' }}"
+                            data-proposal-consumption-unit="{{ row.quotation_proposal_snapshot.consumption_unit|default:'' }}"
+                            data-proposal-load-kw="{{ row.quotation_proposal_snapshot.load_kw|default:'-' }}"
+                            data-proposal-selected-system-id="{{ row.quotation_proposal_snapshot.selected_system_id|default:'' }}"
+                            data-proposal-selected-system="{{ row.quotation_proposal_snapshot.selected_system_label|default:'-' }}"
+                            data-proposal-selected-battery="{{ row.quotation_proposal_snapshot.selected_battery_kwh|default:'-' }}"
                             data-assigned-sales="{{ row.assigned_sales_display|default:'-' }}"
                             data-assigned-sales-raw="{{ row.assigned_sales|default:'' }}"
                             data-sales-status="{{ row.sales_status|default:'-' }}"
                             data-ocular-date="{% if row.ocular_date %}{{ row.ocular_date|date:'Y-m-d' }}{% endif %}"
                             data-ocular-date-display="{% if row.ocular_date %}{{ row.ocular_date|date:'M j, Y' }}{% else %}-{% endif %}"
+                            data-ocular-start-time="{% if row.ocular_start_time %}{{ row.ocular_start_time|time:'H:i' }}{% endif %}"
+                            data-ocular-end-time="{% if row.ocular_end_time %}{{ row.ocular_end_time|time:'H:i' }}{% endif %}"
+                            data-ocular-time-display="{% if row.ocular_start_time and row.ocular_end_time %}{{ row.ocular_start_time|time:'g:i A' }} - {{ row.ocular_end_time|time:'g:i A' }}{% elif row.ocular_start_time %}{{ row.ocular_start_time|time:'g:i A' }}{% else %}-{% endif %}"
                             data-job-order-number="{{ row.job_order_number|default:'' }}"
                             data-client-status="{{ row.client_status|default:'-' }}"
                             data-interaction-notes="{{ row.interaction_notes|default:'-' }}"
@@ -225,14 +238,16 @@
                                             data-history-client-status="{{ log.client_status|default:'-' }}"
                                             data-history-date="{{ log.created_at|date:'M j, Y g:i A' }}"
                                             data-history-lead-source="{{ log.lead_source|default:'-' }}"
-                                            data-history-monthly-bill="{% if log.monthly_electric_bill is not None %}PHP {{ log.monthly_electric_bill|comma2 }}{% else %}-{% endif %}"
+                                            data-history-monthly-bill="{% if log.monthly_electric_bill is not None %}{{ log.monthly_electric_bill|comma2 }} {% if log.monthly_electric_bill_unit == 'w' %}W{% else %}kW{% endif %}{% else %}-{% endif %}"
                                             data-history-roof-type="{{ log.roof_type|default:'-' }}"
                                             data-history-ownership="{{ log.ownership|default:'-' }}"
+                                            data-history-service-type="{{ log.service_type|default:'' }}"
                                             data-history-project-cost="{% if log.project_cost is not None %}PHP {{ log.project_cost|comma2 }}{% else %}-{% endif %}"
                                             data-history-downpayment="{% if log.downpayment is not None %}PHP {{ log.downpayment|comma2 }}{% else %}-{% endif %}"
                                             data-history-roi="{{ log.return_on_investment|default:'-' }}"
                                             data-history-sales-status="{{ log.sales_status|default:'-' }}"
                                             data-history-ocular-date="{% if log.ocular_date %}{{ log.ocular_date|date:'M j, Y' }}{% else %}-{% endif %}"
+                                            data-history-ocular-time="{% if log.ocular_start_time and log.ocular_end_time %}{{ log.ocular_start_time|time:'g:i A' }} - {{ log.ocular_end_time|time:'g:i A' }}{% elif log.ocular_start_time %}{{ log.ocular_start_time|time:'g:i A' }}{% else %}-{% endif %}"
                                             data-history-notes="{{ log.interaction_notes|default:'-' }}"
                                             data-history-attachments-template-id="crm-sales-history-attachments-{{ log.id }}">
                                             <span class="small fw-semibold">{{ log.created_by.get_full_name|default:log.created_by.username|default:'System' }}</span>
@@ -385,13 +400,14 @@
                                     <div class="ocular-tech-month-head">Sun</div><div class="ocular-tech-month-head">Mon</div><div class="ocular-tech-month-head">Tue</div><div class="ocular-tech-month-head">Wed</div><div class="ocular-tech-month-head">Thu</div><div class="ocular-tech-month-head">Fri</div><div class="ocular-tech-month-head">Sat</div>
                                     {% for week in ocular_calendar_weeks %}
                                         {% for day in week %}
-                                            <div class="ocular-tech-day {% if not day.in_month %}is-out{% endif %} {% if day.is_today %}is-today{% endif %}">
+                                            <button type="button" class="ocular-tech-day {% if not day.in_month %}is-out{% endif %} {% if day.is_today %}is-today{% endif %} {% if day.events %}has-events{% endif %}" data-ocular-calendar-date="{{ day.iso }}">
                                                 <div class="ocular-tech-day-head">{{ day.day }}</div>
                                                 <div class="ocular-tech-day-body">
                                                     {% for event in day.events %}
                                                         <div class="tech-inline-slot slot-{{ forloop.counter|add:'0' }}">
                                                             <div class="tech-inline-slot-label">Ocular</div>
-                                                            <div class="tech-inline-slot-time">{{ event.customer_id|default:"Client" }}</div>
+                                                            <div class="tech-inline-slot-time">{{ event.time_label }}</div>
+                                                            <div>{{ event.customer_id|default:"Client" }}</div>
                                                             <div>{{ event.client_name }}</div>
                                                             <div class="text-secondary">{{ event.assigned_sales }}</div>
                                                         </div>
@@ -399,7 +415,7 @@
                                                         <div class="tech-inline-empty">No schedule</div>
                                                     {% endfor %}
                                                 </div>
-                                            </div>
+                                            </button>
                                         {% endfor %}
                                     {% endfor %}
                                 </div>
@@ -411,6 +427,30 @@
                     {% if not ocular_calendar_records %}
                         <div class="alert alert-light border mb-0">No ocular schedules yet.</div>
                     {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="crmOcularDayTimelineModal" tabindex="-1" aria-labelledby="crmOcularDayTimelineModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-white">
+                <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="crmOcularDayTimelineBackBtn">
+                    &larr; Back
+                </button>
+                <div class="me-auto">
+                    <h5 class="modal-title" id="crmOcularDayTimelineModalLabel">Ocular Timeline</h5>
+                    <div class="small text-secondary" id="crmOcularDayTimelineSubtitle">7:00 AM - 9:00 PM</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="crmOcularDayTimelineEmpty" class="alert alert-light border mb-0 d-none">No ocular schedules for this day.</div>
+                <div class="ocular-day-timeline" id="crmOcularDayTimeline">
+                    <div class="ocular-day-time-axis" id="crmOcularDayTimeAxis"></div>
+                    <div class="ocular-day-schedule-track" id="crmOcularDayScheduleTrack"></div>
                 </div>
             </div>
         </div>
@@ -562,69 +602,97 @@
                                 <div class="mb-3">
                                     <h4 class="mb-2">Sales</h4>
                                     <div class="crm-sales-pipeline crm-sales-pipeline-compact" id="salesInfoPipeline" aria-label="Sales pipeline status">
-                                        <div class="crm-sales-pipeline-stage" data-stage="new">Qualification</div>
-                                        <div class="crm-sales-pipeline-stage" data-stage="contacted">Needs Analysis</div>
-                                        <div class="crm-sales-pipeline-stage" data-stage="for survey">Survey</div>
-                                        <div class="crm-sales-pipeline-stage" data-stage="forproposal">Proposal / Quote</div>
-                                        <div class="crm-sales-pipeline-stage" data-stage="negotiation">Negotiation</div>
-                                        <div class="crm-sales-pipeline-stage" data-stage="closed won">Closed Won</div>
-                                        <div class="crm-sales-pipeline-stage" data-stage="closed lost">Closed Lost</div>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="new">Qualification</button>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="contacted">Needs Analysis</button>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="for survey">Survey</button>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="forproposal">Proposal / Quote</button>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="negotiation">Negotiation</button>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="closed won">Closed Won</button>
+                                        <button type="button" class="crm-sales-pipeline-stage" data-stage="closed lost">Closed Lost</button>
                                     </div>
                                 </div>
+                                <div class="alert alert-light border py-2 mb-3" id="salesInfoStageHint">Viewing saved fields for the selected pipeline stage.</div>
                                 <div class="row g-3">
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="new contacted">
                                         <label class="form-label">Client</label>
                                         <input type="text" class="form-control" id="salesInfoClientName" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="new contacted">
                                         <label class="form-label">Date Created</label>
                                         <input type="text" class="form-control" id="salesInfoDateCreated" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="contacted">
                                         <label class="form-label">Lead Source</label>
                                         <input type="text" class="form-control" id="salesInfoLeadSource" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="contacted" data-sales-service-field="solar">
                                         <label class="form-label">Monthly Electric Bill</label>
                                         <input type="text" class="form-control" id="salesInfoMonthlyBill" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="contacted" data-sales-service-field="solar">
                                         <label class="form-label">Roof Type</label>
                                         <input type="text" class="form-control" id="salesInfoRoofType" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="contacted" data-sales-service-field="solar">
                                         <label class="form-label">Ownership</label>
                                         <input type="text" class="form-control" id="salesInfoOwnership" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
                                         <label class="form-label">Project Cost</label>
                                         <input type="text" class="form-control" id="salesInfoProjectCost" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
                                         <label class="form-label">Downpayment</label>
                                         <input type="text" class="form-control" id="salesInfoDownpayment" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
                                         <label class="form-label">Return On Investment</label>
                                         <input type="text" class="form-control" id="salesInfoROI" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
+                                        <label class="form-label">Proposal System Type</label>
+                                        <input type="text" class="form-control" id="salesInfoProposalSystemType" readonly>
+                                    </div>
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
+                                        <label class="form-label">Client Load</label>
+                                        <input type="text" class="form-control" id="salesInfoProposalLoadKw" readonly>
+                                    </div>
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
+                                        <label class="form-label">Selected Compatible System</label>
+                                        <input type="text" class="form-control" id="salesInfoProposalSystem" readonly>
+                                    </div>
+                                    <div class="col-md-6" data-sales-info-stage-fields="forproposal" data-sales-service-field="solar">
+                                        <label class="form-label">Selected Battery</label>
+                                        <input type="text" class="form-control" id="salesInfoProposalBattery" readonly>
+                                    </div>
+                                    <div class="col-md-6" data-sales-info-stage-fields="contacted">
+                                        <label class="form-label">Service</label>
+                                        <input type="text" class="form-control" id="salesInfoServiceType" readonly>
+                                    </div>
+                                    <div class="col-md-6" data-sales-info-stage-fields="contacted">
                                         <label class="form-label">Assigned Sales</label>
                                         <input type="text" class="form-control" id="salesInfoAssignedSales" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="for survey">
                                         <label class="form-label">Ocular Date</label>
                                         <input type="text" class="form-control" id="salesInfoOcularDate" readonly>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-6" data-sales-info-stage-fields="for survey">
+                                        <label class="form-label">Ocular Time</label>
+                                        <input type="text" class="form-control" id="salesInfoOcularTime" readonly>
+                                    </div>
+                                    <div class="col-md-6" data-sales-info-stage-fields="negotiation closed won closed lost">
                                         <label class="form-label">Client Status</label>
                                         <input type="text" class="form-control" id="salesInfoClientStatus" readonly>
                                     </div>
-                                    <div class="col-12">
+                                    <div class="col-12" data-sales-info-stage-fields="negotiation closed won closed lost">
                                         <label class="form-label">Interaction Notes</label>
                                         <textarea class="form-control" id="salesInfoInteractionNotes" rows="3" readonly></textarea>
                                     </div>
-                                    <div class="col-12">
+                                    <div class="col-12" data-sales-info-stage-fields="contacted forproposal" data-sales-info-empty-service>
+                                        <div class="alert alert-light border mb-0">No service-specific fields configured yet.</div>
+                                    </div>
+                                    <div class="col-12" data-sales-info-stage-fields="forproposal">
                                         <label class="form-label">Uploaded Files</label>
                                         <div id="salesInfoFilesContainer" class="border rounded-3 p-2 bg-white">
                                             <p class="text-secondary mb-0">No uploaded files yet.</p>
@@ -656,12 +724,13 @@
                 <input type="hidden" name="form_action" value="log_sales_activity">
                 <input type="hidden" name="entry_mode" id="crmLogSalesEntryMode" value="log">
                 <input type="hidden" name="sales_record_id" id="crmLogSalesRecordId">
+                <input type="hidden" name="proposal_data" id="crmProposalDataInput" value="">
                 <div class="modal-header">
                     <h5 class="modal-title" id="crmLogSalesActivityModalLabel">Log Sales Activity</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="mb-3">
+                    <div class="mb-3" id="logSalesProgressBlock">
                         <h6 class="mb-2">Sales</h6>
                         <div class="crm-sales-pipeline crm-sales-pipeline-editable crm-sales-pipeline-compact" id="logSalesPipeline" aria-label="Select sales pipeline stage">
                             <button type="button" class="crm-sales-pipeline-stage" data-stage="new">Qualification</button>
@@ -678,28 +747,30 @@
                             <label class="form-label">Client Name</label>
                             <input type="text" class="form-control" id="logClientName" readonly disabled>
                         </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
+                        <div class="col-md-6 crm-log-non-survey-field crm-log-hide-survey crm-log-hide-negotiation">
                             <label class="form-label">Client Status</label>
                             <input type="text" class="form-control" name="client_status" id="logClientStatus" placeholder="e.g. Follow-up Needed">
                         </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
-                            <label class="form-label">Lead Source</label>
-                            <select class="form-select" name="lead_source" id="logLeadSource">
-                                <option value="">Select</option>
-                                <option value="facebook ads">facebook ads</option>
-                                <option value="referral">referral</option>
-                                <option value="walkin">walk-in</option>
-                                <option value="website">website</option>
-                                <option value="developer">developer</option>
-                                <option value="event">event</option>
-                                <option value="telemarketing">telemarketing</option>
+                        <div class="col-md-6 crm-log-non-survey-field crm-log-needs-analysis-field">
+                            <label class="form-label">Service</label>
+                            <select class="form-select" name="service_type" id="logServiceType">
+                                <option value="">Select service</option>
+                                <option value="solar">Solar</option>
+                                <option value="hvac">HVAC</option>
+                                <option value="security">Security Solutions</option>
                             </select>
                         </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
+                        <div class="col-md-6 crm-log-non-survey-field crm-log-needs-analysis-field crm-log-solar-field">
                             <label class="form-label">Monthly Electric Bill</label>
-                            <input type="number" step="0.01" class="form-control" name="monthly_electric_bill" id="logMonthlyElectricBill">
+                            <div class="input-group">
+                                <input type="number" step="0.01" class="form-control" name="monthly_electric_bill" id="logMonthlyElectricBill">
+                                <select class="form-select crm-unit-select" name="monthly_electric_bill_unit" id="logMonthlyElectricBillUnit">
+                                    <option value="kw">kW</option>
+                                    <option value="w">W</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
+                        <div class="col-md-6 crm-log-non-survey-field crm-log-needs-analysis-field crm-log-solar-field">
                             <label class="form-label">Roof Type</label>
                             <select class="form-select" name="roof_type" id="logRoofType">
                                 <option value="">Select</option>
@@ -709,7 +780,7 @@
                                 <option value="clay tiles">clay tiles</option>
                             </select>
                         </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
+                        <div class="col-md-6 crm-log-non-survey-field crm-log-needs-analysis-field crm-log-solar-field">
                             <label class="form-label">Ownership</label>
                             <select class="form-select" name="ownership" id="logOwnership">
                                 <option value="">Select</option>
@@ -717,22 +788,21 @@
                                 <option value="tenant">tenant</option>
                             </select>
                         </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
-                            <label class="form-label">Project Cost</label>
-                            <input type="number" step="0.01" class="form-control" name="project_cost" id="logProjectCost">
-                        </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
-                            <label class="form-label">Downpayment</label>
-                            <input type="number" step="0.01" class="form-control" name="downpayment" id="logDownpayment">
-                        </div>
-                        <div class="col-md-6 crm-log-non-survey-field">
-                            <label class="form-label">Return On Investment</label>
-                            <input type="text" class="form-control" name="return_on_investment" id="logROI">
+                        <div class="col-12 crm-log-non-survey-field crm-log-needs-analysis-field d-none" id="logServiceEmptyState">
+                            <div class="alert alert-light border mb-0">No fields configured yet for this service.</div>
                         </div>
                         <div class="col-md-6 d-none" id="logOcularDateWrap">
                             <label class="form-label">Ocular Date</label>
                             <input type="date" class="form-control" name="ocular_date" id="logOcularDate">
                             <div class="small text-secondary mt-1">Required when moving to Survey.</div>
+                        </div>
+                        <div class="col-md-3 d-none" id="logOcularStartTimeWrap">
+                            <label class="form-label">Start Time</label>
+                            <input type="time" class="form-control" name="ocular_start_time" id="logOcularStartTime" min="07:00" max="21:00">
+                        </div>
+                        <div class="col-md-3 d-none" id="logOcularEndTimeWrap">
+                            <label class="form-label">End Time</label>
+                            <input type="time" class="form-control" name="ocular_end_time" id="logOcularEndTime" min="07:00" max="21:00">
                         </div>
                         <div class="col-12 d-none" id="logOcularCalendarWrap">
                             <div class="tech-inline-calendar ocular-tech-calendar ocular-tech-calendar-form" id="logOcularCalendar">
@@ -799,19 +869,12 @@
                                 </div>
                                 <div class="row g-2 mb-3">
                                     <div class="col-md-4">
-                                        <label class="form-label form-label-sm mb-1 d-block">Type</label>
-                                        <div class="btn-group btn-group-sm w-100" role="group">
-                                            <button type="button" class="btn btn-outline-success active js-proposal-type-btn" data-value="panel">Panel</button>
-                                            <button type="button" class="btn btn-outline-success js-proposal-type-btn" data-value="battery">Battery</button>
-                                            <button type="button" class="btn btn-outline-success js-proposal-type-btn" data-value="all">All</button>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label form-label-sm mb-1 d-block">Mode</label>
-                                        <div class="btn-group btn-group-sm w-100" role="group">
-                                            <button type="button" class="btn btn-outline-primary active js-proposal-mode-btn" data-value="load">Load</button>
-                                            <button type="button" class="btn btn-outline-primary js-proposal-mode-btn" data-value="roi">ROI</button>
-                                        </div>
+                                        <label class="form-label form-label-sm mb-1">System Type</label>
+                                        <select class="form-select form-select-sm js-proposal-solution-type">
+                                            <option value="ongrid" selected>On-grid</option>
+                                            <option value="offgrid">Off-grid</option>
+                                            <option value="hybrid">Hybrid</option>
+                                        </select>
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label form-label-sm mb-1 d-block">Range</label>
@@ -825,18 +888,16 @@
                                     <div class="col-md-4">
                                         <label class="form-label form-label-sm mb-1 d-block">Load Source</label>
                                         <div class="btn-group btn-group-sm w-100" role="group">
-                                            <button type="button" class="btn btn-outline-dark active js-proposal-source-btn" data-value="bill">Average Bill</button>
+                                            <button type="button" class="btn btn-outline-dark active js-proposal-source-btn" data-value="bill">Consumption</button>
                                             <button type="button" class="btn btn-outline-dark js-proposal-source-btn" data-value="appliances">Appliances</button>
                                         </div>
                                     </div>
                                     <div class="col-md-8 js-proposal-bill-source">
-                                        <label class="form-label form-label-sm mb-1">Client's ave. bill / consumption</label>
+                                        <label class="form-label form-label-sm mb-1">Consumption</label>
                                         <div class="input-group input-group-sm">
-                                            <input type="number" min="0" step="0.01" class="form-control js-proposal-monthly-bill" placeholder="e.g. 3500.00">
+                                            <input type="number" min="0" step="0.01" class="form-control js-proposal-monthly-bill" placeholder="e.g. 2.50">
                                             <select class="form-select js-proposal-monthly-unit" style="max-width: 90px;">
-                                                <option value="php" selected>PHP</option>
-                                                <option value="kwh">kWh</option>
-                                                <option value="kw">kW</option>
+                                                <option value="kw" selected>kW</option>
                                                 <option value="w">W</option>
                                             </select>
                                         </div>
@@ -944,20 +1005,113 @@
                                         <div class="small text-secondary mt-2 js-proposal-roi-meta">System details: -</div>
                                     </div>
                                 </div>
+
+                                <div class="proposal-calculator-section d-none" data-proposal-section="hybrid">
+                                    <div class="proposal-calculator-panel">
+                                        <div class="row g-2 align-items-end">
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Panel Wattage</label>
+                                                <select class="form-select form-select-sm js-proposal-hybrid-panel-wattage">
+                                                    <option value="610">610W</option>
+                                                    <option value="620">620W</option>
+                                                    <option value="630">630W</option>
+                                                    <option value="640">640W</option>
+                                                    <option value="650">650W</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Panel Count (pcs)</label>
+                                                <input type="number" min="0" step="1" class="form-control form-control-sm js-proposal-hybrid-panel-count" value="0" readonly disabled>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Compatible Hybrid System</label>
+                                                <select class="form-select form-select-sm js-proposal-hybrid-system">
+                                                    <option value="">Select compatible system</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">System Type</label>
+                                                <input type="text" class="form-control form-control-sm js-proposal-hybrid-system-type" value="-" readonly disabled>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Vdrop %</label>
+                                                <input type="number" min="0" max="100" step="0.01" class="form-control form-control-sm js-proposal-hybrid-vdrop" value="{{ calculator_default_vdrop_percent|default:'20' }}" disabled>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Sun Peak Hours</label>
+                                                <input type="number" min="0" step="1" class="form-control form-control-sm js-proposal-hybrid-sun-hours" value="{{ calculator_default_sun_peak_hours|default:'3'|floatformat:'0' }}" disabled>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Battery: Capacity (KWH)</label>
+                                                <select class="form-select form-select-sm js-proposal-hybrid-battery-kwh">
+                                                    <option value="">Select battery variant</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Battery: Ah</label>
+                                                <input type="text" class="form-control form-control-sm js-proposal-hybrid-battery-ah" value="-" readonly disabled tabindex="-1">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Battery: Reserve Buffer %</label>
+                                                <input type="number" min="0" max="100" step="0.01" class="form-control form-control-sm js-proposal-hybrid-battery-reserve" value="{{ calculator_default_battery_health_drop_percent|default:'20' }}" readonly disabled tabindex="-1">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label form-label-sm mb-1">Meralco Rate</label>
+                                                <input type="number" min="0" step="0.0001" class="form-control form-control-sm js-proposal-hybrid-meralco" value="{{ calculator_default_meralco_rate|default:'13' }}" disabled>
+                                            </div>
+                                        </div>
+                                        <div class="row g-2 mt-2">
+                                            <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Cost</div><div class="fw-semibold js-proposal-hybrid-cost">PHP 0.00</div></div></div></div>
+                                            <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Battery (Ah / kWh)</div><div class="fw-semibold js-proposal-hybrid-battery-info">-</div></div></div></div>
+                                            <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Panel Warranty</div><div class="fw-semibold small js-proposal-hybrid-warranty-panel">-</div></div></div></div>
+                                            <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Battery Warranty</div><div class="fw-semibold small js-proposal-hybrid-warranty-battery">-</div></div></div></div>
+                                            <div class="col-md-4"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Inverter Warranty</div><div class="fw-semibold small js-proposal-hybrid-warranty-inverter">-</div></div></div></div>
+                                            <div class="col-12"><div class="card border-light-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Specifications</div><div class="fw-semibold small js-proposal-hybrid-specifications">-</div></div></div></div>
+                                        </div>
+                                        <div class="row g-2 mt-2">
+                                            <div class="col-md-6" data-proposal-range="daily"><div class="card border-success-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Daily Harvest (Panel + Battery)</div><div class="fw-semibold js-proposal-hybrid-daily-harvest">0.00 kWh</div></div></div></div>
+                                            <div class="col-md-6" data-proposal-range="daily"><div class="card border-success-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Daily Savings (Panel + Battery)</div><div class="fw-semibold js-proposal-hybrid-daily-savings">PHP 0.00</div></div></div></div>
+                                            <div class="col-md-6" data-proposal-range="monthly"><div class="card border-primary-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Monthly Harvest (Panel + Battery)</div><div class="fw-semibold js-proposal-hybrid-monthly-harvest">0.00 kWh</div></div></div></div>
+                                            <div class="col-md-6" data-proposal-range="monthly"><div class="card border-primary-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Monthly Savings (Panel + Battery)</div><div class="fw-semibold js-proposal-hybrid-monthly-savings">PHP 0.00</div></div></div></div>
+                                            <div class="col-md-6" data-proposal-range="yearly"><div class="card border-warning-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Yearly Harvest (Panel + Battery)</div><div class="fw-semibold js-proposal-hybrid-yearly-harvest">0.00 kWh</div></div></div></div>
+                                            <div class="col-md-6" data-proposal-range="yearly"><div class="card border-warning-subtle h-100"><div class="card-body py-2"><div class="small text-secondary">Estimated Yearly Savings (Panel + Battery)</div><div class="fw-semibold js-proposal-hybrid-annual-savings">PHP 0.00</div></div></div></div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <input type="hidden" name="sales_status" id="logSalesStatus">
-                        <div class="col-12 crm-log-non-survey-field">
-                            <label class="form-label">Interaction Notes</label>
+                        <div class="col-12 d-none" id="logNegotiationOutcomeWrap">
+                            <div class="form-check border rounded-3 p-3 ps-5 bg-light-subtle">
+                                <input class="form-check-input" type="checkbox" value="1" id="logNegotiationClosedLost">
+                                <label class="form-check-label fw-semibold" for="logNegotiationClosedLost">Closed Lost</label>
+                                <div class="small text-secondary" id="logClosedLostHelpText">Check to close this sales record as lost.</div>
+                            </div>
+                        </div>
+                        <div class="col-12 d-none" id="logClosedLostPreviewWrap">
+                            <div class="border rounded-3 p-3 bg-light-subtle">
+                                <div class="fw-semibold mb-2">Sales Details Preview</div>
+                                <div class="row g-2 small">
+                                    <div class="col-md-6"><span class="text-secondary">Client:</span> <strong id="logClosedLostPreviewClient">-</strong></div>
+                                    <div class="col-md-6"><span class="text-secondary">Current Progress:</span> <strong id="logClosedLostPreviewStatus">-</strong></div>
+                                    <div class="col-md-6" data-closed-lost-preview-hide-survey><span class="text-secondary">Lead Source:</span> <strong id="logClosedLostPreviewLead">-</strong></div>
+                                    <div class="col-md-6" data-closed-lost-preview-hide-survey><span class="text-secondary">Service:</span> <strong id="logClosedLostPreviewService">-</strong></div>
+                                    <div class="col-md-6"><span class="text-secondary">Assigned Sales:</span> <strong id="logClosedLostPreviewAssigned">-</strong></div>
+                                    <div class="col-md-6"><span class="text-secondary">Project Cost:</span> <strong id="logClosedLostPreviewCost">-</strong></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 crm-log-non-survey-field crm-log-reason-field">
+                            <label class="form-label" id="logInteractionNotesLabel">Interaction Notes</label>
                             <textarea class="form-control" name="interaction_notes" id="logInteractionNotes" rows="3" placeholder="What happened in this interaction?"></textarea>
                         </div>
-                        <div class="col-12 crm-log-non-survey-field">
-                            <label class="form-label" for="crmSalesActivityFiles">File Upload (Optional)</label>
+                        <div class="col-12 crm-log-file-field">
+                            <label class="form-label" for="crmSalesActivityFiles">Progress Documentation (Optional)</label>
                             <input type="file" class="d-none" id="crmSalesActivityFiles" name="activity_files" multiple>
                             <div class="border border-2 border-success-subtle rounded-3 p-3 text-center text-secondary" id="crmSalesActivityDropZone" role="button" tabindex="0">
-                                Drag and drop or click to choose file(s)
+                                Drag and drop, click to choose file(s), or paste screenshots/files
                             </div>
-                            <div class="small text-secondary mt-2">Optional files: quotations, documentations, report, proof, etc. You can also paste files/screenshots from clipboard (Ctrl+V).</div>
+                            <div class="small text-secondary mt-2">Optional files: quotations, documentations, reports, proofs, ocular photos, screenshots, etc.</div>
                             <div class="border rounded-3 p-2 mt-2" id="crmSalesActivityPreviewWrap">
                                 <div class="d-flex flex-nowrap gap-2 overflow-auto" id="crmSalesActivityPreviewGrid">
                                     <div class="crm-upload-preview-empty text-secondary small">No files selected.</div>
@@ -1160,32 +1314,34 @@
                 <div class="mb-3">
                     <label class="form-label mb-2">Sales Pipeline</label>
                     <div class="crm-sales-pipeline crm-sales-pipeline-compact" id="historyDetailPipeline" aria-label="Sales progress pipeline (history)">
-                        <div class="crm-sales-pipeline-stage" data-stage="new">Qualification</div>
-                        <div class="crm-sales-pipeline-stage" data-stage="contacted">Needs Analysis</div>
-                        <div class="crm-sales-pipeline-stage" data-stage="for survey">Survey</div>
-                        <div class="crm-sales-pipeline-stage" data-stage="forproposal">Proposal / Quote</div>
-                        <div class="crm-sales-pipeline-stage" data-stage="negotiation">Negotiation</div>
-                        <div class="crm-sales-pipeline-stage" data-stage="closed won">Closed Won</div>
-                        <div class="crm-sales-pipeline-stage" data-stage="closed lost">Closed Lost</div>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="new">Qualification</button>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="contacted">Needs Analysis</button>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="for survey">Survey</button>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="forproposal">Proposal / Quote</button>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="negotiation">Negotiation</button>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="closed won">Closed Won</button>
+                        <button type="button" class="crm-sales-pipeline-stage" data-stage="closed lost">Closed Lost</button>
                     </div>
                 </div>
                 <div class="row g-3">
                     <div class="col-lg-7">
                         <div class="row g-3">
-                            <div class="col-md-6"><label class="form-label">Client Name</label><input type="text" class="form-control" id="historyDetailName" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Last Updated By</label><input type="text" class="form-control" id="historyDetailUpdatedBy" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Date and Time</label><input type="text" class="form-control" id="historyDetailDate" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Client Status</label><input type="text" class="form-control" id="historyDetailClientStatus" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Lead Source</label><input type="text" class="form-control" id="historyDetailLeadSource" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Monthly Bill</label><input type="text" class="form-control" id="historyDetailMonthlyBill" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Roof Type</label><input type="text" class="form-control" id="historyDetailRoofType" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Ownership</label><input type="text" class="form-control" id="historyDetailOwnership" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Project Cost</label><input type="text" class="form-control" id="historyDetailProjectCost" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Downpayment</label><input type="text" class="form-control" id="historyDetailDownpayment" readonly></div>
-                            <div class="col-md-6"><label class="form-label">ROI</label><input type="text" class="form-control" id="historyDetailRoi" readonly></div>
-                            <div class="col-md-6"><label class="form-label">Ocular Date</label><input type="text" class="form-control" id="historyDetailOcularDate" readonly></div>
-                            <div class="col-12"><label class="form-label">Interaction Notes</label><textarea class="form-control" id="historyDetailNotes" rows="3" readonly></textarea></div>
-                            <div class="col-12">
+                            <div class="col-md-6" data-history-stage-fields="new contacted for survey forproposal negotiation closed won closed lost"><label class="form-label">Client Name</label><input type="text" class="form-control" id="historyDetailName" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="new contacted for survey forproposal negotiation closed won closed lost"><label class="form-label">Last Updated By</label><input type="text" class="form-control" id="historyDetailUpdatedBy" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="new contacted for survey forproposal negotiation closed won closed lost"><label class="form-label">Date and Time</label><input type="text" class="form-control" id="historyDetailDate" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="negotiation closed won closed lost"><label class="form-label">Client Status</label><input type="text" class="form-control" id="historyDetailClientStatus" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="contacted"><label class="form-label">Lead Source</label><input type="text" class="form-control" id="historyDetailLeadSource" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="contacted" data-history-service-field="solar"><label class="form-label">Monthly Bill</label><input type="text" class="form-control" id="historyDetailMonthlyBill" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="contacted" data-history-service-field="solar"><label class="form-label">Roof Type</label><input type="text" class="form-control" id="historyDetailRoofType" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="contacted" data-history-service-field="solar"><label class="form-label">Ownership</label><input type="text" class="form-control" id="historyDetailOwnership" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="contacted"><label class="form-label">Service</label><input type="text" class="form-control" id="historyDetailServiceType" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="forproposal" data-history-service-field="solar"><label class="form-label">Project Cost</label><input type="text" class="form-control" id="historyDetailProjectCost" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="forproposal" data-history-service-field="solar"><label class="form-label">Downpayment</label><input type="text" class="form-control" id="historyDetailDownpayment" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="forproposal" data-history-service-field="solar"><label class="form-label">ROI</label><input type="text" class="form-control" id="historyDetailRoi" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="for survey"><label class="form-label">Ocular Date</label><input type="text" class="form-control" id="historyDetailOcularDate" readonly></div>
+                            <div class="col-md-6" data-history-stage-fields="for survey"><label class="form-label">Ocular Time</label><input type="text" class="form-control" id="historyDetailOcularTime" readonly></div>
+                            <div class="col-12" data-history-stage-fields="negotiation closed won closed lost"><label class="form-label">Interaction Notes</label><textarea class="form-control" id="historyDetailNotes" rows="3" readonly></textarea></div>
+                            <div class="col-12" data-history-stage-fields="new contacted for survey forproposal negotiation closed won closed lost">
                                 <label class="form-label">Attachments</label>
                                 <div id="historyDetailAttachments" class="border rounded-3 p-2 bg-white">
                                     <p class="text-secondary mb-0">No attachments uploaded.</p>
@@ -1363,6 +1519,9 @@
     background: #e7f3eb;
     color: #35694f;
 }
+#salesInfoPipeline .crm-sales-pipeline-stage.is-selected {
+    box-shadow: inset 0 0 0 2px #0f5132;
+}
 #salesInfoPipeline .crm-sales-pipeline-stage[data-stage="closed lost"].is-upcoming {
     background: #f9d7d7;
     color: #a32525;
@@ -1400,6 +1559,13 @@
     background: #c92f2f;
     color: #fff;
     filter: brightness(1.03);
+}
+.crm-unit-select {
+    flex: 0 0 96px;
+    width: 96px;
+    min-width: 96px;
+    max-width: 96px;
+    padding-right: 2rem;
 }
 .crm-ocular-calendar {
     border: 1px solid #d9eadf;
@@ -1712,6 +1878,8 @@
     padding: 8px;
     text-align: left;
     color: #2a2f34;
+    width: 100%;
+    cursor: pointer;
 }
 .ocular-tech-day:nth-child(7n) {
     border-right: 0;
@@ -1738,6 +1906,73 @@
 .ocular-tech-day-body {
     display: grid;
     gap: 6px;
+}
+.ocular-day-timeline {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    min-height: 784px;
+    border: 1px solid #e2e8e5;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+}
+.ocular-day-time-axis {
+    background: #f7faf8;
+    border-right: 1px solid #e2e8e5;
+}
+.ocular-day-hour-label {
+    height: 56px;
+    padding: 8px 10px;
+    border-bottom: 1px solid #edf2ef;
+    font-size: 12px;
+    font-weight: 700;
+    color: #53645b;
+    text-align: right;
+}
+.ocular-day-schedule-track {
+    position: relative;
+    min-height: 784px;
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            #fff 0,
+            #fff 55px,
+            #edf2ef 55px,
+            #edf2ef 56px
+        );
+}
+.ocular-day-schedule-block {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    min-height: 42px;
+    border-radius: 6px;
+    border-left: 4px solid rgba(0, 0, 0, .18);
+    padding: 8px 10px;
+    color: #123324;
+    background: #dff3e7;
+    box-shadow: 0 8px 20px rgba(31, 143, 83, .14);
+    overflow: hidden;
+}
+.ocular-day-schedule-block:nth-child(4n + 1) { background: #dff3e7; }
+.ocular-day-schedule-block:nth-child(4n + 2) { background: #e0edff; }
+.ocular-day-schedule-block:nth-child(4n + 3) { background: #fff0d9; }
+.ocular-day-schedule-block:nth-child(4n + 4) { background: #f5e5ff; }
+.ocular-day-schedule-time {
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 2px;
+}
+.ocular-day-schedule-client {
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+.ocular-day-schedule-meta {
+    font-size: 12px;
+    color: #52625a;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
 }
 .ocular-tech-calendar-form {
     max-height: 520px;
@@ -1810,6 +2045,10 @@
 .crm-sales-pipeline-compact {
     width: min(100%, 860px);
 }
+#logSalesPipeline {
+    width: 100%;
+    max-width: none;
+}
 .crm-sales-page-pipeline {
     width: 100%;
     max-width: none;
@@ -1864,7 +2103,7 @@
     align-items: center;
 }
 #crmSalesActivityPreviewWrap {
-    min-height: 116px;
+    min-height: 132px;
     max-width: 100%;
     overflow: hidden;
 }
@@ -1881,11 +2120,11 @@
     min-height: 96px;
 }
 .crm-upload-card {
-    width: 120px;
-    min-width: 120px;
-    height: 96px;
+    width: 116px;
+    min-width: 116px;
+    aspect-ratio: 1 / 1;
     border: 1px solid #d7e6db;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #f8fbf9;
     padding: 8px 8px 6px;
     position: relative;
@@ -2240,6 +2479,9 @@ body.proposal-appliance-split-active #crmLogSalesActivityModal .modal-content {
 #crmHistoryCommentDeleteConfirmModal {
     z-index: 1205;
 }
+#crmOcularDayTimelineModal {
+    z-index: 1225;
+}
     @media (max-width: 991.98px) {
         .crm-sales-split-layout { grid-template-columns: 1fr; }
         .crm-sales-summary-panel { border-left: 0; border-top: 1px solid #e4e9e6; padding-left: 0; padding-top: 12px; }
@@ -2361,6 +2603,19 @@ document.addEventListener('DOMContentLoaded', function () {
     function safeText(value) {
         return value == null || String(value).trim() === '' ? '-' : String(value);
     }
+    function serviceTypeLabel(value) {
+        var serviceType = String(value || '').trim().toLowerCase();
+        var labels = {
+            'solar': 'Solar',
+            'hvac': 'HVAC',
+            'security': 'Security Solutions'
+        };
+        return labels[serviceType] || '-';
+    }
+    function currentSalesInfoServiceType() {
+        var modalEl = document.getElementById('crmSalesInfoModal');
+        return modalEl ? String(modalEl.dataset.serviceType || '').trim().toLowerCase() : '';
+    }
     function formatJobOrderPreview(yearValue, sequenceValue) {
         var year = parseInt(yearValue, 10);
         var sequence = parseInt(sequenceValue, 10);
@@ -2411,6 +2666,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var current = normalizeSalesStatus(currentStatus);
         var target = normalizeSalesStatus(targetStatus);
         if (entryMode === 'edit' && current === target) return true;
+        if (target === 'closed lost' && current !== 'closed won' && current !== 'closed lost') return true;
         return getNextSalesStatuses(current).indexOf(target) !== -1;
     }
     function notifySalesProgress(message) {
@@ -2422,17 +2678,36 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     function syncLogOcularDateField(status) {
         var wrap = document.getElementById('logOcularDateWrap');
+        var startWrap = document.getElementById('logOcularStartTimeWrap');
+        var endWrap = document.getElementById('logOcularEndTimeWrap');
         var calendarWrap = document.getElementById('logOcularCalendarWrap');
         var proposalWrap = document.getElementById('proposalQuoteCalculatorWrap');
         var input = document.getElementById('logOcularDate');
+        var startInput = document.getElementById('logOcularStartTime');
+        var endInput = document.getElementById('logOcularEndTime');
         var isSurvey = normalizeSalesStatus(status) === 'for survey';
         var isProposal = normalizeSalesStatus(status) === 'forproposal';
+        var pipeline = document.getElementById('logSalesPipeline');
+        var isNegotiation = normalizeSalesStatus(status) === 'negotiation' || normalizeSalesStatus(pipeline ? pipeline.dataset.currentStatus : '') === 'negotiation';
         if (wrap) wrap.classList.toggle('d-none', !isSurvey);
+        if (startWrap) startWrap.classList.toggle('d-none', !isSurvey);
+        if (endWrap) endWrap.classList.toggle('d-none', !isSurvey);
         if (calendarWrap) calendarWrap.classList.toggle('d-none', !isSurvey);
         if (proposalWrap) proposalWrap.classList.toggle('d-none', !isProposal);
         if (input) input.required = isSurvey;
+        if (startInput) startInput.required = isSurvey;
+        if (endInput) endInput.required = isSurvey;
         document.querySelectorAll('#crmLogSalesActivityModal .crm-log-non-survey-field').forEach(function (field) {
             field.classList.toggle('d-none', isSurvey || isProposal);
+        });
+        document.querySelectorAll('#crmLogSalesActivityModal .crm-log-hide-survey').forEach(function (field) {
+            field.classList.toggle('d-none', isSurvey);
+        });
+        document.querySelectorAll('#crmLogSalesActivityModal .crm-log-hide-negotiation').forEach(function (field) {
+            field.classList.toggle('d-none', isNegotiation);
+        });
+        document.querySelectorAll('#crmLogSalesActivityModal .crm-log-needs-analysis-field').forEach(function (field) {
+            field.classList.toggle('d-none', normalizeSalesStatus(status) !== 'contacted');
         });
         renderLogOcularScheduleConflicts(input ? input.value : '');
         if (isProposal && window.__crmProposalCalculator && typeof window.__crmProposalCalculator.refresh === 'function') {
@@ -2447,6 +2722,70 @@ document.addEventListener('DOMContentLoaded', function () {
         return (ocularScheduleData || []).filter(function (item) {
             return String(item.date || '') === selectedDate && String(item.sales_record_id || '') !== currentSalesRecordId;
         });
+    }
+    function formatTimelineDate(dateValue) {
+        var parts = String(dateValue || '').split('-');
+        if (parts.length !== 3) return dateValue || 'Selected day';
+        var dateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return dateObj.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+    function formatTimelineHour(hour) {
+        var suffix = hour >= 12 ? 'PM' : 'AM';
+        var displayHour = hour % 12 || 12;
+        return displayHour + ':00 ' + suffix;
+    }
+    function renderOcularDayTimeline(dateValue) {
+        var modalEl = document.getElementById('crmOcularDayTimelineModal');
+        var titleEl = document.getElementById('crmOcularDayTimelineModalLabel');
+        var subtitleEl = document.getElementById('crmOcularDayTimelineSubtitle');
+        var emptyEl = document.getElementById('crmOcularDayTimelineEmpty');
+        var timelineEl = document.getElementById('crmOcularDayTimeline');
+        var axisEl = document.getElementById('crmOcularDayTimeAxis');
+        var trackEl = document.getElementById('crmOcularDayScheduleTrack');
+        if (!modalEl || !axisEl || !trackEl) return;
+        var dayEvents = (ocularScheduleData || []).filter(function (item) {
+            return String(item.date || '') === String(dateValue || '');
+        }).sort(function (a, b) {
+            return Number(a.start_minutes || 540) - Number(b.start_minutes || 540);
+        });
+        var startHour = 7;
+        var endHour = 21;
+        var hourHeight = 56;
+        var timelineStart = startHour * 60;
+        var timelineEnd = endHour * 60;
+        var timelineMinutes = timelineEnd - timelineStart;
+        if (titleEl) titleEl.textContent = 'Ocular Timeline - ' + formatTimelineDate(dateValue);
+        if (subtitleEl) subtitleEl.textContent = '7:00 AM - 9:00 PM';
+        axisEl.innerHTML = '';
+        for (var hour = startHour; hour < endHour; hour += 1) {
+            var label = document.createElement('div');
+            label.className = 'ocular-day-hour-label';
+            label.textContent = formatTimelineHour(hour);
+            axisEl.appendChild(label);
+        }
+        trackEl.innerHTML = '';
+        dayEvents.forEach(function (eventItem) {
+            var startMinutes = Number(eventItem.start_minutes || 540);
+            var endMinutes = Number(eventItem.end_minutes || (startMinutes + 60));
+            startMinutes = Math.max(timelineStart, Math.min(startMinutes, timelineEnd - 15));
+            endMinutes = Math.max(startMinutes + 15, Math.min(endMinutes, timelineEnd));
+            var top = ((startMinutes - timelineStart) / timelineMinutes) * (hourHeight * (endHour - startHour));
+            var height = Math.max(42, ((endMinutes - startMinutes) / timelineMinutes) * (hourHeight * (endHour - startHour)));
+            var block = document.createElement('div');
+            block.className = 'ocular-day-schedule-block';
+            block.style.top = top + 'px';
+            block.style.height = height + 'px';
+            block.innerHTML =
+                '<div class="ocular-day-schedule-time">' + escapeHtml(eventItem.time_label || 'Time not set') + '</div>' +
+                '<div class="ocular-day-schedule-client">' + escapeHtml(eventItem.client_name || 'Client') + '</div>' +
+                '<div class="ocular-day-schedule-meta">' + escapeHtml(eventItem.customer_id || '-') + ' · ' + escapeHtml(eventItem.assigned_sales || '-') + '</div>';
+            trackEl.appendChild(block);
+        });
+        if (emptyEl) emptyEl.classList.toggle('d-none', dayEvents.length > 0);
+        if (timelineEl) timelineEl.classList.toggle('d-none', dayEvents.length === 0);
+        if (window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }
     }
     function renderLogOcularScheduleConflicts(dateValue) {
         var selectedDate = String(dateValue || '').trim();
@@ -2489,6 +2828,181 @@ document.addEventListener('DOMContentLoaded', function () {
                 stageEl.classList.add('is-upcoming');
             }
         });
+    }
+    function updateSalesInfoStageView(stage) {
+        var selectedStage = normalizeSalesStatus(stage || 'new');
+        var serviceType = currentSalesInfoServiceType();
+        var stageHint = document.getElementById('salesInfoStageHint');
+        if (stageHint) {
+            stageHint.textContent = 'Viewing saved fields for ' + salesStatusLabel(selectedStage) + '.';
+        }
+        document.querySelectorAll('[data-sales-info-stage-fields]').forEach(function (field) {
+            var stagesText = ' ' + String(field.getAttribute('data-sales-info-stage-fields') || '') + ' ';
+            var visible = stagesText.indexOf(' ' + selectedStage + ' ') !== -1;
+            var serviceField = field.getAttribute('data-sales-service-field');
+            if (visible && serviceField) {
+                visible = serviceType === serviceField || !serviceType;
+            }
+            if (field.hasAttribute('data-sales-info-empty-service')) {
+                visible = visible && serviceType && serviceType !== 'solar';
+            }
+            field.classList.toggle('d-none', !visible);
+        });
+        var pipeline = document.getElementById('salesInfoPipeline');
+        if (pipeline) {
+            pipeline.dataset.selectedStage = selectedStage;
+            pipeline.querySelectorAll('.crm-sales-pipeline-stage').forEach(function (stageEl) {
+                var stageValue = normalizeSalesStatus(stageEl.getAttribute('data-stage') || '');
+                stageEl.classList.toggle('is-selected', stageValue === selectedStage);
+                stageEl.setAttribute('aria-pressed', stageValue === selectedStage ? 'true' : 'false');
+            });
+        }
+    }
+    function currentHistoryDetailServiceType() {
+        return historyDetailModalEl ? String(historyDetailModalEl.dataset.serviceType || '').trim().toLowerCase() : '';
+    }
+    function updateHistoryDetailStageView(stage) {
+        var selectedStage = normalizeSalesStatus(stage || 'new');
+        var serviceType = currentHistoryDetailServiceType();
+        document.querySelectorAll('#crmSalesHistoryDetailModal [data-history-stage-fields]').forEach(function (field) {
+            var stagesText = ' ' + String(field.getAttribute('data-history-stage-fields') || '') + ' ';
+            var visible = stagesText.indexOf(' ' + selectedStage + ' ') !== -1;
+            var serviceField = field.getAttribute('data-history-service-field');
+            if (visible && serviceField) {
+                visible = serviceType === serviceField || !serviceType;
+            }
+            field.classList.toggle('d-none', !visible);
+        });
+        var pipeline = document.getElementById('historyDetailPipeline');
+        if (pipeline) {
+            pipeline.dataset.selectedStage = selectedStage;
+            pipeline.querySelectorAll('.crm-sales-pipeline-stage').forEach(function (stageEl) {
+                var stageValue = normalizeSalesStatus(stageEl.getAttribute('data-stage') || '');
+                stageEl.classList.toggle('is-selected', stageValue === selectedStage);
+                stageEl.setAttribute('aria-pressed', stageValue === selectedStage ? 'true' : 'false');
+            });
+        }
+    }
+    function syncLogServiceFields() {
+        var serviceSelect = document.getElementById('logServiceType');
+        var serviceType = serviceSelect ? String(serviceSelect.value || '').trim().toLowerCase() : '';
+        var hasServiceWithoutFields = serviceType && serviceType !== 'solar';
+        var hasSolarFields = serviceType === 'solar';
+        var statusInput = document.getElementById('logSalesStatus');
+        var currentStatus = normalizeSalesStatus(statusInput ? statusInput.value : '');
+        var showNonSurveyFields = currentStatus !== 'for survey' && currentStatus !== 'forproposal';
+        var pipeline = document.getElementById('logSalesPipeline');
+        var isNegotiation = currentStatus === 'negotiation' || normalizeSalesStatus(pipeline ? pipeline.dataset.currentStatus : '') === 'negotiation';
+        var isSurvey = currentStatus === 'for survey';
+        var isNeedsAnalysis = currentStatus === 'contacted';
+        document.querySelectorAll('#crmLogSalesActivityModal .crm-log-hide-survey').forEach(function (field) {
+            field.classList.toggle('d-none', isSurvey);
+        });
+        document.querySelectorAll('#crmLogSalesActivityModal .crm-log-needs-analysis-field').forEach(function (field) {
+            field.classList.toggle('d-none', !isNeedsAnalysis);
+        });
+        document.querySelectorAll('#crmLogSalesActivityModal .crm-log-solar-field').forEach(function (field) {
+            field.classList.toggle('d-none', !showNonSurveyFields || !isNeedsAnalysis || !hasSolarFields || (isNegotiation && field.classList.contains('crm-log-hide-negotiation')));
+        });
+        var emptyState = document.getElementById('logServiceEmptyState');
+        if (emptyState) emptyState.classList.toggle('d-none', !showNonSurveyFields || !isNeedsAnalysis || !hasServiceWithoutFields || isNegotiation);
+    }
+    function updateClosedLostPreview(row, currentStatus) {
+        var setPreviewText = function (id, value) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = value || '-';
+        };
+        setPreviewText('logClosedLostPreviewClient', row ? row.dataset.clientName : '-');
+        setPreviewText('logClosedLostPreviewStatus', salesStatusLabel(currentStatus));
+        setPreviewText('logClosedLostPreviewLead', row ? row.dataset.leadSource : '-');
+        setPreviewText('logClosedLostPreviewService', row ? serviceTypeLabel(row.dataset.serviceType) : '-');
+        setPreviewText('logClosedLostPreviewAssigned', row ? row.dataset.assignedSales : '-');
+        setPreviewText('logClosedLostPreviewCost', row ? row.dataset.projectCost : '-');
+        document.querySelectorAll('[data-closed-lost-preview-hide-survey]').forEach(function (node) {
+            node.classList.toggle('d-none', normalizeSalesStatus(currentStatus) === 'for survey');
+        });
+    }
+    function syncNegotiationOutcomeControl(currentStatus, selectedStatus) {
+        var wrap = document.getElementById('logNegotiationOutcomeWrap');
+        var checkbox = document.getElementById('logNegotiationClosedLost');
+        var statusInput = document.getElementById('logSalesStatus');
+        var pipeline = document.getElementById('logSalesPipeline');
+        var helpText = document.getElementById('logClosedLostHelpText');
+        var current = normalizeSalesStatus(currentStatus);
+        var selected = normalizeSalesStatus(selectedStatus);
+        var show = current !== 'closed won' && current !== 'closed lost';
+        if (wrap) wrap.classList.toggle('d-none', !show);
+        if (helpText) {
+            helpText.textContent = current === 'negotiation'
+                ? 'Leave unchecked to save as Closed Won. Check to save as Closed Lost.'
+                : 'Check to send this sales record directly to Closed Lost.';
+        }
+        if (!show) {
+            syncClosedLostMode(false, current);
+            return;
+        }
+        if (wrap) wrap.dataset.defaultStatus = selected || '';
+        if (checkbox) checkbox.checked = selected === 'closed lost';
+        var nextStatus = checkbox && checkbox.checked ? 'closed lost' : (current === 'negotiation' ? 'closed won' : selected);
+        if (statusInput) statusInput.value = nextStatus;
+        if (pipeline) {
+            renderSalesPipeline(pipeline, nextStatus);
+            updateLogSalesPipelineAvailability(pipeline, current, nextStatus, pipeline.dataset.entryMode || 'log');
+        }
+        if (nextStatus === 'closed lost') {
+            syncLogOcularDateField(nextStatus);
+            syncLogServiceFields();
+            syncClosedLostMode(true, current);
+        } else {
+            syncClosedLostMode(false, current);
+            syncLogOcularDateField(nextStatus);
+            syncLogServiceFields();
+        }
+    }
+    function applyNegotiationOutcomeChoice() {
+        var pipeline = document.getElementById('logSalesPipeline');
+        var current = normalizeSalesStatus(pipeline ? pipeline.dataset.currentStatus : '');
+        if (current === 'closed won' || current === 'closed lost') return;
+        var checkbox = document.getElementById('logNegotiationClosedLost');
+        var wrap = document.getElementById('logNegotiationOutcomeWrap');
+        var defaultStatus = normalizeSalesStatus(wrap ? wrap.dataset.defaultStatus : '');
+        var nextStatus = checkbox && checkbox.checked ? 'closed lost' : (current === 'negotiation' ? 'closed won' : defaultStatus);
+        syncNegotiationOutcomeControl(current, nextStatus);
+    }
+    function syncClosedLostMode(isClosedLost, currentStatus) {
+        var modal = document.getElementById('crmLogSalesActivityModal');
+        var preview = document.getElementById('logClosedLostPreviewWrap');
+        var notesLabel = document.getElementById('logInteractionNotesLabel');
+        var notesInput = document.getElementById('logInteractionNotes');
+        var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
+        var salesRecordId = salesRecordIdInput ? String(salesRecordIdInput.value || '').trim() : '';
+        var row = salesRecordId ? document.querySelector('.crm-sales-row[data-sales-record-id="' + salesRecordId + '"]') : null;
+        if (preview) preview.classList.toggle('d-none', !isClosedLost);
+        if (notesLabel) notesLabel.textContent = isClosedLost ? 'Reason' : 'Interaction Notes';
+        if (notesInput) {
+            notesInput.placeholder = isClosedLost ? 'Reason for closed lost' : 'What happened in this interaction?';
+            notesInput.required = !!isClosedLost;
+        }
+        updateClosedLostPreview(row, currentStatus);
+        if (!modal) return;
+        modal.querySelectorAll('.modal-body .row.g-3 > div').forEach(function (node) {
+            var keepVisible = node.id === 'logNegotiationOutcomeWrap'
+                || node.id === 'logClosedLostPreviewWrap'
+                || node.classList.contains('crm-log-reason-field')
+                || node.classList.contains('crm-log-file-field');
+            if (keepVisible) return;
+            if (isClosedLost) {
+                node.classList.add('crm-log-closed-lost-hidden', 'd-none');
+            } else if (node.classList.contains('crm-log-closed-lost-hidden')) {
+                node.classList.remove('crm-log-closed-lost-hidden', 'd-none');
+            }
+        });
+        var progressBlock = document.getElementById('logSalesProgressBlock');
+        if (progressBlock && isClosedLost) {
+            progressBlock.classList.add('crm-log-closed-lost-hidden', 'd-none');
+        } else if (progressBlock && progressBlock.classList.contains('crm-log-closed-lost-hidden')) {
+            progressBlock.classList.remove('crm-log-closed-lost-hidden', 'd-none');
+        }
     }
     function updateLogSalesPipelineAvailability(rootEl, currentStatus, selectedStatus, entryMode) {
         if (!rootEl) return;
@@ -2848,6 +3362,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!row || !salesModal) {
             return;
         }
+        var salesInfoModalEl = document.getElementById('crmSalesInfoModal');
+        if (salesInfoModalEl) {
+            salesInfoModalEl.dataset.serviceType = String(row.dataset.serviceType || '').trim().toLowerCase();
+        }
         document.getElementById('salesSidebarClientName').textContent = row.dataset.clientName || '-';
         document.getElementById('salesInfoClientName').value = row.dataset.clientName || '-';
         document.getElementById('salesInfoDateCreated').value = row.dataset.dateCreated || '-';
@@ -2858,9 +3376,17 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('salesInfoProjectCost').value = row.dataset.projectCost || '-';
         document.getElementById('salesInfoDownpayment').value = row.dataset.downpayment || '-';
         document.getElementById('salesInfoROI').value = row.dataset.returnOnInvestment || '-';
+        document.getElementById('salesInfoProposalSystemType').value = row.dataset.proposalSystemType || '-';
+        document.getElementById('salesInfoProposalLoadKw').value = row.dataset.proposalLoadKw && row.dataset.proposalLoadKw !== '-' ? (row.dataset.proposalLoadKw + ' kW') : '-';
+        document.getElementById('salesInfoProposalSystem').value = row.dataset.proposalSelectedSystem || '-';
+        document.getElementById('salesInfoProposalBattery').value = row.dataset.proposalSelectedBattery && row.dataset.proposalSelectedBattery !== '-' ? (row.dataset.proposalSelectedBattery + ' kWh') : '-';
+        document.getElementById('salesInfoServiceType').value = serviceTypeLabel(row.dataset.serviceType);
         document.getElementById('salesInfoAssignedSales').value = row.dataset.assignedSales || '-';
         document.getElementById('salesInfoOcularDate').value = row.dataset.ocularDateDisplay || '-';
-        renderSalesPipeline(document.getElementById('salesInfoPipeline'), row.dataset.salesStatus || 'new');
+        document.getElementById('salesInfoOcularTime').value = row.dataset.ocularTimeDisplay || '-';
+        var salesInfoCurrentStatus = row.dataset.salesStatus || 'new';
+        renderSalesPipeline(document.getElementById('salesInfoPipeline'), salesInfoCurrentStatus);
+        updateSalesInfoStageView(salesInfoCurrentStatus);
         document.getElementById('salesInfoClientStatus').value = row.dataset.clientStatus || '-';
         document.getElementById('salesInfoInteractionNotes').value = row.dataset.interactionNotes || '-';
         var filesContainer = document.getElementById('salesInfoFilesContainer');
@@ -2909,7 +3435,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
         if (salesRecordIdInput) salesRecordIdInput.value = selectedSalesRecordId;
         var leadSource = document.getElementById('logLeadSource');
+        var serviceType = document.getElementById('logServiceType');
         var monthlyBill = document.getElementById('logMonthlyElectricBill');
+        var monthlyBillUnit = document.getElementById('logMonthlyElectricBillUnit');
         var roofType = document.getElementById('logRoofType');
         var ownership = document.getElementById('logOwnership');
         var projectCost = document.getElementById('logProjectCost');
@@ -2917,18 +3445,24 @@ document.addEventListener('DOMContentLoaded', function () {
         var roi = document.getElementById('logROI');
         var salesStatus = document.getElementById('logSalesStatus');
         var ocularDate = document.getElementById('logOcularDate');
+        var ocularStartTime = document.getElementById('logOcularStartTime');
+        var ocularEndTime = document.getElementById('logOcularEndTime');
         var clientName = document.getElementById('logClientName');
         var clientStatus = document.getElementById('logClientStatus');
         var notes = document.getElementById('logInteractionNotes');
         if (clientName) clientName.value = row.dataset.clientName || '';
         if (leadSource) leadSource.value = (row.dataset.leadSource || '').toLowerCase() === '-' ? '' : (row.dataset.leadSource || '').toLowerCase();
+        if (serviceType) serviceType.value = (row.dataset.serviceType || '').toLowerCase();
         if (monthlyBill) monthlyBill.value = row.dataset.monthlyElectricBillRaw || '';
+        if (monthlyBillUnit) monthlyBillUnit.value = (String(row.dataset.monthlyElectricBillUnit || '').toLowerCase() === 'w') ? 'w' : 'kw';
         if (roofType) roofType.value = row.dataset.roofType === '-' ? '' : (row.dataset.roofType || '');
         if (ownership) ownership.value = (row.dataset.ownership || '').toLowerCase() === '-' ? '' : (row.dataset.ownership || '').toLowerCase();
         if (projectCost) projectCost.value = row.dataset.projectCostRaw || '';
         if (downpayment) downpayment.value = row.dataset.downpaymentRaw || '';
         if (roi) roi.value = row.dataset.returnOnInvestment === '-' ? '' : (row.dataset.returnOnInvestment || '');
         if (ocularDate) ocularDate.value = row.dataset.ocularDate || '';
+        if (ocularStartTime) ocularStartTime.value = row.dataset.ocularStartTime || '';
+        if (ocularEndTime) ocularEndTime.value = row.dataset.ocularEndTime || '';
         var currentSalesStatus = normalizeSalesStatus((row.dataset.salesStatus || '').toLowerCase() === '-' ? '' : (row.dataset.salesStatus || '').toLowerCase());
         var allowedNextStatuses = getNextSalesStatuses(currentSalesStatus);
         var selectedSalesStatus = entryMode === 'edit' ? currentSalesStatus : (allowedNextStatuses[0] || '');
@@ -2942,7 +3476,17 @@ document.addEventListener('DOMContentLoaded', function () {
         var editablePipeline = document.getElementById('logSalesPipeline');
         renderSalesPipeline(editablePipeline, selectedSalesStatus);
         updateLogSalesPipelineAvailability(editablePipeline, currentSalesStatus, selectedSalesStatus, entryMode);
-        syncLogOcularDateField(selectedSalesStatus);
+        syncNegotiationOutcomeControl(currentSalesStatus, selectedSalesStatus);
+        if (window.__crmProposalCalculator && typeof window.__crmProposalCalculator.applySaved === 'function') {
+            window.__crmProposalCalculator.applySaved({
+                systemType: row.dataset.proposalSystemType === '-' ? '' : row.dataset.proposalSystemType,
+                source: row.dataset.proposalSource || 'bill',
+                consumptionValue: row.dataset.proposalConsumptionValue || row.dataset.monthlyElectricBillRaw || '',
+                consumptionUnit: row.dataset.proposalConsumptionUnit || 'kw',
+                selectedSystemId: row.dataset.proposalSelectedSystemId || '',
+                selectedBatteryKwh: row.dataset.proposalSelectedBattery || ''
+            });
+        }
         if (clientStatus) clientStatus.value = row.dataset.clientStatus === '-' ? '' : (row.dataset.clientStatus || '');
         if (notes) notes.value = row.dataset.interactionNotes === '-' ? '' : (row.dataset.interactionNotes || '');
         activityUploadFiles = [];
@@ -3084,7 +3628,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('salesClientSalesROI').value = row.dataset.returnOnInvestment || '-';
         document.getElementById('salesClientSalesAssignedSales').value = row.dataset.assignedSales || '-';
         document.getElementById('salesClientSalesStatus').value = row.dataset.salesStatus || '-';
-        document.getElementById('salesClientSalesOcularDate').value = row.dataset.ocularDateDisplay || '-';
+        document.getElementById('salesClientSalesOcularDate').value = row.dataset.ocularTimeDisplay && row.dataset.ocularTimeDisplay !== '-' ? (row.dataset.ocularDateDisplay || '-') + ' · ' + row.dataset.ocularTimeDisplay : (row.dataset.ocularDateDisplay || '-');
         renderSalesPipeline(document.getElementById('salesClientSalesPipeline'), row.dataset.salesStatus || 'new');
         var profileTab = document.getElementById('sales-client-profile-tab');
         if (profileTab && window.bootstrap && window.bootstrap.Tab) {
@@ -3106,6 +3650,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (historyRow && historyDetailModal) {
             historyDetailActiveLogId = String(historyRow.dataset.historyLogId || '').trim();
             var historySalesRecordId = String(historyRow.dataset.historySalesRecordId || '').trim();
+            if (historyDetailModalEl) {
+                historyDetailModalEl.dataset.serviceType = String(historyRow.dataset.historyServiceType || '').trim().toLowerCase();
+            }
             document.getElementById('historyDetailName').value = historyRow.dataset.historyName || '-';
             document.getElementById('historyDetailUpdatedBy').value = historyRow.dataset.historyUpdatedBy || '-';
             document.getElementById('historyDetailDate').value = historyRow.dataset.historyDate || '-';
@@ -3114,12 +3661,15 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('historyDetailMonthlyBill').value = historyRow.dataset.historyMonthlyBill || '-';
             document.getElementById('historyDetailRoofType').value = historyRow.dataset.historyRoofType || '-';
             document.getElementById('historyDetailOwnership').value = historyRow.dataset.historyOwnership || '-';
+            document.getElementById('historyDetailServiceType').value = serviceTypeLabel(historyRow.dataset.historyServiceType);
             document.getElementById('historyDetailProjectCost').value = historyRow.dataset.historyProjectCost || '-';
             document.getElementById('historyDetailDownpayment').value = historyRow.dataset.historyDownpayment || '-';
             document.getElementById('historyDetailRoi').value = historyRow.dataset.historyRoi || '-';
             document.getElementById('historyDetailOcularDate').value = historyRow.dataset.historyOcularDate || '-';
+            document.getElementById('historyDetailOcularTime').value = historyRow.dataset.historyOcularTime || '-';
             document.getElementById('historyDetailNotes').value = historyRow.dataset.historyNotes || '-';
             renderSalesPipeline(document.getElementById('historyDetailPipeline'), historyRow.dataset.historySalesStatus || 'new');
+            updateHistoryDetailStageView(historyRow.dataset.historySalesStatus || 'new');
             var detailsAttachmentsContainer = document.getElementById('historyDetailAttachments');
             var attachmentsTemplateId = historyRow.dataset.historyAttachmentsTemplateId || '';
             var attachmentsTemplate = attachmentsTemplateId ? document.getElementById(attachmentsTemplateId) : null;
@@ -3372,6 +3922,26 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     var logSalesPipeline = document.getElementById('logSalesPipeline');
     var logSalesStatusInput = document.getElementById('logSalesStatus');
+    var salesInfoPipeline = document.getElementById('salesInfoPipeline');
+    var historyDetailPipeline = document.getElementById('historyDetailPipeline');
+    if (salesInfoPipeline) {
+        salesInfoPipeline.addEventListener('click', function (event) {
+            var btn = event.target.closest('.crm-sales-pipeline-stage');
+            if (!btn || !salesInfoPipeline.contains(btn)) return;
+            var selectedStage = normalizeSalesStatus(btn.getAttribute('data-stage') || '');
+            if (!selectedStage) return;
+            updateSalesInfoStageView(selectedStage);
+        });
+    }
+    if (historyDetailPipeline) {
+        historyDetailPipeline.addEventListener('click', function (event) {
+            var btn = event.target.closest('.crm-sales-pipeline-stage');
+            if (!btn || !historyDetailPipeline.contains(btn)) return;
+            var selectedStage = normalizeSalesStatus(btn.getAttribute('data-stage') || '');
+            if (!selectedStage) return;
+            updateHistoryDetailStageView(selectedStage);
+        });
+    }
     if (logSalesPipeline && logSalesStatusInput) {
         logSalesPipeline.addEventListener('click', function (event) {
             var btn = event.target.closest('.crm-sales-pipeline-stage');
@@ -3388,8 +3958,16 @@ document.addEventListener('DOMContentLoaded', function () {
             logSalesStatusInput.value = nextStatus;
             renderSalesPipeline(logSalesPipeline, nextStatus);
             updateLogSalesPipelineAvailability(logSalesPipeline, currentStatus, nextStatus, entryMode);
-            syncLogOcularDateField(nextStatus);
+            syncNegotiationOutcomeControl(currentStatus, nextStatus);
         });
+    }
+    var logNegotiationClosedLostInput = document.getElementById('logNegotiationClosedLost');
+    if (logNegotiationClosedLostInput) {
+        logNegotiationClosedLostInput.addEventListener('change', applyNegotiationOutcomeChoice);
+    }
+    var logServiceTypeInput = document.getElementById('logServiceType');
+    if (logServiceTypeInput) {
+        logServiceTypeInput.addEventListener('change', syncLogServiceFields);
     }
     var logOcularDateInput = document.getElementById('logOcularDate');
     if (logOcularDateInput) {
@@ -3409,6 +3987,43 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!pickedDate) return;
             logOcularDateInput.value = pickedDate;
             renderLogOcularScheduleConflicts(pickedDate);
+            renderOcularDayTimeline(pickedDate);
+        });
+    }
+    var ocularDayTimelineModalEl = document.getElementById('crmOcularDayTimelineModal');
+    var ocularDayTimelineBackBtn = document.getElementById('crmOcularDayTimelineBackBtn');
+    if (ocularDayTimelineBackBtn && ocularDayTimelineModalEl && window.bootstrap) {
+        ocularDayTimelineBackBtn.addEventListener('click', function () {
+            bootstrap.Modal.getOrCreateInstance(ocularDayTimelineModalEl).hide();
+        });
+    }
+    if (ocularDayTimelineModalEl) {
+        ocularDayTimelineModalEl.addEventListener('shown.bs.modal', function () {
+            var backdropEls = document.querySelectorAll('.modal-backdrop.show');
+            var latestBackdrop = backdropEls.length ? backdropEls[backdropEls.length - 1] : null;
+            if (latestBackdrop) {
+                latestBackdrop.style.zIndex = '1220';
+                latestBackdrop.style.opacity = '0.45';
+            }
+            ocularDayTimelineModalEl.style.zIndex = '1225';
+        });
+        ocularDayTimelineModalEl.addEventListener('hidden.bs.modal', function () {
+            var hasOpenModal = document.querySelector('.modal.show');
+            if (hasOpenModal) document.body.classList.add('modal-open');
+        });
+    }
+    var crmOcularCalendarModalEl = document.getElementById('crmOcularCalendarModal');
+    if (crmOcularCalendarModalEl) {
+        crmOcularCalendarModalEl.addEventListener('click', function (event) {
+            var dayBtn = event.target.closest('[data-ocular-calendar-date]');
+            if (!dayBtn || !crmOcularCalendarModalEl.contains(dayBtn)) return;
+            var pickedDate = dayBtn.getAttribute('data-ocular-calendar-date') || '';
+            if (!pickedDate) return;
+            document.querySelectorAll('#crmOcularCalendarModal [data-ocular-calendar-date].is-selected').forEach(function (node) {
+                node.classList.remove('is-selected');
+            });
+            dayBtn.classList.add('is-selected');
+            renderOcularDayTimeline(pickedDate);
         });
     }
 
@@ -3422,7 +4037,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (error) {
             systemOptions = [];
         }
-        var state = { type: 'panel', mode: 'load', range: 'all', source: 'bill' };
+        var state = { systemType: 'ongrid', range: 'all', source: 'bill' };
         var rowsWrap = document.getElementById('proposalApplianceRows');
         var toNum = function (value) {
             var n = parseFloat(value);
@@ -3438,15 +4053,35 @@ document.addEventListener('DOMContentLoaded', function () {
         var scopedAll = function (selector) { return Array.from(root.querySelectorAll(selector)); };
         var getBillMonthlyKwh = function () {
             var raw = toNum(scoped('.js-proposal-monthly-bill') ? scoped('.js-proposal-monthly-bill').value : 0);
-            var unit = String(scoped('.js-proposal-monthly-unit') ? scoped('.js-proposal-monthly-unit').value : 'php').toLowerCase();
-            var meralco = toNum(scoped('.js-proposal-meralco') ? scoped('.js-proposal-meralco').value : {{ calculator_default_meralco_rate|default:'13' }});
-            if (unit === 'php') return meralco > 0 ? raw / meralco : 0;
+            var unit = String(scoped('.js-proposal-monthly-unit') ? scoped('.js-proposal-monthly-unit').value : 'kw').toLowerCase();
             if (unit === 'kwh') return raw;
             if (unit === 'w') return (raw / 1000) * 24 * 30;
             return raw * 24 * 30;
         };
+        var getRequiredSystemKw = function () {
+            if (state.source === 'appliances') {
+                var connectedWatts = 0;
+                if (rowsWrap) {
+                    rowsWrap.querySelectorAll('tr').forEach(function (row) {
+                        var watts = toNum(row.querySelector('.js-proposal-watts') ? row.querySelector('.js-proposal-watts').value : 0);
+                        var wattUnit = String(row.querySelector('.js-proposal-watt-unit') ? row.querySelector('.js-proposal-watt-unit').value : 'w').toLowerCase();
+                        if (wattUnit === 'kw') watts = watts * 1000;
+                        connectedWatts += watts * toNum(row.querySelector('.js-proposal-qty') ? row.querySelector('.js-proposal-qty').value : 0);
+                    });
+                }
+                return connectedWatts / 1000;
+            }
+            var raw = toNum(scoped('.js-proposal-monthly-bill') ? scoped('.js-proposal-monthly-bill').value : 0);
+            var unit = String(scoped('.js-proposal-monthly-unit') ? scoped('.js-proposal-monthly-unit').value : 'kw').toLowerCase();
+            return unit === 'w' ? raw / 1000 : raw;
+        };
         var optionLabel = function (option) {
             return (option.system_type || 'System') + ' - ' + fixed(option.capacity_kw || 0, 2) + ' kW - ' + (option.panel_qty || 0) + ' pcs';
+        };
+        var warrantyLabel = function (value) {
+            var years = toNum(value);
+            if (!years) return '-';
+            return fixed(years, years % 1 === 0 ? 0 : 1) + ' year' + (years === 1 ? '' : 's');
         };
         var selectedOption = function (selector) {
             var el = scoped(selector);
@@ -3462,39 +4097,107 @@ document.addEventListener('DOMContentLoaded', function () {
                 el.textContent = value;
             });
         };
+        var textNumber = function (selector) {
+            var el = scoped(selector);
+            return toNum(el ? String(el.textContent || '').replace(/[^0-9.-]/g, '') : 0);
+        };
+        var getApplianceInputRows = function () {
+            if (!rowsWrap) return [];
+            return Array.from(rowsWrap.querySelectorAll('tr')).map(function (row) {
+                var wattsInput = row.querySelector('.js-proposal-watts');
+                var unitInput = row.querySelector('.js-proposal-watt-unit');
+                var qtyInput = row.querySelector('.js-proposal-qty');
+                var hoursInput = row.querySelector('.js-proposal-hours');
+                var watts = toNum(wattsInput ? wattsInput.value : 0);
+                var unit = String(unitInput ? unitInput.value : 'w').toLowerCase() === 'kw' ? 'kw' : 'w';
+                var qty = toNum(qtyInput ? qtyInput.value : 0);
+                var hours = toNum(hoursInput ? hoursInput.value : 0);
+                var connectedWatts = unit === 'kw' ? watts * 1000 : watts;
+                return {
+                    name: row.querySelector('.js-proposal-appliance') ? row.querySelector('.js-proposal-appliance').value : '',
+                    watts: watts,
+                    unit: unit,
+                    qty: qty,
+                    hours: hours,
+                    daily_kwh: (connectedWatts * qty * hours) / 1000
+                };
+            });
+        };
+        var systemTypeMatches = function (option, targetType) {
+            var raw = String(option.system_type || '').toLowerCase().replace(/[\s_-]+/g, '');
+            if (!raw) return true;
+            if (targetType === 'ongrid') return raw.indexOf('ongrid') !== -1 || raw.indexOf('on-grid') !== -1 || raw === 'gridtie' || raw === 'gridtied';
+            if (targetType === 'offgrid') return raw.indexOf('offgrid') !== -1 || raw.indexOf('off-grid') !== -1;
+            if (targetType === 'hybrid') return raw.indexOf('hybrid') !== -1;
+            return true;
+        };
+        var filteredSystemOptions = function () {
+            var requiredKw = getRequiredSystemKw();
+            var filtered = systemOptions.filter(function (option) {
+                var capacityKw = toNum(option.capacity_kw);
+                var meetsLoad = !requiredKw || !capacityKw || capacityKw >= requiredKw;
+                return systemTypeMatches(option, state.systemType) && meetsLoad;
+            });
+            return filtered;
+        };
         var populateSystemSelects = function () {
-            ['.js-proposal-system-select', '.js-proposal-roi-system'].forEach(function (selector) {
+            ['.js-proposal-system-select', '.js-proposal-roi-system', '.js-proposal-hybrid-system'].forEach(function (selector) {
                 var el = scoped(selector);
                 if (!el) return;
                 var current = el.value || '';
                 el.innerHTML = '<option value="">Select compatible system</option>';
-                systemOptions.forEach(function (option) {
+                filteredSystemOptions().forEach(function (option) {
                     var opt = document.createElement('option');
                     opt.value = String(option.id);
                     opt.textContent = optionLabel(option);
                     el.appendChild(opt);
                 });
-                if (current) el.value = current;
+                if (current && Array.from(el.options).some(function (option) { return option.value === current; })) {
+                    el.value = current;
+                }
             });
             populateBatterySelect();
         };
         var populateBatterySelect = function () {
             var select = scoped('.js-proposal-battery-kwh');
-            if (!select) return;
-            var current = select.value || '';
-            select.innerHTML = '<option value="">Select battery</option>';
-            var seen = new Set();
-            systemOptions.forEach(function (option) {
-                var kwh = toNum(option.battery_kwh);
-                if (!kwh || seen.has(String(kwh))) return;
-                seen.add(String(kwh));
-                var opt = document.createElement('option');
-                opt.value = String(kwh);
-                opt.textContent = fixed(kwh, 2) + ' kWh' + (option.battery_ampere_hour ? ' / ' + fixed(option.battery_ampere_hour, 2) + ' Ah' : '');
-                opt.setAttribute('data-ah', option.battery_ampere_hour || '');
-                select.appendChild(opt);
+            var hybridSelect = scoped('.js-proposal-hybrid-battery-kwh');
+            var selects = [select, hybridSelect].filter(Boolean);
+            if (!selects.length) return;
+            selects.forEach(function (activeSelect) {
+                var current = activeSelect.value || '';
+                activeSelect.innerHTML = '<option value="">Select battery variant</option>';
+                var seen = new Set();
+                filteredSystemOptions().forEach(function (option) {
+                    var kwh = toNum(option.battery_kwh);
+                    if (!kwh || seen.has(String(kwh))) return;
+                    seen.add(String(kwh));
+                    var opt = document.createElement('option');
+                    opt.value = String(kwh);
+                    opt.textContent = fixed(kwh, 2) + ' kWh' + (option.battery_ampere_hour ? ' / ' + fixed(option.battery_ampere_hour, 2) + ' Ah' : '');
+                    opt.setAttribute('data-ah', option.battery_ampere_hour || '');
+                    activeSelect.appendChild(opt);
+                });
+                if (current) activeSelect.value = current;
             });
-            if (current) select.value = current;
+        };
+        var syncHybridBatteryInfo = function (fallbackOption) {
+            var batterySelect = scoped('.js-proposal-hybrid-battery-kwh');
+            var ahInput = scoped('.js-proposal-hybrid-battery-ah');
+            var infoText = '-';
+            if (batterySelect) {
+                var selectedBatteryOption = batterySelect.options[batterySelect.selectedIndex];
+                var kwh = selectedBatteryOption ? selectedBatteryOption.value : '';
+                var ah = selectedBatteryOption ? selectedBatteryOption.getAttribute('data-ah') : '';
+                if (!kwh && fallbackOption && fallbackOption.battery_kwh != null) kwh = String(fallbackOption.battery_kwh);
+                if (!ah && fallbackOption && fallbackOption.battery_ampere_hour != null) ah = String(fallbackOption.battery_ampere_hour);
+                var ahDisplay = ah ? fixed(ah, 2) : '-';
+                var kwhDisplay = kwh ? fixed(kwh, 2) : '-';
+                infoText = (ah || kwh) ? (ahDisplay + ' / ' + kwhDisplay) : '-';
+                if (ahInput) ahInput.value = ahDisplay;
+            } else if (ahInput) {
+                ahInput.value = '-';
+            }
+            setText('.js-proposal-hybrid-battery-info', infoText);
         };
         var addRow = function (prefill) {
             if (!rowsWrap) return;
@@ -3637,15 +4340,136 @@ document.addEventListener('DOMContentLoaded', function () {
             setText('.js-proposal-imported-roi', selected.potential_roi != null ? fixed(selected.potential_roi, 2) : '-');
             setText('.js-proposal-roi-meta', 'System details: ' + (selected.system_type || '-') + ' / ' + (selected.specifications || '-'));
         };
+        var updateHybridComputation = function () {
+            var selected = selectedOption('.js-proposal-hybrid-system') || selectedOption('.js-proposal-system-select') || selectedOption('.js-proposal-roi-system') || {};
+            var wattage = toNum(scoped('.js-proposal-hybrid-panel-wattage') ? scoped('.js-proposal-hybrid-panel-wattage').value : 610);
+            var panelCount = toNum(selected.panel_qty);
+            var reserve = toNum(scoped('.js-proposal-hybrid-battery-reserve') ? scoped('.js-proposal-hybrid-battery-reserve').value : {{ calculator_default_battery_health_drop_percent|default:'20' }});
+            var sunHours = toNum(scoped('.js-proposal-hybrid-sun-hours') ? scoped('.js-proposal-hybrid-sun-hours').value : {{ calculator_default_sun_peak_hours|default:'3'|floatformat:'0' }});
+            var vdrop = toNum(scoped('.js-proposal-hybrid-vdrop') ? scoped('.js-proposal-hybrid-vdrop').value : {{ calculator_default_vdrop_percent|default:'20' }});
+            var meralco = toNum(scoped('.js-proposal-hybrid-meralco') ? scoped('.js-proposal-hybrid-meralco').value : {{ calculator_default_meralco_rate|default:'13' }});
+            var batterySelect = scoped('.js-proposal-hybrid-battery-kwh');
+            if (batterySelect && !batterySelect.value && selected.battery_kwh != null) {
+                var matchingBattery = Array.from(batterySelect.options || []).find(function (option) {
+                    return toNum(option.value) === toNum(selected.battery_kwh);
+                });
+                if (matchingBattery) batterySelect.value = matchingBattery.value;
+            }
+            var selectedBattery = toNum(batterySelect ? batterySelect.value : selected.battery_kwh);
+            var systemKw = (wattage * panelCount) / 1000;
+            var kwPeak = systemKw * Math.max(0, 1 - (vdrop / 100));
+            var panelDailyHarvest = kwPeak * sunHours;
+            var panelMonthlyHarvest = panelDailyHarvest * 30;
+            var panelYearlyHarvest = panelMonthlyHarvest * 12;
+            var batteryDailyHarvest = selectedBattery * Math.max(0, 1 - (reserve / 100));
+            var batteryMonthlyHarvest = batteryDailyHarvest * 30;
+            var batteryYearlyHarvest = batteryMonthlyHarvest * 12;
+            var dailyCombinedKwh = panelDailyHarvest + batteryDailyHarvest;
+            var monthlyCombinedKwh = panelMonthlyHarvest + batteryMonthlyHarvest;
+            var yearlyCombinedKwh = panelYearlyHarvest + batteryYearlyHarvest;
+            var dailySavings = dailyCombinedKwh * meralco;
+            var monthlySavings = monthlyCombinedKwh * meralco;
+            var annualSavings = yearlyCombinedKwh * meralco;
+            var cost = toNum(selected.cash_promo_price != null ? selected.cash_promo_price : selected.regular_price);
+            if (scoped('.js-proposal-hybrid-panel-count')) scoped('.js-proposal-hybrid-panel-count').value = fixed(panelCount, 0);
+            if (scoped('.js-proposal-hybrid-system-type')) scoped('.js-proposal-hybrid-system-type').value = selected.system_type || '-';
+            setText('.js-proposal-hybrid-cost', money(cost));
+            syncHybridBatteryInfo(selected);
+            setText('.js-proposal-hybrid-warranty-panel', warrantyLabel(selected.warranty_panel));
+            setText('.js-proposal-hybrid-warranty-battery', warrantyLabel(selected.warranty_battery));
+            setText('.js-proposal-hybrid-warranty-inverter', warrantyLabel(selected.warranty_inverter));
+            setText('.js-proposal-hybrid-specifications', selected.specifications || '-');
+            setText('.js-proposal-hybrid-daily-harvest', fixed(dailyCombinedKwh, 2) + ' kWh');
+            setText('.js-proposal-hybrid-daily-savings', money(dailySavings));
+            setText('.js-proposal-hybrid-monthly-harvest', fixed(monthlyCombinedKwh, 2) + ' kWh');
+            setText('.js-proposal-hybrid-monthly-savings', money(monthlySavings));
+            setText('.js-proposal-hybrid-yearly-harvest', fixed(yearlyCombinedKwh, 2) + ' kWh');
+            setText('.js-proposal-hybrid-annual-savings', money(annualSavings));
+        };
+        var updateProposalPayload = function () {
+            var payloadInput = document.getElementById('crmProposalDataInput');
+            if (!payloadInput) return;
+            var systemSelector = '.js-proposal-system-select';
+            var batterySelector = '.js-proposal-battery-kwh';
+            var panelWattageSelector = '.js-proposal-panel-wattage';
+            var vdropSelector = '.js-proposal-vdrop';
+            var sunSelector = '.js-proposal-sun-hours';
+            var reserveSelector = '.js-proposal-battery-reserve';
+            var meralcoSelector = '.js-proposal-meralco';
+            var dailyHarvestSelector = '.js-proposal-daily-harvest';
+            var monthlyHarvestSelector = '.js-proposal-monthly-harvest';
+            var yearlyHarvestSelector = '.js-proposal-yearly-harvest';
+            var dailySavingsSelector = '.js-proposal-daily-savings';
+            var monthlySavingsSelector = '.js-proposal-monthly-savings';
+            var yearlySavingsSelector = '.js-proposal-yearly-savings';
+            if (state.systemType === 'offgrid') {
+                systemSelector = '.js-proposal-roi-system';
+                dailyHarvestSelector = '.js-proposal-battery-health';
+                monthlyHarvestSelector = '.js-proposal-roi-monthly';
+                yearlyHarvestSelector = '.js-proposal-roi-annual';
+                dailySavingsSelector = '.js-proposal-roi-monthly';
+                monthlySavingsSelector = '.js-proposal-roi-monthly';
+                yearlySavingsSelector = '.js-proposal-roi-annual';
+            }
+            if (state.systemType === 'hybrid') {
+                systemSelector = '.js-proposal-hybrid-system';
+                batterySelector = '.js-proposal-hybrid-battery-kwh';
+                panelWattageSelector = '.js-proposal-hybrid-panel-wattage';
+                vdropSelector = '.js-proposal-hybrid-vdrop';
+                sunSelector = '.js-proposal-hybrid-sun-hours';
+                reserveSelector = '.js-proposal-hybrid-battery-reserve';
+                meralcoSelector = '.js-proposal-hybrid-meralco';
+                dailyHarvestSelector = '.js-proposal-hybrid-daily-harvest';
+                monthlyHarvestSelector = '.js-proposal-hybrid-monthly-harvest';
+                yearlyHarvestSelector = '.js-proposal-hybrid-yearly-harvest';
+                dailySavingsSelector = '.js-proposal-hybrid-daily-savings';
+                monthlySavingsSelector = '.js-proposal-hybrid-monthly-savings';
+                yearlySavingsSelector = '.js-proposal-hybrid-annual-savings';
+            }
+            var systemSelect = scoped(systemSelector);
+            var selected = selectedOption(systemSelector) || {};
+            var batterySelect = scoped(batterySelector);
+            var selectedBatteryOption = batterySelect && batterySelect.selectedIndex >= 0 ? batterySelect.options[batterySelect.selectedIndex] : null;
+            var consumptionValue = toNum(scoped('.js-proposal-monthly-bill') ? scoped('.js-proposal-monthly-bill').value : 0);
+            var consumptionUnit = String(scoped('.js-proposal-monthly-unit') ? scoped('.js-proposal-monthly-unit').value : 'kw').toLowerCase();
+            payloadInput.value = JSON.stringify({
+                system_type: state.systemType,
+                range: state.range,
+                source: state.source,
+                consumption_value: consumptionValue,
+                consumption_unit: consumptionUnit === 'w' ? 'w' : 'kw',
+                load_kw: getRequiredSystemKw(),
+                selected_system_id: systemSelect ? systemSelect.value : '',
+                selected_system_label: systemSelect && systemSelect.selectedIndex >= 0 ? systemSelect.options[systemSelect.selectedIndex].textContent : '',
+                selected_system_type: selected.system_type || '',
+                selected_system_capacity_kw: selected.capacity_kw || '',
+                selected_system_panel_qty: selected.panel_qty || '',
+                selected_system_regular_price: selected.regular_price || '',
+                selected_system_cash_promo_price: selected.cash_promo_price || '',
+                selected_battery_kwh: batterySelect ? batterySelect.value : (selected.battery_kwh || ''),
+                selected_battery_ah: selectedBatteryOption ? (selectedBatteryOption.getAttribute('data-ah') || '') : (selected.battery_ampere_hour || ''),
+                panel_wattage: toNum(scoped(panelWattageSelector) ? scoped(panelWattageSelector).value : 0),
+                panel_count: toNum(selected.panel_qty),
+                vdrop_percent: toNum(scoped(vdropSelector) ? scoped(vdropSelector).value : 0),
+                sun_peak_hours: toNum(scoped(sunSelector) ? scoped(sunSelector).value : 0),
+                reserve_percent: toNum(scoped(reserveSelector) ? scoped(reserveSelector).value : 0),
+                meralco_rate: toNum(scoped(meralcoSelector) ? scoped(meralcoSelector).value : 0),
+                appliance_rows: getApplianceInputRows(),
+                daily_harvest_kwh: textNumber(dailyHarvestSelector),
+                monthly_harvest_kwh: textNumber(monthlyHarvestSelector),
+                yearly_harvest_kwh: textNumber(yearlyHarvestSelector),
+                daily_savings: textNumber(dailySavingsSelector),
+                monthly_savings: textNumber(monthlySavingsSelector),
+                yearly_savings: textNumber(yearlySavingsSelector)
+            });
+        };
         var applyVisibility = function () {
             scopedAll('.proposal-calculator-section').forEach(function (section) {
-                section.classList.toggle('d-none', section.getAttribute('data-proposal-section') !== state.mode);
-            });
-            scopedAll('.js-proposal-type-btn').forEach(function (btn) {
-                btn.classList.toggle('active', btn.getAttribute('data-value') === state.type);
-            });
-            scopedAll('.js-proposal-mode-btn').forEach(function (btn) {
-                btn.classList.toggle('active', btn.getAttribute('data-value') === state.mode);
+                var sectionType = section.getAttribute('data-proposal-section');
+                var visible = (sectionType === 'load' && state.systemType === 'ongrid')
+                    || (sectionType === 'roi' && state.systemType === 'offgrid')
+                    || (sectionType === 'hybrid' && state.systemType === 'hybrid');
+                section.classList.toggle('d-none', !visible);
             });
             scopedAll('.js-proposal-range-btn').forEach(function (btn) {
                 btn.classList.toggle('active', btn.getAttribute('data-value') === state.range);
@@ -3663,39 +4487,66 @@ document.addEventListener('DOMContentLoaded', function () {
                 var range = node.getAttribute('data-proposal-range');
                 node.classList.toggle('d-none', state.range !== 'all' && range !== state.range);
             });
-            var loadPanel = root.querySelector('[data-proposal-section="load"] .proposal-calculator-panel');
-            if (loadPanel) loadPanel.classList.toggle('d-none', state.type === 'battery');
         };
         function update() {
+            populateSystemSelects();
             updateLoadTotals();
             updateSourceSummary();
             updatePanelComputation();
             updateRoiComputation();
+            updateHybridComputation();
+            updateProposalPayload();
             applyVisibility();
         }
         function reset() {
-            state = { type: 'panel', mode: 'load', range: 'all', source: 'bill' };
+            state = { systemType: 'ongrid', range: 'all', source: 'bill' };
+            if (scoped('.js-proposal-solution-type')) scoped('.js-proposal-solution-type').value = 'ongrid';
             if (scoped('.js-proposal-monthly-bill')) scoped('.js-proposal-monthly-bill').value = '';
             if (scoped('.js-proposal-system-select')) scoped('.js-proposal-system-select').value = '';
             if (scoped('.js-proposal-roi-system')) scoped('.js-proposal-roi-system').value = '';
+            if (scoped('.js-proposal-hybrid-system')) scoped('.js-proposal-hybrid-system').value = '';
             if (scoped('.js-proposal-battery-kwh')) scoped('.js-proposal-battery-kwh').value = '';
+            if (scoped('.js-proposal-hybrid-battery-kwh')) scoped('.js-proposal-hybrid-battery-kwh').value = '';
             if (rowsWrap) rowsWrap.innerHTML = '';
             closeAppliancePanel();
             addRow({ name: '', watts: 0, qty: 1, hours: 1 });
             update();
         }
-        scopedAll('.js-proposal-type-btn').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                state.type = btn.getAttribute('data-value') || 'panel';
+        function applySaved(payload) {
+            var data = payload || {};
+            var savedSystemType = String(data.systemType || data.system_type || '').toLowerCase();
+            var savedSource = String(data.source || '').toLowerCase();
+            state.systemType = ['ongrid', 'offgrid', 'hybrid'].indexOf(savedSystemType) !== -1 ? savedSystemType : 'ongrid';
+            state.source = savedSource === 'appliances' ? 'appliances' : 'bill';
+            if (scoped('.js-proposal-solution-type')) scoped('.js-proposal-solution-type').value = state.systemType;
+            if (scoped('.js-proposal-monthly-bill') && data.consumptionValue !== undefined) scoped('.js-proposal-monthly-bill').value = data.consumptionValue || '';
+            if (scoped('.js-proposal-monthly-unit')) scoped('.js-proposal-monthly-unit').value = String(data.consumptionUnit || '').toLowerCase() === 'w' ? 'w' : 'kw';
+            populateSystemSelects();
+            var selectedSystemId = String(data.selectedSystemId || '').trim();
+            if (selectedSystemId) {
+                if (state.systemType === 'ongrid' && scoped('.js-proposal-system-select')) scoped('.js-proposal-system-select').value = selectedSystemId;
+                if (state.systemType === 'offgrid' && scoped('.js-proposal-roi-system')) scoped('.js-proposal-roi-system').value = selectedSystemId;
+                if (state.systemType === 'hybrid' && scoped('.js-proposal-hybrid-system')) scoped('.js-proposal-hybrid-system').value = selectedSystemId;
+            }
+            if (data.selectedBatteryKwh !== undefined) {
+                if (state.systemType === 'offgrid' && scoped('.js-proposal-battery-kwh')) scoped('.js-proposal-battery-kwh').value = data.selectedBatteryKwh || '';
+                if (state.systemType === 'hybrid' && scoped('.js-proposal-hybrid-battery-kwh')) scoped('.js-proposal-hybrid-battery-kwh').value = data.selectedBatteryKwh || '';
+            }
+            update();
+        }
+        var solutionTypeSelect = scoped('.js-proposal-solution-type');
+        if (solutionTypeSelect) {
+            solutionTypeSelect.addEventListener('change', function () {
+                var nextType = String(solutionTypeSelect.value || 'ongrid').toLowerCase();
+                state.systemType = ['ongrid', 'offgrid', 'hybrid'].indexOf(nextType) !== -1 ? nextType : 'ongrid';
+                if (scoped('.js-proposal-system-select')) scoped('.js-proposal-system-select').value = '';
+                if (scoped('.js-proposal-roi-system')) scoped('.js-proposal-roi-system').value = '';
+                if (scoped('.js-proposal-hybrid-system')) scoped('.js-proposal-hybrid-system').value = '';
+                if (scoped('.js-proposal-battery-kwh')) scoped('.js-proposal-battery-kwh').value = '';
+                if (scoped('.js-proposal-hybrid-battery-kwh')) scoped('.js-proposal-hybrid-battery-kwh').value = '';
                 update();
             });
-        });
-        scopedAll('.js-proposal-mode-btn').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                state.mode = btn.getAttribute('data-value') === 'roi' ? 'roi' : 'load';
-                update();
-            });
-        });
+        }
         scopedAll('.js-proposal-range-btn').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 state.range = btn.getAttribute('data-value') || 'all';
@@ -3708,6 +4559,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 update();
             });
         });
+        var hybridSystemSelect = scoped('.js-proposal-hybrid-system');
+        if (hybridSystemSelect) {
+            hybridSystemSelect.addEventListener('change', function () {
+                if (scoped('.js-proposal-hybrid-battery-kwh')) scoped('.js-proposal-hybrid-battery-kwh').value = '';
+                update();
+            });
+        }
         ['input', 'change', 'keyup'].forEach(function (eventName) {
             scopedAll('input, select').forEach(function (node) {
                 node.addEventListener(eventName, update);
@@ -3755,7 +4613,7 @@ document.addEventListener('DOMContentLoaded', function () {
         populateSystemSelects();
         addRow({ name: '', watts: 0, qty: 1, hours: 1 });
         update();
-        return { refresh: update, reset: reset };
+        return { refresh: update, reset: reset, applySaved: applySaved };
     }
     window.__crmProposalCalculator = initProposalQuoteCalculator();
 
@@ -3783,6 +4641,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (logSalesForm) {
         logSalesForm.addEventListener('submit', function (event) {
+            applyNegotiationOutcomeChoice();
             var status = normalizeSalesStatus(logSalesStatusInput ? logSalesStatusInput.value : '');
             var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
             var salesRecordId = salesRecordIdInput ? String(salesRecordIdInput.value || '').trim() : '';
@@ -3801,10 +4660,37 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
             var ocularDateInput = document.getElementById('logOcularDate');
+            var ocularStartTimeInput = document.getElementById('logOcularStartTime');
+            var ocularEndTimeInput = document.getElementById('logOcularEndTime');
             if (status === 'for survey' && ocularDateInput && !String(ocularDateInput.value || '').trim()) {
                 event.preventDefault();
                 notifySalesProgress('Please set an ocular date before saving the Survey stage.');
                 ocularDateInput.focus();
+                return;
+            }
+            if (status === 'for survey' && ocularStartTimeInput && !String(ocularStartTimeInput.value || '').trim()) {
+                event.preventDefault();
+                notifySalesProgress('Please set the ocular start time before saving the Survey stage.');
+                ocularStartTimeInput.focus();
+                return;
+            }
+            if (status === 'for survey' && ocularEndTimeInput && !String(ocularEndTimeInput.value || '').trim()) {
+                event.preventDefault();
+                notifySalesProgress('Please set the ocular end time before saving the Survey stage.');
+                ocularEndTimeInput.focus();
+                return;
+            }
+            if (status === 'for survey' && ocularStartTimeInput && ocularEndTimeInput && ocularStartTimeInput.value && ocularEndTimeInput.value && ocularEndTimeInput.value <= ocularStartTimeInput.value) {
+                event.preventDefault();
+                notifySalesProgress('Ocular end time must be later than the start time.');
+                ocularEndTimeInput.focus();
+                return;
+            }
+            var notesInput = document.getElementById('logInteractionNotes');
+            if (status === 'closed lost' && notesInput && !String(notesInput.value || '').trim()) {
+                event.preventDefault();
+                notifySalesProgress('Please enter a reason before saving as Closed Lost.');
+                notesInput.focus();
                 return;
             }
             if (salesSaveSubmitConfirmed) {
@@ -3835,11 +4721,20 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (salesSaveConfirmBtn && logSalesForm) {
         salesSaveConfirmBtn.addEventListener('click', function () {
+            applyNegotiationOutcomeChoice();
             var status = normalizeSalesStatus(logSalesStatusInput ? logSalesStatusInput.value : '');
             var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
             var salesRecordId = salesRecordIdInput ? String(salesRecordIdInput.value || '').trim() : '';
             var row = salesRecordId ? document.querySelector('.crm-sales-row[data-sales-record-id="' + salesRecordId + '"]') : null;
             var hasJobOrder = !!(row && String(row.dataset.jobOrderNumber || '').trim());
+            var ocularStartTimeInput = document.getElementById('logOcularStartTime');
+            var ocularEndTimeInput = document.getElementById('logOcularEndTime');
+            if (status === 'for survey' && ocularStartTimeInput && ocularEndTimeInput && ocularStartTimeInput.value && ocularEndTimeInput.value && ocularEndTimeInput.value <= ocularStartTimeInput.value) {
+                if (salesSaveConfirmModal) salesSaveConfirmModal.hide();
+                notifySalesProgress('Ocular end time must be later than the start time.');
+                ocularEndTimeInput.focus();
+                return;
+            }
             if (status === 'closed won' && !hasJobOrder && !jobOrderSubmitConfirmed) {
                 if (salesSaveConfirmModal) salesSaveConfirmModal.hide();
                 showJobOrderConfirmation();

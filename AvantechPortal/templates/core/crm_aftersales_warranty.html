@@ -204,6 +204,7 @@
             <form method="post">
                 {% csrf_token %}
                 <input type="hidden" name="form_action" value="create_warranty_record">
+                <input type="hidden" name="client_id" id="warrantyClientIdInput">
                 <div class="modal-header">
                     <h5 class="modal-title" id="addWarrantyRecordModalLabel">Add Warranty Record</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -212,12 +213,13 @@
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Client</label>
-                            <select class="form-select" name="client_id" id="warrantyClientSelect" required>
-                                <option value="">Select client</option>
+                            <input type="text" class="form-control" id="warrantyClientSearchInput" list="warrantyClientSuggestions" autocomplete="off" placeholder="Type existing client name..." required>
+                            <datalist id="warrantyClientSuggestions">
                                 {% for client_option in warranty_client_options %}
-                                <option value="{{ client_option.id }}" data-system-size="{{ client_option.system_size }}">{{ client_option.label }}</option>
+                                <option value="{{ client_option.label }}"></option>
                                 {% endfor %}
-                            </select>
+                            </datalist>
+                            <div class="invalid-feedback" id="warrantyClientInvalidFeedback">No existing client found in the records.</div>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Product/System</label>
@@ -708,6 +710,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var records = {{ warranty_records_json|safe }};
+    var warrantyClientOptions = {{ warranty_client_options_json|safe }};
 
     var tbody = document.getElementById('warrantyTableBody');
     var searchInput = document.getElementById('warrantySearchInput');
@@ -717,7 +720,10 @@ document.addEventListener('DOMContentLoaded', function () {
     var showingText = document.getElementById('warrantyShowingText');
     var detailsPanel = document.getElementById('warrantyDetailsPanel');
     var pageSizeSelect = document.getElementById('warrantyPageSize');
-    var warrantyClientSelect = document.getElementById('warrantyClientSelect');
+    var addWarrantyForm = document.querySelector('#addWarrantyRecordModal form');
+    var addWarrantyModalEl = document.getElementById('addWarrantyRecordModal');
+    var warrantyClientSearchInput = document.getElementById('warrantyClientSearchInput');
+    var warrantyClientIdInput = document.getElementById('warrantyClientIdInput');
     var warrantyClientSystemSize = document.getElementById('warrantyClientSystemSize');
     var selectedNo = records.length ? records[0].no : '';
 
@@ -827,14 +833,57 @@ document.addEventListener('DOMContentLoaded', function () {
             renderTable();
         });
     }
-    if (warrantyClientSelect && warrantyClientSystemSize) {
-        function updateWarrantyClientSystemSize() {
-            var selectedOption = warrantyClientSelect.options[warrantyClientSelect.selectedIndex];
-            var systemSize = selectedOption ? String(selectedOption.getAttribute('data-system-size') || '').trim() : '';
-            warrantyClientSystemSize.value = systemSize || (warrantyClientSelect.value ? 'No System Size Kwh encoded in Technicals' : 'Select a client to load System Size Kwh');
+    function findWarrantyClientOption(value) {
+        var normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) return null;
+        return (warrantyClientOptions || []).find(function (option) {
+            return String(option.label || '').trim().toLowerCase() === normalized;
+        }) || null;
+    }
+
+    function syncWarrantyClientSelection(showInvalid) {
+        if (!warrantyClientSearchInput || !warrantyClientIdInput || !warrantyClientSystemSize) return false;
+        var typedValue = String(warrantyClientSearchInput.value || '').trim();
+        var matchedClient = findWarrantyClientOption(typedValue);
+        if (matchedClient) {
+            warrantyClientIdInput.value = matchedClient.id;
+            warrantyClientSearchInput.classList.remove('is-invalid');
+            warrantyClientSystemSize.value = String(matchedClient.system_size || '').trim() || 'No System Size Kwh encoded in Technicals';
+            return true;
         }
-        warrantyClientSelect.addEventListener('change', updateWarrantyClientSystemSize);
-        updateWarrantyClientSystemSize();
+        warrantyClientIdInput.value = '';
+        warrantyClientSystemSize.value = typedValue ? 'No existing client found' : 'Select a client to load System Size Kwh';
+        warrantyClientSearchInput.classList.toggle('is-invalid', !!typedValue || !!showInvalid);
+        return false;
+    }
+
+    if (warrantyClientSearchInput && warrantyClientIdInput && warrantyClientSystemSize) {
+        warrantyClientSearchInput.addEventListener('input', function () {
+            syncWarrantyClientSelection(false);
+        });
+        warrantyClientSearchInput.addEventListener('change', function () {
+            syncWarrantyClientSelection(true);
+        });
+        warrantyClientSearchInput.addEventListener('blur', function () {
+            syncWarrantyClientSelection(!!warrantyClientSearchInput.value);
+        });
+        syncWarrantyClientSelection(false);
+    }
+    if (addWarrantyForm) {
+        addWarrantyForm.addEventListener('submit', function (event) {
+            if (!syncWarrantyClientSelection(true)) {
+                event.preventDefault();
+                if (warrantyClientSearchInput) warrantyClientSearchInput.focus();
+            }
+        });
+    }
+    if (addWarrantyModalEl && addWarrantyForm) {
+        addWarrantyModalEl.addEventListener('hidden.bs.modal', function () {
+            addWarrantyForm.reset();
+            if (warrantyClientIdInput) warrantyClientIdInput.value = '';
+            if (warrantyClientSearchInput) warrantyClientSearchInput.classList.remove('is-invalid');
+            if (warrantyClientSystemSize) warrantyClientSystemSize.value = 'Select a client to load System Size Kwh';
+        });
     }
     renderTable();
 });

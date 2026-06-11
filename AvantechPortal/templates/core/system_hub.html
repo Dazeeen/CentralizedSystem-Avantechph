@@ -28,6 +28,81 @@
     </div>
 </div>
 
+<div class="card border-0 shadow-sm mb-4" id="systemDatabaseTools"
+     data-export-url="{% url 'system_database_export_start' %}"
+     data-import-url="{% url 'system_database_import' %}"
+     data-migration-url="{% url 'system_database_migration_start' %}"
+     data-status-url-template="{% url 'system_database_job_status' 'JOB_ID' %}"
+     data-download-url-template="{% url 'system_database_job_download' 'JOB_ID' %}">
+    <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <h2 class="h5 mb-1">Database Tools</h2>
+                <p class="text-secondary mb-0">Export, import, and cross-database migration are separate workflows with realtime progress.</p>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <span class="badge text-bg-success">System v{{ current_system_version }}</span>
+                <span class="badge text-bg-light border">{{ current_database_profile.vendor_label }}</span>
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-xl-4">
+                <div class="border rounded p-3 h-100 bg-light-subtle">
+                    <div class="fw-semibold mb-1">Export Database</div>
+                    <div class="small text-secondary mb-3">Creates a portable archive with version, schema signature, source engine, counts, and hashes.</div>
+                    <button type="button" class="btn btn-success js-system-db-job-start" data-job-type="export">Start Export</button>
+                    <div class="progress mt-3 d-none" style="height: 10px;" data-db-progress-wrap="export">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 0%;" data-db-progress-bar="export">0%</div>
+                    </div>
+                    <div class="small text-secondary mt-2" data-db-progress-message="export">Waiting to export.</div>
+                    <a href="#" class="btn btn-sm btn-outline-success mt-2 d-none" data-db-download-link="export">Download Export</a>
+                </div>
+            </div>
+            <div class="col-12 col-xl-4">
+                <form method="post" action="{% url 'system_database_import' %}" enctype="multipart/form-data" class="border rounded p-3 h-100 bg-light-subtle" data-system-db-import-form>
+                    {% csrf_token %}
+                    <div class="fw-semibold mb-1">Import Database</div>
+                    <div class="small text-secondary mb-3">Imports a matching ZIP/JSON and syncs add, update, remove, then resets sequences.</div>
+                    <input type="file" class="form-control mb-2" name="database_import_file" accept=".zip,.json,application/zip,application/json" required>
+                    <button type="submit" class="btn btn-warning">Start Import</button>
+                    <div class="progress mt-3 d-none" style="height: 10px;" data-db-progress-wrap="import">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;" data-db-progress-bar="import">0%</div>
+                    </div>
+                    <div class="small text-secondary mt-2" data-db-progress-message="import">Waiting to import.</div>
+                </form>
+            </div>
+            <div class="col-12 col-xl-4">
+                <form method="post" action="{% url 'system_database_migration_start' %}" class="border rounded p-3 h-100 bg-light-subtle" data-system-db-migration-form>
+                    {% csrf_token %}
+                    <div class="fw-semibold mb-1">Migrate To Another DB</div>
+                    <div class="small text-secondary mb-3">Choose a target engine. The job runs migrations, syncs data, and activates the DB config for the next restart.</div>
+                    <select class="form-select mb-2" name="target_database" required>
+                        <option value="">Select target database</option>
+                        <option value="sqlite">SQLite</option>
+                        <option value="mysql">MySQL / MariaDB</option>
+                        <option value="postgresql">PostgreSQL</option>
+                    </select>
+                    <input type="text" class="form-control mb-2" name="database_name" placeholder="Database name e.g. avantech_mysql">
+                    <input type="text" class="form-control mb-2" name="database_file" placeholder="SQLite file e.g. db.sqlite3">
+                    <div class="row g-2">
+                        <div class="col-8"><input type="text" class="form-control" name="database_host" placeholder="Host e.g. 127.0.0.1"></div>
+                        <div class="col-4"><input type="text" class="form-control" name="database_port" placeholder="Port"></div>
+                    </div>
+                    <div class="row g-2 mt-0">
+                        <div class="col-6"><input type="text" class="form-control" name="database_user" placeholder="DB user"></div>
+                        <div class="col-6"><input type="password" class="form-control" name="database_password" placeholder="DB password"></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-2">Start DB Migration</button>
+                    <div class="progress mt-3 d-none" style="height: 10px;" data-db-progress-wrap="migration">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%;" data-db-progress-bar="migration">0%</div>
+                    </div>
+                    <div class="small text-secondary mt-2" data-db-progress-message="migration">Waiting to migrate.</div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-3 mb-4">
     <div class="col-12 col-xl-5">
         <div class="card border-0 shadow-sm h-100">
@@ -237,6 +312,115 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const dbTools = document.getElementById('systemDatabaseTools');
+    if (dbTools) {
+        const statusUrlTemplate = dbTools.getAttribute('data-status-url-template') || '';
+        const downloadUrlTemplate = dbTools.getAttribute('data-download-url-template') || '';
+        const activeTimers = {};
+
+        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        const csrfToken = csrfInput ? csrfInput.value : '';
+        const urlForJob = function (template, jobId) {
+            return template.replace('JOB_ID', encodeURIComponent(jobId));
+        };
+        const setProgress = function (type, percent, message, status) {
+            const value = Math.max(0, Math.min(100, Number(percent || 0)));
+            const wrap = dbTools.querySelector('[data-db-progress-wrap="' + type + '"]');
+            const bar = dbTools.querySelector('[data-db-progress-bar="' + type + '"]');
+            const messageEl = dbTools.querySelector('[data-db-progress-message="' + type + '"]');
+            if (wrap) wrap.classList.remove('d-none');
+            if (bar) {
+                bar.style.width = value + '%';
+                bar.textContent = value + '%';
+                bar.classList.toggle('progress-bar-animated', status !== 'completed' && status !== 'failed');
+                bar.classList.toggle('progress-bar-striped', status !== 'completed' && status !== 'failed');
+                bar.classList.toggle('bg-danger', status === 'failed');
+            }
+            if (messageEl) messageEl.textContent = message || 'Working...';
+        };
+        const setDownload = function (type, jobId, visible) {
+            const link = dbTools.querySelector('[data-db-download-link="' + type + '"]');
+            if (!link) return;
+            link.classList.toggle('d-none', !visible);
+            if (visible) link.href = urlForJob(downloadUrlTemplate, jobId);
+        };
+        const pollJob = function (type, jobId) {
+            if (activeTimers[type]) window.clearInterval(activeTimers[type]);
+            const tick = async function () {
+                try {
+                    const response = await fetch(urlForJob(statusUrlTemplate, jobId), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    const payload = await response.json().catch(function () { return {}; });
+                    if (!response.ok || payload.ok === false) {
+                        setProgress(type, 100, payload.message || 'Unable to read job status.', 'failed');
+                        window.clearInterval(activeTimers[type]);
+                        return;
+                    }
+                    setProgress(type, payload.progress, payload.message, payload.status);
+                    if (payload.status === 'completed') {
+                        window.clearInterval(activeTimers[type]);
+                        setDownload(type, jobId, type === 'export');
+                    } else if (payload.status === 'failed') {
+                        window.clearInterval(activeTimers[type]);
+                    }
+                } catch (error) {
+                    setProgress(type, 100, 'Status polling failed. Please refresh and check again.', 'failed');
+                    window.clearInterval(activeTimers[type]);
+                }
+            };
+            tick();
+            activeTimers[type] = window.setInterval(tick, 1200);
+        };
+        const startJob = async function (type, url, formData) {
+            setDownload(type, '', false);
+            setProgress(type, 3, 'Starting...', 'queued');
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                const payload = await response.json().catch(function () { return {}; });
+                if (!response.ok || payload.ok === false || !payload.job_id) {
+                    setProgress(type, 100, payload.message || 'Unable to start job.', 'failed');
+                    return;
+                }
+                setProgress(type, 5, payload.message || 'Job started.', 'running');
+                pollJob(type, payload.job_id);
+            } catch (error) {
+                setProgress(type, 100, 'Unable to start job.', 'failed');
+            }
+        };
+
+        dbTools.querySelectorAll('.js-system-db-job-start').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const type = button.getAttribute('data-job-type') || 'export';
+                const data = new FormData();
+                data.append('csrfmiddlewaretoken', csrfToken);
+                startJob(type, dbTools.getAttribute('data-export-url'), data);
+            });
+        });
+
+        const importForm = dbTools.querySelector('[data-system-db-import-form]');
+        if (importForm) {
+            importForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                startJob('import', dbTools.getAttribute('data-import-url'), new FormData(importForm));
+            });
+        }
+
+        const migrationForm = dbTools.querySelector('[data-system-db-migration-form]');
+        if (migrationForm) {
+            migrationForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                startJob('migration', dbTools.getAttribute('data-migration-url'), new FormData(migrationForm));
+            });
+        }
+    }
+
     const modalElement = document.getElementById('systemActionConfirmModal');
     const titleNode = document.getElementById('systemActionConfirmModalLabel');
     const messageNode = document.getElementById('systemActionConfirmModalMessage');

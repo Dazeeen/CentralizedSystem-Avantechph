@@ -1038,6 +1038,11 @@ class CRMSalesRecord(models.Model):
 		('owner', 'Owner'),
 		('tenant', 'Tenant'),
 	]
+	SERVICE_TYPE_CHOICES = [
+		('solar', 'Solar'),
+		('hvac', 'HVAC'),
+		('security', 'Security Solutions'),
+	]
 	SALES_STATUS_CHOICES = [
 		('new', 'New'),
 		('contacted', 'Contacted'),
@@ -1052,14 +1057,20 @@ class CRMSalesRecord(models.Model):
 	date_created = models.DateField(blank=True, null=True)
 	lead_source = models.CharField(max_length=50, blank=True)
 	monthly_electric_bill = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+	monthly_electric_bill_unit = models.CharField(max_length=5, blank=True, default='kw')
 	roof_type = models.CharField(max_length=80, blank=True)
 	ownership = models.CharField(max_length=20, blank=True)
+	service_type = models.CharField(max_length=30, blank=True, choices=SERVICE_TYPE_CHOICES)
 	project_cost = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
 	downpayment = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
 	return_on_investment = models.CharField(max_length=80, blank=True)
+	proposal_data = models.JSONField(default=dict, blank=True)
+	quotation_proposal_inputs = models.JSONField(default=dict, blank=True)
 	assigned_sales = models.CharField(max_length=150, blank=True)
 	sales_status = models.CharField(max_length=50, blank=True)
 	ocular_date = models.DateField(blank=True, null=True, db_index=True)
+	ocular_start_time = models.TimeField(blank=True, null=True)
+	ocular_end_time = models.TimeField(blank=True, null=True)
 	job_order_number = models.CharField(max_length=20, blank=True, db_index=True)
 	client_status = models.CharField(max_length=80, blank=True)
 	interaction_notes = models.TextField(blank=True)
@@ -1079,19 +1090,29 @@ class CRMSalesRecord(models.Model):
 	def __str__(self):
 		return f'CRMSalesRecord<{self.client_id}:{self.sales_status or "n/a"}>'
 
+	@property
+	def quotation_proposal_snapshot(self):
+		return self.quotation_proposal_inputs or self.proposal_data or {}
+
 
 class CRMSalesActivityLog(models.Model):
 	sales_record = models.ForeignKey(CRMSalesRecord, on_delete=models.CASCADE, related_name='activity_logs')
 	client_status = models.CharField(max_length=80, blank=True)
 	lead_source = models.CharField(max_length=50, blank=True)
 	monthly_electric_bill = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+	monthly_electric_bill_unit = models.CharField(max_length=5, blank=True, default='kw')
 	roof_type = models.CharField(max_length=80, blank=True)
 	ownership = models.CharField(max_length=20, blank=True)
+	service_type = models.CharField(max_length=30, blank=True)
 	project_cost = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
 	downpayment = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
 	return_on_investment = models.CharField(max_length=80, blank=True)
+	proposal_data = models.JSONField(default=dict, blank=True)
+	quotation_proposal_inputs = models.JSONField(default=dict, blank=True)
 	sales_status = models.CharField(max_length=50, blank=True)
 	ocular_date = models.DateField(blank=True, null=True)
+	ocular_start_time = models.TimeField(blank=True, null=True)
+	ocular_end_time = models.TimeField(blank=True, null=True)
 	interaction_notes = models.TextField(blank=True)
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
