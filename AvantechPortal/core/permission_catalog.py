@@ -63,6 +63,8 @@ FEATURE_LABELS = {
     ('core', 'crmtechnicalactionlog'): ('crm', 'CRM'),
     ('core', 'crmtechnicalteam'): ('crm', 'CRM'),
     ('core', 'crmtechnicalnotificationsetting'): ('crm', 'CRM'),
+    ('core', 'crmwarrantydeletionrequest'): ('crm', 'CRM'),
+    ('core', 'crmwarrantyrecord'): ('crm', 'CRM'),
     ('core', 'fundrequest'): ('fund_requests', 'Payment Requests'),
     ('core', 'fundrequestattachment'): ('fund_requests', 'Payment Requests'),
     ('core', 'fundrequestautoapproverule'): ('fund_requests', 'Payment Requests'),
@@ -149,6 +151,8 @@ RESOURCE_LABELS = {
     ('core', 'crmtechnicalactionlog'): 'CRM technical logs',
     ('core', 'crmtechnicalteam'): 'CRM technical teams',
     ('core', 'crmtechnicalnotificationsetting'): 'CRM technical notification settings',
+    ('core', 'crmwarrantydeletionrequest'): 'CRM warranty deletion requests',
+    ('core', 'crmwarrantyrecord'): 'CRM warranty records',
     ('core', 'companyinternetaccount'): 'company internet accounts',
     ('core', 'databasefile'): 'database files',
     ('core', 'developmentfeedback'): 'development feedback records',
@@ -187,6 +191,7 @@ CUSTOM_PERMISSION_LABELS = {
     ('core', 'assetitemtype', 'view_assettrackercategory'): 'Open asset tracker category view',
     ('core', 'consumableitemtype', 'view_consumablescategory'): 'Open consumables category view',
     ('core', 'clientdeletionrequest', 'approve_clientdeletionrequest'): 'Approve client deletion requests',
+    ('core', 'crmwarrantydeletionrequest', 'approve_crmwarrantydeletionrequest'): 'Approve CRM warranty deletion requests',
     ('core', 'companyinternetaccount', 'reveal_companyinternetaccount_password'): 'Unlock and view internet account passwords',
     ('core', 'supportticket', 'can_manage_supportticket'): 'Manage all support tickets',
     ('core', 'crmclient', 'manage_crm_admin'): 'CRM Admin (full CRM access)',
@@ -254,6 +259,7 @@ ADMIN_PERMISSION_CODENAMES = {
     'can_manage_supportticket',
     'approve_clientdeletionrequest',
     'approve_crmclientdeletionrequest',
+    'approve_crmwarrantydeletionrequest',
     'reveal_companyinternetaccount_password',
 }
 

@@ -148,6 +148,7 @@ class UserProfile(models.Model):
 	employee_id = models.CharField(max_length=120, blank=True, default='', db_index=True)
 	branch = models.CharField(max_length=120, blank=True, default='')
 	contact_number = models.CharField(max_length=50, blank=True, default='')
+	profile_completed = models.BooleanField(default=False)
 	avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
 	last_login_ip = models.GenericIPAddressField(blank=True, null=True)
 	last_login_user_agent = models.CharField(max_length=255, blank=True)
@@ -1390,6 +1391,53 @@ class CRMWarrantyRecord(models.Model):
 
 	def __str__(self):
 		return f'CRMWarrantyRecord<{self.warranty_number}:{self.client_id}>'
+
+
+class CRMWarrantyDeletionRequest(models.Model):
+	STATUS_CHOICES = [
+		('pending', 'Pending'),
+		('approved', 'Approved'),
+		('rejected', 'Rejected'),
+	]
+
+	warranty_record = models.ForeignKey(
+		CRMWarrantyRecord,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='deletion_requests',
+	)
+	warranty_number_snapshot = models.CharField(max_length=20)
+	client_name_snapshot = models.CharField(max_length=220)
+	reason = models.TextField(blank=True)
+	requested_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_warranty_deletion_requests_created',
+	)
+	requested_at = models.DateTimeField(auto_now_add=True)
+	resubmission_count = models.PositiveIntegerField(default=0)
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+	reviewed_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='crm_warranty_deletion_requests_reviewed',
+	)
+	reviewed_at = models.DateTimeField(blank=True, null=True)
+	review_notes = models.TextField(blank=True)
+
+	class Meta:
+		ordering = ['-requested_at']
+		permissions = [
+			('approve_crmwarrantydeletionrequest', 'Can approve CRM warranty deletion requests'),
+		]
+
+	def __str__(self):
+		return f'CRMWarrantyDeletionRequest<{self.warranty_number_snapshot}:{self.status}>'
 
 
 class ClientDeletionRequest(models.Model):

@@ -245,9 +245,9 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
             'Optional. Use this only for special cases when a user needs access different from their assigned roles.'
         )
         self.fields['branch'].label = 'Branch'
-        self.fields['branch'].help_text = 'Optional branch assignment (e.g., Main, North, South).'
+        self.fields['branch'].help_text = 'Branch assignment (e.g., Main, North, South).'
         self.fields['employee_id'].label = 'Employee ID (Biometric)'
-        self.fields['employee_id'].help_text = 'Optional biometric employee ID.'
+        self.fields['employee_id'].help_text = 'Biometric employee ID.'
         self.fields['contact_number'].label = 'Contact Number'
         self.fields['contact_number'].help_text = 'User mobile/phone number for profile records.'
         self._style_fields()
@@ -264,7 +264,13 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
             profile.employee_id = (self.cleaned_data.get('employee_id') or '').strip()
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
             profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
-            profile.save(update_fields=['employee_id', 'branch', 'contact_number'])
+            profile.profile_completed = all([
+                (user.first_name or '').strip(),
+                (user.last_name or '').strip(),
+                (user.email or '').strip(),
+                profile.contact_number,
+            ])
+            profile.save(update_fields=['employee_id', 'branch', 'contact_number', 'profile_completed'])
         return user
 
     def clean_employee_id(self):
@@ -279,6 +285,32 @@ class StaffUserCreationForm(BaseUserFormMixin, UserCreationForm):
     @property
     def grouped_user_permissions(self):
         return self.build_grouped_permissions('user_permissions')
+
+
+class EndUserProfileCompletionForm(forms.Form):
+    first_name = forms.CharField(required=True, max_length=150, label='First Name')
+    last_name = forms.CharField(required=True, max_length=150, label='Last Name')
+    email = forms.EmailField(required=True, label='Email')
+    contact_number = forms.CharField(required=True, max_length=50, label='Contact Number')
+
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs.setdefault('class', 'form-control')
+            field.widget.attrs.setdefault('required', 'required')
+
+    def save(self):
+        user = self.user
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        user.first_name = (self.cleaned_data.get('first_name') or '').strip()
+        user.last_name = (self.cleaned_data.get('last_name') or '').strip()
+        user.email = (self.cleaned_data.get('email') or '').strip()
+        user.save(update_fields=['first_name', 'last_name', 'email'])
+        profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
+        profile.profile_completed = True
+        profile.save(update_fields=['contact_number', 'profile_completed'])
+        return user, profile
 
 
 class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
@@ -351,7 +383,13 @@ class StaffUserUpdateForm(BaseUserFormMixin, forms.ModelForm):
             profile.employee_id = (self.cleaned_data.get('employee_id') or '').strip()
             profile.branch = (self.cleaned_data.get('branch') or '').strip()
             profile.contact_number = (self.cleaned_data.get('contact_number') or '').strip()
-            profile.save(update_fields=['employee_id', 'branch', 'contact_number'])
+            profile.profile_completed = all([
+                (user.first_name or '').strip(),
+                (user.last_name or '').strip(),
+                (user.email or '').strip(),
+                profile.contact_number,
+            ])
+            profile.save(update_fields=['employee_id', 'branch', 'contact_number', 'profile_completed'])
             if new_password:
                 user.save(update_fields=['password'])
         return user

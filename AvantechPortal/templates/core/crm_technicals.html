@@ -94,18 +94,23 @@
                         </thead>
                         <tbody>
                             {% for row in technical_page %}
-                                {% with client=row.client tech=row.technical_record %}
+                                {% with client=row.client tech=row.technical_record sales_info=row.sales_saved_technical_info %}
                                 <tr class="crm-tech-row"
                                     data-sales-record-id="{{ row.id }}"
                                     data-client-name="{{ client.last_name }}, {{ client.first_name }}"
                                     data-installation-date="{{ tech.installation_date|date:'Y-m-d'|default:'-' }}"
                                     data-installation-time="{% if tech.installation_time %}{{ tech.installation_time|time:'H:i' }}{% else %}-{% endif %}"
                                     data-team-assigned="{{ tech.team_assigned|default:'-' }}"
-                                    data-system-size-kwh="{{ tech.system_size_kwh|default:'-' }}"
-                                    data-panel-units="{{ tech.panel_units|default:'-' }}"
-                                    data-inverter-model="{{ tech.inverter_model|default:'-' }}"
-                                    data-battery-model="{{ tech.battery_model|default:'-' }}"
-                                    data-net-metering="{{ tech.net_metering|default:'-' }}"
+                                    data-system-size-kwh="{{ sales_info.system_size_kwh|default:'-' }}"
+                                    data-panel-units="{{ sales_info.panel_units|default:'-' }}"
+                                    data-inverter-model="{{ sales_info.inverter_model|default:'-' }}"
+                                    data-battery-model="{{ sales_info.battery_model|default:'-' }}"
+                                    data-net-metering="{{ sales_info.net_metering|default:'-' }}"
+                                    data-technical-system-size-kwh="{{ tech.system_size_kwh|default:'-' }}"
+                                    data-technical-panel-units="{{ tech.panel_units|default:'-' }}"
+                                    data-technical-inverter-model="{{ tech.inverter_model|default:'-' }}"
+                                    data-technical-battery-model="{{ tech.battery_model|default:'-' }}"
+                                    data-technical-net-metering="{{ tech.net_metering|default:'-' }}"
                                     data-installation-status="{{ tech.installation_status|default:'-' }}"
                                     data-job-order-number="{{ tech.job_order_number|default:row.job_order_number|default:'-' }}"
                                     data-po-number="{{ tech.po_number|default:'-' }}"
@@ -1328,11 +1333,11 @@ document.addEventListener('DOMContentLoaded', function () {
         setVal('technicalUpdateSalesRecordId', row.dataset.salesRecordId || '');
         setVal('technicalUpdateInstallationDate', row.dataset.installationDate || '');
         setVal('technicalUpdateTeamAssigned', row.dataset.teamAssigned || '');
-        setVal('technicalUpdateSystemSizeKwh', row.dataset.systemSizeKwh || '');
-        setVal('technicalUpdatePanelUnits', row.dataset.panelUnits || '');
-        setVal('technicalUpdateInverterModel', row.dataset.inverterModel || '');
-        setVal('technicalUpdateBatteryModel', row.dataset.batteryModel || '');
-        setVal('technicalUpdateNetMetering', row.dataset.netMetering || '');
+        setVal('technicalUpdateSystemSizeKwh', row.dataset.technicalSystemSizeKwh || row.dataset.systemSizeKwh || '');
+        setVal('technicalUpdatePanelUnits', row.dataset.technicalPanelUnits || '');
+        setVal('technicalUpdateInverterModel', row.dataset.technicalInverterModel || '');
+        setVal('technicalUpdateBatteryModel', row.dataset.technicalBatteryModel || '');
+        setVal('technicalUpdateNetMetering', row.dataset.technicalNetMetering || '');
         setVal('technicalUpdateInstallationStatus', (row.dataset.installationStatus || '').toLowerCase());
         setVal('technicalUpdateJobOrderNumber', row.dataset.jobOrderNumber || '');
         setVal('technicalUpdatePoNumber', row.dataset.poNumber || '');

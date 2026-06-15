@@ -1399,6 +1399,10 @@
                                 <input type="email" class="form-control js-my-profile-editable" id="myProfileEmail" name="email" readonly>
                             </div>
                             <div class="col-md-6">
+                                <label class="form-label">Employee ID (Biometric)</label>
+                                <input type="text" class="form-control js-my-profile-editable" id="myProfileEmployeeId" name="employee_id" readonly>
+                            </div>
+                            <div class="col-md-6">
                                 <label class="form-label">Branch</label>
                                 <input type="text" class="form-control js-my-profile-editable" id="myProfileBranch" name="branch" readonly>
                             </div>
@@ -1438,6 +1442,49 @@
             </div>
         </div>
     </div>
+
+    {% if request.user.is_authenticated and not request.user.profile.profile_completed %}
+    <div class="modal fade" id="completeProfileModal" tabindex="-1" aria-labelledby="completeProfileModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow">
+                <form id="completeProfileForm" novalidate>
+                    {% csrf_token %}
+                    <input type="hidden" name="profile_completion" value="1">
+                    <div class="modal-header bg-white">
+                        <div>
+                            <h5 class="modal-title" id="completeProfileModalLabel">Complete Your User Information</h5>
+                            <div class="small text-secondary">Required ito bago magpatuloy sa system.</div>
+                        </div>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-danger d-none" id="completeProfileError"></div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">First Name</label>
+                                <input type="text" class="form-control" name="first_name" value="{{ request.user.first_name }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Last Name</label>
+                                <input type="text" class="form-control" name="last_name" value="{{ request.user.last_name }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" name="email" value="{{ request.user.email }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Contact Number</label>
+                                <input type="text" class="form-control" name="contact_number" value="{{ request.user.profile.contact_number }}" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-success" id="completeProfileSubmitBtn">Save Information</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="modal fade" id="permissionDeniedModal" tabindex="-1" aria-labelledby="permissionDeniedModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -1506,7 +1553,7 @@
 
     {% if welcome_reminders_modal %}
     <div class="modal fade" id="welcomeResponsibilitiesModal" tabindex="-1" aria-labelledby="welcomeResponsibilitiesModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content border-0 shadow-sm">
                 <div class="modal-header bg-white">
                     <div>
@@ -4330,6 +4377,10 @@
                             return;
                         }
                         showToast(data.message || 'Action failed.', 'danger');
+                        if (data.html) {
+                            replaceInlineBody(data.html, data.title || inlineTitle.textContent);
+                            return;
+                        }
                         renderError(data.message || 'Action failed.');
                         return;
                     }
@@ -4357,6 +4408,69 @@
         })();
 
         (function () {
+            const modalEl = document.getElementById('completeProfileModal');
+            const form = document.getElementById('completeProfileForm');
+            const errorBox = document.getElementById('completeProfileError');
+            const submitBtn = document.getElementById('completeProfileSubmitBtn');
+            if (!modalEl || !form || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl, {
+                backdrop: 'static',
+                keyboard: false,
+            });
+            modal.show();
+
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (!form.checkValidity()) {
+                    form.classList.add('was-validated');
+                    form.reportValidity();
+                    return;
+                }
+
+                if (errorBox) {
+                    errorBox.classList.add('d-none');
+                    errorBox.textContent = '';
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Saving...';
+                }
+
+                try {
+                    const response = await fetch('{% url "profile_page" %}', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        body: new FormData(form),
+                        credentials: 'same-origin',
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || !payload.ok) {
+                        throw new Error(payload.message || 'Please complete all required profile fields.');
+                    }
+                    modal.hide();
+                    if (window.showToast) {
+                        window.showToast(payload.message || 'Profile completed.', 'success');
+                    }
+                } catch (error) {
+                    if (errorBox) {
+                        errorBox.textContent = error.message || 'Please complete all required profile fields.';
+                        errorBox.classList.remove('d-none');
+                    }
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Save Information';
+                    }
+                }
+            });
+        })();
+
+        (function () {
             const profileModalElement = document.getElementById('myProfileModal');
             const openProfileBtn = document.getElementById('openMyProfileModalBtn');
             if (!profileModalElement || !openProfileBtn || typeof bootstrap === 'undefined') {
@@ -4375,6 +4489,7 @@
                 first_name: document.getElementById('myProfileFirstName').value || '',
                 last_name: document.getElementById('myProfileLastName').value || '',
                 email: document.getElementById('myProfileEmail').value || '',
+                employee_id: document.getElementById('myProfileEmployeeId').value || '',
                 branch: document.getElementById('myProfileBranch').value || '',
                 contact_number: document.getElementById('myProfileContactNumber').value || '',
             });
@@ -4393,6 +4508,7 @@
                 document.getElementById('myProfileFirstName').value = user.first_name || '';
                 document.getElementById('myProfileLastName').value = user.last_name || '';
                 document.getElementById('myProfileEmail').value = user.email || '';
+                document.getElementById('myProfileEmployeeId').value = user.employee_id || '';
                 document.getElementById('myProfileBranch').value = user.branch === 'Not assigned' ? '' : (user.branch || '');
                 document.getElementById('myProfileContactNumber').value = user.contact_number === 'Not set' ? '' : (user.contact_number || '');
                 document.getElementById('myProfileUsername').value = user.username || '-';
@@ -4449,6 +4565,7 @@
                         document.getElementById('myProfileFirstName').value = snapshot.first_name || '';
                         document.getElementById('myProfileLastName').value = snapshot.last_name || '';
                         document.getElementById('myProfileEmail').value = snapshot.email || '';
+                        document.getElementById('myProfileEmployeeId').value = snapshot.employee_id || '';
                         document.getElementById('myProfileBranch').value = snapshot.branch || '';
                         document.getElementById('myProfileContactNumber').value = snapshot.contact_number || '';
                     }

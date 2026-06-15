@@ -90,6 +90,7 @@ from .forms import (
 	CompanyInternetAccountForm,
 	CompanyInternetAccountUnlockForm,
 	DeveloperFeedbackForm,
+	EndUserProfileCompletionForm,
 	EmailVerificationRequestForm,
 	EmailVerificationOTPForm,
 	FundRequestForm,
@@ -146,6 +147,7 @@ from .models import (
 	CRMTechnicalTeam,
 	CRMTechnicalNotificationSetting,
 	CRMWarrantyRecord,
+	CRMWarrantyDeletionRequest,
 	CRMClientDeletionRequest,
 	ClientDeletionRequest,
 	ClientQuotation,
@@ -254,6 +256,56 @@ def _sales_selected_system_display(sales_record):
 	if battery and battery not in {'-', '0', '0.0', '0.00'}:
 		parts.append(f'Battery: {battery} kWh')
 	return ' | '.join(parts)
+
+
+def _sales_saved_technical_info(sales_record, technical_record=None):
+	proposal_data = getattr(sales_record, 'quotation_proposal_snapshot', None) or {}
+	if not isinstance(proposal_data, dict):
+		proposal_data = {}
+
+	def _clean(value):
+		value = str(value or '').strip()
+		return '' if value in {'-', 'None', 'null'} else value
+
+	def _first(*keys):
+		for key in keys:
+			value = _clean(proposal_data.get(key))
+			if value:
+				return value
+		return ''
+
+	def _with_unit(value, unit):
+		value = _clean(value)
+		if not value:
+			return ''
+		return value if unit.lower() in value.lower() else f'{value} {unit}'
+
+	def _fallback(attr_name):
+		return _clean(getattr(technical_record, attr_name, '') if technical_record else '')
+
+	battery_parts = []
+	battery_kwh = _first('selected_battery_kwh')
+	battery_ah = _first('selected_battery_ah')
+	if battery_kwh and battery_kwh not in {'0', '0.0', '0.00'}:
+		battery_parts.append(_with_unit(battery_kwh, 'kWh'))
+	if battery_ah and battery_ah not in {'0', '0.0', '0.00'}:
+		battery_parts.append(_with_unit(battery_ah, 'Ah'))
+
+	panel_units = _first('selected_system_panel_qty', 'panel_count')
+	if panel_units:
+		panel_units = _with_unit(panel_units, 'pcs')
+
+	system_type = _first('selected_system_type', 'system_type')
+	if system_type:
+		system_type = system_type.title()
+
+	return {
+		'system_size_kwh': _sales_selected_system_display(sales_record) or _fallback('system_size_kwh'),
+		'panel_units': panel_units or _fallback('panel_units'),
+		'inverter_model': system_type or _fallback('inverter_model'),
+		'battery_model': ' / '.join(battery_parts) or _fallback('battery_model'),
+		'net_metering': _first('net_metering', 'net_metering_status') or _fallback('net_metering'),
+	}
 
 
 def _sync_technical_system_from_sales(technical_record, sales_record=None, save=False):
@@ -5734,6 +5786,7 @@ def crm_technicals(request):
 		tech_record = getattr(sales_row, 'technical_record', None)
 		if tech_record:
 			_sync_technical_system_from_sales(tech_record, sales_row, save=True)
+		sales_row.sales_saved_technical_info = _sales_saved_technical_info(sales_row, tech_record)
 	base_query_params = request.GET.copy()
 	base_query_params.pop('page', None)
 	base_query_string = base_query_params.urlencode()
@@ -5907,6 +5960,10 @@ def crm_aftersales_warranty(request):
 
 	today = timezone.localdate()
 	can_view_all_warranties = request.user.is_superuser
+	can_approve_warranty_deletions = (
+		request.user.is_superuser
+		or request.user.has_perm('core.approve_crmwarrantydeletionrequest')
+	)
 	clients_queryset = (
 		CRMClient.objects
 		.prefetch_related('sales_records', 'sales_records__technical_record', 'sales_records__created_by')
@@ -5953,6 +6010,12 @@ def crm_aftersales_warranty(request):
 					return None
 				time.sleep(0.25 * (attempt + 1))
 		return None
+
+	def _warranty_scope():
+		queryset = CRMWarrantyRecord.objects.select_related('client', 'sales_record', 'technical_record', 'created_by')
+		if not can_view_all_warranties:
+			queryset = queryset.filter(created_by=request.user)
+		return queryset
 
 	if request.method == 'POST':
 		form_action = (request.POST.get('form_action') or '').strip()
@@ -6020,14 +6083,175 @@ def crm_aftersales_warranty(request):
 			_run_with_sqlite_retry(_record_warranty_activity)
 			messages.success(request, f'Warranty {warranty_record.warranty_number} added successfully.', extra_tags='toast')
 			return redirect('crm_aftersales_warranty')
+		if form_action == 'update_warranty_record':
+			record_id_raw = (request.POST.get('warranty_record_id') or '').strip()
+			warranty_type = (request.POST.get('warranty_type') or '').strip().lower()
+			product_system = (request.POST.get('product_system') or '').strip()
+			start_date = parse_date((request.POST.get('start_date') or '').strip())
+			end_date = parse_date((request.POST.get('end_date') or '').strip())
+			exclusions = (request.POST.get('exclusions') or '').strip()
+			notes = (request.POST.get('notes') or '').strip()
+			allowed_types = {value for value, _label in CRMWarrantyRecord.WARRANTY_TYPE_CHOICES}
+			if not record_id_raw.isdigit():
+				messages.error(request, 'Warranty record not found.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			warranty_record = _warranty_scope().filter(pk=int(record_id_raw)).first()
+			if not warranty_record:
+				messages.error(request, 'Warranty record not found.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			if warranty_type not in allowed_types:
+				messages.error(request, 'Please select a valid warranty type.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			if not start_date or not end_date:
+				messages.error(request, 'Start date and end date are required.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			if end_date < start_date:
+				messages.error(request, 'End date cannot be earlier than start date.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+
+			warranty_record.product_system = product_system
+			warranty_record.warranty_type = warranty_type
+			warranty_record.start_date = start_date
+			warranty_record.end_date = end_date
+			warranty_record.exclusions = exclusions
+			warranty_record.notes = notes
+			warranty_record.save(update_fields=['product_system', 'warranty_type', 'start_date', 'end_date', 'exclusions', 'notes', 'updated_at'])
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated CRM warranty record {warranty_record.warranty_number}.',
+				target=warranty_record,
+				target_label=warranty_record.warranty_number,
+				metadata={'warranty_record_id': warranty_record.id, 'warranty_type': warranty_type},
+			)
+			messages.success(request, f'Warranty {warranty_record.warranty_number} updated successfully.', extra_tags='toast')
+			return redirect('crm_aftersales_warranty')
+		if form_action == 'request_warranty_deletion':
+			record_id_raw = (request.POST.get('warranty_record_id') or '').strip()
+			reason = (request.POST.get('deletion_reason') or '').strip()
+			if not record_id_raw.isdigit():
+				messages.error(request, 'Warranty record not found.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			warranty_record = _warranty_scope().filter(pk=int(record_id_raw)).first()
+			if not warranty_record:
+				messages.error(request, 'Warranty record not found.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			pending_request = CRMWarrantyDeletionRequest.objects.filter(warranty_record=warranty_record, status='pending').first()
+			if pending_request:
+				messages.warning(request, f'Deletion request for warranty {warranty_record.warranty_number} is already pending.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			rejected_request = CRMWarrantyDeletionRequest.objects.filter(warranty_record=warranty_record, status='rejected').order_by('-requested_at').first()
+			client_label = _client_label(warranty_record.client)
+			if rejected_request:
+				rejected_request.status = 'pending'
+				rejected_request.reason = reason
+				rejected_request.review_notes = ''
+				rejected_request.reviewed_by = None
+				rejected_request.reviewed_at = None
+				rejected_request.requested_by = request.user
+				rejected_request.requested_at = timezone.now()
+				rejected_request.resubmission_count = int(rejected_request.resubmission_count or 0) + 1
+				rejected_request.warranty_number_snapshot = warranty_record.warranty_number
+				rejected_request.client_name_snapshot = client_label
+				rejected_request.save(
+					update_fields=[
+						'status', 'reason', 'review_notes', 'reviewed_by', 'reviewed_at',
+						'requested_by', 'requested_at', 'resubmission_count',
+						'warranty_number_snapshot', 'client_name_snapshot',
+					]
+				)
+			else:
+				CRMWarrantyDeletionRequest.objects.create(
+					warranty_record=warranty_record,
+					warranty_number_snapshot=warranty_record.warranty_number,
+					client_name_snapshot=client_label,
+					reason=reason,
+					requested_by=request.user,
+				)
+			record_activity(
+				request,
+				'submit',
+				'clients',
+				f'Requested deletion for CRM warranty record {warranty_record.warranty_number}.',
+				target=warranty_record,
+				target_label=warranty_record.warranty_number,
+				metadata={'warranty_record_id': warranty_record.id, 'reason': reason},
+			)
+			reviewers = User.objects.filter(is_active=True).filter(
+				Q(is_superuser=True)
+				| Q(user_permissions__content_type__app_label='core', user_permissions__codename='approve_crmwarrantydeletionrequest')
+				| Q(groups__permissions__content_type__app_label='core', groups__permissions__codename='approve_crmwarrantydeletionrequest')
+			).distinct().exclude(pk=request.user.pk)
+			for reviewer in reviewers:
+				create_notification(
+					reviewer,
+					'Warranty Deletion Request',
+					f'{request.user.get_full_name() or request.user.username} requested deletion for {warranty_record.warranty_number}.',
+					link_url=reverse('crm_aftersales_warranty'),
+				)
+			messages.success(request, f'Deletion request sent for warranty {warranty_record.warranty_number}.', extra_tags='toast')
+			return redirect('crm_aftersales_warranty')
+		if form_action in {'approve_warranty_deletion_request', 'reject_warranty_deletion_request'}:
+			if not can_approve_warranty_deletions:
+				messages.error(request, 'You do not have permission to review warranty deletion requests.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			request_id_raw = (request.POST.get('request_id') or '').strip()
+			review_notes = (request.POST.get('review_notes') or '').strip()
+			if not request_id_raw.isdigit():
+				messages.error(request, 'Invalid warranty deletion request.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			deletion_request = get_object_or_404(CRMWarrantyDeletionRequest.objects.select_related('warranty_record', 'requested_by'), pk=int(request_id_raw))
+			if deletion_request.status != 'pending':
+				messages.warning(request, 'This warranty deletion request is no longer pending.', extra_tags='toast')
+				return redirect('crm_aftersales_warranty')
+			warranty_label = deletion_request.warranty_number_snapshot
+			if form_action == 'approve_warranty_deletion_request':
+				warranty_record = deletion_request.warranty_record
+				if warranty_record:
+					warranty_record.delete()
+					deletion_request.warranty_record = None
+				deletion_request.status = 'approved'
+				message_text = f'Warranty deletion request approved for {warranty_label}.'
+				activity_action = 'approve'
+				notification_title = 'Warranty deletion request approved'
+				notification_message = f'Your deletion request for warranty "{warranty_label}" was approved.'
+			else:
+				deletion_request.status = 'rejected'
+				message_text = f'Warranty deletion request rejected for {warranty_label}.'
+				activity_action = 'reject'
+				notification_title = 'Warranty deletion request rejected'
+				notification_message = f'Your deletion request for warranty "{warranty_label}" was rejected.'
+			deletion_request.reviewed_by = request.user
+			deletion_request.reviewed_at = timezone.now()
+			deletion_request.review_notes = review_notes
+			deletion_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes', 'warranty_record'])
+			record_activity(
+				request,
+				activity_action,
+				'clients',
+				message_text,
+				target=deletion_request,
+				target_label=warranty_label,
+				metadata={'request_id': deletion_request.id, 'review_notes': review_notes},
+			)
+			if deletion_request.requested_by and deletion_request.requested_by_id != request.user.id:
+				create_notification(
+					deletion_request.requested_by,
+					title=notification_title,
+					message=notification_message,
+					link_url=reverse('crm_aftersales_warranty'),
+				)
+			if form_action == 'approve_warranty_deletion_request':
+				messages.success(request, message_text, extra_tags='toast')
+			else:
+				messages.info(request, message_text, extra_tags='toast')
+			return redirect('crm_aftersales_warranty')
 
 	warranty_queryset = (
-		CRMWarrantyRecord.objects
-		.select_related('client', 'sales_record', 'technical_record', 'created_by')
+		_warranty_scope()
 		.order_by('-created_at', '-id')
 	)
-	if not can_view_all_warranties:
-		warranty_queryset = warranty_queryset.filter(created_by=request.user)
 	warranty_records = []
 	for warranty_record in warranty_queryset:
 		days_remaining = (warranty_record.end_date - today).days
@@ -6048,20 +6272,27 @@ def crm_aftersales_warranty(request):
 		duration_display = f'{duration_years:g} Year{"s" if duration_years != 1 else ""}' if duration_years else f'{duration_days} Days'
 		warranty_records.append(
 			{
+				'id': warranty_record.id,
 				'no': warranty_record.warranty_number,
 				'client': _client_label(warranty_record.client),
 				'client_id': warranty_record.client_id,
 				'sales_record_id': warranty_record.sales_record_id or '',
 				'product': warranty_record.product_system or '-',
+				'product_raw': warranty_record.product_system or '',
 				'type': warranty_record.get_warranty_type_display(),
+				'type_value': warranty_record.warranty_type,
 				'start': warranty_record.start_date.strftime('%d/%m/%Y'),
+				'start_iso': warranty_record.start_date.isoformat(),
 				'end': warranty_record.end_date.strftime('%d/%m/%Y'),
+				'end_iso': warranty_record.end_date.isoformat(),
 				'status': status,
 				'staff': assigned_csr,
 				'duration': duration_display,
 				'covered': warranty_record.product_system or 'System size not encoded in technicals.',
 				'exclusions': warranty_record.exclusions or '-',
+				'exclusions_raw': warranty_record.exclusions or '',
 				'notes': warranty_record.notes or '-',
+				'notes_raw': warranty_record.notes or '',
 				'days_remaining': days_remaining,
 			}
 		)
@@ -6077,6 +6308,16 @@ def crm_aftersales_warranty(request):
 		[row for row in warranty_records if 0 <= row['days_remaining'] <= 60],
 		key=lambda row: row['days_remaining'],
 	)[:3]
+	pending_warranty_deletion_requests = []
+	pending_warranty_deletion_request_count = 0
+	if can_approve_warranty_deletions:
+		pending_warranty_deletion_request_count = CRMWarrantyDeletionRequest.objects.filter(status='pending').count()
+		pending_warranty_deletion_requests = list(
+			CRMWarrantyDeletionRequest.objects
+			.select_related('warranty_record', 'requested_by')
+			.filter(status='pending')
+			.order_by('-requested_at')[:200]
+		)
 	client_options = []
 	for client in clients_queryset:
 		_sales_record, technical_record = _latest_sales_and_technical(client)
@@ -6106,6 +6347,9 @@ def crm_aftersales_warranty(request):
 			'expiring_soon_records': expiring_soon_records,
 			'warranty_client_options': client_options,
 			'warranty_client_options_json': dumps(client_options),
+			'can_approve_warranty_deletions': can_approve_warranty_deletions,
+			'pending_warranty_deletion_requests': pending_warranty_deletion_requests,
+			'pending_warranty_deletion_request_count': pending_warranty_deletion_request_count,
 		},
 	)
 
@@ -6553,20 +6797,45 @@ def profile_page(request):
 	is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
 
 	if request.method == 'POST':
-		first_name = (request.POST.get('first_name') or '').strip()
-		last_name = (request.POST.get('last_name') or '').strip()
-		email = (request.POST.get('email') or '').strip()
-		branch_raw = (request.POST.get('branch') or '').strip()
-		contact_number_raw = (request.POST.get('contact_number') or '').strip()
+		is_profile_completion = (request.POST.get('profile_completion') or '').strip() == '1' or not profile.profile_completed
+		if is_profile_completion:
+			form = EndUserProfileCompletionForm(request.POST, user=request.user)
+			if not form.is_valid():
+				first_error = 'Please complete all required profile fields.'
+				if form.errors:
+					first_field = next(iter(form.errors))
+					first_error = form.errors[first_field][0]
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': first_error, 'errors': form.errors}, status=400)
+				messages.error(request, first_error)
+				return redirect('profile_page')
+			form.save()
+			profile.refresh_from_db()
+		else:
+			first_name = (request.POST.get('first_name') or '').strip()
+			last_name = (request.POST.get('last_name') or '').strip()
+			email = (request.POST.get('email') or '').strip()
+			employee_id_raw = (request.POST.get('employee_id') or '').strip()
+			branch_raw = (request.POST.get('branch') or '').strip()
+			contact_number_raw = (request.POST.get('contact_number') or '').strip()
+			if employee_id_raw and UserProfile.objects.filter(employee_id__iexact=employee_id_raw).exclude(user=request.user).exists():
+				message = 'Employee ID already exists.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message)
+				return redirect('profile_page')
 
-		request.user.first_name = first_name
-		request.user.last_name = last_name
-		request.user.email = email
-		request.user.save(update_fields=['first_name', 'last_name', 'email'])
+			request.user.first_name = first_name
+			request.user.last_name = last_name
+			request.user.email = email
+			request.user.save(update_fields=['first_name', 'last_name', 'email'])
 
-		profile.branch = branch_raw
-		profile.contact_number = contact_number_raw
-		profile.save(update_fields=['branch', 'contact_number'])
+			profile.employee_id = employee_id_raw
+			profile.branch = branch_raw
+			profile.contact_number = contact_number_raw
+			if all([request.user.first_name, request.user.last_name, request.user.email, profile.contact_number]):
+				profile.profile_completed = True
+			profile.save(update_fields=['employee_id', 'branch', 'contact_number', 'profile_completed'])
 
 		full_name = request.user.get_full_name() or request.user.username
 		payload = {
@@ -6578,8 +6847,10 @@ def profile_page(request):
 				'last_name': request.user.last_name or '',
 				'username': request.user.username,
 				'email': request.user.email or '',
+				'employee_id': profile.employee_id or '',
 				'branch': profile.branch or 'Not assigned',
 				'contact_number': profile.contact_number or 'Not set',
+				'profile_completed': profile.profile_completed,
 				'department': department,
 				'presence_status': str(presence_status).title(),
 				'last_activity_label': last_activity_label,
@@ -6604,8 +6875,10 @@ def profile_page(request):
 					'last_name': request.user.last_name or '',
 					'username': request.user.username,
 					'email': request.user.email or '',
+					'employee_id': profile.employee_id or '',
 					'branch': profile.branch or 'Not assigned',
 					'contact_number': profile.contact_number or 'Not set',
+					'profile_completed': profile.profile_completed,
 					'department': department,
 					'presence_status': str(presence_status).title(),
 					'last_activity_label': last_activity_label,
@@ -16578,12 +16851,16 @@ class SecurePasswordChangeView(PasswordChangeView):
 
 	def form_invalid(self, form):
 		if self.request.GET.get('modal') == '1' or self.request.POST.get('modal') == '1':
-			return render(
-				self.request,
+			html = render_to_string(
 				'registration/partials/password_change_modal.html',
 				{'form': form},
-				status=400,
+				request=self.request,
 			)
+			first_error = 'Please correct the password form and try again.'
+			if form.errors:
+				first_field = next(iter(form.errors))
+				first_error = form.errors[first_field][0]
+			return JsonResponse({'ok': False, 'message': first_error, 'html': html, 'title': 'Change Password'}, status=400)
 		return super().form_invalid(form)
 
 
