@@ -14,7 +14,9 @@ logger = logging.getLogger("auth_security")
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def ensure_profile(sender, instance, created, **kwargs):
+def ensure_profile(sender, instance, created, raw=False, **kwargs):
+    if raw:
+        return
     if created:
         UserProfile.objects.get_or_create(user=instance)
 

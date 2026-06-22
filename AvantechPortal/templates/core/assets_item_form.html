@@ -93,9 +93,9 @@
                                 <div class="searchable-select-menu d-none" id="parentItemSearchMenu" role="listbox"></div>
                             </div>
                             <select name="{{ form.parent_item.html_name }}" id="{{ form.parent_item.id_for_label }}" class="form-select">
-                                <option value="">---------</option>
+                                <option value="" data-selectable-empty="true">None (Create New Parent)</option>
                                 {% for option in form.parent_item_options %}
-                                    <option value="{{ option.id }}" data-item-type="{{ option.item_type }}" data-item-name="{{ option.item_name }}" {% if form.parent_item.value|stringformat:'s' == option.id %}selected{% endif %}>{{ option.label }}</option>
+                                    <option value="{{ option.id }}" data-item-type="{{ option.item_type }}" data-item-name="{{ option.item_name }}" data-department-id="{{ option.department_id }}" {% if form.parent_item.value|stringformat:'s' == option.id %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
                             </select>
                             <input type="hidden" id="lockedParentItemValue" value="">
@@ -213,6 +213,7 @@
 document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('assetItemForm');
     const parentField = document.getElementById('{{ form.parent_item.id_for_label }}');
+    const departmentField = document.getElementById('{{ form.department.id_for_label }}');
     const itemTypeField = document.getElementById('{{ form.item_type.id_for_label }}');
     const itemTypeSearchableSelect = document.getElementById('itemTypeSearchableSelect');
     const parentItemSearchableSelect = document.getElementById('parentItemSearchableSelect');
@@ -340,7 +341,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         return Array.from(parentField.options).find(function (option) {
             const itemType = String(option.dataset.itemType || '').toLowerCase();
-            return option.value && itemType === normalizedItemType;
+            return option.value && !option.disabled && itemType === normalizedItemType;
         }) || null;
     }
 
@@ -359,7 +360,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function getSelectableOptions() {
             return Array.from(selectField.options).filter(function (option) {
-                return !!option.value;
+                const isSelectableEmpty = option.dataset.selectableEmpty === 'true';
+                return (!!option.value || isSelectableEmpty) && !option.hidden && !option.disabled;
             });
         }
 
@@ -500,6 +502,41 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const selectedItemType = String(itemTypeField.value || '').toLowerCase();
+        const selectedDepartment = String(departmentField && departmentField.value ? departmentField.value : '');
+        const isOtherItemType = selectedItemType === 'other';
+
+        Array.from(parentField.options).forEach(function (option) {
+            if (!option.value) {
+                return;
+            }
+            const optionItemType = String(option.dataset.itemType || '').toLowerCase();
+            const optionDepartment = String(option.dataset.departmentId || '');
+            const matchesDepartment = !selectedDepartment || optionDepartment === selectedDepartment;
+            const shouldShow = matchesDepartment && (!isOtherItemType || optionItemType === 'other');
+            option.hidden = !shouldShow;
+            option.disabled = !shouldShow;
+        });
+
+        const selectedParentOption = parentField.options[parentField.selectedIndex];
+        if (selectedParentOption && selectedParentOption.value && selectedParentOption.disabled) {
+            parentField.value = '';
+        }
+
+        if (isOtherItemType) {
+            parentField.disabled = false;
+            if (parentItemSearchable) {
+                parentItemSearchable.setDisabled(false);
+                parentItemSearchable.sync();
+            }
+            lockedParentItemValue.removeAttribute('name');
+            lockedParentItemValue.value = '';
+            if (matchingParentLockHint) {
+                matchingParentLockHint.textContent = 'Optional: leave blank to create a new parent item, or choose an existing parent item under Other.';
+                matchingParentLockHint.classList.remove('d-none');
+            }
+            return;
+        }
+
         const matchingParentOption = findMatchingParentOption(selectedItemType);
 
         if (matchingParentOption) {
@@ -667,6 +704,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (itemTypeField) {
         itemTypeField.addEventListener('change', syncMatchingParentLock);
+    }
+
+    if (departmentField) {
+        departmentField.addEventListener('change', syncMatchingParentLock);
     }
 
     updateImageFieldVisibility();

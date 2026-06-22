@@ -367,7 +367,7 @@ class ActivityLog(models.Model):
 
 	CATEGORY_CHOICES = [
 		('clients', 'Clients'),
-		('finance', 'Finance'),
+		('finance', 'Accounting'),
 		('assets', 'Asset Tracker'),
 		('accountability', 'Accountability'),
 		('support', 'Support Tickets'),

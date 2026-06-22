@@ -68,7 +68,7 @@
                     <div class="progress mt-3 d-none" style="height: 10px;" data-db-progress-wrap="import">
                         <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;" data-db-progress-bar="import">0%</div>
                     </div>
-                    <div class="small text-secondary mt-2" data-db-progress-message="import">Waiting to import.</div>
+                    <div class="small text-secondary mt-2" data-db-progress-message="import">Choose an exported ZIP or JSON file.</div>
                 </form>
             </div>
             <div class="col-12 col-xl-4">
@@ -311,7 +311,7 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+function initializeSystemHub() {
     const dbTools = document.getElementById('systemDatabaseTools');
     if (dbTools) {
         const statusUrlTemplate = dbTools.getAttribute('data-status-url-template') || '';
@@ -406,6 +406,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const importForm = dbTools.querySelector('[data-system-db-import-form]');
         if (importForm) {
+            const importFileInput = importForm.querySelector('input[name="database_import_file"]');
+            if (importFileInput) {
+                importFileInput.addEventListener('change', function () {
+                    const selectedFile = importFileInput.files && importFileInput.files[0];
+                    const message = selectedFile
+                        ? 'Ready to import: ' + selectedFile.name
+                        : 'Choose an exported ZIP or JSON file.';
+                    const messageEl = dbTools.querySelector('[data-db-progress-message="import"]');
+                    if (messageEl) messageEl.textContent = message;
+                });
+            }
             importForm.addEventListener('submit', function (event) {
                 event.preventDefault();
                 startJob('import', dbTools.getAttribute('data-import-url'), new FormData(importForm));
@@ -425,7 +436,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const titleNode = document.getElementById('systemActionConfirmModalLabel');
     const messageNode = document.getElementById('systemActionConfirmModalMessage');
     const proceedButton = document.getElementById('systemActionConfirmModalProceed');
-    const bsModal = modalElement ? new bootstrap.Modal(modalElement) : null;
+    const bsModal = modalElement && window.bootstrap ? new window.bootstrap.Modal(modalElement) : null;
     let pendingForm = null;
 
     document.querySelectorAll('.js-system-confirm-form').forEach(function (form) {
@@ -468,6 +479,12 @@ document.addEventListener('DOMContentLoaded', function () {
             pendingForm = null;
         });
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeSystemHub);
+} else {
+    initializeSystemHub();
+}
 </script>
 {% endblock %}

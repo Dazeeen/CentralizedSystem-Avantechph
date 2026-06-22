@@ -1,6 +1,5 @@
 Django==6.0.4
 psycopg[binary]>=3.2.0
-mysqlclient>=2.2.0
 PyMySQL>=1.1.0
 argon2-cffi>=23.1.0
 django-axes>=8.0.0
@@ -15,3 +14,9 @@ pypdf>=4.2.0
 
 uvicorn>=0.30.0
 xlrd>=2.0.1
+
+# Optional native MySQL driver. This server is currently missing the MySQL/MariaDB
+# development headers needed to build it, and settings.py falls back to PyMySQL.
+# To use it later, install the OS package first, then uncomment:
+#   sudo apt install default-libmysqlclient-dev pkg-config
+# mysqlclient>=2.2.0

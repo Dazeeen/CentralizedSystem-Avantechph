@@ -150,7 +150,7 @@ ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv(
         'DJANGO_ALLOWED_HOSTS',
-        '127.0.0.1,localhost,portal.avantechph.local',
+        '127.0.0.1,localhost,portal.avantechph.local,192.168.1.55,150.228.187.8',
     ).split(',')
     if host.strip()
 ]
@@ -238,6 +238,19 @@ DATABASES = {
     'default': _build_default_database(BASE_DIR)
 }
 
+CACHE_DIR = BASE_DIR / 'cache'
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': str(CACHE_DIR),
+        'TIMEOUT': 300,
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+        },
+    },
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -278,6 +291,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 LOGIN_REDIRECT_URL = 'dashboard'
@@ -334,6 +348,21 @@ CAPTCHA_CHALLENGE_FUNCT = 'core.captcha_challenges.numeric_challenge'
 
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
+SECURITY_LOG_HANDLERS = ['console']
+SECURITY_LOGGING_HANDLERS = {
+    'console': {
+        'class': 'logging.StreamHandler',
+        'formatter': 'security',
+    },
+}
+if not DEBUG:
+    SECURITY_LOG_HANDLERS.insert(0, 'security_file')
+    SECURITY_LOGGING_HANDLERS['security_file'] = {
+        'class': 'logging.FileHandler',
+        'filename': BASE_DIR / 'logs' / 'security.log',
+        'formatter': 'security',
+    }
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -342,25 +371,15 @@ LOGGING = {
             'format': '[%(asctime)s] %(levelname)s %(name)s: %(message)s',
         },
     },
-    'handlers': {
-        'security_file': {
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'security.log',
-            'formatter': 'security',
-        },
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'security',
-        },
-    },
+    'handlers': SECURITY_LOGGING_HANDLERS,
     'loggers': {
         'auth_security': {
-            'handlers': ['security_file', 'console'],
+            'handlers': SECURITY_LOG_HANDLERS,
             'level': 'INFO',
             'propagate': False,
         },
         'axes': {
-            'handlers': ['security_file', 'console'],
+            'handlers': SECURITY_LOG_HANDLERS,
             'level': 'INFO',
             'propagate': False,
         },

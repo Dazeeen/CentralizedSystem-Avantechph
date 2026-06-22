@@ -358,7 +358,7 @@
                                             <path d="M16 10V14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                         </svg>
                                     </span>
-                                    <span class="nav-label">Finance</span>
+                                    <span class="nav-label">Accounting</span>
                                 </span>
                                 <span class="nav-group-caret" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -376,7 +376,7 @@
                                             <rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
                                         </svg>
                                     </span>
-                                    <span class="nav-label">Finance Dashboard</span>
+                                    <span class="nav-label">Accounting Dashboard</span>
                                 </a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'fund_requests_list' or request.resolver_match.url_name == 'fund_request_document' or request.resolver_match.url_name == 'fund_request_print' or request.resolver_match.url_name == 'fund_request_client_side_preview' or request.resolver_match.url_name == 'fund_request_records' or request.resolver_match.url_name == 'fund_request_template_guide' or request.resolver_match.url_name == 'fund_request_template_preview' %}active{% endif %}" href="{% url 'fund_requests_list' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
@@ -1069,7 +1069,7 @@
                                         <path d="M16 10V14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                     </svg>
                                 </span>
-                                <span class="nav-label">Finance</span>
+                                <span class="nav-label">Accounting</span>
                             </span>
                             <span class="nav-group-caret" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1087,7 +1087,7 @@
                                         <rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
                                     </svg>
                                 </span>
-                                <span class="nav-label">Finance Dashboard</span>
+                                <span class="nav-label">Accounting Dashboard</span>
                             </a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'fund_requests_list' or request.resolver_match.url_name == 'fund_request_document' or request.resolver_match.url_name == 'fund_request_print' or request.resolver_match.url_name == 'fund_request_client_side_preview' or request.resolver_match.url_name == 'fund_request_records' or request.resolver_match.url_name == 'fund_request_template_guide' or request.resolver_match.url_name == 'fund_request_template_preview' %}active{% endif %}" href="{% url 'fund_requests_list' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
@@ -1521,11 +1521,11 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow-sm">
                 <div class="modal-header bg-white">
-                    <h5 class="modal-title" id="financeMaintenanceModalLabel">Finance Is Under Maintenance</h5>
+                    <h5 class="modal-title" id="financeMaintenanceModalLabel">Accounting Is Under Maintenance</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="mb-0 text-secondary">Hindi pa available ang Finance pages para sa account na ito. Under maintenance pa ang section na ito.</p>
+                    <p class="mb-0 text-secondary">Hindi pa available ang Accounting pages para sa account na ito. Under maintenance pa ang section na ito.</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-success" data-bs-dismiss="modal">OK</button>
@@ -2140,7 +2140,7 @@
                     maintenanceModal.show();
                     return;
                 }
-                window.alert('Finance is currently under maintenance.');
+                window.alert('Accounting is currently under maintenance.');
             }, true);
 
             document.addEventListener('click', function (event) {

@@ -184,7 +184,7 @@
                             <td>{% if row.selected_cost_value is not None %}PHP {{ row.selected_cost_value|comma2 }}{% else %}-{% endif %}</td>
                             <td>
                                 {% if row.days_remaining <= 0 %}
-                                    <span class="badge text-bg-secondary">inactive na</span>
+                                    <span class="badge text-bg-secondary">Inactive</span>
                                 {% elif row.days_remaining <= sales_aging_settings.notify_remaining_days %}
                                     <span class="badge text-bg-danger">{{ row.inactive_days|default:0 }} day(s) ago</span>
                                 {% elif row.days_remaining <= sales_aging_settings.notify_remaining_days|add:"5" %}
@@ -234,7 +234,7 @@
                                             data-history-log-id="{{ log.id }}"
                                             data-history-sales-record-id="{{ row.id }}"
                                             data-history-name="{{ row.client.last_name }}, {{ row.client.first_name }}"
-                                            data-history-updated-by="{{ log.created_by.get_full_name|default:log.created_by.username|default:'System' }}"
+                                            data-history-updated-by="{% if log.created_by %}{{ log.created_by.get_full_name|default:log.created_by.username }}{% else %}System{% endif %}"
                                             data-history-client-status="{{ log.client_status|default:'-' }}"
                                             data-history-date="{{ log.created_at|date:'M j, Y g:i A' }}"
                                             data-history-lead-source="{{ log.lead_source|default:'-' }}"
@@ -250,7 +250,7 @@
                                             data-history-ocular-time="{% if log.ocular_start_time and log.ocular_end_time %}{{ log.ocular_start_time|time:'g:i A' }} - {{ log.ocular_end_time|time:'g:i A' }}{% elif log.ocular_start_time %}{{ log.ocular_start_time|time:'g:i A' }}{% else %}-{% endif %}"
                                             data-history-notes="{{ log.interaction_notes|default:'-' }}"
                                             data-history-attachments-template-id="crm-sales-history-attachments-{{ log.id }}">
-                                            <span class="small fw-semibold">{{ log.created_by.get_full_name|default:log.created_by.username|default:'System' }}</span>
+                                            <span class="small fw-semibold">{% if log.created_by %}{{ log.created_by.get_full_name|default:log.created_by.username }}{% else %}System{% endif %}</span>
                                             <span class="small text-secondary">{{ log.client_status|default:"-" }}</span>
                                             <span class="small text-secondary">{{ log.created_at|date:"M j, Y g:i A" }}</span>
                                             <span class="small text-secondary js-history-row-comments">{{ log.total_comments|default:0 }} 💬</span>

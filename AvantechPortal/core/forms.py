@@ -1436,6 +1436,7 @@ class AssetItemForm(forms.ModelForm):
                 'label': str(item),
                 'item_type': (item.item_type or '').strip().lower(),
                 'item_name': (item.item_name or '').strip().lower(),
+                'department_id': str(item.department_id),
             }
             for item in self.fields['parent_item'].queryset
         ]
@@ -1460,10 +1461,15 @@ class AssetItemForm(forms.ModelForm):
         parent_item = cleaned_data.get('parent_item')
         department = cleaned_data.get('department')
         item_type = (cleaned_data.get('item_type') or '').strip().lower()
-        matching_parent = self._matching_parent_item(item_type, department=department)
-        if matching_parent:
-            cleaned_data['parent_item'] = matching_parent
-            parent_item = matching_parent
+        if item_type == 'other':
+            parent_type = (getattr(parent_item, 'item_type', '') or '').strip().lower()
+            if parent_item and parent_type != 'other':
+                self.add_error('parent_item', 'Select a parent item under Other, or leave it blank to create a new parent item.')
+        else:
+            matching_parent = self._matching_parent_item(item_type, department=department)
+            if matching_parent:
+                cleaned_data['parent_item'] = matching_parent
+                parent_item = matching_parent
 
         if parent_item and department and parent_item.department_id != department.id:
             self.add_error('parent_item', 'Variant parent must belong to the selected department.')
