@@ -128,6 +128,7 @@ RESOURCE_LABELS = {
     ('axes', 'accesslog'): 'access logs',
     ('core', 'assetaccountability'): 'asset accountability records',
     ('core', 'activitylog'): 'activity log entries',
+    ('core', 'accountingrequest'): 'accounting requests',
     ('core', 'assetdepartment'): 'asset departments',
     ('core', 'assetitem'): 'asset items',
     ('core', 'assetitemimage'): 'asset item images',
@@ -188,6 +189,7 @@ RESOURCE_LABELS = {
 CUSTOM_PERMISSION_LABELS = {
     ('core', 'assetaccountability', 'can_borrow_assets'): 'Submit asset borrow requests',
     ('core', 'assetaccountability', 'can_manage_accountability'): 'Review and manage asset accountability requests',
+    ('core', 'accountingrequest', 'approve_accountingrequest'): 'Accounting Requests: Approve requests',
     ('core', 'assetitemtype', 'view_assettrackercategory'): 'Open asset tracker category view',
     ('core', 'consumableitemtype', 'view_consumablescategory'): 'Open consumables category view',
     ('core', 'clientdeletionrequest', 'approve_clientdeletionrequest'): 'Approve client deletion requests',

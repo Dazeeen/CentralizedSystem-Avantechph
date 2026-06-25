@@ -1231,11 +1231,55 @@ class CRMTechnicalRecord(models.Model):
 		('back jobs', 'Back Jobs'),
 		('rescheduled', 'Rescheduled'),
 	]
+	ORDER_APPROVAL_STATUS_CHOICES = [
+		('', 'Not Submitted'),
+		('pending', 'Pending Approval'),
+		('approved', 'Approved'),
+		('rejected', 'Rejected'),
+	]
 
 	sales_record = models.OneToOneField(CRMSalesRecord, on_delete=models.CASCADE, related_name='technical_record')
 	installation_date = models.DateField(blank=True, null=True)
 	installation_time = models.TimeField(blank=True, null=True)
+	installation_date_started = models.DateField(blank=True, null=True)
+	installation_date_finished = models.DateField(blank=True, null=True)
 	team_assigned = models.CharField(max_length=150, blank=True)
+	project_supervisor = models.CharField(max_length=150, blank=True)
+	personnel_name_position = models.TextField(blank=True)
+	client_name = models.CharField(max_length=200, blank=True)
+	contact_number = models.CharField(max_length=80, blank=True)
+	email_address = models.EmailField(blank=True)
+	full_address = models.TextField(blank=True)
+	coordinates = models.CharField(max_length=120, blank=True)
+	monitoring_app_plant_name = models.CharField(max_length=200, blank=True)
+	total_power_pv_system_kwp = models.CharField(max_length=80, blank=True)
+	pv_system_type_installed = models.CharField(max_length=120, blank=True)
+	with_net_metering = models.CharField(max_length=80, blank=True)
+	establishment_type = models.CharField(max_length=120, blank=True)
+	electrical_phase_type = models.CharField(max_length=120, blank=True)
+	three_phase_voltage = models.CharField(max_length=120, blank=True)
+	inverter_size_kw = models.CharField(max_length=80, blank=True)
+	inverter_brand_name = models.CharField(max_length=150, blank=True)
+	inverter_serial_number = models.CharField(max_length=150, blank=True)
+	data_logger_serial_number = models.CharField(max_length=150, blank=True)
+	inverter_ac_breaker_size = models.CharField(max_length=80, blank=True)
+	ac_wire_size_mm2 = models.CharField(max_length=80, blank=True)
+	pv_module_output_power_wp = models.CharField(max_length=80, blank=True)
+	pv_module_brand_name = models.CharField(max_length=150, blank=True)
+	total_panels = models.CharField(max_length=80, blank=True)
+	panels_per_string = models.TextField(blank=True)
+	pv_cable_size = models.CharField(max_length=80, blank=True)
+	main_breaker_size_at = models.CharField(max_length=80, blank=True)
+	main_wire_size_mm2 = models.CharField(max_length=80, blank=True)
+	rec_breaker_size_at = models.CharField(max_length=80, blank=True)
+	rec_wire_size_mm2 = models.CharField(max_length=80, blank=True)
+	battery_capacity_ah = models.CharField(max_length=80, blank=True)
+	battery_brand_name = models.CharField(max_length=150, blank=True)
+	battery_breaker_size = models.CharField(max_length=80, blank=True)
+	battery_wire_size_mm2 = models.CharField(max_length=80, blank=True)
+	ats_rating = models.CharField(max_length=80, blank=True)
+	ats_breaker_size_at = models.CharField(max_length=80, blank=True)
+	ats_wire_size_mm2 = models.CharField(max_length=80, blank=True)
 	system_size_kwh = models.CharField(max_length=50, blank=True)
 	panel_units = models.CharField(max_length=50, blank=True)
 	inverter_model = models.CharField(max_length=150, blank=True)
@@ -1244,6 +1288,10 @@ class CRMTechnicalRecord(models.Model):
 	installation_status = models.CharField(max_length=50, blank=True)
 	job_order_number = models.CharField(max_length=20, blank=True, db_index=True)
 	po_number = models.CharField(max_length=80, blank=True)
+	job_order_data = models.JSONField(default=dict, blank=True)
+	job_order_approval_status = models.CharField(max_length=20, choices=ORDER_APPROVAL_STATUS_CHOICES, blank=True, default='', db_index=True)
+	purchase_order_data = models.JSONField(default=dict, blank=True)
+	purchase_order_approval_status = models.CharField(max_length=20, choices=ORDER_APPROVAL_STATUS_CHOICES, blank=True, default='', db_index=True)
 	remarks = models.TextField(blank=True)
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
@@ -1257,6 +1305,9 @@ class CRMTechnicalRecord(models.Model):
 
 	class Meta:
 		ordering = ['-installation_date', '-created_at']
+		permissions = [
+			('approve_crm_technical_orders', 'Can approve CRM technical JO and PO requests'),
+		]
 
 	def _is_installation_completed(self):
 		status = (self.installation_status or '').strip().lower()
@@ -1816,6 +1867,113 @@ class FundRequestAutoApproveRule(models.Model):
 
 	def __str__(self):
 		return self.name
+
+
+class AccountingRequest(models.Model):
+	REQUEST_TYPE_CHOICES = [
+		('purchase_requisition', 'Purchase Requisition'),
+		('job_request', 'Job Request for JO'),
+	]
+	REQUEST_STATUS_CHOICES = [
+		('pending', 'Pending Approval'),
+		('approved', 'Approved'),
+		('rejected', 'Rejected'),
+		('cancelled', 'Cancelled'),
+	]
+
+	request_number = models.CharField(max_length=24, unique=True, editable=False, blank=True)
+	request_type = models.CharField(max_length=30, choices=REQUEST_TYPE_CHOICES, db_index=True)
+	requester_name = models.CharField(max_length=150)
+	department = models.CharField(max_length=120, blank=True)
+	title = models.CharField(max_length=180)
+	description = models.TextField()
+	amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+	date_needed = models.DateField(null=True, blank=True)
+	jo_reference = models.CharField(max_length=80, blank=True)
+	request_status = models.CharField(max_length=20, choices=REQUEST_STATUS_CHOICES, default='pending', db_index=True)
+	decision_reason = models.TextField(blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='accounting_requests_created',
+	)
+	processed_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='accounting_requests_processed',
+	)
+	processed_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-created_at', '-id']
+		permissions = [
+			('approve_accountingrequest', 'Can approve accounting requests'),
+		]
+
+	def __str__(self):
+		return self.request_number or f'AccountingRequest<{self.pk}:{self.request_status}>'
+
+	def _assign_request_number(self):
+		prefix = 'PR' if self.request_type == 'purchase_requisition' else 'JR'
+		current_year = timezone.localdate().year
+		base_prefix = f'{prefix}-{current_year:04d}-'
+		with transaction.atomic():
+			latest = (
+				AccountingRequest.objects
+				.select_for_update()
+				.filter(request_number__startswith=base_prefix)
+				.order_by('-request_number')
+				.values_list('request_number', flat=True)
+				.first()
+			)
+			latest_sequence = 0
+			if latest:
+				try:
+					latest_sequence = int(str(latest).rsplit('-', 1)[-1])
+				except (TypeError, ValueError):
+					latest_sequence = 0
+			self.request_number = f'{base_prefix}{latest_sequence + 1:04d}'
+
+	def save(self, *args, **kwargs):
+		if not self.request_number:
+			self._assign_request_number()
+		super().save(*args, **kwargs)
+
+	def mark_approved(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+		self.request_status = 'approved'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'updated_at'])
+		return True
+
+	def mark_rejected(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+		self.request_status = 'rejected'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'updated_at'])
+		return True
+
+	def mark_cancelled(self, processed_by=None, reason=''):
+		if self.request_status != 'pending':
+			return False
+		self.request_status = 'cancelled'
+		self.processed_by = processed_by
+		self.processed_at = timezone.now()
+		self.decision_reason = reason or ''
+		self.save(update_fields=['request_status', 'processed_by', 'processed_at', 'decision_reason', 'updated_at'])
+		return True
 
 
 class LiquidationTemplate(models.Model):

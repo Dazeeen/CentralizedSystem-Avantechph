@@ -114,7 +114,14 @@ PAGE_ACCESS_RULES = {
     'crm_aftersales': {'label': 'CRM Aftersales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'crm_aftersales_warranty': {'label': 'CRM Aftersales Warranty', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'crm_aftersales_concern': {'label': 'CRM Aftersales Concern', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
-    'finance_dashboard': {'label': 'Accounting Dashboard', 'perms': ['core.view_fundrequest']},
+    'finance_dashboard': {
+        'label': 'Accounting Dashboard',
+        'perms': ['core.view_fundrequest', 'core.add_accountingrequest', 'core.view_accountingrequest', 'core.approve_accountingrequest'],
+    },
+    'accounting_requests': {
+        'label': 'Accounting Requests',
+        'perms': ['core.view_fundrequest', 'core.add_accountingrequest', 'core.view_accountingrequest', 'core.approve_accountingrequest'],
+    },
     'fund_requests_list': {'label': 'Payment Request', 'perms': ['core.view_fundrequest']},
     'fund_request_records': {'label': 'Payment Request Records', 'perms': ['core.view_fundrequest']},
     'fund_request_records_pdf': {'label': 'Payment Request Records PDF', 'perms': ['core.view_fundrequest']},
@@ -509,6 +516,7 @@ def finance_navigation_state(request):
     url_name = getattr(resolver_match, 'url_name', '') or ''
     is_finance_nav_active = (
         url_name.startswith('finance_')
+        or url_name == 'accounting_requests'
         or url_name.startswith('fund_request')
         or url_name.startswith('liquidation')
     )

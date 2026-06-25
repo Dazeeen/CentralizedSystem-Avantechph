@@ -166,6 +166,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function getOptionSearchText(option) {
+        const text = (option && option.text ? option.text : '').toLowerCase();
+        return /\bother\b/.test(text) ? `${text} others` : text;
+    }
+
     function syncSearchOptions(filterText) {
         if (!itemOptionsList) {
             return;
@@ -176,7 +181,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!normalizedFilter) {
                 return true;
             }
-            return (option.text || '').toLowerCase().includes(normalizedFilter);
+            return getOptionSearchText(option).includes(normalizedFilter);
         });
 
         itemOptionsList.innerHTML = options.map(function(option) {

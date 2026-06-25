@@ -82,6 +82,7 @@ from .forms import (
 	AssetDepartmentForm,
 	AssetItemForm,
 	AssetItemTypeForm,
+	AccountingRequestForm,
 	ConsumableItemForm,
 	ConsumableItemTypeForm,
 	ClientForm,
@@ -124,6 +125,7 @@ from .models import (
 	AssetReturnProof,
 	AssetTagBatch,
 	AssetTagEntry,
+	AccountingRequest,
 	AttendanceLog,
 	AttendanceGlobalTimemarkSetting,
 	AttendancePolicySetting,
@@ -204,6 +206,8 @@ INTERNET_ACCOUNT_UNLOCK_SESSION_KEY = 'company_internet_account_unlocks'
 FILE_MANAGER_HIERARCHY_SYNC_CACHE_KEY = 'file-manager:default-hierarchy-synced'
 FILE_MANAGER_HIERARCHY_SYNC_LOCK_KEY = 'file-manager:default-hierarchy-sync-lock'
 FILE_MANAGER_HIERARCHY_SYNC_CACHE_SECONDS = 5 * 60
+
+
 PRIVATE_CHAT_MESSAGE_PAGE_SIZE = 10
 TECHNICAL_ACTIVE_INSTALLATION_STATUSES = ('scheduled', 'ongoing', 'rescheduled', 'back jobs')
 
@@ -3251,6 +3255,11 @@ def crm_clients(request):
 				sales_record.save(update_fields=['sales_status', 'assigned_sales', 'updated_at'])
 			else:
 				sales_record.save(update_fields=['sales_status', 'updated_at'])
+			if target_status == 'closed won':
+				CRMTechnicalRecord.objects.get_or_create(
+					sales_record=sales_record,
+					defaults={'created_by': request.user, 'job_order_number': sales_record.job_order_number or ''},
+				)
 
 			CRMSalesActivityLog.objects.create(
 				sales_record=sales_record,
@@ -3996,9 +4005,6 @@ def crm_sales(request):
 				time.sleep(0.15 * (attempt + 1))
 		return None
 
-	def _format_job_order_number(year, sequence):
-		return f'{int(year):04d}-{int(sequence):04d}'
-
 	if request.method == 'POST':
 		if not _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']):
 			allowed_for_thread = {
@@ -4380,8 +4386,6 @@ def crm_sales(request):
 		if form_action == 'update_sales_aging_settings':
 			aging_days_raw = (request.POST.get('aging_days') or '').strip()
 			notify_remaining_days_raw = (request.POST.get('notify_remaining_days') or '').strip()
-			next_job_order_year_raw = (request.POST.get('next_job_order_year') or '').strip()
-			next_job_order_sequence_raw = (request.POST.get('next_job_order_sequence') or '').strip()
 			include_closed_won = (request.POST.get('include_closed_won') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
 			try:
 				aging_days = int(aging_days_raw) if aging_days_raw else 30
@@ -4391,22 +4395,10 @@ def crm_sales(request):
 				notify_remaining_days = int(notify_remaining_days_raw) if notify_remaining_days_raw else 5
 			except (TypeError, ValueError):
 				notify_remaining_days = 5
-			try:
-				next_job_order_year = int(next_job_order_year_raw) if next_job_order_year_raw else timezone.localdate().year
-			except (TypeError, ValueError):
-				next_job_order_year = timezone.localdate().year
-			try:
-				next_job_order_sequence = int(next_job_order_sequence_raw) if next_job_order_sequence_raw else 1
-			except (TypeError, ValueError):
-				next_job_order_sequence = 1
 			if aging_days < 1:
 				aging_days = 1
 			if notify_remaining_days < 1:
 				notify_remaining_days = 1
-			if next_job_order_year < 1:
-				next_job_order_year = timezone.localdate().year
-			if next_job_order_sequence < 1:
-				next_job_order_sequence = 1
 			settings_obj, _ = CRMSalesAgingSetting.objects.get_or_create(
 				pk=1,
 				defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
@@ -4414,14 +4406,10 @@ def crm_sales(request):
 			settings_obj.aging_days = aging_days
 			settings_obj.notify_remaining_days = notify_remaining_days
 			settings_obj.include_closed_won = include_closed_won
-			settings_obj.next_job_order_year = next_job_order_year
-			settings_obj.next_job_order_sequence = next_job_order_sequence
 			settings_obj.save(update_fields=[
 				'aging_days',
 				'notify_remaining_days',
 				'include_closed_won',
-				'next_job_order_year',
-				'next_job_order_sequence',
 				'updated_at',
 			])
 			record_activity(
@@ -4435,7 +4423,6 @@ def crm_sales(request):
 					'aging_days': settings_obj.aging_days,
 					'notify_remaining_days': settings_obj.notify_remaining_days,
 					'include_closed_won': settings_obj.include_closed_won,
-					'next_job_order_number': _format_job_order_number(settings_obj.next_job_order_year, settings_obj.next_job_order_sequence),
 				},
 			)
 			messages.success(request, 'Sales aging settings updated.', extra_tags='toast')
@@ -4644,7 +4631,6 @@ def crm_sales(request):
 			project_cost = _to_decimal(request.POST.get('project_cost'))
 			downpayment = _to_decimal(request.POST.get('downpayment'))
 
-			generated_job_order_number = ''
 			transition_error = {}
 
 			def _normalize_sales_status_for_progress(raw_status):
@@ -4714,7 +4700,6 @@ def crm_sales(request):
 					locked_sales_record.ocular_end_time = ocular_end_time
 					locked_sales_record.client_status = client_status
 					locked_sales_record.interaction_notes = interaction_notes
-					job_order_number = ''
 					update_fields = [
 						'lead_source',
 						'monthly_electric_bill',
@@ -4735,25 +4720,8 @@ def crm_sales(request):
 						'interaction_notes',
 						'updated_at',
 					]
-					if sales_status in {'closed won', 'close won'} and not (locked_sales_record.job_order_number or '').strip():
-						settings_obj, _ = CRMSalesAgingSetting.objects.select_for_update().get_or_create(
-							pk=1,
-							defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
-						)
-						jo_year = int(settings_obj.next_job_order_year or timezone.localdate().year)
-						jo_sequence = max(int(settings_obj.next_job_order_sequence or 1), 1)
-						candidate = _format_job_order_number(jo_year, jo_sequence)
-						while CRMSalesRecord.objects.filter(job_order_number=candidate).exclude(pk=locked_sales_record.pk).exists():
-							jo_sequence += 1
-							candidate = _format_job_order_number(jo_year, jo_sequence)
-						locked_sales_record.job_order_number = candidate
-						settings_obj.next_job_order_year = jo_year
-						settings_obj.next_job_order_sequence = jo_sequence + 1
-						settings_obj.save(update_fields=['next_job_order_year', 'next_job_order_sequence', 'updated_at'])
-						job_order_number = candidate
-						update_fields.append('job_order_number')
 					locked_sales_record.save(update_fields=update_fields)
-					if locked_sales_record.job_order_number:
+					if sales_status in {'closed won', 'close won'} or locked_sales_record.job_order_number:
 						tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
 							sales_record=locked_sales_record,
 							defaults={
@@ -4794,7 +4762,7 @@ def crm_sales(request):
 					)
 					for uploaded_file in request.FILES.getlist('activity_files'):
 						CRMSalesActivityAttachment.objects.create(activity_log=activity_obj, file=uploaded_file)
-					return locked_sales_record, activity_obj, job_order_number
+					return locked_sales_record, activity_obj
 
 			save_result = _run_with_sqlite_retry(_save_sales_activity_write)
 			if save_result is None:
@@ -4814,7 +4782,7 @@ def crm_sales(request):
 					return redirect('crm_sales')
 				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 				return redirect('crm_sales')
-			sales_record, activity_log, generated_job_order_number = save_result
+			sales_record, activity_log = save_result
 			record_activity(
 				request,
 				'update',
@@ -4833,15 +4801,12 @@ def crm_sales(request):
 					'client_status': client_status,
 					'lead_source': lead_source,
 					'job_order_number': sales_record.job_order_number or '',
-					'generated_job_order_number': generated_job_order_number,
 					'proposal_data': proposal_data,
 					'quotation_proposal_inputs': quotation_proposal_inputs,
 					'attachment_count': len(request.FILES.getlist('activity_files')),
 				},
 			)
 			success_message = 'Sales information updated successfully.' if is_edit_mode else 'Sales activity logged successfully.'
-			if generated_job_order_number:
-				success_message = f'{success_message} JO# {generated_job_order_number} generated.'
 			messages.success(
 				request,
 				success_message,
@@ -4852,10 +4817,6 @@ def crm_sales(request):
 	aging_settings, _ = CRMSalesAgingSetting.objects.get_or_create(
 		pk=1,
 		defaults={'aging_days': 30, 'notify_remaining_days': 5, 'include_closed_won': False},
-	)
-	next_job_order_preview = _format_job_order_number(
-		aging_settings.next_job_order_year or timezone.localdate().year,
-		max(int(aging_settings.next_job_order_sequence or 1), 1),
 	)
 	cutoff = timezone.now() - timedelta(days=aging_settings.aging_days)
 	notify_cutoff_remaining = max(int(aging_settings.notify_remaining_days or 1), 1)
@@ -5248,7 +5209,6 @@ def crm_sales(request):
 		'assigned_sales_options': assigned_sales_options,
 		'assignable_sales_users': assignable_sales_users,
 		'sales_aging_settings': aging_settings,
-		'next_job_order_preview': next_job_order_preview,
 		'can_manage_crm_sales': _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['sales']),
 		'enable_floating_calculator': CalculatorSetting.load().enable_floating_calculator,
 		'pipeline_stage_counts': pipeline_stage_counts,
@@ -5286,11 +5246,146 @@ def crm_technicals(request):
 
 	can_manage_crm_technicals = _is_crm_technicals_admin(request.user)
 	can_edit_crm_technical_info = request.user.is_superuser
+	can_approve_crm_technical_orders = (
+		request.user.is_superuser
+		or request.user.has_perm('core.approve_crm_technical_orders')
+		or request.user.groups.filter(name__iexact='Operation Head').exists()
+		or request.user.groups.filter(name__iexact='Operations Head').exists()
+	)
+	technical_order_detail_fields = [
+		'installation_date_started',
+		'installation_date_finished',
+		'project_supervisor',
+		'personnel_name_position',
+		'client_name',
+		'contact_number',
+		'email_address',
+		'full_address',
+		'coordinates',
+		'monitoring_app_plant_name',
+		'total_power_pv_system_kwp',
+		'pv_system_type_installed',
+		'with_net_metering',
+		'establishment_type',
+		'electrical_phase_type',
+		'three_phase_voltage',
+		'inverter_size_kw',
+		'inverter_brand_name',
+		'inverter_serial_number',
+		'data_logger_serial_number',
+		'inverter_ac_breaker_size',
+		'ac_wire_size_mm2',
+		'pv_module_output_power_wp',
+		'pv_module_brand_name',
+		'total_panels',
+		'panels_per_string',
+		'pv_cable_size',
+		'main_breaker_size_at',
+		'main_wire_size_mm2',
+		'rec_breaker_size_at',
+		'rec_wire_size_mm2',
+		'battery_capacity_ah',
+		'battery_brand_name',
+		'battery_breaker_size',
+		'battery_wire_size_mm2',
+		'ats_rating',
+		'ats_breaker_size_at',
+		'ats_wire_size_mm2',
+	]
+
+	def _technical_record_for_sales(sales_record):
+		tech_record, _ = CRMTechnicalRecord.objects.get_or_create(
+			sales_record=sales_record,
+			defaults={
+				'created_by': request.user,
+				'job_order_number': sales_record.job_order_number or '',
+				'system_size_kwh': _sales_selected_system_display(sales_record),
+				'client_name': f'{sales_record.client.last_name}, {sales_record.client.first_name}' if sales_record.client_id else '',
+				'contact_number': sales_record.client.contact_number if sales_record.client_id else '',
+				'email_address': sales_record.client.email if sales_record.client_id else '',
+				'full_address': sales_record.client.home_address if sales_record.client_id else '',
+				'coordinates': (
+					f'{sales_record.client.geo_latitude}, {sales_record.client.geo_longitude}'
+					if sales_record.client_id and sales_record.client.geo_latitude is not None and sales_record.client.geo_longitude is not None
+					else ''
+				),
+			},
+		)
+		return tech_record
+
+	def _get_closed_won_sales_record(raw_id):
+		if not str(raw_id or '').strip().isdigit():
+			return None
+		return CRMSalesRecord.objects.select_related('client').filter(
+			Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won'),
+			pk=str(raw_id).strip(),
+		).first()
+
+	def _format_purchase_order_number(year, sequence):
+		return f'PO-{int(year):04d}-{int(sequence):05d}'
+
+	def _next_purchase_order_number(exclude_pk=None):
+		year = timezone.localdate().year
+		prefix = f'PO-{year:04d}-'
+		used_sequences = []
+		po_qs = CRMTechnicalRecord.objects.filter(
+			Q(po_number__startswith=prefix)
+			| Q(purchase_order_approval_status='pending')
+		)
+		if exclude_pk:
+			po_qs = po_qs.exclude(pk=exclude_pk)
+		for value, po_data in po_qs.values_list('po_number', 'purchase_order_data'):
+			candidates = [value]
+			if isinstance(po_data, dict):
+				candidates.append(po_data.get('reference_no'))
+			for candidate in candidates:
+				match = re.match(rf'^{re.escape(prefix)}(\d+)$', str(candidate or '').strip())
+				if match:
+					try:
+						used_sequences.append(int(match.group(1)))
+					except (TypeError, ValueError):
+						pass
+		return _format_purchase_order_number(year, (max(used_sequences) if used_sequences else 0) + 1)
+
+	def _next_job_order_number(exclude_pk=None):
+		year = timezone.localdate().year
+		prefix = f'JO-{year:04d}-'
+		used_sequences = []
+		jo_qs = CRMTechnicalRecord.objects.filter(
+			Q(job_order_number__startswith=prefix)
+			| Q(job_order_approval_status='pending')
+		)
+		if exclude_pk:
+			jo_qs = jo_qs.exclude(pk=exclude_pk)
+		for value, jo_data in jo_qs.values_list('job_order_number', 'job_order_data'):
+			candidates = [value]
+			if isinstance(jo_data, dict):
+				candidates.append(jo_data.get('reference_no'))
+			for candidate in candidates:
+				match = re.match(rf'^{re.escape(prefix)}(\d+)$', str(candidate or '').strip())
+				if match:
+					try:
+						used_sequences.append(int(match.group(1)))
+					except (TypeError, ValueError):
+						pass
+		return f'{prefix}{(max(used_sequences) if used_sequences else 0) + 1:05d}'
+
+	def _money_from_post(value):
+		raw = str(value or '').replace(',', '').strip()
+		if not raw or raw == '-':
+			return Decimal('0.00')
+		try:
+			return Decimal(raw)
+		except (InvalidOperation, TypeError, ValueError):
+			return Decimal('0.00')
+
+	def _money_string(value):
+		return f'{value.quantize(Decimal("0.01")):,.2f}'
 
 	if request.method == 'POST':
-		if not can_manage_crm_technicals:
-			return _permission_denied_response(request)
 		form_action = (request.POST.get('form_action') or '').strip()
+		if not can_manage_crm_technicals and not (form_action == 'approve_closed_won_order' and can_approve_crm_technical_orders):
+			return _permission_denied_response(request)
 		if form_action == 'update_technical_notification_settings':
 			days_raw = (request.POST.get('notify_days_before') or '').strip()
 			include_backlogs = (request.POST.get('include_backlogs') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
@@ -5623,6 +5718,275 @@ def crm_technicals(request):
 			messages.success(request, 'Technical installation info updated.', extra_tags='toast')
 			return redirect('crm_technicals')
 
+		if form_action == 'save_closed_won_order_details':
+			sales_record = _get_closed_won_sales_record(request.POST.get('sales_record_id'))
+			if not sales_record:
+				messages.warning(request, 'Please select a valid Closed Won order.', extra_tags='toast')
+				return redirect('crm_technicals')
+			tech_record = _technical_record_for_sales(sales_record)
+
+			def _save_order_details_write():
+				with transaction.atomic():
+					locked_tech = CRMTechnicalRecord.objects.select_for_update().get(pk=tech_record.pk)
+					date_fields = {'installation_date_started', 'installation_date_finished'}
+					for field_name in technical_order_detail_fields:
+						raw_value = (request.POST.get(field_name) or '').strip()
+						if field_name in date_fields:
+							setattr(locked_tech, field_name, parse_date(raw_value) if raw_value else None)
+						else:
+							setattr(locked_tech, field_name, raw_value)
+					if not (locked_tech.system_size_kwh or '').strip():
+						locked_tech.system_size_kwh = _sales_selected_system_display(sales_record)
+					locked_tech.save(update_fields=technical_order_detail_fields + ['system_size_kwh', 'updated_at'])
+					CRMTechnicalActionLog.objects.create(
+						technical_record=locked_tech,
+						sales_record=sales_record,
+						action='installation_updated',
+						previous_remarks='Closed Won order details updated.',
+						new_remarks=locked_tech.remarks or '',
+						created_by=request.user,
+					)
+				return True
+
+			saved_ok = _run_with_sqlite_retry(_save_order_details_write)
+			if saved_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated Closed Won order details for sales record #{sales_record.id}.',
+				target=tech_record,
+				target_label=f'Technical #{tech_record.id}',
+				metadata={'sales_record_id': sales_record.id},
+			)
+			messages.success(request, 'Closed Won order details saved.', extra_tags='toast')
+			return redirect('crm_technicals')
+
+		if form_action in {'create_closed_won_job_order', 'create_closed_won_purchase_order'}:
+			sales_record = _get_closed_won_sales_record(request.POST.get('sales_record_id'))
+			if not sales_record:
+				messages.warning(request, 'Please select a valid Closed Won order.', extra_tags='toast')
+				return redirect('crm_technicals')
+			tech_record = _technical_record_for_sales(sales_record)
+			is_job_order = form_action == 'create_closed_won_job_order'
+			number_label = 'JO#' if is_job_order else 'PO#'
+			remarks = (request.POST.get('remarks') or '').strip()
+			order_number = (request.POST.get('job_order_number' if is_job_order else 'po_number') or '').strip()
+			if is_job_order and not order_number:
+				order_number = _next_job_order_number(exclude_pk=tech_record.pk)
+			if not is_job_order and not order_number:
+				order_number = _next_purchase_order_number(exclude_pk=tech_record.pk)
+			if not order_number:
+				messages.warning(request, f'{number_label} is required.', extra_tags='toast')
+				return redirect('crm_technicals')
+			if is_job_order and CRMSalesRecord.objects.filter(job_order_number__iexact=order_number).exclude(pk=sales_record.pk).exists():
+				messages.error(request, f'JO# {order_number} is already assigned to another sales record.', extra_tags='toast')
+				return redirect('crm_technicals')
+			if is_job_order and CRMTechnicalRecord.objects.filter(job_order_data__reference_no__iexact=order_number, job_order_approval_status='pending').exclude(pk=tech_record.pk).exists():
+				messages.error(request, f'JO# {order_number} is already pending approval.', extra_tags='toast')
+				return redirect('crm_technicals')
+			purchase_order_data = {}
+			job_order_data = {}
+			if is_job_order:
+				job_numbers = request.POST.getlist('jo_item_no')
+				job_descriptions = request.POST.getlist('jo_job_description')
+				job_other_info = request.POST.getlist('jo_other_info')
+				jobs = []
+				for index in range(max(len(job_numbers), len(job_descriptions), len(job_other_info), 5)):
+					job_item = {
+						'no': (job_numbers[index] if index < len(job_numbers) else str(index + 1)).strip(),
+						'job_description': (job_descriptions[index] if index < len(job_descriptions) else '').strip(),
+						'other_info': (job_other_info[index] if index < len(job_other_info) else '').strip(),
+					}
+					jobs.append(job_item)
+				job_order_data = {
+					'job_date': (request.POST.get('jo_date') or '').strip(),
+					'reference_no': order_number,
+					'client_name': (request.POST.get('jo_client_name') or '').strip(),
+					'contact_number': (request.POST.get('jo_contact_number') or '').strip(),
+					'email_address': (request.POST.get('jo_email_address') or '').strip(),
+					'full_address': (request.POST.get('jo_full_address') or '').strip(),
+					'project_supervisor': (request.POST.get('jo_project_supervisor') or '').strip(),
+					'personnel': (request.POST.get('jo_personnel') or '').strip(),
+					'jobs': jobs,
+					'remarks': remarks,
+				}
+			else:
+				item_numbers = request.POST.getlist('po_item_no')
+				item_descriptions = request.POST.getlist('po_item_description')
+				item_quantities = request.POST.getlist('po_item_qty')
+				item_units = request.POST.getlist('po_item_um')
+				item_unit_prices = request.POST.getlist('po_item_unit_price')
+				item_amounts = request.POST.getlist('po_item_amount')
+				items = []
+				for index in range(max(len(item_numbers), len(item_descriptions), len(item_quantities), len(item_units), len(item_unit_prices), len(item_amounts), 5)):
+					qty_value = _money_from_post(item_quantities[index] if index < len(item_quantities) else '')
+					unit_price_value = _money_from_post(item_unit_prices[index] if index < len(item_unit_prices) else '')
+					amount_value = qty_value * unit_price_value
+					item = {
+						'no': (item_numbers[index] if index < len(item_numbers) else str(index + 1)).strip(),
+						'description': (item_descriptions[index] if index < len(item_descriptions) else '').strip(),
+						'qty': (item_quantities[index] if index < len(item_quantities) else '').strip(),
+						'um': (item_units[index] if index < len(item_units) else '').strip(),
+						'unit_price': (item_unit_prices[index] if index < len(item_unit_prices) else '').strip(),
+						'amount': _money_string(amount_value) if amount_value else '',
+					}
+					items.append(item)
+				subtotal_value = sum((_money_from_post(item.get('amount')) for item in items), Decimal('0.00'))
+				less_discount_value = _money_from_post(request.POST.get('po_less_discount'))
+				total_amount_value = max(subtotal_value - less_discount_value, Decimal('0.00'))
+				purchase_order_data = {
+					'purchase_date': (request.POST.get('po_purchase_date') or '').strip(),
+					'reference_no': order_number,
+					'bill_to': {
+						'contact_person': (request.POST.get('po_bill_contact_person') or '').strip(),
+						'company_name': (request.POST.get('po_bill_company_name') or '').strip(),
+						'address': (request.POST.get('po_bill_address') or '').strip(),
+						'contact_no': (request.POST.get('po_bill_contact_no') or '').strip(),
+						'email_address': (request.POST.get('po_bill_email_address') or '').strip(),
+					},
+					'deliver_to': {
+						'contact_person': (request.POST.get('po_deliver_contact_person') or '').strip(),
+						'company_name': (request.POST.get('po_deliver_company_name') or '').strip(),
+						'address': (request.POST.get('po_deliver_address') or '').strip(),
+						'contact_no': (request.POST.get('po_deliver_contact_no') or '').strip(),
+						'email_address': (request.POST.get('po_deliver_email_address') or '').strip(),
+					},
+					'payment_modes': request.POST.getlist('po_payment_modes'),
+					'delivery_mode': (request.POST.get('po_delivery_mode') or '').strip(),
+					'items': items,
+					'subtotal': _money_string(subtotal_value),
+					'less_discount': (request.POST.get('po_less_discount') or '').strip(),
+					'total_amount': _money_string(total_amount_value),
+					'special_instructions': (request.POST.get('po_special_instructions') or '').strip(),
+					'authorized_by': (request.POST.get('po_authorized_by') or '').strip(),
+					'authorized_date': (request.POST.get('po_authorized_date') or '').strip(),
+					'remarks': remarks,
+				}
+
+			def _save_order_number_write():
+				with transaction.atomic():
+					locked_sales = CRMSalesRecord.objects.select_for_update().get(pk=sales_record.pk)
+					locked_tech = CRMTechnicalRecord.objects.select_for_update().get(pk=tech_record.pk)
+					if is_job_order:
+						locked_tech.job_order_data = job_order_data
+						locked_tech.job_order_approval_status = 'pending'
+						locked_tech.save(update_fields=['job_order_data', 'job_order_approval_status', 'updated_at'])
+					else:
+						locked_tech.purchase_order_data = purchase_order_data
+						locked_tech.purchase_order_approval_status = 'pending'
+						locked_tech.save(update_fields=['purchase_order_data', 'purchase_order_approval_status', 'updated_at'])
+					CRMTechnicalActionLog.objects.create(
+						technical_record=locked_tech,
+						sales_record=locked_sales,
+						action='installation_updated',
+						previous_remarks=f'{number_label} submitted for approval.',
+						new_remarks=f'Pending {number_label}: {order_number}\n{remarks}'.strip(),
+						created_by=request.user,
+					)
+				return True
+
+			saved_ok = _run_with_sqlite_retry(_save_order_number_write)
+			if saved_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+			record_activity(
+				request,
+				'submit',
+				'clients',
+				f'Submitted {number_label} {order_number} for approval for sales record #{sales_record.id}.',
+				target=tech_record,
+				target_label=f'Technical #{tech_record.id}',
+				metadata={'sales_record_id': sales_record.id, 'order_number': order_number},
+			)
+			messages.success(request, f'{number_label} submitted for approval.', extra_tags='toast')
+			return redirect('crm_technicals')
+
+		if form_action == 'approve_closed_won_order':
+			if not can_approve_crm_technical_orders:
+				return _permission_denied_response(request, 'Only Operation Head or users with approval permission can approve technical orders.')
+			sales_record = _get_closed_won_sales_record(request.POST.get('sales_record_id'))
+			if not sales_record:
+				messages.warning(request, 'Please select a valid Closed Won order.', extra_tags='toast')
+				return redirect('crm_technicals')
+			tech_record = _technical_record_for_sales(sales_record)
+			order_type = (request.POST.get('order_type') or '').strip().lower()
+			decision = (request.POST.get('approval_decision') or '').strip().lower()
+			approval_remarks = (request.POST.get('approval_remarks') or '').strip()
+			if order_type not in {'jo', 'po'} or decision not in {'approve', 'reject'}:
+				messages.warning(request, 'Invalid approval action.', extra_tags='toast')
+				return redirect('crm_technicals')
+			is_job_order = order_type == 'jo'
+			number_label = 'JO#' if is_job_order else 'PO#'
+			order_data = tech_record.job_order_data if is_job_order else tech_record.purchase_order_data
+			if not isinstance(order_data, dict):
+				order_data = {}
+			order_number = str(order_data.get('reference_no') or '').strip()
+			status_field = 'job_order_approval_status' if is_job_order else 'purchase_order_approval_status'
+			current_status = getattr(tech_record, status_field, '')
+			if current_status != 'pending':
+				messages.warning(request, f'{number_label} has no pending approval.', extra_tags='toast')
+				return redirect('crm_technicals')
+			if decision == 'approve' and not order_number:
+				order_number = _next_job_order_number(exclude_pk=tech_record.pk) if is_job_order else _next_purchase_order_number(exclude_pk=tech_record.pk)
+				order_data['reference_no'] = order_number
+			if decision == 'approve' and is_job_order and CRMSalesRecord.objects.filter(job_order_number__iexact=order_number).exclude(pk=sales_record.pk).exists():
+				messages.error(request, f'JO# {order_number} is already assigned to another sales record.', extra_tags='toast')
+				return redirect('crm_technicals')
+			if decision == 'approve' and not is_job_order and CRMTechnicalRecord.objects.filter(po_number__iexact=order_number).exclude(pk=tech_record.pk).exists():
+				messages.error(request, f'PO# {order_number} is already assigned to another technical record.', extra_tags='toast')
+				return redirect('crm_technicals')
+
+			def _approve_order_write():
+				with transaction.atomic():
+					locked_sales = CRMSalesRecord.objects.select_for_update().get(pk=sales_record.pk)
+					locked_tech = CRMTechnicalRecord.objects.select_for_update().get(pk=tech_record.pk)
+					if is_job_order:
+						locked_tech.job_order_data = {**(locked_tech.job_order_data or {}), 'approval_remarks': approval_remarks}
+						if decision == 'approve':
+							locked_sales.job_order_number = order_number
+							locked_sales.save(update_fields=['job_order_number', 'updated_at'])
+							locked_tech.job_order_number = order_number
+							locked_tech.job_order_approval_status = 'approved'
+						else:
+							locked_tech.job_order_approval_status = 'rejected'
+						locked_tech.save(update_fields=['job_order_number', 'job_order_data', 'job_order_approval_status', 'updated_at'])
+					else:
+						locked_tech.purchase_order_data = {**(locked_tech.purchase_order_data or {}), 'reference_no': order_number, 'approval_remarks': approval_remarks}
+						if decision == 'approve':
+							locked_tech.po_number = order_number
+							locked_tech.purchase_order_approval_status = 'approved'
+						else:
+							locked_tech.purchase_order_approval_status = 'rejected'
+						locked_tech.save(update_fields=['po_number', 'purchase_order_data', 'purchase_order_approval_status', 'updated_at'])
+					CRMTechnicalActionLog.objects.create(
+						technical_record=locked_tech,
+						sales_record=locked_sales,
+						action='installation_updated',
+						previous_remarks=f'Pending {number_label}: {order_number}',
+						new_remarks=f'{number_label} {"approved" if decision == "approve" else "rejected"}.\n{approval_remarks}'.strip(),
+						created_by=request.user,
+					)
+				return True
+
+			saved_ok = _run_with_sqlite_retry(_approve_order_write)
+			if saved_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect('crm_technicals')
+			record_activity(
+				request,
+				'approve' if decision == 'approve' else 'reject',
+				'clients',
+				f'{"Approved" if decision == "approve" else "Rejected"} {number_label} {order_number} for sales record #{sales_record.id}.',
+				target=tech_record,
+				target_label=f'Technical #{tech_record.id}',
+				metadata={'sales_record_id': sales_record.id, 'order_type': order_type, 'order_number': order_number},
+			)
+			messages.success(request, f'{number_label} {"approved" if decision == "approve" else "rejected"}.', extra_tags='toast')
+			return redirect('crm_technicals')
+
 	queryset = CRMSalesRecord.objects.select_related('client', 'technical_record').filter(
 		Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won')
 	).exclude(technical_record__job_order_number='')
@@ -5787,6 +6151,69 @@ def crm_technicals(request):
 		if tech_record:
 			_sync_technical_system_from_sales(tech_record, sales_row, save=True)
 		sales_row.sales_saved_technical_info = _sales_saved_technical_info(sales_row, tech_record)
+	closed_won_order_rows = list(
+		CRMSalesRecord.objects.select_related('client', 'technical_record')
+		.filter(Q(sales_status__iexact='closed won') | Q(sales_status__iexact='close won'))
+		.filter(
+			Q(job_order_number='')
+			| Q(technical_record__job_order_number='')
+			| Q(technical_record__po_number='')
+			| Q(technical_record__isnull=True)
+		)
+		.order_by('-updated_at', '-created_at')[:50]
+	)
+	for sales_row in closed_won_order_rows:
+		try:
+			tech_record = sales_row.technical_record
+		except CRMTechnicalRecord.DoesNotExist:
+			tech_record = None
+		sales_row.closed_won_order_technical_record = tech_record
+		sales_row.sales_saved_technical_info = _sales_saved_technical_info(sales_row, tech_record)
+		if tech_record:
+			sales_row.closed_won_order_details = {
+				field_name: (
+					getattr(tech_record, field_name).isoformat()
+					if field_name in {'installation_date_started', 'installation_date_finished'} and getattr(tech_record, field_name)
+					else str(getattr(tech_record, field_name, '') or '')
+				)
+				for field_name in technical_order_detail_fields
+			}
+		else:
+			coordinates = ''
+			if sales_row.client_id and sales_row.client.geo_latitude is not None and sales_row.client.geo_longitude is not None:
+				coordinates = f'{sales_row.client.geo_latitude}, {sales_row.client.geo_longitude}'
+			sales_row.closed_won_order_details = {
+				'client_name': f'{sales_row.client.last_name}, {sales_row.client.first_name}' if sales_row.client_id else '',
+				'contact_number': sales_row.client.contact_number if sales_row.client_id else '',
+				'email_address': sales_row.client.email if sales_row.client_id else '',
+				'full_address': sales_row.client.home_address if sales_row.client_id else '',
+				'coordinates': coordinates,
+			}
+			for field_name in technical_order_detail_fields:
+				sales_row.closed_won_order_details.setdefault(field_name, '')
+	closed_won_order_payload = []
+	for sales_row in closed_won_order_rows:
+		tech_record = sales_row.closed_won_order_technical_record
+		client_label = f'{sales_row.client.last_name}, {sales_row.client.first_name}' if sales_row.client_id else '-'
+		closed_won_order_payload.append(
+			{
+				'sales_record_id': sales_row.id,
+				'client_name': client_label,
+				'contact_number': sales_row.client.contact_number if sales_row.client_id else '',
+				'email': sales_row.client.email if sales_row.client_id else '',
+				'address': sales_row.client.home_address if sales_row.client_id else '',
+				'job_order_number': (tech_record.job_order_number if tech_record else sales_row.job_order_number) or '',
+				'po_number': (tech_record.po_number if tech_record else '') or '',
+				'job_order_approval_status': (tech_record.job_order_approval_status if tech_record else '') or '',
+				'purchase_order_approval_status': (tech_record.purchase_order_approval_status if tech_record else '') or '',
+				'job_order_data': (tech_record.job_order_data if tech_record else {}) or {},
+				'po_number_preview': (tech_record.po_number if tech_record and tech_record.po_number else _next_purchase_order_number(exclude_pk=tech_record.pk if tech_record else None)),
+				'jo_number_preview': (tech_record.job_order_number if tech_record and tech_record.job_order_number else _next_job_order_number(exclude_pk=tech_record.pk if tech_record else None)),
+				'purchase_order_data': (tech_record.purchase_order_data if tech_record else {}) or {},
+				'system_info': sales_row.sales_saved_technical_info,
+				'details': sales_row.closed_won_order_details,
+			}
+		)
 	base_query_params = request.GET.copy()
 	base_query_params.pop('page', None)
 	base_query_string = base_query_params.urlencode()
@@ -5821,6 +6248,28 @@ def crm_technicals(request):
 				'time': tech.installation_time.strftime('%H:%M'),
 				'client': client_label,
 				'team_assigned': tech.team_assigned or '',
+				'type': 'installation',
+				'label': 'Installation',
+			}
+		)
+	ocular_schedule_records = CRMSalesRecord.objects.select_related('client').exclude(ocular_date__isnull=True)
+	for ocular_record in ocular_schedule_records:
+		client_label = '-'
+		if ocular_record.client_id:
+			c = ocular_record.client
+			client_label = f'{c.last_name}, {c.first_name}'
+		start_time = ocular_record.ocular_start_time.strftime('%H:%M') if ocular_record.ocular_start_time else '09:00'
+		end_time = ocular_record.ocular_end_time.strftime('%H:%M') if ocular_record.ocular_end_time else ''
+		schedule_slots.append(
+			{
+				'sales_record_id': ocular_record.id,
+				'date': ocular_record.ocular_date.strftime('%Y-%m-%d'),
+				'time': start_time,
+				'end_time': end_time,
+				'client': client_label,
+				'team_assigned': (ocular_record.assigned_sales or '').strip(),
+				'type': 'ocular',
+				'label': 'Ocular',
 			}
 		)
 	visible_sales_record_ids = [row.id for row in technical_page.object_list]
@@ -5931,8 +6380,12 @@ def crm_technicals(request):
 			'sort_urls': sort_urls,
 			'sort_indicators': sort_indicators,
 			'technical_page_qs_prefix': technical_page_qs_prefix,
+			'closed_won_order_rows': closed_won_order_rows,
+			'closed_won_order_payload': closed_won_order_payload,
+			'technical_order_detail_fields': technical_order_detail_fields,
 			'can_manage_crm_technicals': can_manage_crm_technicals,
 			'can_edit_crm_technical_info': can_edit_crm_technical_info,
+			'can_approve_crm_technical_orders': can_approve_crm_technical_orders,
 		},
 	)
 
@@ -7220,8 +7673,73 @@ def _can_approve_liquidations(user):
 	return user.is_superuser or user.has_perm('core.change_liquidation')
 
 
+def _can_access_accounting_requests(user):
+	return (
+		user.is_superuser
+		or user.has_perm('core.view_fundrequest')
+		or user.has_perm('core.add_accountingrequest')
+		or user.has_perm('core.view_accountingrequest')
+		or user.has_perm('core.approve_accountingrequest')
+	)
+
+
+def _can_view_all_accounting_requests(user):
+	return user.is_superuser or user.has_perm('core.view_fundrequest') or user.has_perm('core.approve_accountingrequest')
+
+
+def _can_approve_accounting_requests(user):
+	return user.is_superuser or user.has_perm('core.approve_accountingrequest')
+
+
 def _can_cancel_other_fund_requests(user):
 	return user.is_superuser or user.has_perm('core.change_fundrequest')
+
+
+def _accounting_request_approvers_queryset():
+	return (
+		User.objects.filter(is_active=True)
+		.filter(
+			Q(is_superuser=True)
+			| Q(user_permissions__content_type__app_label='core', user_permissions__codename='approve_accountingrequest')
+			| Q(groups__permissions__content_type__app_label='core', groups__permissions__codename='approve_accountingrequest')
+		)
+		.distinct()
+	)
+
+
+def _notify_accounting_request_approvers(accounting_request):
+	link_url = reverse('accounting_requests')
+	for approver in _accounting_request_approvers_queryset():
+		if accounting_request.created_by_id and approver.pk == accounting_request.created_by_id:
+			continue
+		create_notification(
+			user=approver,
+			title='Accounting request approval needed',
+			message=f'{accounting_request.requester_name} submitted {accounting_request.get_request_type_display()}: {accounting_request.title}.',
+			link_url=link_url,
+		)
+
+
+def _notify_accounting_request_requester(accounting_request):
+	if not accounting_request.created_by_id:
+		return
+	if accounting_request.request_status == 'approved':
+		title = 'Accounting Request Approved'
+		message = f'{accounting_request.request_number} was approved.'
+	elif accounting_request.request_status == 'cancelled':
+		title = 'Accounting Request Cancelled'
+		reason_suffix = f' Reason: {accounting_request.decision_reason}' if accounting_request.decision_reason else ''
+		message = f'{accounting_request.request_number} was cancelled.{reason_suffix}'
+	else:
+		title = 'Accounting Request Rejected'
+		reason_suffix = f' Reason: {accounting_request.decision_reason}' if accounting_request.decision_reason else ''
+		message = f'{accounting_request.request_number} was rejected.{reason_suffix}'
+	create_notification(
+		user=accounting_request.created_by,
+		title=title,
+		message=message,
+		link_url=reverse('accounting_requests'),
+	)
 
 
 def _fund_request_approvers_queryset():
@@ -12392,13 +12910,138 @@ def fund_request_records_csv(request):
 
 
 @login_required
+def accounting_requests(request):
+	if not _can_access_accounting_requests(request.user):
+		return _permission_denied_response(request, 'You do not have permission to open accounting requests.')
+
+	query = (request.GET.get('q') or '').strip()
+	type_filter = (request.GET.get('type') or '').strip()
+	can_approve_requests = _can_approve_accounting_requests(request.user)
+	can_add_requests = request.user.is_superuser or request.user.has_perm('core.add_accountingrequest')
+	can_view_all_requests = _can_view_all_accounting_requests(request.user)
+	all_requests = AccountingRequest.objects.select_related('created_by', 'created_by__profile', 'processed_by')
+	visible_requests = all_requests if can_view_all_requests else all_requests.filter(created_by=request.user)
+
+	if request.method == 'POST':
+		action_type = (request.POST.get('action_type') or 'create_request').strip()
+		if action_type == 'create_request':
+			if not can_add_requests:
+				return _permission_denied_response(request, 'You do not have permission to create accounting requests.')
+			form = AccountingRequestForm(request.POST, user=request.user)
+			if form.is_valid():
+				accounting_request = form.save(commit=False)
+				accounting_request.created_by = request.user
+				accounting_request.request_status = 'pending'
+				accounting_request.save()
+				record_activity(
+					request,
+					'submit',
+					'finance',
+					f'Submitted accounting request {accounting_request.request_number}.',
+					target=accounting_request,
+					target_label=accounting_request.request_number,
+				)
+				_notify_accounting_request_approvers(accounting_request)
+				messages.success(request, f'{accounting_request.request_number} submitted for approval.', extra_tags='toast')
+				return redirect('accounting_requests')
+		elif action_type in {'approve_request', 'reject_request'}:
+			if not can_approve_requests:
+				return _permission_denied_response(request, 'You do not have permission to approve accounting requests.')
+			request_id = (request.POST.get('request_id') or '').strip()
+			reason = (request.POST.get('reason') or '').strip()
+			accounting_request = get_object_or_404(AccountingRequest.objects.select_related('created_by'), pk=request_id)
+			if accounting_request.request_status != 'pending':
+				messages.info(request, 'This accounting request has already been reviewed.', extra_tags='toast')
+				return redirect('accounting_requests')
+			with transaction.atomic():
+				locked_request = AccountingRequest.objects.select_for_update().select_related('created_by').get(pk=accounting_request.pk)
+				if action_type == 'approve_request':
+					locked_request.mark_approved(processed_by=request.user, reason=reason)
+					message_text = f'{locked_request.request_number} approved.'
+					activity_action = 'approve'
+				else:
+					locked_request.mark_rejected(processed_by=request.user, reason=reason)
+					message_text = f'{locked_request.request_number} rejected.'
+					activity_action = 'reject'
+			record_activity(
+				request,
+				activity_action,
+				'finance',
+				message_text,
+				target=locked_request,
+				target_label=locked_request.request_number,
+			)
+			_notify_accounting_request_requester(locked_request)
+			messages.success(request, message_text, extra_tags='toast')
+			return redirect('accounting_requests')
+		elif action_type == 'cancel_request':
+			request_id = (request.POST.get('request_id') or '').strip()
+			reason = (request.POST.get('reason') or '').strip()
+			accounting_request = get_object_or_404(visible_requests, pk=request_id)
+			if accounting_request.request_status != 'pending':
+				messages.info(request, 'Only pending accounting requests can be cancelled.', extra_tags='toast')
+				return redirect('accounting_requests')
+			with transaction.atomic():
+				locked_request = AccountingRequest.objects.select_for_update().get(pk=accounting_request.pk)
+				if locked_request.created_by_id != request.user.id and not can_approve_requests:
+					return _permission_denied_response(request, 'You do not have permission to cancel this request.')
+				locked_request.mark_cancelled(processed_by=request.user, reason=reason)
+			record_activity(
+				request,
+				'cancel',
+				'finance',
+				f'Cancelled accounting request {locked_request.request_number}.',
+				target=locked_request,
+				target_label=locked_request.request_number,
+			)
+			if locked_request.created_by_id != request.user.id:
+				_notify_accounting_request_requester(locked_request)
+			messages.success(request, f'{locked_request.request_number} cancelled.', extra_tags='toast')
+			return redirect('accounting_requests')
+	else:
+		form = AccountingRequestForm(user=request.user)
+
+	pending_requests = visible_requests.filter(request_status='pending')
+	approved_requests = visible_requests.filter(request_status='approved')
+	if type_filter in dict(AccountingRequest.REQUEST_TYPE_CHOICES):
+		pending_requests = pending_requests.filter(request_type=type_filter)
+		approved_requests = approved_requests.filter(request_type=type_filter)
+	if query:
+		search_filter = (
+			Q(request_number__icontains=query)
+			| Q(requester_name__icontains=query)
+			| Q(department__icontains=query)
+			| Q(title__icontains=query)
+			| Q(description__icontains=query)
+			| Q(jo_reference__icontains=query)
+		)
+		pending_requests = pending_requests.filter(search_filter)
+		approved_requests = approved_requests.filter(search_filter)
+
+	context = {
+		'form': form,
+		'query': query,
+		'type_filter': type_filter,
+		'request_type_choices': AccountingRequest.REQUEST_TYPE_CHOICES,
+		'pending_requests_page': Paginator(pending_requests.order_by('-created_at', '-id'), 15).get_page(request.GET.get('pending_page')),
+		'approved_requests_page': Paginator(approved_requests.order_by('-processed_at', '-created_at', '-id'), 15).get_page(request.GET.get('page')),
+		'can_add_accounting_requests': can_add_requests,
+		'can_approve_accounting_requests': can_approve_requests,
+		'can_view_all_accounting_requests': can_view_all_requests,
+		'total_pending_requests': visible_requests.filter(request_status='pending').count(),
+		'total_approved_requests': visible_requests.filter(request_status='approved').count(),
+	}
+	return render(request, 'core/accounting_requests.html', context)
+
+
+@login_required
 def finance_dashboard(request):
-	restricted_response = _require_permission(request, 'core.view_fundrequest')
-	if restricted_response:
-		return restricted_response
+	if not (request.user.is_superuser or request.user.has_perm('core.view_fundrequest') or _can_access_accounting_requests(request.user)):
+		return _permission_denied_response(request, 'You do not have permission to open Accounting.')
 
 	can_approve_fund_requests = _can_approve_fund_requests(request.user)
 	can_approve_liquidations = _can_approve_liquidations(request.user)
+	can_view_all_accounting_requests = _can_view_all_accounting_requests(request.user)
 
 	approved_fund_requests_queryset = FundRequest.objects.select_related('created_by', 'processed_by').filter(request_status='approved')
 	if not can_approve_fund_requests:
@@ -12408,11 +13051,18 @@ def finance_dashboard(request):
 	if not can_approve_liquidations:
 		approved_liquidations_queryset = approved_liquidations_queryset.filter(created_by=request.user)
 
+	accounting_requests_queryset = AccountingRequest.objects.select_related('created_by', 'processed_by')
+	if not can_view_all_accounting_requests:
+		accounting_requests_queryset = accounting_requests_queryset.filter(created_by=request.user)
+
 	context = {
 		'approved_fund_request_count': approved_fund_requests_queryset.count(),
 		'approved_liquidation_count': approved_liquidations_queryset.count(),
+		'pending_accounting_request_count': accounting_requests_queryset.filter(request_status='pending').count(),
+		'approved_accounting_request_count': accounting_requests_queryset.filter(request_status='approved').count(),
 		'recent_fund_requests': approved_fund_requests_queryset.order_by('-created_at')[:5],
 		'recent_liquidations': approved_liquidations_queryset.order_by('-created_at')[:5],
+		'recent_accounting_requests': accounting_requests_queryset.filter(request_status='approved').order_by('-processed_at', '-created_at')[:5],
 	}
 	return render(request, 'core/finance_dashboard.html', context)
 
@@ -14832,11 +15482,20 @@ def assets_list(request):
 	if selected_department:
 		items = items.filter(department_id=selected_department)
 	if query:
+		query_lower = query.lower()
+		matching_type_codes = list(
+			AssetItemType.objects.filter(Q(code__icontains=query) | Q(name__icontains=query))
+			.values_list('code', flat=True)
+		)
+		if query_lower in {'other', 'others'} and 'other' not in matching_type_codes:
+			matching_type_codes.append('other')
 		items = items.filter(
 			Q(item_code__icontains=query)
 			| Q(item_name__icontains=query)
 			| Q(specification__icontains=query)
 			| Q(department__name__icontains=query)
+			| Q(item_type__icontains=query)
+			| Q(item_type__in=matching_type_codes)
 		)
 
 	items_page = Paginator(items, 20).get_page(request.GET.get('page'))
@@ -15874,11 +16533,20 @@ def consumables_list(request):
 	if selected_type:
 		items = items.filter(item_type=selected_type)
 	if query:
+		query_lower = query.lower()
+		matching_type_codes = list(
+			ConsumableItemType.objects.filter(Q(code__icontains=query) | Q(name__icontains=query))
+			.values_list('code', flat=True)
+		)
+		if query_lower in {'other', 'others'} and 'other' not in matching_type_codes:
+			matching_type_codes.append('other')
 		items = items.filter(
 			Q(item_code__icontains=query)
 			| Q(item_name__icontains=query)
 			| Q(specification__icontains=query)
 			| Q(department__name__icontains=query)
+			| Q(item_type__icontains=query)
+			| Q(item_type__in=matching_type_codes)
 		)
 
 	items_page = Paginator(items, 20).get_page(request.GET.get('page'))

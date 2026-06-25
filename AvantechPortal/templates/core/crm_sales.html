@@ -1189,30 +1189,6 @@
         </div>
     </div>
 </div>
-<div class="modal fade" id="crmJobOrderConfirmModal" tabindex="-1" aria-labelledby="crmJobOrderConfirmModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="crmJobOrderConfirmModalLabel">Generate Job Order #</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning mb-3">
-                    Saving this Closed Won activity will automatically generate a JO# / Job Order #.
-                    Once generated, it cannot be undone or changed.
-                </div>
-                <div class="border rounded-3 p-3 bg-light">
-                    <div class="small text-secondary mb-1">Preview JO#</div>
-                    <div class="h4 mb-0" id="crmJobOrderPreviewText">{{ next_job_order_preview }}</div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="crmJobOrderConfirmSaveBtn">Generate & Save</button>
-            </div>
-        </div>
-    </div>
-</div>
 <div class="modal fade" id="crmSalesAgingSettingsModal" tabindex="-1" aria-labelledby="crmSalesAgingSettingsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -1239,18 +1215,6 @@
                         <label class="form-check-label" for="crmIncludeClosedWonInput">
                             Include `closed won` deals in inactivity aging
                         </label>
-                    </div>
-                    <hr>
-                    <div class="mb-2">
-                        <label class="form-label" for="crmNextJobOrderYearInput">Next JO# Year</label>
-                        <input type="number" min="1" class="form-control" id="crmNextJobOrderYearInput" name="next_job_order_year" value="{{ sales_aging_settings.next_job_order_year }}">
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label" for="crmNextJobOrderSequenceInput">Next JO# Sequence</label>
-                        <input type="number" min="1" class="form-control" id="crmNextJobOrderSequenceInput" name="next_job_order_sequence" value="{{ sales_aging_settings.next_job_order_sequence }}">
-                    </div>
-                    <div class="small text-secondary mb-3">
-                        Next generated JO#: <strong id="crmSettingsJobOrderPreview">{{ next_job_order_preview }}</strong>
                     </div>
                     <div class="small text-secondary mt-2">
                         If a sales record receives no update within the threshold, system auto-updates it to `closed lost`.
@@ -2532,10 +2496,6 @@ document.addEventListener('DOMContentLoaded', function () {
     var salesSaveConfirmModal = (salesSaveConfirmModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(salesSaveConfirmModalEl) : null;
     var salesSaveConfirmBtn = document.getElementById('crmSalesSaveConfirmBtn');
     var salesSaveSubmitConfirmed = false;
-    var jobOrderConfirmModalEl = document.getElementById('crmJobOrderConfirmModal');
-    var jobOrderConfirmModal = (jobOrderConfirmModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(jobOrderConfirmModalEl) : null;
-    var jobOrderConfirmSaveBtn = document.getElementById('crmJobOrderConfirmSaveBtn');
-    var jobOrderSubmitConfirmed = false;
     var assignSalesModalEl = document.getElementById('crmAssignSalesModal');
     var assignSalesModal = (assignSalesModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(assignSalesModalEl) : null;
     var assignSalesForm = assignSalesModalEl ? assignSalesModalEl.querySelector('form') : null;
@@ -2615,13 +2575,6 @@ document.addEventListener('DOMContentLoaded', function () {
     function currentSalesInfoServiceType() {
         var modalEl = document.getElementById('crmSalesInfoModal');
         return modalEl ? String(modalEl.dataset.serviceType || '').trim().toLowerCase() : '';
-    }
-    function formatJobOrderPreview(yearValue, sequenceValue) {
-        var year = parseInt(yearValue, 10);
-        var sequence = parseInt(sequenceValue, 10);
-        if (!year || year < 1) year = new Date().getFullYear();
-        if (!sequence || sequence < 1) sequence = 1;
-        return String(year).padStart(4, '0') + '-' + String(sequence).padStart(4, '0');
     }
     function normalizeSalesStatus(value) {
         var status = String(value || '').trim().toLowerCase();
@@ -3409,12 +3362,8 @@ document.addEventListener('DOMContentLoaded', function () {
 	    function openLogSalesModalFromRow(row, mode) {
 	        if (!row || !logSalesModal) return;
 	        salesSaveSubmitConfirmed = false;
-	        jobOrderSubmitConfirmed = false;
 	        if (salesSaveConfirmModalEl && salesSaveConfirmModalEl.classList.contains('show') && salesSaveConfirmModal) {
 	            salesSaveConfirmModal.hide();
-	        }
-	        if (jobOrderConfirmModalEl && jobOrderConfirmModalEl.classList.contains('show') && jobOrderConfirmModal) {
-	            jobOrderConfirmModal.hide();
 	        }
 	        var selectedSalesRecordId = String(row.dataset.salesRecordId || '').trim();
         if (!selectedSalesRecordId) {
@@ -3492,7 +3441,6 @@ document.addEventListener('DOMContentLoaded', function () {
         activityUploadFiles = [];
 	        syncActivityFileInput();
 	        renderActivityUploadPreview();
-	        jobOrderSubmitConfirmed = false;
 	        if (!logSalesModalEl || !logSalesModalEl.classList.contains('show')) {
 	            logSalesModal.show();
 	        }
@@ -4627,18 +4575,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (salesSaveConfirmBtn) salesSaveConfirmBtn.disabled = true;
         logSalesForm.submit();
     }
-    function showJobOrderConfirmation() {
-        var previewText = document.getElementById('crmJobOrderPreviewText');
-        if (previewText) {
-            previewText.textContent = '{{ next_job_order_preview }}';
-        }
-        if (jobOrderConfirmModal) {
-            jobOrderConfirmModal.show();
-        } else if (confirm('Saving this Closed Won activity will generate JO# {{ next_job_order_preview }} and cannot be undone. Continue?')) {
-            jobOrderSubmitConfirmed = true;
-            submitConfirmedLogSalesForm();
-        }
-    }
     if (logSalesForm) {
         logSalesForm.addEventListener('submit', function (event) {
             applyNegotiationOutcomeChoice();
@@ -4710,12 +4646,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (salesSaveConfirmModal) {
                 salesSaveConfirmModal.show();
             } else if (confirm(confirmMessage ? confirmMessage.textContent : 'Save this sales activity?')) {
-                var hasJobOrderFallback = !!(row && String(row.dataset.jobOrderNumber || '').trim());
-                if (status === 'closed won' && !hasJobOrderFallback && !jobOrderSubmitConfirmed) {
-                    showJobOrderConfirmation();
-                } else {
-                    submitConfirmedLogSalesForm();
-                }
+                submitConfirmedLogSalesForm();
             }
         });
     }
@@ -4723,10 +4654,6 @@ document.addEventListener('DOMContentLoaded', function () {
         salesSaveConfirmBtn.addEventListener('click', function () {
             applyNegotiationOutcomeChoice();
             var status = normalizeSalesStatus(logSalesStatusInput ? logSalesStatusInput.value : '');
-            var salesRecordIdInput = document.getElementById('crmLogSalesRecordId');
-            var salesRecordId = salesRecordIdInput ? String(salesRecordIdInput.value || '').trim() : '';
-            var row = salesRecordId ? document.querySelector('.crm-sales-row[data-sales-record-id="' + salesRecordId + '"]') : null;
-            var hasJobOrder = !!(row && String(row.dataset.jobOrderNumber || '').trim());
             var ocularStartTimeInput = document.getElementById('logOcularStartTime');
             var ocularEndTimeInput = document.getElementById('logOcularEndTime');
             if (status === 'for survey' && ocularStartTimeInput && ocularEndTimeInput && ocularStartTimeInput.value && ocularEndTimeInput.value && ocularEndTimeInput.value <= ocularStartTimeInput.value) {
@@ -4735,18 +4662,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 ocularEndTimeInput.focus();
                 return;
             }
-            if (status === 'closed won' && !hasJobOrder && !jobOrderSubmitConfirmed) {
-                if (salesSaveConfirmModal) salesSaveConfirmModal.hide();
-                showJobOrderConfirmation();
-                return;
-            }
-            submitConfirmedLogSalesForm();
-        });
-    }
-    if (jobOrderConfirmSaveBtn && logSalesForm) {
-        jobOrderConfirmSaveBtn.addEventListener('click', function () {
-            jobOrderSubmitConfirmed = true;
-            jobOrderConfirmSaveBtn.disabled = true;
             submitConfirmedLogSalesForm();
         });
     }
@@ -4757,14 +4672,8 @@ document.addEventListener('DOMContentLoaded', function () {
 	            }
 	        });
 	    }
-	    if (jobOrderConfirmModalEl) {
-	        jobOrderConfirmModalEl.addEventListener('hidden.bs.modal', function () {
-	            if (jobOrderConfirmSaveBtn) jobOrderConfirmSaveBtn.disabled = false;
-	        });
-	    }
 	    if (logSalesModalEl) {
 	        logSalesModalEl.addEventListener('hidden.bs.modal', function () {
-	            jobOrderSubmitConfirmed = false;
 	            salesSaveSubmitConfirmed = false;
 	            if (salesSaveConfirmBtn) salesSaveConfirmBtn.disabled = false;
 	            var submitBtn = document.getElementById('crmLogSalesSubmitBtn');
@@ -4783,20 +4692,6 @@ document.addEventListener('DOMContentLoaded', function () {
 	            }
 	        });
 	    }
-    var nextJobOrderYearInput = document.getElementById('crmNextJobOrderYearInput');
-    var nextJobOrderSequenceInput = document.getElementById('crmNextJobOrderSequenceInput');
-    var settingsJobOrderPreview = document.getElementById('crmSettingsJobOrderPreview');
-    function syncSettingsJobOrderPreview() {
-        if (!settingsJobOrderPreview) return;
-        settingsJobOrderPreview.textContent = formatJobOrderPreview(
-            nextJobOrderYearInput ? nextJobOrderYearInput.value : '',
-            nextJobOrderSequenceInput ? nextJobOrderSequenceInput.value : ''
-        );
-    }
-    if (nextJobOrderYearInput) nextJobOrderYearInput.addEventListener('input', syncSettingsJobOrderPreview);
-    if (nextJobOrderSequenceInput) nextJobOrderSequenceInput.addEventListener('input', syncSettingsJobOrderPreview);
-    syncSettingsJobOrderPreview();
-
     var exportBtn = document.getElementById('crmExportSalesReportBtn');
     if (exportBtn) {
         exportBtn.addEventListener('click', function () {

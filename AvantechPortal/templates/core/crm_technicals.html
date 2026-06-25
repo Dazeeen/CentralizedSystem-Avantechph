@@ -191,6 +191,87 @@
     </div>
 </div>
 
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div>
+                <h2 class="h5 mb-1">Closed Won Orders</h2>
+                <div class="small text-secondary">Closed Won solar/system orders that still need JO# or PO# completion.</div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Client</th>
+                        <th>System Info</th>
+                        <th>Panels</th>
+                        <th>Inverter</th>
+                        <th>Battery</th>
+                        <th>JO#</th>
+                        <th>PO#</th>
+                        <th style="width: 260px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in closed_won_order_rows %}
+                        {% with tech=row.closed_won_order_technical_record sales_info=row.sales_saved_technical_info %}
+                        <tr class="crm-closed-won-order-row" data-sales-record-id="{{ row.id }}">
+                            <td>
+                                <div class="fw-semibold">{{ row.client.last_name }}, {{ row.client.first_name }}</div>
+                                <div class="small text-secondary">{{ row.client.contact_number|default:"-" }}</div>
+                            </td>
+                            <td>{{ sales_info.system_size_kwh|default:"-" }}</td>
+                            <td>{{ sales_info.panel_units|default:tech.total_panels|default:"-" }}</td>
+                            <td>{{ tech.inverter_brand_name|default:sales_info.inverter_model|default:"-" }}</td>
+                            <td>{{ tech.battery_brand_name|default:sales_info.battery_model|default:"-" }}</td>
+                            <td>
+                                <div>{{ tech.job_order_number|default:row.job_order_number|default:"-" }}</div>
+                                {% if tech.job_order_approval_status == "pending" %}
+                                <span class="badge text-bg-warning">JO Pending</span>
+                                {% elif tech.job_order_approval_status == "rejected" %}
+                                <span class="badge text-bg-danger">JO Rejected</span>
+                                {% elif tech.job_order_approval_status == "approved" %}
+                                <span class="badge text-bg-success">JO Approved</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div>{{ tech.po_number|default:"-" }}</div>
+                                {% if tech.purchase_order_approval_status == "pending" %}
+                                <span class="badge text-bg-warning">PO Pending</span>
+                                {% elif tech.purchase_order_approval_status == "rejected" %}
+                                <span class="badge text-bg-danger">PO Rejected</span>
+                                {% elif tech.purchase_order_approval_status == "approved" %}
+                                <span class="badge text-bg-success">PO Approved</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if can_manage_crm_technicals or can_approve_crm_technical_orders %}
+                                <div class="d-flex flex-wrap gap-1">
+                                    {% if can_manage_crm_technicals %}
+                                    <button type="button" class="btn btn-sm btn-outline-success js-order-details-btn">System Info</button>
+                                    <button type="button" class="btn btn-sm btn-outline-dark js-create-jo-btn">Create JO</button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary js-create-po-btn">Create PO</button>
+                                    {% endif %}
+                                    {% if tech.job_order_approval_status or tech.purchase_order_approval_status %}
+                                    <button type="button" class="btn btn-sm btn-outline-warning js-order-approvals-btn">Approvals</button>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                <span class="text-secondary small">View only</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endwith %}
+                    {% empty %}
+                        <tr><td colspan="8" class="text-center text-secondary py-3">No Closed Won orders pending JO# or PO#.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
 {% if can_manage_crm_technicals %}
 <div class="modal fade" id="technicalNotificationSettingsModal" tabindex="-1" aria-labelledby="technicalNotificationSettingsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-md modal-dialog-scrollable">
@@ -220,6 +301,81 @@
                     <button type="submit" class="btn btn-success">Save Settings</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% if can_manage_crm_technicals or can_approve_crm_technical_orders %}
+<div class="modal fade" id="closedWonApprovalsModal" tabindex="-1" aria-labelledby="closedWonApprovalsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="closedWonApprovalsModalLabel">Order Approvals</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="small text-secondary">Client</div>
+                    <div class="fw-semibold" id="closedWonApprovalClient">-</div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="border rounded-2 p-3 h-100">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <h6 class="mb-0">Job Order</h6>
+                                <span class="badge text-bg-secondary" id="closedWonApprovalJoStatus">Not Submitted</span>
+                            </div>
+                            <div class="small text-secondary">Reference No.</div>
+                            <div class="fw-semibold mb-2" id="closedWonApprovalJoNumber">-</div>
+                            <div class="small text-secondary">Job Descriptions</div>
+                            <ul class="small mb-3 ps-3" id="closedWonApprovalJoItems"></ul>
+                            <form method="post" class="closed-won-approval-form" data-order-type="jo">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="approve_closed_won_order">
+                                <input type="hidden" name="sales_record_id" class="closedWonApprovalSalesRecordId">
+                                <input type="hidden" name="order_type" value="jo">
+                                <textarea class="form-control form-control-sm mb-2" name="approval_remarks" rows="2" placeholder="Approval remarks"></textarea>
+                                {% if can_approve_crm_technical_orders %}
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-sm btn-success" name="approval_decision" value="approve">Approve JO</button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" name="approval_decision" value="reject">Reject JO</button>
+                                </div>
+                                {% else %}
+                                <div class="text-secondary small">For Operation Head approval.</div>
+                                {% endif %}
+                            </form>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded-2 p-3 h-100">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <h6 class="mb-0">Purchase Order</h6>
+                                <span class="badge text-bg-secondary" id="closedWonApprovalPoStatus">Not Submitted</span>
+                            </div>
+                            <div class="small text-secondary">Reference No.</div>
+                            <div class="fw-semibold mb-2" id="closedWonApprovalPoNumber">-</div>
+                            <div class="small text-secondary">Items</div>
+                            <ul class="small mb-3 ps-3" id="closedWonApprovalPoItems"></ul>
+                            <form method="post" class="closed-won-approval-form" data-order-type="po">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="approve_closed_won_order">
+                                <input type="hidden" name="sales_record_id" class="closedWonApprovalSalesRecordId">
+                                <input type="hidden" name="order_type" value="po">
+                                <textarea class="form-control form-control-sm mb-2" name="approval_remarks" rows="2" placeholder="Approval remarks"></textarea>
+                                {% if can_approve_crm_technical_orders %}
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-sm btn-success" name="approval_decision" value="approve">Approve PO</button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" name="approval_decision" value="reject">Reject PO</button>
+                                </div>
+                                {% else %}
+                                <div class="text-secondary small">For Operation Head approval.</div>
+                                {% endif %}
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -364,6 +520,250 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if can_manage_crm_technicals %}
+<div class="modal fade" id="closedWonOrderDetailsModal" tabindex="-1" aria-labelledby="closedWonOrderDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="save_closed_won_order_details">
+                <input type="hidden" name="sales_record_id" id="closedWonOrderDetailsSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="closedWonOrderDetailsModalLabel">Closed Won System Info</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Client</label>
+                        <input class="form-control" id="closedWonOrderDetailsClientDisplay" readonly disabled>
+                    </div>
+                    <h6 class="text-secondary">Installation</h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4"><label class="form-label">Installation Date Started</label><input type="date" class="form-control" name="installation_date_started" id="orderDetailInstallationDateStarted"></div>
+                        <div class="col-md-4"><label class="form-label">Installation Date Finished</label><input type="date" class="form-control" name="installation_date_finished" id="orderDetailInstallationDateFinished"></div>
+                        <div class="col-md-4"><label class="form-label">Project Supervisor</label><input class="form-control" name="project_supervisor" id="orderDetailProjectSupervisor"></div>
+                        <div class="col-12"><label class="form-label">Personnel Name/Position</label><textarea class="form-control" name="personnel_name_position" id="orderDetailPersonnelNamePosition" rows="2"></textarea></div>
+                    </div>
+                    <h6 class="text-secondary">Client and Site</h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6"><label class="form-label">Client Name</label><input class="form-control" name="client_name" id="orderDetailClientName"></div>
+                        <div class="col-md-3"><label class="form-label">Contact Number</label><input class="form-control" name="contact_number" id="orderDetailContactNumber"></div>
+                        <div class="col-md-3"><label class="form-label">E-mail Address</label><input type="email" class="form-control" name="email_address" id="orderDetailEmailAddress"></div>
+                        <div class="col-md-8"><label class="form-label">Full Address</label><textarea class="form-control" name="full_address" id="orderDetailFullAddress" rows="2"></textarea></div>
+                        <div class="col-md-4"><label class="form-label">Coordinates</label><input class="form-control" name="coordinates" id="orderDetailCoordinates"></div>
+                        <div class="col-md-6"><label class="form-label">Plant Name in Monitoring App</label><input class="form-control" name="monitoring_app_plant_name" id="orderDetailMonitoringAppPlantName"></div>
+                        <div class="col-md-3"><label class="form-label">Type of Establishment</label><input class="form-control" name="establishment_type" id="orderDetailEstablishmentType"></div>
+                        <div class="col-md-3"><label class="form-label">With Net-Metering?</label><input class="form-control" name="with_net_metering" id="orderDetailWithNetMetering"></div>
+                    </div>
+                    <h6 class="text-secondary">PV System and Inverter</h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4"><label class="form-label">Total Power of PV System (kWp)</label><input class="form-control" name="total_power_pv_system_kwp" id="orderDetailTotalPowerPvSystemKwp"></div>
+                        <div class="col-md-4"><label class="form-label">Type of PV System Installed</label><input class="form-control" name="pv_system_type_installed" id="orderDetailPvSystemTypeInstalled"></div>
+                        <div class="col-md-4"><label class="form-label">Electrical System Phase Type</label><input class="form-control" name="electrical_phase_type" id="orderDetailElectricalPhaseType"></div>
+                        <div class="col-md-4"><label class="form-label">If 3-Phase, Specify System Voltage</label><input class="form-control" name="three_phase_voltage" id="orderDetailThreePhaseVoltage"></div>
+                        <div class="col-md-4"><label class="form-label">Size of Inverter (kW)</label><input class="form-control" name="inverter_size_kw" id="orderDetailInverterSizeKw"></div>
+                        <div class="col-md-4"><label class="form-label">Inverter Brand Name</label><input class="form-control" name="inverter_brand_name" id="orderDetailInverterBrandName"></div>
+                        <div class="col-md-4"><label class="form-label">SN of Inverter</label><input class="form-control" name="inverter_serial_number" id="orderDetailInverterSerialNumber"></div>
+                        <div class="col-md-4"><label class="form-label">SN of Data Logger</label><input class="form-control" name="data_logger_serial_number" id="orderDetailDataLoggerSerialNumber"></div>
+                        <div class="col-md-4"><label class="form-label">Size of AC Circuit Breaker (Inverter)</label><input class="form-control" name="inverter_ac_breaker_size" id="orderDetailInverterAcBreakerSize"></div>
+                        <div class="col-md-4"><label class="form-label">Size of AC Wire (mm&sup2;)</label><input class="form-control" name="ac_wire_size_mm2" id="orderDetailAcWireSizeMm2"></div>
+                    </div>
+                    <h6 class="text-secondary">Panels and Wiring</h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4"><label class="form-label">PV Module Output Power (Wp)</label><input class="form-control" name="pv_module_output_power_wp" id="orderDetailPvModuleOutputPowerWp"></div>
+                        <div class="col-md-4"><label class="form-label">PV Module Brand Name</label><input class="form-control" name="pv_module_brand_name" id="orderDetailPvModuleBrandName"></div>
+                        <div class="col-md-4"><label class="form-label">Total No. of Panels</label><input class="form-control" name="total_panels" id="orderDetailTotalPanels"></div>
+                        <div class="col-12"><label class="form-label">No. of Panels Per String</label><textarea class="form-control" name="panels_per_string" id="orderDetailPanelsPerString" rows="2" placeholder="String 1 - #Panels, String 2 - #Panels"></textarea></div>
+                        <div class="col-md-4"><label class="form-label">Size of PV Cable</label><input class="form-control" name="pv_cable_size" id="orderDetailPvCableSize"></div>
+                        <div class="col-md-4"><label class="form-label">Size of Main Circuit Breaker (AT)</label><input class="form-control" name="main_breaker_size_at" id="orderDetailMainBreakerSizeAt"></div>
+                        <div class="col-md-4"><label class="form-label">Main Wire Size (mm&sup2;)</label><input class="form-control" name="main_wire_size_mm2" id="orderDetailMainWireSizeMm2"></div>
+                        <div class="col-md-4"><label class="form-label">Size of REC Circuit Breaker (AT)</label><input class="form-control" name="rec_breaker_size_at" id="orderDetailRecBreakerSizeAt"></div>
+                        <div class="col-md-4"><label class="form-label">REC Wire Size (mm&sup2;)</label><input class="form-control" name="rec_wire_size_mm2" id="orderDetailRecWireSizeMm2"></div>
+                    </div>
+                    <h6 class="text-secondary">Battery and ATS</h6>
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Battery Capacity (Ah)</label><input class="form-control" name="battery_capacity_ah" id="orderDetailBatteryCapacityAh"></div>
+                        <div class="col-md-4"><label class="form-label">Battery Brand Name</label><input class="form-control" name="battery_brand_name" id="orderDetailBatteryBrandName"></div>
+                        <div class="col-md-4"><label class="form-label">Size of Circuit Breaker (Battery)</label><input class="form-control" name="battery_breaker_size" id="orderDetailBatteryBreakerSize"></div>
+                        <div class="col-md-4"><label class="form-label">Battery Wire Size (mm&sup2;)</label><input class="form-control" name="battery_wire_size_mm2" id="orderDetailBatteryWireSizeMm2"></div>
+                        <div class="col-md-4"><label class="form-label">ATS Rating</label><input class="form-control" name="ats_rating" id="orderDetailAtsRating"></div>
+                        <div class="col-md-4"><label class="form-label">ATS Circuit Breaker Size (AT)</label><input class="form-control" name="ats_breaker_size_at" id="orderDetailAtsBreakerSizeAt"></div>
+                        <div class="col-md-4"><label class="form-label">ATS Wire Size (mm&sup2;)</label><input class="form-control" name="ats_wire_size_mm2" id="orderDetailAtsWireSizeMm2"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="closedWonCreateJoModal" tabindex="-1" aria-labelledby="closedWonCreateJoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="create_closed_won_job_order">
+                <input type="hidden" name="sales_record_id" id="closedWonJoSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="closedWonCreateJoModalLabel">Create JO</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="po-sheet">
+                        <div class="po-sheet-top">
+                            <div><strong>Job Date:</strong> <input type="date" class="po-inline-input" name="jo_date" id="closedWonJoDate"></div>
+                            <div><strong>Reference No.:</strong> <input class="po-reference-input" name="job_order_number" id="closedWonJoNumber" readonly required></div>
+                        </div>
+                        <div class="po-two-col">
+                            <div class="po-box">
+                                <div class="po-box-head">CLIENT INFO</div>
+                                <div class="po-row"><label>Client Name:</label><input name="jo_client_name" id="closedWonJoClientName"></div>
+                                <div class="po-row"><label>Contact No.:</label><input name="jo_contact_number" id="closedWonJoContactNumber"></div>
+                                <div class="po-row"><label>E-mail Address:</label><input name="jo_email_address" id="closedWonJoEmailAddress"></div>
+                                <div class="po-row po-tall"><label>Full Address:</label><textarea name="jo_full_address" id="closedWonJoFullAddress"></textarea></div>
+                            </div>
+                            <div class="po-box">
+                                <div class="po-box-head">JOB ORDER INFO</div>
+                                <div class="po-row"><label>Project Supervisor:</label><input name="jo_project_supervisor" id="closedWonJoProjectSupervisor"></div>
+                                <div class="po-row po-tall"><label>Personnel:</label><textarea name="jo_personnel" id="closedWonJoPersonnel"></textarea></div>
+                                <div class="po-row po-tall"><label>Remarks:</label><textarea name="remarks" id="closedWonJoRemarks"></textarea></div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="closedWonJoRemoveItemBtn">Remove Row</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" id="closedWonJoAddItemBtn">Add Row</button>
+                        </div>
+                        <table class="po-items-table mt-2">
+                            <thead>
+                                <tr>
+                                    <th>NO.</th>
+                                    <th>JOB DESCRIPTION</th>
+                                    <th>OTHER INFO</th>
+                                </tr>
+                            </thead>
+                            <tbody id="closedWonJoItemsBody">
+                                <tr id="closedWonJoNothingFollowsRow"><td colspan="3" class="po-nothing">*NOTHING FOLLOWS*</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Submit JO for Approval</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="closedWonCreatePoModal" tabindex="-1" aria-labelledby="closedWonCreatePoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="create_closed_won_purchase_order">
+                <input type="hidden" name="sales_record_id" id="closedWonPoSalesRecordId">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="closedWonCreatePoModalLabel">Create PO</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="po-sheet">
+                        <div class="po-sheet-top">
+                            <div><strong>Purchase Date:</strong> <input type="date" class="po-inline-input" name="po_purchase_date" id="closedWonPoPurchaseDate"></div>
+                            <div><strong>Reference No.:</strong> <input class="po-reference-input" name="po_number" id="closedWonPoNumber" readonly required></div>
+                        </div>
+                        <div class="po-two-col">
+                            <div class="po-box">
+                                <div class="po-box-head">BILL TO</div>
+                                <div class="po-row"><label>Contact Person:</label><input name="po_bill_contact_person" id="closedWonPoBillContactPerson"></div>
+                                <div class="po-row"><label>Company Name:</label><input name="po_bill_company_name" id="closedWonPoBillCompanyName"></div>
+                                <div class="po-row po-tall"><label>Address:</label><textarea name="po_bill_address" id="closedWonPoBillAddress"></textarea></div>
+                                <div class="po-row"><label>Contact No.:</label><input name="po_bill_contact_no" id="closedWonPoBillContactNo"></div>
+                                <div class="po-row"><label>E-mail Address:</label><input name="po_bill_email_address" id="closedWonPoBillEmailAddress"></div>
+                            </div>
+                            <div class="po-box">
+                                <div class="po-box-head">DELIVER TO</div>
+                                <div class="po-row"><label>Contact Person:</label><input name="po_deliver_contact_person" id="closedWonPoDeliverContactPerson"></div>
+                                <div class="po-row"><label>Company Name:</label><input name="po_deliver_company_name" id="closedWonPoDeliverCompanyName"></div>
+                                <div class="po-row po-tall"><label>Address:</label><textarea name="po_deliver_address" id="closedWonPoDeliverAddress"></textarea></div>
+                                <div class="po-row"><label>Contact No.:</label><input name="po_deliver_contact_no" id="closedWonPoDeliverContactNo"></div>
+                                <div class="po-row"><label>E-mail Address:</label><input name="po_deliver_email_address" id="closedWonPoDeliverEmailAddress"></div>
+                            </div>
+                        </div>
+                        <div class="po-two-col mt-2">
+                            <div class="po-box">
+                                <div class="po-section-head">MODE OF PAYMENT</div>
+                                <div class="po-payment-options">
+                                    <label><input type="checkbox" name="po_payment_modes" value="cash" id="closedWonPoPaymentCash"> CASH</label>
+                                    <label><input type="checkbox" name="po_payment_modes" value="check" id="closedWonPoPaymentCheck"> CHECK</label>
+                                    <label><input type="checkbox" name="po_payment_modes" value="bank_transfer" id="closedWonPoPaymentBankTransfer"> BANK TRANSFER</label>
+                                </div>
+                            </div>
+                            <div class="po-box">
+                                <div class="po-section-head">MODE OF DELIVERY</div>
+                                <div class="po-merged-row">
+                                    <select name="po_delivery_mode" id="closedWonPoDeliveryMode">
+                                        <option value="delivery_fee">DELIVERY FEE</option>
+                                        <option value="pickup">PICKUP</option>
+                                        <option value="courier">COURIER</option>
+                                        <option value="company_delivery">COMPANY DELIVERY</option>
+                                        <option value="others">OTHERS</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="closedWonPoRemoveItemBtn">Remove Row</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" id="closedWonPoAddItemBtn">Add Row</button>
+                        </div>
+                        <table class="po-items-table mt-2">
+                            <thead>
+                                <tr>
+                                    <th>NO.</th>
+                                    <th>ITEM DESCRIPTION</th>
+                                    <th>QTY</th>
+                                    <th>UM</th>
+                                    <th>UNIT PRICE</th>
+                                    <th>AMOUNT</th>
+                                </tr>
+                            </thead>
+                            <tbody id="closedWonPoItemsBody">
+                                <tr id="closedWonPoNothingFollowsRow"><td colspan="6" class="po-nothing">*NOTHING FOLLOWS*</td></tr>
+                            </tbody>
+                            <tfoot>
+                                <tr><td colspan="5" class="text-end fw-semibold">SUB-TOTAL (Php):</td><td><input name="po_subtotal" id="closedWonPoSubtotal" readonly></td></tr>
+                                <tr class="po-less-discount-row"><td colspan="5" class="text-end">LESS DISCOUNT:</td><td><input name="po_less_discount" id="closedWonPoLessDiscount"></td></tr>
+                                <tr class="po-total-row"><td colspan="5" class="text-end fw-bold">TOTAL AMOUNT (Php):</td><td><input name="po_total_amount" id="closedWonPoTotalAmount" readonly></td></tr>
+                            </tfoot>
+                        </table>
+                        <div class="po-two-col mt-2">
+                            <div class="po-box">
+                                <div class="po-section-head">SPECIAL INSTRUCTIONS:</div>
+                                <textarea class="po-large-text" name="po_special_instructions" id="closedWonPoSpecialInstructions"></textarea>
+                            </div>
+                            <div class="po-box">
+                                <div class="po-section-head">AUTHORIZED BY:</div>
+                                <input class="po-authorized-input" name="po_authorized_by" id="closedWonPoAuthorizedBy">
+                                <div class="po-row"><label>Date:</label><input type="date" name="po_authorized_date" id="closedWonPoAuthorizedDate"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" name="remarks" id="closedWonPoRemarks">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Submit PO for Approval</button>
                 </div>
             </form>
         </div>
@@ -544,6 +944,7 @@
 {{ technical_history_map|json_script:"technical-history-map-data" }}
 {{ technical_teams|json_script:"technical-teams-data" }}
 {{ technical_role_user_map|json_script:"technical-role-user-map-data" }}
+{{ closed_won_order_payload|json_script:"closed-won-order-payload-data" }}
 
 <style>
     .crm-tech-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
@@ -626,6 +1027,8 @@
     .tech-inline-slot.slot-3 { border-left-color: #e07c2f; background: #fff4ea; }
     .tech-inline-slot.slot-4 { border-left-color: #8d5bd8; background: #f4effd; }
     .tech-inline-slot.slot-5 { border-left-color: #d44b72; background: #fdeff4; }
+    .tech-inline-slot.is-ocular { border-left-color: #2f7dd1; background: #eef4fc; }
+    .tech-inline-slot.is-ocular .tech-inline-slot-time { color: #245f9d; }
     .tech-inline-slot.is-draft { border-left-color: #1f8f53; border-style: dashed; background: #eaf8f0; }
     .tech-inline-slot.is-draft .tech-inline-slot-time { color: #1f8f53; }
     .tech-inline-slot.is-draft[draggable="true"] { cursor: grab; }
@@ -639,6 +1042,62 @@
     .tech-inline-legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
     .tech-inline-empty { font-size: 11px; color: #8a9298; padding: 6px; }
     .tech-inline-day-empty { position: absolute; top: 8px; left: 8px; right: 8px; }
+    #closedWonOrderDetailsModal .modal-dialog { height: calc(100vh - 3.5rem); }
+    #closedWonOrderDetailsModal .modal-content { max-height: 100%; }
+    #closedWonOrderDetailsModal .modal-body {
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+    .po-sheet { color: #111; font-size: 14px; }
+    .po-sheet input,
+    .po-sheet textarea,
+    .po-sheet select { width: 100%; border: 0; background: transparent; padding: 3px 4px; outline: 0; }
+    .po-sheet textarea { min-height: 54px; resize: none; }
+    .po-sheet-top { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 16px; margin-bottom: 8px; }
+    .po-sheet-top > div:last-child { text-align: right; }
+    .po-inline-input { display: inline-block; width: auto !important; min-width: 170px; }
+    .po-reference-input { display: inline-block; width: 220px !important; color: #e00000; font-weight: 700; font-size: 18px; text-align: right; }
+    .po-two-col { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #111; }
+    .po-two-col .po-box + .po-box { border-left: 1px solid #111; }
+    .po-box-head { background: #c6efce; border-bottom: 1px solid #111; text-align: center; font-weight: 700; padding: 2px; }
+    .po-section-head { background: #d9d9d9; border-bottom: 1px solid #111; font-weight: 700; padding: 2px 4px; }
+    .po-row { display: grid; grid-template-columns: 135px 1fr; min-height: 32px; border-bottom: 1px solid #111; }
+    .po-row:last-child { border-bottom: 0; }
+    .po-row label { margin: 0; padding: 6px 4px; font-weight: 700; border-right: 1px solid #111; }
+    .po-row input,
+    .po-row textarea { min-height: 31px; }
+    .po-row.po-tall { min-height: 108px; }
+    .po-merged-row { min-height: 64px; display: flex; align-items: start; border-bottom: 0; }
+    .po-merged-row select { min-height: 44px; font-weight: 600; padding: 8px 4px; }
+    .po-payment-options { min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 8px 18px; font-weight: 700; }
+    .po-payment-options label { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .po-payment-options input { width: 16px; height: 16px; border: 1px solid #111; }
+    .po-items-table { width: 100%; border-collapse: collapse; border: 1px solid #111; }
+    .po-items-table th { background: #c6efce; text-align: center; font-weight: 700; }
+    .po-items-table th,
+    .po-items-table td { border: 1px solid #111; padding: 0; }
+    .po-items-table th { padding: 2px 4px; }
+    .po-items-table input { text-align: center; min-height: 26px; }
+    .po-items-table textarea {
+        min-height: 26px;
+        line-height: 1.25;
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        text-align: left;
+    }
+    .po-items-table th:nth-child(1), .po-items-table td:nth-child(1) { width: 72px; }
+    .po-items-table th:nth-child(3), .po-items-table td:nth-child(3) { width: 80px; }
+    .po-items-table th:nth-child(4), .po-items-table td:nth-child(4) { width: 90px; }
+    .po-items-table th:nth-child(5), .po-items-table td:nth-child(5),
+    .po-items-table th:nth-child(6), .po-items-table td:nth-child(6) { width: 130px; }
+    .po-nothing { text-align: center; font-style: italic; font-weight: 700; padding: 3px !important; }
+    .po-less-discount-row input { color: #e00000; }
+    .po-total-row td { background: #c6efce; }
+    .po-large-text { min-height: 68px !important; text-align: center; padding-top: 28px !important; }
+    .po-authorized-input { min-height: 52px; border-bottom: 1px solid #111 !important; }
     @media (max-width: 991.98px) {
         .crm-tech-split-layout { grid-template-columns: 1fr; }
         .crm-tech-summary-panel { border-left: 0; border-top: 1px solid #e4e9e6; padding-left: 0; padding-top: 12px; }
@@ -658,6 +1117,10 @@
         .tech-inline-day-body { height: auto; min-height: 190px; background: none; }
         .tech-inline-day:last-child { border-bottom: 0; }
         .tech-inline-slot { position: static !important; margin: 8px; }
+        .po-sheet-top, .po-two-col { grid-template-columns: 1fr; }
+        .po-two-col .po-box + .po-box { border-left: 0; border-top: 1px solid #111; }
+        .po-row { grid-template-columns: 120px 1fr; }
+        .po-payment-options { flex-wrap: wrap; align-items: center; gap: 12px; }
     }
 </style>
 <script>
@@ -780,6 +1243,21 @@ document.addEventListener('DOMContentLoaded', function () {
     var technicalRoleUserMapNode = document.getElementById('technical-role-user-map-data');
     var technicalRoleUserMap = {};
     try { technicalRoleUserMap = technicalRoleUserMapNode ? JSON.parse(technicalRoleUserMapNode.textContent || '{}') : {}; } catch (e) { technicalRoleUserMap = {}; }
+    var closedWonOrderPayloadNode = document.getElementById('closed-won-order-payload-data');
+    var closedWonOrderPayload = [];
+    try { closedWonOrderPayload = closedWonOrderPayloadNode ? JSON.parse(closedWonOrderPayloadNode.textContent || '[]') : []; } catch (e) { closedWonOrderPayload = []; }
+    var closedWonOrderMap = {};
+    closedWonOrderPayload.forEach(function (item) {
+        closedWonOrderMap[String(item.sales_record_id || '')] = item;
+    });
+    var closedWonOrderDetailsModalEl = document.getElementById('closedWonOrderDetailsModal');
+    var closedWonOrderDetailsModal = (closedWonOrderDetailsModalEl && window.bootstrap) ? new bootstrap.Modal(closedWonOrderDetailsModalEl) : null;
+    var closedWonCreateJoModalEl = document.getElementById('closedWonCreateJoModal');
+    var closedWonCreateJoModal = (closedWonCreateJoModalEl && window.bootstrap) ? new bootstrap.Modal(closedWonCreateJoModalEl) : null;
+    var closedWonCreatePoModalEl = document.getElementById('closedWonCreatePoModal');
+    var closedWonCreatePoModal = (closedWonCreatePoModalEl && window.bootstrap) ? new bootstrap.Modal(closedWonCreatePoModalEl) : null;
+    var closedWonApprovalsModalEl = document.getElementById('closedWonApprovalsModal');
+    var closedWonApprovalsModal = (closedWonApprovalsModalEl && window.bootstrap) ? new bootstrap.Modal(closedWonApprovalsModalEl) : null;
     var inlineCalendarEl = document.getElementById('techInlineCalendar');
     var overviewCalendarEl = document.getElementById('techOverviewCalendar');
     var overviewModalEl = document.getElementById('technicalCalendarModal');
@@ -828,6 +1306,363 @@ document.addEventListener('DOMContentLoaded', function () {
         var summaryStatusEl = document.getElementById('techSummaryInstallStatus');
         if (summaryStatusEl) summaryStatusEl.innerHTML = getInstallationStatusBadgeHtml(row.dataset.installationStatus || '-');
         setText('techSummaryRemarks', row.dataset.remarks || '-');
+    }
+
+    var orderDetailFieldIds = {
+        installation_date_started: 'orderDetailInstallationDateStarted',
+        installation_date_finished: 'orderDetailInstallationDateFinished',
+        project_supervisor: 'orderDetailProjectSupervisor',
+        personnel_name_position: 'orderDetailPersonnelNamePosition',
+        client_name: 'orderDetailClientName',
+        contact_number: 'orderDetailContactNumber',
+        email_address: 'orderDetailEmailAddress',
+        full_address: 'orderDetailFullAddress',
+        coordinates: 'orderDetailCoordinates',
+        monitoring_app_plant_name: 'orderDetailMonitoringAppPlantName',
+        total_power_pv_system_kwp: 'orderDetailTotalPowerPvSystemKwp',
+        pv_system_type_installed: 'orderDetailPvSystemTypeInstalled',
+        with_net_metering: 'orderDetailWithNetMetering',
+        establishment_type: 'orderDetailEstablishmentType',
+        electrical_phase_type: 'orderDetailElectricalPhaseType',
+        three_phase_voltage: 'orderDetailThreePhaseVoltage',
+        inverter_size_kw: 'orderDetailInverterSizeKw',
+        inverter_brand_name: 'orderDetailInverterBrandName',
+        inverter_serial_number: 'orderDetailInverterSerialNumber',
+        data_logger_serial_number: 'orderDetailDataLoggerSerialNumber',
+        inverter_ac_breaker_size: 'orderDetailInverterAcBreakerSize',
+        ac_wire_size_mm2: 'orderDetailAcWireSizeMm2',
+        pv_module_output_power_wp: 'orderDetailPvModuleOutputPowerWp',
+        pv_module_brand_name: 'orderDetailPvModuleBrandName',
+        total_panels: 'orderDetailTotalPanels',
+        panels_per_string: 'orderDetailPanelsPerString',
+        pv_cable_size: 'orderDetailPvCableSize',
+        main_breaker_size_at: 'orderDetailMainBreakerSizeAt',
+        main_wire_size_mm2: 'orderDetailMainWireSizeMm2',
+        rec_breaker_size_at: 'orderDetailRecBreakerSizeAt',
+        rec_wire_size_mm2: 'orderDetailRecWireSizeMm2',
+        battery_capacity_ah: 'orderDetailBatteryCapacityAh',
+        battery_brand_name: 'orderDetailBatteryBrandName',
+        battery_breaker_size: 'orderDetailBatteryBreakerSize',
+        battery_wire_size_mm2: 'orderDetailBatteryWireSizeMm2',
+        ats_rating: 'orderDetailAtsRating',
+        ats_breaker_size_at: 'orderDetailAtsBreakerSizeAt',
+        ats_wire_size_mm2: 'orderDetailAtsWireSizeMm2'
+    };
+    function getClosedWonOrderFromRow(row) {
+        if (!row) return null;
+        return closedWonOrderMap[String(row.getAttribute('data-sales-record-id') || '')] || null;
+    }
+    function setOrderField(id, value) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.value = value || '';
+    }
+    function openClosedWonOrderDetails(row) {
+        var item = getClosedWonOrderFromRow(row);
+        if (!item || !closedWonOrderDetailsModal) return;
+        setOrderField('closedWonOrderDetailsSalesRecordId', item.sales_record_id);
+        setOrderField('closedWonOrderDetailsClientDisplay', item.client_name || '-');
+        var details = item.details || {};
+        details.client_name = details.client_name || item.client_name || '';
+        details.contact_number = details.contact_number || item.contact_number || '';
+        details.email_address = details.email_address || item.email || '';
+        details.full_address = details.full_address || item.address || '';
+        if (!details.total_power_pv_system_kwp && item.system_info) details.total_power_pv_system_kwp = item.system_info.system_size_kwh || '';
+        if (!details.pv_system_type_installed && item.system_info) details.pv_system_type_installed = item.system_info.inverter_model || '';
+        if (!details.total_panels && item.system_info) details.total_panels = item.system_info.panel_units || '';
+        if (!details.with_net_metering && item.system_info) details.with_net_metering = item.system_info.net_metering || '';
+        Object.keys(orderDetailFieldIds).forEach(function (fieldName) {
+            setOrderField(orderDetailFieldIds[fieldName], details[fieldName] || '');
+        });
+        closedWonOrderDetailsModal.show();
+    }
+    function openClosedWonJoModal(row) {
+        var item = getClosedWonOrderFromRow(row);
+        if (!item || !closedWonCreateJoModal) return;
+        var joData = item.job_order_data || {};
+        var today = new Date();
+        var todayIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+        var details = item.details || {};
+        setOrderField('closedWonJoSalesRecordId', item.sales_record_id);
+        setOrderField('closedWonJoDate', joData.job_date || todayIso);
+        setOrderField('closedWonJoNumber', joData.reference_no || item.job_order_number || item.jo_number_preview || '');
+        setOrderField('closedWonJoClientName', joData.client_name || details.client_name || item.client_name || '');
+        setOrderField('closedWonJoContactNumber', joData.contact_number || details.contact_number || item.contact_number || '');
+        setOrderField('closedWonJoEmailAddress', joData.email_address || details.email_address || item.email || '');
+        setOrderField('closedWonJoFullAddress', joData.full_address || details.full_address || item.address || '');
+        setOrderField('closedWonJoProjectSupervisor', joData.project_supervisor || details.project_supervisor || '');
+        setOrderField('closedWonJoPersonnel', joData.personnel || details.personnel_name_position || '');
+        setOrderField('closedWonJoRemarks', joData.remarks || '');
+        renderJoItemRows(joData.jobs || []);
+        closedWonCreateJoModal.show();
+    }
+    function renumberJoRows() {
+        document.querySelectorAll('#closedWonJoItemsBody .jo-item-row').forEach(function (row, index) {
+            var noInput = row.querySelector('[name="jo_item_no"]');
+            if (noInput) noInput.value = String(index + 1);
+        });
+    }
+    function createJoItemRow(item) {
+        var row = document.createElement('tr');
+        row.className = 'jo-item-row';
+        row.innerHTML = ''
+            + '<td><input name="jo_item_no" readonly></td>'
+            + '<td><textarea name="jo_job_description" rows="1"></textarea></td>'
+            + '<td><textarea name="jo_other_info" rows="1"></textarea></td>';
+        item = item || {};
+        var description = row.querySelector('[name="jo_job_description"]');
+        var otherInfo = row.querySelector('[name="jo_other_info"]');
+        if (description) {
+            description.value = item.job_description || item.description || '';
+            description.addEventListener('input', function () { resizePoTextarea(description); });
+            resizePoTextarea(description);
+        }
+        if (otherInfo) {
+            otherInfo.value = item.other_info || '';
+            otherInfo.addEventListener('input', function () { resizePoTextarea(otherInfo); });
+            resizePoTextarea(otherInfo);
+        }
+        return row;
+    }
+    function renderJoItemRows(items) {
+        var body = document.getElementById('closedWonJoItemsBody');
+        var nothingRow = document.getElementById('closedWonJoNothingFollowsRow');
+        if (!body || !nothingRow) return;
+        body.querySelectorAll('.jo-item-row').forEach(function (row) { row.remove(); });
+        var rows = (items || []).filter(function (item) {
+            return item && (item.job_description || item.description || item.other_info);
+        });
+        if (!rows.length) rows = [{}, {}, {}, {}, {}];
+        rows.forEach(function (item) {
+            body.insertBefore(createJoItemRow(item), nothingRow);
+        });
+        renumberJoRows();
+    }
+    function addJoItemRow() {
+        var body = document.getElementById('closedWonJoItemsBody');
+        var nothingRow = document.getElementById('closedWonJoNothingFollowsRow');
+        if (!body || !nothingRow) return;
+        body.insertBefore(createJoItemRow({}), nothingRow);
+        renumberJoRows();
+    }
+    function removeJoItemRow() {
+        var rows = document.querySelectorAll('#closedWonJoItemsBody .jo-item-row');
+        if (!rows.length) return;
+        rows[rows.length - 1].remove();
+        if (!document.querySelector('#closedWonJoItemsBody .jo-item-row')) {
+            addJoItemRow();
+            return;
+        }
+        renumberJoRows();
+    }
+    function parsePoMoney(value) {
+        var parsed = parseFloat(String(value || '').replace(/,/g, '').trim());
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    function formatPoMoney(value) {
+        return (Math.max(Number(value) || 0, 0)).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+    function resizePoTextarea(textarea) {
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.max(26, textarea.scrollHeight) + 'px';
+    }
+    function renumberPoRows() {
+        document.querySelectorAll('#closedWonPoItemsBody .po-item-row').forEach(function (row, index) {
+            var noInput = row.querySelector('[name="po_item_no"]');
+            if (noInput) noInput.value = String(index + 1);
+        });
+    }
+    function computePoTotals() {
+        var subtotal = 0;
+        document.querySelectorAll('#closedWonPoItemsBody .po-item-row').forEach(function (row) {
+            var qty = parsePoMoney(row.querySelector('[name="po_item_qty"]') ? row.querySelector('[name="po_item_qty"]').value : '');
+            var unitPrice = parsePoMoney(row.querySelector('[name="po_item_unit_price"]') ? row.querySelector('[name="po_item_unit_price"]').value : '');
+            var amount = qty * unitPrice;
+            var amountInput = row.querySelector('[name="po_item_amount"]');
+            if (amountInput) amountInput.value = amount ? formatPoMoney(amount) : '';
+            subtotal += amount;
+        });
+        var discount = parsePoMoney(document.getElementById('closedWonPoLessDiscount') ? document.getElementById('closedWonPoLessDiscount').value : '');
+        setOrderField('closedWonPoSubtotal', formatPoMoney(subtotal));
+        setOrderField('closedWonPoTotalAmount', formatPoMoney(subtotal - discount));
+    }
+    function createPoItemRow(item) {
+        var row = document.createElement('tr');
+        row.className = 'po-item-row';
+        row.innerHTML = ''
+            + '<td><input name="po_item_no" readonly></td>'
+            + '<td><textarea name="po_item_description" rows="1"></textarea></td>'
+            + '<td><input name="po_item_qty" inputmode="decimal"></td>'
+            + '<td><input name="po_item_um"></td>'
+            + '<td><input name="po_item_unit_price" inputmode="decimal"></td>'
+            + '<td><input name="po_item_amount" readonly></td>';
+        var setRowVal = function (selector, value) {
+            var input = row.querySelector(selector);
+            if (input) input.value = value || '';
+        };
+        item = item || {};
+        setRowVal('[name="po_item_description"]', item.description);
+        setRowVal('[name="po_item_qty"]', item.qty);
+        setRowVal('[name="po_item_um"]', item.um);
+        setRowVal('[name="po_item_unit_price"]', item.unit_price);
+        setRowVal('[name="po_item_amount"]', item.amount);
+        row.querySelectorAll('[name="po_item_qty"], [name="po_item_unit_price"]').forEach(function (input) {
+            input.addEventListener('input', computePoTotals);
+        });
+        var descriptionTextarea = row.querySelector('[name="po_item_description"]');
+        if (descriptionTextarea) {
+            descriptionTextarea.addEventListener('input', function () { resizePoTextarea(descriptionTextarea); });
+            resizePoTextarea(descriptionTextarea);
+        }
+        return row;
+    }
+    function renderPoItemRows(items) {
+        var body = document.getElementById('closedWonPoItemsBody');
+        var nothingRow = document.getElementById('closedWonPoNothingFollowsRow');
+        if (!body || !nothingRow) return;
+        body.querySelectorAll('.po-item-row').forEach(function (row) { row.remove(); });
+        var rows = (items || []).filter(function (item) {
+            return item && (item.description || item.qty || item.um || item.unit_price || item.amount);
+        });
+        if (!rows.length) {
+            rows = [{}, {}, {}, {}, {}];
+        }
+        rows.forEach(function (item) {
+            body.insertBefore(createPoItemRow(item), nothingRow);
+        });
+        renumberPoRows();
+        computePoTotals();
+    }
+    function addPoItemRow() {
+        var body = document.getElementById('closedWonPoItemsBody');
+        var nothingRow = document.getElementById('closedWonPoNothingFollowsRow');
+        if (!body || !nothingRow) return;
+        body.insertBefore(createPoItemRow({}), nothingRow);
+        renumberPoRows();
+        computePoTotals();
+    }
+    function removePoItemRow() {
+        var rows = document.querySelectorAll('#closedWonPoItemsBody .po-item-row');
+        if (!rows.length) return;
+        rows[rows.length - 1].remove();
+        if (!document.querySelector('#closedWonPoItemsBody .po-item-row')) {
+            addPoItemRow();
+            return;
+        }
+        renumberPoRows();
+        computePoTotals();
+    }
+    function openClosedWonPoModal(row) {
+        var item = getClosedWonOrderFromRow(row);
+        if (!item || !closedWonCreatePoModal) return;
+        var poData = item.purchase_order_data || {};
+        var billTo = poData.bill_to || {};
+        var deliverTo = poData.deliver_to || {};
+        var today = new Date();
+        var todayIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+        setOrderField('closedWonPoSalesRecordId', item.sales_record_id);
+        setOrderField('closedWonPoClientDisplay', item.client_name || '-');
+        setOrderField('closedWonPoPurchaseDate', poData.purchase_date || todayIso);
+        setOrderField('closedWonPoNumber', poData.reference_no || item.po_number || item.po_number_preview || '');
+        setOrderField('closedWonPoBillContactPerson', billTo.contact_person || item.client_name || '');
+        setOrderField('closedWonPoBillCompanyName', billTo.company_name || '');
+        setOrderField('closedWonPoBillAddress', billTo.address || item.address || '');
+        setOrderField('closedWonPoBillContactNo', billTo.contact_no || item.contact_number || '');
+        setOrderField('closedWonPoBillEmailAddress', billTo.email_address || item.email || '');
+        setOrderField('closedWonPoDeliverContactPerson', deliverTo.contact_person || '');
+        setOrderField('closedWonPoDeliverCompanyName', deliverTo.company_name || 'Avantech Integrated Technology Solutions, Inc.');
+        setOrderField('closedWonPoDeliverAddress', deliverTo.address || 'Unit 305, EnergyOpt Bldg., Madrigal Business Park 2, Ayala Alabang, Muntinlupa City, Metro Manila');
+        setOrderField('closedWonPoDeliverContactNo', deliverTo.contact_no || '');
+        setOrderField('closedWonPoDeliverEmailAddress', deliverTo.email_address || '');
+        setOrderField('closedWonPoDeliveryMode', poData.delivery_mode || poData.delivery_fee || 'delivery_fee');
+        setOrderField('closedWonPoSubtotal', poData.subtotal || '0.00');
+        setOrderField('closedWonPoLessDiscount', poData.less_discount || '');
+        setOrderField('closedWonPoTotalAmount', poData.total_amount || '0.00');
+        setOrderField('closedWonPoSpecialInstructions', poData.special_instructions || '');
+        setOrderField('closedWonPoAuthorizedBy', poData.authorized_by || '');
+        setOrderField('closedWonPoAuthorizedDate', poData.authorized_date || '');
+        setOrderField('closedWonPoRemarks', poData.remarks || '');
+        var paymentModes = new Set(poData.payment_modes || []);
+        var paymentMap = {
+            cash: 'closedWonPoPaymentCash',
+            check: 'closedWonPoPaymentCheck',
+            bank_transfer: 'closedWonPoPaymentBankTransfer'
+        };
+        Object.keys(paymentMap).forEach(function (mode) {
+            var el = document.getElementById(paymentMap[mode]);
+            if (el) el.checked = paymentModes.has(mode);
+        });
+        renderPoItemRows(poData.items || []);
+        closedWonCreatePoModal.show();
+    }
+    function setApprovalStatusBadge(id, status) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var normalized = String(status || '').toLowerCase();
+        var labels = {
+            pending: 'Pending Approval',
+            approved: 'Approved',
+            rejected: 'Rejected'
+        };
+        el.textContent = labels[normalized] || 'Not Submitted';
+        el.className = 'badge ';
+        if (normalized === 'pending') el.className += 'text-bg-warning';
+        else if (normalized === 'approved') el.className += 'text-bg-success';
+        else if (normalized === 'rejected') el.className += 'text-bg-danger';
+        else el.className += 'text-bg-secondary';
+    }
+    function renderApprovalList(id, items, labelKey, fallbackText) {
+        var list = document.getElementById(id);
+        if (!list) return;
+        list.innerHTML = '';
+        var visibleItems = (items || []).filter(function (entry) {
+            return entry && (entry[labelKey] || entry.description || entry.job_description);
+        });
+        if (!visibleItems.length) {
+            var empty = document.createElement('li');
+            empty.textContent = fallbackText || 'No items submitted.';
+            list.appendChild(empty);
+            return;
+        }
+        visibleItems.slice(0, 8).forEach(function (entry) {
+            var li = document.createElement('li');
+            li.textContent = entry[labelKey] || entry.description || entry.job_description || '-';
+            list.appendChild(li);
+        });
+    }
+    function updateApprovalFormState(orderType, status) {
+        var form = document.querySelector('.closed-won-approval-form[data-order-type="' + orderType + '"]');
+        if (!form) return;
+        var isPending = String(status || '').toLowerCase() === 'pending';
+        form.querySelectorAll('button, textarea').forEach(function (field) {
+            field.disabled = !isPending;
+        });
+    }
+    function openClosedWonApprovalsModal(row) {
+        var item = getClosedWonOrderFromRow(row);
+        if (!item || !closedWonApprovalsModal) return;
+        var joData = item.job_order_data || {};
+        var poData = item.purchase_order_data || {};
+        var approvalClientEl = document.getElementById('closedWonApprovalClient');
+        if (approvalClientEl) approvalClientEl.textContent = item.client_name || '-';
+        document.querySelectorAll('.closedWonApprovalSalesRecordId').forEach(function (input) {
+            input.value = item.sales_record_id || '';
+        });
+        setApprovalStatusBadge('closedWonApprovalJoStatus', item.job_order_approval_status);
+        setApprovalStatusBadge('closedWonApprovalPoStatus', item.purchase_order_approval_status);
+        var joNumberEl = document.getElementById('closedWonApprovalJoNumber');
+        if (joNumberEl) joNumberEl.textContent = joData.reference_no || item.job_order_number || '-';
+        var poNumberEl = document.getElementById('closedWonApprovalPoNumber');
+        if (poNumberEl) poNumberEl.textContent = poData.reference_no || item.po_number || '-';
+        renderApprovalList('closedWonApprovalJoItems', joData.jobs || [], 'job_description', 'No job descriptions submitted.');
+        renderApprovalList('closedWonApprovalPoItems', poData.items || [], 'description', 'No PO items submitted.');
+        updateApprovalFormState('jo', item.job_order_approval_status);
+        updateApprovalFormState('po', item.purchase_order_approval_status);
+        closedWonApprovalsModal.show();
     }
 
     function openScheduleModalFromRow(row) {
@@ -963,7 +1798,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var html = '';
         html += '<div class="tech-inline-legend">';
-        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2d9c5f;"></span>Existing schedule</span>';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2d9c5f;"></span>Installation</span>';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2f7dd1;"></span>Ocular</span>';
         html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#1f8f53;"></span>Current draft</span>';
         html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#d62828;"></span>Conflict</span>';
         html += '</div>';
@@ -1018,10 +1854,12 @@ document.addEventListener('DOMContentLoaded', function () {
                         var boundedMinutes = Math.max(gridStartMinutes, Math.min(gridEndMinutes, slotTimeMinutes));
                         slotTop = Math.round(((boundedMinutes - gridStartMinutes) / 60) * slotHeight);
                     }
-                    var colorClass = 'slot-' + ((slotIndex % 5) + 1);
+                    var slotType = String(slot.type || 'installation').toLowerCase();
+                    var colorClass = slotType === 'ocular' ? 'is-ocular' : 'slot-' + ((slotIndex % 5) + 1);
+                    var slotLabel = slot.label || (slotType === 'ocular' ? 'Ocular' : 'Installation');
                     html += '<div class="tech-inline-slot ' + colorClass + '" style="position:absolute;left:6px;right:6px;top:' + slotTop + 'px;">';
-                    html += '<div class="tech-inline-slot-label">Existing</div>';
-                    html += '<div class="tech-inline-slot-time">' + (slot.time || '--:--') + '</div>';
+                    html += '<div class="tech-inline-slot-label">' + slotLabel + '</div>';
+                    html += '<div class="tech-inline-slot-time">' + (slot.time || '--:--') + (slot.end_time ? ' - ' + slot.end_time : '') + '</div>';
                     html += '<div>' + (slot.client || '-') + '</div>';
                     if (slot.team_assigned) html += '<div class="text-secondary">' + slot.team_assigned + '</div>';
                     html += '</div>';
@@ -1167,7 +2005,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var html = '';
         html += '<div class="tech-inline-legend">';
-        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2d9c5f;"></span>Existing schedule</span>';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2d9c5f;"></span>Installation</span>';
+        html += '<span class="tech-inline-legend-item"><span class="tech-inline-legend-dot" style="background:#2f7dd1;"></span>Ocular</span>';
         html += '</div>';
         html += '<div class="tech-inline-shell">';
         html += '<aside class="tech-inline-side">';
@@ -1210,9 +2049,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     var boundedMinutes = Math.max(gridStartMinutes, Math.min(gridEndMinutes, slotTimeMinutes));
                     slotTop = Math.round(((boundedMinutes - gridStartMinutes) / 60) * slotHeight);
                 }
-                var colorClass = 'slot-' + ((slotIndex % 5) + 1);
+                var slotType = String(slot.type || 'installation').toLowerCase();
+                var colorClass = slotType === 'ocular' ? 'is-ocular' : 'slot-' + ((slotIndex % 5) + 1);
+                var slotLabel = slot.label || (slotType === 'ocular' ? 'Ocular' : 'Installation');
                 html += '<div class="tech-inline-slot ' + colorClass + '" style="position:absolute;left:6px;right:6px;top:' + slotTop + 'px;">';
-                html += '<div class="tech-inline-slot-time">' + (slot.time || '--:--') + '</div>';
+                html += '<div class="tech-inline-slot-label">' + slotLabel + '</div>';
+                html += '<div class="tech-inline-slot-time">' + (slot.time || '--:--') + (slot.end_time ? ' - ' + slot.end_time : '') + '</div>';
                 html += '<div>' + (slot.client || '-') + '</div>';
                 if (slot.team_assigned) html += '<div class="text-secondary">' + slot.team_assigned + '</div>';
                 html += '</div>';
@@ -1486,6 +2328,30 @@ document.addEventListener('DOMContentLoaded', function () {
             openTechnicalUpdateModalFromRow(updateRow);
             return;
         }
+        var orderDetailsBtn = event.target.closest('.js-order-details-btn');
+        if (orderDetailsBtn) {
+            var orderDetailsRow = orderDetailsBtn.closest('.crm-closed-won-order-row');
+            openClosedWonOrderDetails(orderDetailsRow);
+            return;
+        }
+        var createJoBtn = event.target.closest('.js-create-jo-btn');
+        if (createJoBtn) {
+            var joRow = createJoBtn.closest('.crm-closed-won-order-row');
+            openClosedWonJoModal(joRow);
+            return;
+        }
+        var createPoBtn = event.target.closest('.js-create-po-btn');
+        if (createPoBtn) {
+            var poRow = createPoBtn.closest('.crm-closed-won-order-row');
+            openClosedWonPoModal(poRow);
+            return;
+        }
+        var approvalsBtn = event.target.closest('.js-order-approvals-btn');
+        if (approvalsBtn) {
+            var approvalsRow = approvalsBtn.closest('.crm-closed-won-order-row');
+            openClosedWonApprovalsModal(approvalsRow);
+            return;
+        }
     };
     document.addEventListener('click', crmTechnicalRowClickHandler);
 
@@ -1550,6 +2416,16 @@ document.addEventListener('DOMContentLoaded', function () {
             openTechnicalUpdateModalFromRow(activeRow);
         });
     }
+    var addPoItemBtn = document.getElementById('closedWonPoAddItemBtn');
+    if (addPoItemBtn) addPoItemBtn.addEventListener('click', addPoItemRow);
+    var removePoItemBtn = document.getElementById('closedWonPoRemoveItemBtn');
+    if (removePoItemBtn) removePoItemBtn.addEventListener('click', removePoItemRow);
+    var addJoItemBtn = document.getElementById('closedWonJoAddItemBtn');
+    if (addJoItemBtn) addJoItemBtn.addEventListener('click', addJoItemRow);
+    var removeJoItemBtn = document.getElementById('closedWonJoRemoveItemBtn');
+    if (removeJoItemBtn) removeJoItemBtn.addEventListener('click', removeJoItemRow);
+    var poLessDiscountInput = document.getElementById('closedWonPoLessDiscount');
+    if (poLessDiscountInput) poLessDiscountInput.addEventListener('input', computePoTotals);
     ['scheduleInstallationDate', 'scheduleInstallationTime', 'scheduleTeamAssigned', 'scheduleRemarks'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) {

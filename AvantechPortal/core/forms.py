@@ -33,6 +33,7 @@ from .models import (
     AssetItem,
     AssetItemImage,
     AssetItemType,
+    AccountingRequest,
     ConsumableItem,
     ConsumableItemType,
     ensure_consumable_asset_proxy,
@@ -1181,6 +1182,61 @@ class LiquidationTemplateForm(forms.ModelForm):
         return file
 
 
+class AccountingRequestForm(forms.ModelForm):
+    class Meta:
+        model = AccountingRequest
+        fields = ['request_type', 'requester_name', 'department', 'title', 'description', 'amount', 'date_needed', 'jo_reference']
+        widgets = {
+            'request_type': forms.Select(),
+            'date_needed': forms.DateInput(attrs={'type': 'date'}),
+            'description': forms.Textarea(attrs={'rows': 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.request_user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.Select):
+                field.widget.attrs.setdefault('class', 'form-select')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+        self.fields['requester_name'].label = 'Requestor Name'
+        self.fields['department'].label = 'Department / Project'
+        self.fields['title'].label = 'Request Title'
+        self.fields['amount'].label = 'Estimated Amount'
+        self.fields['jo_reference'].label = 'JO Reference'
+        self.fields['department'].required = False
+        self.fields['amount'].required = False
+        self.fields['date_needed'].required = False
+        self.fields['jo_reference'].required = False
+        self.fields['requester_name'].widget.attrs.setdefault('placeholder', 'Requestor name')
+        self.fields['department'].widget.attrs.setdefault('placeholder', 'Department or project')
+        self.fields['title'].widget.attrs.setdefault('placeholder', 'Short request title')
+        self.fields['description'].widget.attrs.setdefault('placeholder', 'Describe the items, services, or JO request details')
+        self.fields['jo_reference'].widget.attrs.setdefault('placeholder', 'Optional JO number or client reference')
+        if not self.initial.get('requester_name'):
+            default_name = ''
+            if self.request_user:
+                default_name = (self.request_user.get_full_name() or self.request_user.username or '').strip()
+            if default_name:
+                self.fields['requester_name'].initial = default_name
+                self.initial['requester_name'] = default_name
+
+    def clean_requester_name(self):
+        value = (self.cleaned_data.get('requester_name') or '').strip()
+        if value:
+            return value
+        if self.request_user:
+            return (self.request_user.get_full_name() or self.request_user.username or '').strip()
+        raise ValidationError('Requestor name is required.')
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get('amount')
+        if amount is not None and amount < 0:
+            raise ValidationError('Estimated amount cannot be negative.')
+        return amount
+
+
 class LiquidationForm(forms.ModelForm):
     line_items_payload = forms.CharField(widget=forms.HiddenInput())
     liquidation_images = MultipleFileField(
@@ -1697,7 +1753,7 @@ class AssetAccountabilityForm(forms.ModelForm):
         self.fields['item'].help_text = 'Only items with available stock are shown.'
         self.fields['items'].help_text = 'Select one or more items to borrow.'
 
-        item_label = lambda obj: f"{obj.item_code} - {obj.item_name} - [{(obj.specification or '-').strip() or '-'}]"
+        item_label = lambda obj: f"{obj.item_code} - {obj.item_name} - {obj.get_item_type_display()} - [{(obj.specification or '-').strip() or '-'}]"
         self.fields['item'].label_from_instance = item_label
         self.fields['items'].label_from_instance = item_label
 

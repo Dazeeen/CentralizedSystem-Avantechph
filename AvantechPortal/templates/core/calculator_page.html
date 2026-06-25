@@ -15,8 +15,17 @@
             </div>
         </div>
         <div class="border rounded-3 p-3 p-lg-4 mt-3 bg-light-subtle">
-            <h3 class="h6 mb-2">Calculator</h3>
-            <p class="text-secondary mb-0">Use the Settings and Import actions to configure and load calculator data.</p>
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h3 class="h6 mb-1">Calculator</h3>
+                    <p class="text-secondary mb-0">Residential is the current active calculator. Commercial and Industrial are ready for their own setup.</p>
+                </div>
+                <div class="calculator-project-type-selector" role="group" aria-label="Calculator project type">
+                    <button type="button" class="btn btn-sm btn-outline-dark active js-calculator-project-type-btn" data-value="residential">Residential</button>
+                    <button type="button" class="btn btn-sm btn-outline-dark js-calculator-project-type-btn" data-value="commercial">Commercial</button>
+                    <button type="button" class="btn btn-sm btn-outline-dark js-calculator-project-type-btn" data-value="industrial">Industrial</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -373,10 +382,46 @@
     align-items: center;
     gap: 0.8rem;
 }
+.calculator-project-type-selector {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
 </style>
 <script src="{% static 'vendor/xlsx/0.18.5/xlsx.full.min.js' %}"></script>
 {{ calculator_mapping_choices|json_script:"calculatorMappingChoices" }}
 <script>
+document.addEventListener('DOMContentLoaded', function () {
+    const projectTypeButtons = Array.from(document.querySelectorAll('.js-calculator-project-type-btn'));
+    const projectTypeStateKey = 'avantech_calculator_project_type';
+    const floatingCalculatorStateKey = 'avantech_kw_calculator_state_v1';
+    const allowed = ['residential', 'commercial', 'industrial'];
+    const activate = function (value) {
+        const normalized = allowed.includes(value) ? value : 'residential';
+        projectTypeButtons.forEach(function (btn) {
+            const isActive = btn.dataset.value === normalized;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+        try {
+            localStorage.setItem(projectTypeStateKey, normalized);
+            const floatingState = JSON.parse(localStorage.getItem(floatingCalculatorStateKey) || '{}');
+            localStorage.setItem(floatingCalculatorStateKey, JSON.stringify({ ...floatingState, customerType: normalized }));
+        } catch (error) {}
+    };
+    let saved = 'residential';
+    try {
+        const floatingState = JSON.parse(localStorage.getItem(floatingCalculatorStateKey) || '{}');
+        saved = floatingState.customerType || localStorage.getItem(projectTypeStateKey) || 'residential';
+    } catch (error) {}
+    activate(saved);
+    projectTypeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            activate(btn.dataset.value || 'residential');
+        });
+    });
+});
+
 document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('calculatorSettingsForm');
     const modalElement = document.getElementById('calculatorSettingsModal');

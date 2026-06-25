@@ -347,7 +347,7 @@
                                 {% endif %}
                             </div>
                         {% endif %}
-                        {% if request.user.is_superuser or perms.core.view_fundrequest %}
+                        {% if request.user.is_superuser or perms.core.view_fundrequest or perms.core.add_accountingrequest or perms.core.view_accountingrequest or perms.core.approve_accountingrequest %}
                             <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_finance_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_finance_nav_active %}true{% else %}false{% endif %}">
                                 <span class="d-inline-flex align-items-center gap-2">
                                     <span class="nav-logo" aria-hidden="true">
@@ -378,6 +378,7 @@
                                     </span>
                                     <span class="nav-label">Accounting Dashboard</span>
                                 </a>
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'fund_requests_list' or request.resolver_match.url_name == 'fund_request_document' or request.resolver_match.url_name == 'fund_request_print' or request.resolver_match.url_name == 'fund_request_client_side_preview' or request.resolver_match.url_name == 'fund_request_records' or request.resolver_match.url_name == 'fund_request_template_guide' or request.resolver_match.url_name == 'fund_request_template_preview' %}active{% endif %}" href="{% url 'fund_requests_list' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -389,6 +390,17 @@
                                     </span>
                                     <span class="nav-label">Payment Request</span>
                                 </a>
+                                {% endif %}
+                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'accounting_requests' %}active{% endif %}" href="{% url 'accounting_requests' %}" style="font-size: 0.9rem;">
+                                    <span class="nav-logo" aria-hidden="true">
+                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M7 4.5H17C18.1 4.5 19 5.4 19 6.5V19.5H7V4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                            <path d="M9.5 9H14.5M9.5 12.5H14.5M9.5 16H12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        </svg>
+                                    </span>
+                                    <span class="nav-label">Accounting Requests</span>
+                                </a>
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'liquidation_page' %}active{% endif %}" href="{% url 'liquidation_page' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -400,6 +412,8 @@
                                     </span>
                                     <span class="nav-label">Liquidation</span>
                                 </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_reimbursement' %}active{% endif %}" href="{% url 'finance_reimbursement' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -410,6 +424,8 @@
                                     </span>
                                     <span class="nav-label">Reimbursement</span>
                                 </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_summary_request' %}active{% endif %}" href="{% url 'finance_summary_request' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -421,6 +437,7 @@
                                     </span>
                                     <span class="nav-label">Summary Request</span>
                                 </a>
+                                {% endif %}
                             </div>
                         {% endif %}
                         {% if request.user.is_superuser or request.user.is_staff or is_human_resource_role or perms.core.view_assetaccountability or perms.core.add_assetaccountability or perms.core.change_assetaccountability or perms.core.delete_assetaccountability %}
@@ -532,8 +549,6 @@
                             <div class="nav-subgroup js-inventory-nav-subgroup">
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_dashboard_page' %}active{% endif %}" href="{% url 'inventory_dashboard_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="4" width="7" height="4" rx="1.2" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="10" width="7" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/></svg></span><span class="nav-label">Dashboard</span></a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_page' %}active{% endif %}" href="{% url 'inventory_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4.5 7.5H19.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 12H19.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 16.5H14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg></span><span class="nav-label">Inventory</span></a>
-                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_orders_page' %}active{% endif %}" href="{% url 'inventory_orders_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 7H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 12H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 17H14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="4.5" cy="7" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="17" r="1" fill="currentColor"/></svg></span><span class="nav-label">Orders</span></a>
-                                <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_purchase_page' %}active{% endif %}" href="{% url 'inventory_purchase_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7.5H18L17 18H7L6 7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 7.5V6.5C9 4.8 10.3 3.5 12 3.5C13.7 3.5 15 4.8 15 6.5V7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="nav-label">Purchase</span></a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_reporting_page' %}active{% endif %}" href="{% url 'inventory_reporting_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 15V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 15V8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16 15V12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="nav-label">Reporting</span></a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_support_page' %}active{% endif %}" href="{% url 'inventory_support_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 6.5C5 5.67 5.67 5 6.5 5H17.5C18.33 5 19 5.67 19 6.5V13.5C19 14.33 18.33 15 17.5 15H10.2L6.8 18V15H6.5C5.67 15 5 14.33 5 13.5V6.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8.5H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 11.5H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="nav-label">Support</span></a>
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_settings_page' %}active{% endif %}" href="{% url 'inventory_settings_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M19 12C19 11.5 19 11 18.9 10.5L21 9L19 5.5L16.6 6.3C15.9 5.7 15 5.2 14.1 4.9L13.7 2.5H10.3L9.9 4.9C9 5.2 8.1 5.7 7.4 6.3L5 5.5L3 9L5.1 10.5C5 11 5 11.5 5 12C5 12.5 5 13 5.1 13.5L3 15L5 18.5L7.4 17.7C8.1 18.3 9 18.8 9.9 19.1L10.3 21.5H13.7L14.1 19.1C15 18.8 15.9 18.3 16.6 17.7L19 18.5L21 15L18.9 13.5C19 13 19 12.5 19 12Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span><span class="nav-label">Settings</span></a>
@@ -1058,7 +1073,7 @@
                             {% endif %}
                         </div>
                     {% endif %}
-                    {% if request.user.is_superuser or perms.core.view_fundrequest %}
+                    {% if request.user.is_superuser or perms.core.view_fundrequest or perms.core.add_accountingrequest or perms.core.view_accountingrequest or perms.core.approve_accountingrequest %}
                         <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_finance_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_finance_nav_active %}true{% else %}false{% endif %}">
                             <span class="d-inline-flex align-items-center gap-2">
                                 <span class="nav-logo" aria-hidden="true">
@@ -1089,6 +1104,7 @@
                                 </span>
                                 <span class="nav-label">Accounting Dashboard</span>
                             </a>
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'fund_requests_list' or request.resolver_match.url_name == 'fund_request_document' or request.resolver_match.url_name == 'fund_request_print' or request.resolver_match.url_name == 'fund_request_client_side_preview' or request.resolver_match.url_name == 'fund_request_records' or request.resolver_match.url_name == 'fund_request_template_guide' or request.resolver_match.url_name == 'fund_request_template_preview' %}active{% endif %}" href="{% url 'fund_requests_list' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1100,6 +1116,17 @@
                                 </span>
                                 <span class="nav-label">Payment Request</span>
                             </a>
+                                {% endif %}
+                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'accounting_requests' %}active{% endif %}" href="{% url 'accounting_requests' %}" style="font-size: 0.9rem;">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M7 4.5H17C18.1 4.5 19 5.4 19 6.5V19.5H7V4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                        <path d="M9.5 9H14.5M9.5 12.5H14.5M9.5 16H12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Accounting Requests</span>
+                            </a>
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'liquidation_page' %}active{% endif %}" href="{% url 'liquidation_page' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1111,6 +1138,8 @@
                                 </span>
                                 <span class="nav-label">Liquidation</span>
                             </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_reimbursement' %}active{% endif %}" href="{% url 'finance_reimbursement' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1121,6 +1150,8 @@
                                 </span>
                                 <span class="nav-label">Reimbursement</span>
                             </a>
+                                {% endif %}
+                                {% if request.user.is_superuser or perms.core.view_fundrequest %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'finance_summary_request' %}active{% endif %}" href="{% url 'finance_summary_request' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1132,6 +1163,7 @@
                                 </span>
                                 <span class="nav-label">Summary Request</span>
                             </a>
+                                {% endif %}
                         </div>
                     {% endif %}
                     {% if request.user.is_superuser or request.user.is_staff or is_human_resource_role or perms.core.view_assetaccountability or perms.core.add_assetaccountability or perms.core.change_assetaccountability or perms.core.delete_assetaccountability %}
@@ -1243,8 +1275,6 @@
                         <div class="nav-subgroup js-inventory-nav-subgroup">
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_dashboard_page' %}active{% endif %}" href="{% url 'inventory_dashboard_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="4" width="7" height="4" rx="1.2" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="10" width="7" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.8"/></svg></span><span class="nav-label">Dashboard</span></a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_page' %}active{% endif %}" href="{% url 'inventory_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4.5 7.5H19.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 12H19.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 16.5H14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/></svg></span><span class="nav-label">Inventory</span></a>
-                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_orders_page' %}active{% endif %}" href="{% url 'inventory_orders_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 7H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 12H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 17H14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="4.5" cy="7" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="17" r="1" fill="currentColor"/></svg></span><span class="nav-label">Orders</span></a>
-                            <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_purchase_page' %}active{% endif %}" href="{% url 'inventory_purchase_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7.5H18L17 18H7L6 7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 7.5V6.5C9 4.8 10.3 3.5 12 3.5C13.7 3.5 15 4.8 15 6.5V7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="nav-label">Purchase</span></a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_reporting_page' %}active{% endif %}" href="{% url 'inventory_reporting_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 15V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 15V8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16 15V12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="nav-label">Reporting</span></a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_support_page' %}active{% endif %}" href="{% url 'inventory_support_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 6.5C5 5.67 5.67 5 6.5 5H17.5C18.33 5 19 5.67 19 6.5V13.5C19 14.33 18.33 15 17.5 15H10.2L6.8 18V15H6.5C5.67 15 5 14.33 5 13.5V6.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8.5H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 11.5H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="nav-label">Support</span></a>
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'inventory_settings_page' %}active{% endif %}" href="{% url 'inventory_settings_page' %}" style="font-size: 0.9rem;"><span class="nav-logo" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M19 12C19 11.5 19 11 18.9 10.5L21 9L19 5.5L16.6 6.3C15.9 5.7 15 5.2 14.1 4.9L13.7 2.5H10.3L9.9 4.9C9 5.2 8.1 5.7 7.4 6.3L5 5.5L3 9L5.1 10.5C5 11 5 11.5 5 12C5 12.5 5 13 5.1 13.5L3 15L5 18.5L7.4 17.7C8.1 18.3 9 18.8 9.9 19.1L10.3 21.5H13.7L14.1 19.1C15 18.8 15.9 18.3 16.6 17.7L19 18.5L21 15L18.9 13.5C19 13 19 12.5 19 12Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span><span class="nav-label">Settings</span></a>
@@ -1630,6 +1660,14 @@
                         <button type="button" class="btn btn-outline-secondary js-kw-range-btn" data-value="monthly">Monthly</button>
                         <button type="button" class="btn btn-outline-secondary js-kw-range-btn" data-value="yearly">Yearly</button>
                         <button type="button" class="btn btn-outline-secondary js-kw-range-btn" data-value="custom">Custom</button>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <label class="form-label form-label-sm mb-1 d-block">4th Selection: Project Type</label>
+                    <div class="btn-group btn-group-sm d-flex flex-wrap" role="group" aria-label="Calculator project type">
+                        <button type="button" class="btn btn-outline-dark active js-kw-customer-type-btn" data-value="residential">Residential</button>
+                        <button type="button" class="btn btn-outline-dark js-kw-customer-type-btn" data-value="commercial">Commercial</button>
+                        <button type="button" class="btn btn-outline-dark js-kw-customer-type-btn" data-value="industrial">Industrial</button>
                     </div>
                 </div>
                 <div class="col-12 d-none" id="kwCalculatorCustomYearsWrap">
@@ -2513,6 +2551,7 @@
             const typeButtons = Array.from(document.querySelectorAll('.js-kw-type-btn'));
             const modeButtons = Array.from(document.querySelectorAll('.js-kw-mode-btn'));
             const rangeButtons = Array.from(document.querySelectorAll('.js-kw-range-btn'));
+            const customerTypeButtons = Array.from(document.querySelectorAll('.js-kw-customer-type-btn'));
             const customYearsWrap = document.getElementById('kwCalculatorCustomYearsWrap');
             const customYearsInput = document.getElementById('kwCalculatorCustomYears');
             const systemOptionsNode = document.getElementById('calculatorSystemOptionsData');
@@ -2529,6 +2568,7 @@
                 calculatorType: 'panel',
                 calculatorMode: 'load',
                 calculatorRange: 'all',
+                customerType: 'residential',
                 customYears: '',
                 roiMonthlyBill: '',
                 panelMonthlyBill: '',
@@ -2560,6 +2600,7 @@
                         calculatorType: ['panel', 'battery', 'all'].includes(parsed.calculatorType) ? parsed.calculatorType : 'panel',
                         calculatorMode: (parsed.calculatorMode === 'roi' ? 'roi' : 'load'),
                         calculatorRange: ['all', 'daily', 'monthly', 'yearly', 'custom'].includes(parsed.calculatorRange) ? parsed.calculatorRange : 'all',
+                        customerType: ['residential', 'commercial', 'industrial'].includes(parsed.customerType) ? parsed.customerType : 'residential',
                         customYears: String(parsed.customYears || ''),
                         roiMonthlyBill: String(parsed.roiMonthlyBill || ''),
                         panelMonthlyBill: String(parsed.panelMonthlyBill || ''),
@@ -3165,6 +3206,7 @@
             activateGroup(typeButtons, initialState.calculatorType || 'panel');
             activateGroup(modeButtons, initialState.calculatorMode || 'load');
             activateGroup(rangeButtons, initialState.calculatorRange || 'all');
+            activateGroup(customerTypeButtons, initialState.customerType || 'residential');
             applyModeSection(initialState.calculatorMode || 'load');
             applyTypeSection(initialState.calculatorType || 'panel');
             applyRangeSection(initialState.calculatorRange || 'all');
@@ -3498,6 +3540,18 @@
                     const state = getState();
                     saveState({ ...state, calculatorRange: normalized });
                     updatePanelComputation();
+                }));
+            }
+            if (customerTypeButtons.length) {
+                customerTypeButtons.forEach((btn) => btn.addEventListener('click', () => {
+                    const picked = String(btn.dataset.value || 'residential').toLowerCase();
+                    const normalized = ['residential', 'commercial', 'industrial'].includes(picked) ? picked : 'residential';
+                    activateGroup(customerTypeButtons, normalized);
+                    const state = getState();
+                    saveState({ ...state, customerType: normalized });
+                    updatePanelComputation();
+                    updateBatteryRoiComputation();
+                    updateAllRoiComputation();
                 }));
             }
 
