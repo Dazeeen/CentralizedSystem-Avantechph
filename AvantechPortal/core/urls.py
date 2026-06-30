@@ -367,6 +367,7 @@ urlpatterns = [
     path('procurement/po-receipts/', procurement_feature_page, {'feature_slug': 'po-receipts'}, name='procurement_po_receipts'),
     path('procurement/receiving-inspection/', procurement_feature_page, {'feature_slug': 'receiving-inspection'}, name='procurement_receiving_inspection'),
     path('procurement/invoice-payment-coordination/', procurement_feature_page, {'feature_slug': 'invoice-payment-coordination'}, name='procurement_invoice_payment_coordination'),
+    path('procurement/budgets/', procurement_feature_page, {'feature_slug': 'budgets'}, name='procurement_budgets'),
     path('procurement/notifications/', procurement_feature_page, {'feature_slug': 'notifications'}, name='procurement_notifications'),
     path('procurement/reports/', procurement_feature_page, {'feature_slug': 'procurement-reports'}, name='procurement_reports'),
     path('fund-requests/records/', fund_request_records, name='fund_request_records'),

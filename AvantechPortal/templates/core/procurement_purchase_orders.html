@@ -4,18 +4,224 @@
 {% block page_heading %}{{ page_title }}{% endblock %}
 
 {% block content %}
+{% if is_purchase_order_page %}
+{% if selected_order %}
+<div class="procurement-board procurement-po-page procurement-po-detail-page">
+    <div class="procurement-po-detail-head">
+        <h1>Purchase Orders</h1>
+        <a href="{{ detail_back_url }}" aria-label="Back to purchase orders">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+            <span>Back</span>
+        </a>
+    </div>
+
+    <section class="procurement-po-detail-card" aria-label="Purchase order details">
+        <div class="procurement-po-detail-status-row">
+            <span>Status</span>
+            <strong class="procurement-po-detail-status is-{{ selected_order.status_class }}">{{ selected_order.status_label }}</strong>
+        </div>
+
+        <div class="procurement-po-detail-grid">
+            <label class="procurement-po-detail-field procurement-po-detail-wide">
+                <span>Purchaser</span>
+                <input type="text" value="{{ selected_order.purchaser }}" readonly>
+            </label>
+            <label class="procurement-po-detail-field">
+                <span>Create Date</span>
+                <input type="text" value="{{ selected_order.create_date }}" readonly>
+            </label>
+            <label class="procurement-po-detail-field">
+                <span>Delivery Date</span>
+                <input type="text" value="{{ selected_order.delivery_date }}" readonly>
+            </label>
+
+            <label class="procurement-po-detail-field procurement-po-detail-wide procurement-po-supplier-field">
+                <span>Supplier</span>
+                <input type="text" value="{{ selected_order.supplier }}" readonly>
+                <em>Message Received</em>
+            </label>
+            <label class="procurement-po-detail-field procurement-po-detail-span-2">
+                <span>Ship Via</span>
+                <input type="text" value="{{ selected_order.ship_via }}" readonly>
+            </label>
+
+            <label class="procurement-po-detail-field">
+                <span>Invoice / PO,%</span>
+                <input type="text" value="{{ selected_order.invoice_percent }}" readonly>
+            </label>
+            <label class="procurement-po-detail-field">
+                <span>Invoice / PO USD</span>
+                <input type="text" value="{{ selected_order.invoice_usd }}" readonly>
+            </label>
+            <label class="procurement-po-detail-field">
+                <span>Total</span>
+                <input type="text" value="{{ selected_order.total_display }}" readonly>
+            </label>
+            <label class="procurement-po-detail-field">
+                <span>New Total</span>
+                <input type="text" value="{{ selected_order.new_total_display }}" readonly>
+            </label>
+
+            <label class="procurement-po-detail-field procurement-po-detail-wide">
+                <span>Location/Address</span>
+                <input type="text" value="{{ selected_order.location }}" readonly>
+            </label>
+        </div>
+
+        <div class="procurement-po-detail-card-actions">
+            <button class="procurement-po-muted-btn" type="button">+ Add documents</button>
+            <div>
+                <button class="procurement-po-muted-btn" type="button">Edit Purchase Order</button>
+                <button class="procurement-po-muted-btn" type="button">Revision History</button>
+            </div>
+        </div>
+    </section>
+
+    <div class="procurement-po-detail-actions">
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="approve_procurement_purchase_request">
+            <input type="hidden" name="technical_record_id" value="{{ selected_order.id }}">
+            <input type="hidden" name="approval_decision" value="reject">
+            <input type="hidden" name="next" value="{{ detail_back_url }}">
+            <button class="procurement-po-reject-btn" type="submit" {% if selected_order.status != 'pending' or not show_approval_actions %}disabled{% endif %}>Reject</button>
+        </form>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="approve_procurement_purchase_request">
+            <input type="hidden" name="technical_record_id" value="{{ selected_order.id }}">
+            <input type="hidden" name="approval_decision" value="approve">
+            <input type="hidden" name="next" value="{{ detail_back_url }}">
+            <button class="procurement-po-approve-btn" type="submit" {% if selected_order.status != 'pending' or not show_approval_actions %}disabled{% endif %}>Approve</button>
+        </form>
+    </div>
+</div>
+{% else %}
+<div class="procurement-board procurement-po-page procurement-po-list-page">
+    <div class="procurement-po-list-head">
+        <h1>Purchase Orders</h1>
+        <a class="procurement-po-add" href="{% url 'crm_technicals' %}">
+            <span aria-hidden="true">+</span>
+            <span>Add new order</span>
+        </a>
+    </div>
+
+    <nav class="procurement-po-status-tabs" aria-label="Purchase order status filters">
+        <a class="{% if not status_filter %}active{% endif %}" href="{{ all_status_url }}">All ({{ total_requests }})</a>
+        <a class="{% if status_filter == 'pending' %}active{% endif %}" href="{{ pending_status_url }}">Pending ({{ pending_requests }})</a>
+        <a class="{% if status_filter == 'approved' %}active{% endif %}" href="{{ approved_status_url }}">Approved ({{ approved_requests }})</a>
+        <a class="{% if status_filter == 'rejected' %}active{% endif %}" href="{{ rejected_status_url }}">Denied ({{ rejected_requests }})</a>
+        <a href="{{ all_status_url }}">Purchased ({{ purchased_requests }})</a>
+        <a href="{% url 'procurement_po_receipts' %}">Received ({{ received_requests }})</a>
+    </nav>
+
+    <div class="procurement-po-list-card">
+        <form class="procurement-po-list-controls" method="get">
+            <label class="visually-hidden" for="procurementOrderSearch">Search Orders</label>
+            <input id="procurementOrderSearch" type="search" name="q" value="{{ query }}" placeholder="Search Orders ...">
+            {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+            <button class="procurement-po-control-btn" type="submit">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v4H6zM8 11h8M9 15h6M10 19h4"/></svg>
+                <span>Filter Tools</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+            </button>
+            <button class="procurement-po-control-btn" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+                <span>Order Number</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+            </button>
+        </form>
+
+        <div class="procurement-po-list" aria-label="Purchase order list">
+            {% for row in requests_page %}
+            <article class="procurement-po-list-row is-clickable" data-href="{{ row.detail_url }}" role="link" tabindex="0" aria-label="Open purchase order {{ row.reference_no }}">
+                <div class="procurement-po-select">
+                    <input type="checkbox" aria-label="Select order {{ row.reference_no }}">
+                </div>
+                <div class="procurement-po-summary">
+                    <span class="procurement-po-number-pill">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h10v14H7zM9 4h6v2H9z"/></svg>
+                        {{ row.order_badge }}
+                    </span>
+                    <div class="procurement-po-line-items">
+                        <span>Line Items: {{ row.line_items_count }}</span>
+                        <a href="{{ row.detail_url }}">+ more details</a>
+                    </div>
+                </div>
+                <div class="procurement-po-meta">
+                    <span>Due Date</span>
+                    <strong>{{ row.due_date }}</strong>
+                    <span>Submitted</span>
+                    <strong>{{ row.submitted_date }}</strong>
+                    <span>Department</span>
+                    <strong>{{ row.department }}</strong>
+                </div>
+                <div class="procurement-po-amount">
+                    <strong>{% if row.total_amount %}$ {{ row.total_amount }}{% else %}$ 0.00{% endif %}</strong>
+                    <span>Final approved by<br><b>{{ row.approved_by }}</b></span>
+                </div>
+                <button class="procurement-po-more" type="button" aria-label="More actions for {{ row.reference_no }}">...</button>
+            </article>
+            {% empty %}
+            <div class="text-center text-secondary py-4">{{ empty_message }}</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if requests_page.has_other_pages %}
+    <nav class="procurement-po-pagination" aria-label="Purchase orders pagination">
+        {% if requests_page.has_previous %}
+        <a href="?page={{ requests_page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}" aria-label="Previous page">&laquo;</a>
+        {% else %}
+        <span aria-hidden="true">&laquo;</span>
+        {% endif %}
+        {% for page_num in requests_page.paginator.page_range %}
+            {% if page_num <= 3 or page_num == requests_page.number or page_num == requests_page.paginator.num_pages %}
+                {% if page_num == requests_page.number %}
+                <span class="active">{{ page_num }}</span>
+                {% else %}
+                <a href="?page={{ page_num }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">{{ page_num }}</a>
+                {% endif %}
+            {% elif page_num == 4 %}
+                <span>...</span>
+            {% endif %}
+        {% endfor %}
+        {% if requests_page.has_next %}
+        <a href="?page={{ requests_page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}" aria-label="Next page">&raquo;</a>
+        {% else %}
+        <span aria-hidden="true">&raquo;</span>
+        {% endif %}
+    </nav>
+    {% endif %}
+</div>
+<script>
+document.querySelectorAll('.procurement-po-list-row[data-href]').forEach((row) => {
+    row.addEventListener('click', (event) => {
+        if (event.target.closest('a, button, input, label')) return;
+        window.location.href = row.dataset.href;
+    });
+    row.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (event.target.closest('a, button, input, label')) return;
+        event.preventDefault();
+        window.location.href = row.dataset.href;
+    });
+});
+</script>
+{% endif %}
+{% else %}
 <div class="procurement-board mb-4">
     <div class="procurement-page-head">
         <div>
             <div class="text-secondary small mb-1">Procurement</div>
-            <h2 class="h4 mb-1">Manage Purchase</h2>
+            <h2 class="h4 mb-1">Purchase Orders</h2>
             <div class="text-secondary">Purchase Orders, incoming orders, past orders, supplier details, tracking, and reorder actions.</div>
         </div>
     </div>
     <div class="procurement-process-nav">
         <a href="{% url 'procurement_dashboard' %}">Dashboard</a>
         <a href="{% url 'procurement_store' %}">Manage Store</a>
-        <a class="active" href="{% url 'procurement_purchase_orders' %}">Manage Purchase</a>
+        <a class="active" href="{% url 'procurement_purchase_orders' %}">Purchase Orders</a>
         <a href="{% url 'procurement_suppliers' %}">Manage Suppliers</a>
         <a href="{% url 'procurement_products' %}">Manage Inventory</a>
         <a href="{% url 'procurement_notifications' %}">Suggestions</a>
@@ -229,4 +435,5 @@
         {% endif %}
     </div>
 </div>
+{% endif %}
 {% endblock %}

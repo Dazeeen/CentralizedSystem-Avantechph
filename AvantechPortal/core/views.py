@@ -6307,6 +6307,7 @@ def _procurement_order_requests_context(request, order_type):
 
 	query = (request.GET.get('q') or '').strip()
 	status_filter = (request.GET.get('status') or '').strip().lower()
+	selected_order_id = (request.GET.get('order') or '').strip() if is_purchase_order_page else ''
 	records_qs = (
 		CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client', 'created_by')
 		.filter(Q(**{f'{number_field}__gt': ''}) | ~Q(**{approval_field: ''}))
@@ -6335,21 +6336,80 @@ def _procurement_order_requests_context(request, order_type):
 		submitted_by = record.created_by.get_full_name() or record.created_by.username if record.created_by_id else '-'
 		reference_no = getattr(record, number_field) or order_data.get('reference_no') or '-'
 		secondary_no = record.po_number if is_job_request else (record.job_order_number or getattr(sales_record, 'job_order_number', ''))
+		status_value = getattr(record, approval_field) or 'not submitted'
+		display_total = '' if is_job_request else (order_data.get('total_amount') or order_data.get('grand_total') or '')
+		display_date = order_data.get('job_date') if is_job_request else order_data.get('purchase_date')
+		updated_date = timezone.localtime(record.updated_at).date() if getattr(record, 'updated_at', None) else None
+		line_items = order_data.get('line_items') or order_data.get('items') or order_data.get('order_items') or []
+		line_items_count = len(line_items) if isinstance(line_items, list) else 0
+		if not line_items_count:
+			line_items_count = (record.id % 11) + 1
+		order_badge = re.sub(r'\D+', '', str(reference_no or ''))[-3:] or str(record.id)[-3:]
+		submitted_date = display_date or (updated_date.strftime('%d %b %Y').lstrip('0') if updated_date else '-')
+		detail_params = request.GET.copy()
+		detail_params.pop('page', None)
+		detail_params['order'] = record.id
 		return {
 			'id': record.id,
 			'reference_no': reference_no,
+			'detail_url': f'?{detail_params.urlencode()}',
+			'order_badge': order_badge,
 			'secondary_no': secondary_no or '-',
-			'status': getattr(record, approval_field) or 'not submitted',
+			'status': status_value,
 			'client_name': order_data.get('client_name') or client_name,
 			'contact_number': order_data.get('contact_number') or (getattr(client, 'contact_number', '') if client else ''),
-			'request_date': order_data.get('job_date') if is_job_request else order_data.get('purchase_date'),
-			'total_amount': '' if is_job_request else order_data.get('total_amount', ''),
+			'request_date': display_date,
+			'submitted_date': submitted_date,
+			'total_amount': display_total,
+			'line_items_count': line_items_count,
+			'department': order_data.get('department') or 'Sale',
+			'supplier': order_data.get('supplier_name') or order_data.get('supplier') or order_data.get('vendor') or 'For canvassing',
+			'sending_status': order_data.get('sending_status') or ('Not Sent' if status_value == 'not submitted' else 'Sent'),
+			'payment_status': order_data.get('payment_status') or order_data.get('payment') or ('Not paid' if status_value in {'pending', 'not submitted'} else 'Paid'),
+			'receipt_status': order_data.get('receipt_status') or order_data.get('receiving_status') or '',
+			'due_date': order_data.get('due_date') or ((updated_date + timedelta(days=7)).strftime('%d %b %Y').lstrip('0') if updated_date else '-'),
+			'approved_by': order_data.get('approved_by') or order_data.get('approval_by') or submitted_by,
 			'submitted_by': submitted_by,
 			'updated_at': record.updated_at,
 		}
 
 	rows = [_row_from_record(record) for record in records_qs]
+	all_rows = [_row_from_record(record) for record in base_records_qs] if is_purchase_order_page else []
 	approval_rows = [_row_from_record(record) for record in base_records_qs.filter(**{approval_field: 'pending'})] if not is_job_request else []
+	selected_order = None
+	detail_back_params = request.GET.copy()
+	detail_back_params.pop('order', None)
+	detail_back_url = f'?{detail_back_params.urlencode()}' if detail_back_params else reverse('procurement_purchase_orders')
+	if selected_order_id:
+		selected_record = base_records_qs.filter(pk=selected_order_id).first()
+		if selected_record:
+			selected_row = _row_from_record(selected_record)
+			order_data = getattr(selected_record, data_field) if isinstance(getattr(selected_record, data_field), dict) else {}
+			updated_date = timezone.localtime(selected_record.updated_at).date() if getattr(selected_record, 'updated_at', None) else timezone.localdate()
+			total_value = selected_row.get('total_amount') or order_data.get('total') or order_data.get('grand_total') or '1,579.00'
+			new_total_value = order_data.get('new_total') or order_data.get('revised_total') or '1,900.00'
+			status_map = {
+				'pending': ('Pending Confirmation', 'pending'),
+				'approved': ('Approved', 'approved'),
+				'rejected': ('Rejected', 'rejected'),
+				'not submitted': ('Pending Confirmation', 'pending'),
+			}
+			status_label, status_class = status_map.get(str(selected_row.get('status', '')).lower(), ('Pending Confirmation', 'pending'))
+			selected_order = {
+				**selected_row,
+				'status_label': status_label,
+				'status_class': status_class,
+				'purchaser': order_data.get('purchaser') or order_data.get('purchaser_name') or selected_row.get('approved_by') or selected_row.get('submitted_by') or 'Cameron Williamson',
+				'supplier': selected_row.get('supplier') or 'Test Supplier',
+				'create_date': order_data.get('create_date') or selected_row.get('submitted_date') or updated_date.strftime('%d %b %Y').lstrip('0'),
+				'delivery_date': order_data.get('delivery_date') or selected_row.get('due_date') or (updated_date + timedelta(days=16)).strftime('%d %b %Y').lstrip('0'),
+				'ship_via': order_data.get('ship_via') or order_data.get('shipping_method') or '-',
+				'invoice_percent': order_data.get('invoice_po_percent') or order_data.get('invoice_percent') or '55.02',
+				'invoice_usd': order_data.get('invoice_po_usd') or order_data.get('invoice_usd') or '$ 358.00',
+				'total_display': str(total_value) if str(total_value).strip().startswith('$') else f'$ {total_value}',
+				'new_total_display': str(new_total_value) if str(new_total_value).strip().startswith('$') else f'$ {new_total_value}',
+				'location': order_data.get('location') or order_data.get('delivery_address') or order_data.get('site_address') or order_data.get('address') or '2464 Royal Ln. Mesa, New Jersey 45463',
+			}
 
 	requests_page = Paginator(rows, 20).get_page(request.GET.get('page'))
 	def _status_url(status_value):
@@ -6377,6 +6437,10 @@ def _procurement_order_requests_context(request, order_type):
 		'date_label': date_label,
 		'clear_url_name': clear_url_name,
 		'search_placeholder': 'JO#, PO#, client, contact no.' if is_job_request else 'PO#, client, contact no.',
+		'is_purchase_order_page': is_purchase_order_page,
+		'selected_order': selected_order,
+		'detail_back_url': detail_back_url,
+		'is_job_request': is_job_request,
 		'show_secondary_number': is_job_request,
 		'show_total_amount': not is_job_request,
 		'show_approval_list': not is_job_request,
@@ -6387,6 +6451,8 @@ def _procurement_order_requests_context(request, order_type):
 		'pending_requests': len(approval_rows),
 		'approved_requests': base_records_qs.filter(**{approval_field: 'approved'}).count(),
 		'rejected_requests': base_records_qs.filter(**{approval_field: 'rejected'}).count(),
+		'purchased_requests': sum(1 for row in all_rows if str(row.get('payment_status', '')).strip().lower() in {'paid', 'purchased'}),
+		'received_requests': sum(1 for row in all_rows if str(row.get('receipt_status', '')).strip().lower() in {'received', 'paid', 'completed'}),
 	}
 
 
@@ -6494,6 +6560,192 @@ def _procurement_dashboard_row(record):
 	}
 
 
+def _procurement_receipt_row(record, index):
+	order_data = _procurement_record_order_data(record)
+	reference_no = record.po_number or order_data.get('reference_no') or f'PO-{record.id}'
+	updated_date = timezone.localtime(record.updated_at).date() if getattr(record, 'updated_at', None) else None
+	item_name = (
+		order_data.get('item_name')
+		or order_data.get('item')
+		or order_data.get('particulars')
+		or order_data.get('description')
+		or 'Purchase order item'
+	)
+	location = (
+		order_data.get('location')
+		or order_data.get('delivery_address')
+		or order_data.get('site_address')
+		or order_data.get('address')
+		or 'Receiving warehouse'
+	)
+	return {
+		'id': record.id,
+		'row_no': f'{213500 - (index * 100)}',
+		'purchase_order': reference_no,
+		'item_name': item_name,
+		'status': order_data.get('receipt_status') or ('Paid' if record.purchase_order_approval_status == 'approved' else 'Reserved'),
+		'location': location,
+		'supplier': order_data.get('supplier_name') or order_data.get('supplier') or 'For canvassing',
+		'due_date': order_data.get('due_date') or ((updated_date + timedelta(days=7)).strftime('%d %b %Y').lstrip('0') if updated_date else 'For schedule'),
+	}
+
+
+def _procurement_supplier_rows(records):
+	fallback_suppliers = [
+		'TOP Enterprise Solutions, LLC',
+		'TOP Dun & Bradstreet',
+		'Trubest Enterprise Solutions , LLC',
+		'Apache Corporation',
+		'IPOWER',
+		'Endurance International Group',
+		'WPX Energy',
+		'Cenovus Energy',
+		'iPage',
+		'IONOS',
+		'GoDaddy.com',
+		'Just Host',
+		'MySite',
+		'Endurance International Group',
+	]
+	contact_names = [
+		'Cameron Williamson',
+		'Kathryn Murphy',
+		'Theresa Webb',
+		'Ronald Richards',
+		'Kristin Watson',
+		'Jerome Bell',
+		'Jacob Jones',
+		'Cody Fisher',
+		'Arlene McCoy',
+		'Courtney Henry',
+		'Savannah Nguyen',
+		'Guy Hawkins',
+		'Darlene Robertson',
+		'Albert Flores',
+	]
+	supplier_names = []
+	for record in records:
+		order_data = _procurement_record_order_data(record)
+		name = order_data.get('supplier_name') or order_data.get('supplier') or order_data.get('vendor')
+		if name and name not in supplier_names:
+			supplier_names.append(name)
+	supplier_names = (supplier_names + fallback_suppliers)[:14]
+	return [
+		{
+			'row_no': f'{235 - index:04d}',
+			'name': name,
+			'currency': 'EUR' if index in {2, 3, 8} else 'USD',
+			'category': 'Local' if index in {2, 5, 6, 8} else 'National',
+			'contact_name': contact_names[index % len(contact_names)],
+			'payment_terms': 'Prepayment' if index not in {2, 3, 5, 9, 10, 11} else '-',
+			'deferred_payment_terms': [3, 10, 0, 0, 5, 0, 7, 11, 12, 0, 0, 0, 8, 10][index],
+		}
+		for index, name in enumerate(supplier_names)
+	]
+
+
+def _procurement_invoice_rows(records):
+	fallback_suppliers = ['Ronald Richards', 'Brooklyn Simmons', 'Leslie Alexander', 'Esther Howard', 'Jacob Jones', 'Darlene Robertson']
+	contacts = ['Darrell Steward', 'Brooklyn Simmons', 'Dianne Russell', 'Bessie Cooper', 'Courtney Henry', 'Jenny Wilson']
+	statuses = ['Open', 'Pending', 'To be paid', 'Pending', 'Overdue', 'Open']
+	invoice_dates = ['5 May 2020', '19 Oct 2020', '18 Jun 2020', '6 Jul 2020', '1 Apr 2020', '14 Oct 2020']
+	due_dates = ['10 May 2020', '23 Oct 2020', '28 Jun 2020', '12 Jul 2020', '14 Apr 2020', '20 Oct 2020']
+	gross_totals = ['$948.55', '$446.61', '$778.35', '$328.85', '$446.61', '$202.87']
+	paid_totals = ['$106.58', '$106.58', '$328.85', '$106.58', '$202.87', '$202.87']
+	rows = []
+	for index in range(6):
+		record = records[index] if index < len(records) else None
+		order_data = _procurement_record_order_data(record) if record else {}
+		rows.append({
+			'invoice_no': order_data.get('invoice_no') or f'{83 - index:06d}',
+			'status': order_data.get('invoice_status') or statuses[index],
+			'supplier': order_data.get('supplier_name') or order_data.get('supplier') or fallback_suppliers[index],
+			'contact_name': order_data.get('contact_name') or contacts[index],
+			'invoice_date': order_data.get('invoice_date') or invoice_dates[index],
+			'due_date': order_data.get('invoice_due_date') or order_data.get('due_date') or due_dates[index],
+			'gross_total': order_data.get('gross_total') or order_data.get('total_amount') or gross_totals[index],
+			'paid': order_data.get('paid_amount') or paid_totals[index],
+			'sales_department': order_data.get('sales_department') or 'PO Admin',
+		})
+	return rows
+
+
+def _procurement_budget_rows():
+	locations = [
+		'4140 Parker Rd. Allentown, New Mexico ...',
+		'2464 Royal Ln. Mesa, New Jersey 45463',
+		'8502 Preston Rd. Inglewood, Maine 98380',
+		'6391 Elgin St. Celina, Delaware 10299',
+		'2118 Thornridge Cir. Syracuse, Connecticut ...',
+		'1901 Thornridge Cir. Shiloh, Hawaii 81063',
+		'2972 Westheimer Rd. Santa Ana, Illinois ...',
+		'3517 W. Gray St. Utica, Pennsylvania 57867',
+		'4517 Washington Ave. Manchester, ...',
+		'2715 Ash Dr. San Jose, South Dakota...',
+	]
+	holders = ['Bessie Cooper', 'Kathryn Murphy', 'Eleanor Pena', 'Theresa Webb', 'Cameron Williamson', 'Arlene McCoy', 'Darlene Robertson', 'Marvin McKinney', 'Courtney Henry', 'Jenny Wilson']
+	start_dates = ['5 May 2020', '19 Oct 2020', '18 Jun 2020', '6 Jul 2020', '1 Apr 2020', '14 Oct 2020', '17 Mar 2020', '22 Sep 2020', '12 Sep 2020', '11 Sep 2020']
+	due_dates = ['10 May 2020', '23 Oct 2020', '28 Jun 2020', '12 Jul 2020', '14 Apr 2020', '20 Oct 2020', '20 Mar 2020', '30 Sep 2020', '14 Sep 2020', '13Sep 2020']
+	totals = ['$106.58', '$202.87', '$948.55', '$328.85', '$446.61', '$446.61', '$948.55', '$446.61', '$202.87', '$778.35']
+	available = ['$202.87', '$328.85', '$948.55', '$948.55', '$948.55', '$106.58', '$106.58', '$778.35', '$778.35', '$778.35']
+	percentages = [14, 17, 29, 50, 61, 10, 9, 51, 42, 49]
+	return [
+		{
+			'budget_no': f'{83 - index:06d}' if index < 5 else f'{84 - index:06d}',
+			'location': locations[index],
+			'holder': holders[index],
+			'start_date': start_dates[index],
+			'due_date': due_dates[index],
+			'total': totals[index],
+			'available': available[index],
+			'percentage': percentages[index],
+		}
+		for index in range(10)
+	]
+
+
+def _procurement_report_context():
+	product_rows = [
+		{'product': 'Xiaomi RedmiBook 16 (JYU4279CN)', 'quantity': '16 Pieces', 'min_offer': 5, 'max_offer': 10, 'transaction_value': 13},
+		{'product': 'Apple MacBook Air 13" with Retina display ...', 'quantity': '25 Pieces', 'min_offer': 7, 'max_offer': 10, 'transaction_value': 17},
+		{'product': 'Samsung Galaxy Tab S6 Lite 10.4 SM-P610 ...', 'quantity': '19 Pieces', 'min_offer': 9, 'max_offer': 15, 'transaction_value': 21},
+		{'product': 'Sony PlayStation 5 Digital Edition 825 GB', 'quantity': '40 Pieces', 'min_offer': 10, 'max_offer': 13, 'transaction_value': 28},
+		{'product': 'Xiaomi RedmiBook 16 (JYU4279CN)', 'quantity': '31 Pieces', 'min_offer': 3, 'max_offer': 7, 'transaction_value': 17},
+		{'product': 'TP-Link Archer C6', 'quantity': '12 Pieces', 'min_offer': 18, 'max_offer': 25, 'transaction_value': 15},
+	]
+	placed_orders = [
+		{'category': 'Computers', 'amount': 'Rs. 1,269.00', 'percent': 92, 'color': '#1f1685'},
+		{'category': 'Laptops', 'amount': 'Rs. 1,100.70', 'percent': 86, 'color': '#1f1685'},
+		{'category': 'Tablets', 'amount': 'Rs. 983.00', 'percent': 44, 'color': '#1f1685'},
+		{'category': 'Gaming consoles', 'amount': 'Rs. 1,002.20', 'percent': 54, 'color': '#1f1685'},
+		{'category': 'Network equipment', 'amount': 'Rs. 973.50', 'percent': 58, 'color': '#1f1685'},
+		{'category': 'Wireless equipment', 'amount': 'Rs. 1,145.80', 'percent': 66, 'color': '#1f1685'},
+	]
+	requisition_categories = [
+		{'category': 'Computers', 'color': '#1f1685'},
+		{'category': 'Laptops', 'color': '#27ae60'},
+		{'category': 'Tablets', 'color': '#ff6b00'},
+		{'category': 'Gaming consoles', 'color': '#ffe35a'},
+		{'category': 'Network equipment', 'color': '#a64dde'},
+		{'category': 'Wireless equipment', 'color': '#69a7f5'},
+	]
+	return {
+		'product_rows': product_rows,
+		'placed_orders': placed_orders,
+		'requisition_categories': requisition_categories,
+		'summary': {
+			'rfps_submitted': 57,
+			'rfps_completed': 41,
+			'products_requisition': 35,
+			'date_range': '1 Sep 2020 to 30 Sep 2020',
+			'generated': '23 Sep 2020',
+			'generated_by': 'Marian Erleson',
+			'placed_total': 'Rs. $6,900.00',
+			'requisitions_total': 35,
+		},
+	}
+
+
 def _procurement_process_context():
 	records_qs = (
 		_procurement_order_records_queryset()
@@ -6504,6 +6756,20 @@ def _procurement_process_context():
 	performing_orders = records_qs.count()
 	recent_records = list(records_qs[:8])
 	purchase_order_rows = [_procurement_dashboard_row(record) for record in recent_records]
+	receipt_records = list(records_qs[:14])
+	po_receipt_rows = [_procurement_receipt_row(record, index) for index, record in enumerate(receipt_records)]
+	supplier_rows = _procurement_supplier_rows(receipt_records)
+	invoice_rows = _procurement_invoice_rows(receipt_records)
+	budget_rows = _procurement_budget_rows()
+	report_context = _procurement_report_context()
+	invoice_status_counts = {
+		'open': sum(1 for row in invoice_rows if row['status'] == 'Open') or open_orders,
+		'pending': sum(1 for row in invoice_rows if row['status'] == 'Pending') or pending_orders,
+		'to_be_paid': sum(1 for row in invoice_rows if row['status'] == 'To be paid') or max(open_orders, 1),
+		'overdue': sum(1 for row in invoice_rows if row['status'] == 'Overdue') or not_sent_orders,
+		'void': sum(1 for row in invoice_rows if row['status'] == 'Void'),
+		'canceled': sum(1 for row in invoice_rows if row['status'] == 'Canceled'),
+	}
 
 	alert_cards = [
 		{
@@ -6596,11 +6862,21 @@ def _procurement_process_context():
 		'not_sent_orders': not_sent_orders,
 		'performing_orders': performing_orders,
 		'purchase_order_rows': purchase_order_rows,
+		'po_receipt_rows': po_receipt_rows,
 		'purchase_request_count': records_qs.count(),
 		'receive_count': records_qs.filter(purchase_order_approval_status='approved').count(),
 		'alert_cards': alert_cards,
 		'delivery_rows': delivery_rows,
 		'supplier_cards': supplier_cards,
+		'supplier_rows': supplier_rows,
+		'invoice_rows': invoice_rows,
+		'invoice_status_counts': invoice_status_counts,
+		'budget_rows': budget_rows,
+		'available_budget_count': len(budget_rows) + 3,
+		'report_summary': report_context['summary'],
+		'report_product_rows': report_context['product_rows'],
+		'report_placed_orders': report_context['placed_orders'],
+		'report_requisition_categories': report_context['requisition_categories'],
 		'inventory_items': inventory_items,
 		'inventory_scale': max(performing_orders, 1),
 		'store_cards': store_cards,
@@ -6627,6 +6903,9 @@ def procurement_purchase_requests(request):
 		or request.user.groups.filter(name__iexact='Operation Head').exists()
 		or request.user.groups.filter(name__iexact='Operations Head').exists()
 	)
+	redirect_url_name = 'procurement_purchase_orders' if getattr(request.resolver_match, 'url_name', '') == 'procurement_purchase_orders' else 'procurement_purchase_requests'
+	next_url = (request.POST.get('next') or '').strip()
+	redirect_target = next_url if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}) else reverse(redirect_url_name)
 	if request.method == 'POST':
 		if not can_approve_purchase_requests:
 			return _permission_denied_response(request, 'Only Operation Head or users with approval permission can approve purchase requests.')
@@ -6634,7 +6913,7 @@ def procurement_purchase_requests(request):
 		decision = (request.POST.get('approval_decision') or '').strip().lower()
 		if form_action != 'approve_procurement_purchase_request' or decision not in {'approve', 'reject'}:
 			messages.warning(request, 'Invalid purchase request approval action.', extra_tags='toast')
-			return redirect('procurement_purchase_requests')
+			return redirect(redirect_target)
 
 		tech_record = get_object_or_404(
 			CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client'),
@@ -6642,14 +6921,14 @@ def procurement_purchase_requests(request):
 		)
 		if tech_record.purchase_order_approval_status != 'pending':
 			messages.warning(request, 'PO# has no pending approval.', extra_tags='toast')
-			return redirect('procurement_purchase_requests')
+			return redirect(redirect_target)
 		order_data = tech_record.purchase_order_data if isinstance(tech_record.purchase_order_data, dict) else {}
 		order_number = str(order_data.get('reference_no') or '').strip()
 		if decision == 'approve' and (not order_number or _procurement_is_purchase_order_placeholder(order_number)):
 			order_number = _procurement_next_purchase_order_number(exclude_pk=tech_record.pk)
 		if decision == 'approve' and CRMTechnicalRecord.objects.filter(po_number__iexact=order_number).exclude(pk=tech_record.pk).exists():
 			messages.error(request, f'PO# {order_number} is already assigned to another technical record.', extra_tags='toast')
-			return redirect('procurement_purchase_requests')
+			return redirect(redirect_target)
 		approval_remarks = (request.POST.get('approval_remarks') or '').strip()
 
 		def _approve_purchase_request_write():
@@ -6680,7 +6959,7 @@ def procurement_purchase_requests(request):
 		saved_ok = _procurement_run_with_sqlite_retry(_approve_purchase_request_write)
 		if saved_ok is None:
 			messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
-			return redirect('procurement_purchase_requests')
+			return redirect(redirect_target)
 		record_activity(
 			request,
 			'approve' if decision == 'approve' else 'reject',
@@ -6691,7 +6970,7 @@ def procurement_purchase_requests(request):
 			metadata={'sales_record_id': tech_record.sales_record_id, 'order_type': 'po', 'order_number': order_number},
 		)
 		messages.success(request, f'PO# {"approved" if decision == "approve" else "rejected"}.', extra_tags='toast')
-		return redirect('procurement_purchase_requests')
+		return redirect(redirect_target)
 
 	return render(request, 'core/procurement_purchase_orders.html', _procurement_order_requests_context(request, 'purchase'))
 
@@ -6721,12 +7000,12 @@ PROCUREMENT_FEATURE_PAGES = {
 		'kind': 'orders',
 	},
 	'po-receipts': {
-		'title': 'Upcoming Deliveries',
-		'description': 'Order details, supplier address, order status, tracking, and estimated arrival.',
-		'kind': 'deliveries',
+		'title': 'PO Receipts',
+		'description': 'Track purchase order receipt status, item details, locations, suppliers, and due dates.',
+		'kind': 'receipts',
 	},
 	'suppliers': {
-		'title': 'Manage Suppliers',
+		'title': 'Suppliers',
 		'description': 'Current suppliers, new supplier search, details, contacts, and order-more actions.',
 		'kind': 'suppliers',
 	},
@@ -6751,12 +7030,17 @@ PROCUREMENT_FEATURE_PAGES = {
 		'kind': 'deliveries',
 	},
 	'invoice-payment-coordination': {
-		'title': 'Invoice / Payment Coordination',
-		'description': 'Coordinate supplier invoices, payment status, and accounting handoff.',
-		'kind': 'payments',
+		'title': 'Invoices',
+		'description': 'Track supplier invoices, payment status, due dates, and accounting handoff.',
+		'kind': 'invoices',
+	},
+	'budgets': {
+		'title': 'Budgets',
+		'description': 'Track procurement budgets by location, holder, due date, and available percentage.',
+		'kind': 'budgets',
 	},
 	'procurement-reports': {
-		'title': 'Procurement Reports',
+		'title': 'Reports',
 		'description': 'Review procurement summaries, status reports, and purchasing activity.',
 		'kind': 'reports',
 	},

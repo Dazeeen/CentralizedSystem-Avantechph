@@ -6,17 +6,33 @@
     <span class="nav-logo" aria-hidden="true">ST</span>
     <span class="nav-label">Manage Store</span>
 </a>
-<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_purchase_orders' or request.resolver_match.url_name == 'procurement_purchase_requests' or request.resolver_match.url_name == 'procurement_invoice_payment_coordination' %}active{% endif %}" href="{% url 'procurement_purchase_orders' %}" style="font-size: 0.9rem;">
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_purchase_orders' or request.resolver_match.url_name == 'procurement_purchase_requests' %}active{% endif %}" href="{% url 'procurement_purchase_orders' %}" style="font-size: 0.9rem;">
     <span class="nav-logo" aria-hidden="true">PO</span>
-    <span class="nav-label">Manage Purchase</span>
+    <span class="nav-label">Purchase Orders</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_po_receipts' or request.resolver_match.url_name == 'procurement_receiving_inspection' %}active{% endif %}" href="{% url 'procurement_po_receipts' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">RC</span>
+    <span class="nav-label">PO Receipts</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_invoice_payment_coordination' %}active{% endif %}" href="{% url 'procurement_invoice_payment_coordination' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">IN</span>
+    <span class="nav-label">Invoices</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_budgets' %}active{% endif %}" href="{% url 'procurement_budgets' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">B</span>
+    <span class="nav-label">Budgets</span>
 </a>
 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_suppliers' or request.resolver_match.url_name == 'procurement_supplier_management' or request.resolver_match.url_name == 'procurement_canvassing_quotations' %}active{% endif %}" href="{% url 'procurement_suppliers' %}" style="font-size: 0.9rem;">
     <span class="nav-logo" aria-hidden="true">S</span>
-    <span class="nav-label">Manage Suppliers</span>
+    <span class="nav-label">Suppliers</span>
 </a>
 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_products' %}active{% endif %}" href="{% url 'procurement_products' %}" style="font-size: 0.9rem;">
     <span class="nav-logo" aria-hidden="true">I</span>
     <span class="nav-label">Manage Inventory</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_reports' %}active{% endif %}" href="{% url 'procurement_reports' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">R</span>
+    <span class="nav-label">Reports</span>
 </a>
 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_notifications' %}active{% endif %}" href="{% url 'procurement_notifications' %}" style="font-size: 0.9rem;">
     <span class="nav-logo" aria-hidden="true">SG</span>
