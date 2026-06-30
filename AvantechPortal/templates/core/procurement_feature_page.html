@@ -1,0 +1,275 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | {{ feature.title }}{% endblock %}
+{% block page_heading %}{{ feature.title }}{% endblock %}
+
+{% block content %}
+<div class="procurement-board">
+    <div class="procurement-page-head">
+        <div>
+            <div class="text-secondary small mb-1">Procurement</div>
+            <h2 class="h4 mb-1">{{ feature.title }}</h2>
+            <div class="text-secondary">{{ feature.description }}</div>
+        </div>
+        <a class="btn btn-success procurement-create-btn" href="{% url 'procurement_purchase_orders' %}">
+            <span class="procurement-create-icon" aria-hidden="true">+</span>
+            <span>Purchase Orders</span>
+        </a>
+    </div>
+
+    <div class="procurement-process-nav mb-4">
+        <a class="{% if feature.kind == 'deliveries' %}active{% endif %}" href="{% url 'procurement_dashboard' %}">Dashboard</a>
+        <a class="{% if feature.kind == 'store' %}active{% endif %}" href="{% url 'procurement_store' %}">Manage Store</a>
+        <a class="{% if feature.kind == 'payments' %}active{% endif %}" href="{% url 'procurement_purchase_orders' %}">Manage Purchase</a>
+        <a class="{% if feature.kind == 'suppliers' %}active{% endif %}" href="{% url 'procurement_suppliers' %}">Manage Suppliers</a>
+        <a class="{% if feature.kind == 'inventory' %}active{% endif %}" href="{% url 'procurement_products' %}">Manage Inventory</a>
+        <a class="{% if feature.kind == 'suggestions' %}active{% endif %}" href="{% url 'procurement_notifications' %}">Suggestions</a>
+    </div>
+
+    {% if feature.kind == 'store' %}
+    <div class="procurement-process-layout">
+        <section class="procurement-panel">
+            <div class="procurement-panel-head">
+                <div>
+                    <h3 class="h6 mb-1">Store Overview</h3>
+                    <div class="small text-secondary">Store info, employee, suggestions, and statistics</div>
+                </div>
+                <span class="procurement-pill">{{ store_cards|length }} sections</span>
+            </div>
+            <div class="procurement-alert-grid">
+                {% for card in store_cards %}
+                <article class="procurement-alert-card">
+                    <span>{{ card.title }}</span>
+                    <strong>{{ card.value }}</strong>
+                    <small>{{ card.meta }}</small>
+                    <em>Open</em>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <aside class="procurement-panel">
+            <h3 class="h6 mb-3">Statistics</h3>
+            {% for stat in store_stats %}
+            <div class="procurement-summary-metric">
+                <span>{{ stat.label }}</span>
+                <strong>{{ stat.value }}</strong>
+            </div>
+            {% endfor %}
+        </aside>
+    </div>
+
+    {% elif feature.kind == 'suggestions' %}
+    <div class="procurement-process-layout">
+        <section class="procurement-panel">
+            <div class="procurement-panel-head">
+                <div>
+                    <h3 class="h6 mb-1">Suggestions</h3>
+                    <div class="small text-secondary">Alerts with recommended actions</div>
+                </div>
+                <span class="procurement-pill">{{ alert_cards|length }} active</span>
+            </div>
+            <div class="procurement-alert-grid">
+                {% for alert in alert_cards %}
+                <a class="procurement-alert-card tone-{{ alert.tone }}" href="{% url alert.url_name %}">
+                    <span>{{ alert.meta }}</span>
+                    <strong>{{ alert.title }}</strong>
+                    <small>{{ alert.body }}</small>
+                    <em>{{ alert.action }}</em>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+
+        <aside class="procurement-panel procurement-suggestion-panel">
+            <h3 class="h6 mb-3">Actions</h3>
+            <div class="procurement-suggestion">
+                <strong>Prioritize pending approvals</strong>
+                <span>{{ pending_orders }} purchase order{{ pending_orders|pluralize }} waiting for action.</span>
+            </div>
+            <div class="procurement-suggestion">
+                <strong>Coordinate not-sent orders</strong>
+                <span>{{ not_sent_orders }} order{{ not_sent_orders|pluralize }} need supplier follow-up.</span>
+            </div>
+            <div class="procurement-suggestion">
+                <strong>Move approved orders to receiving</strong>
+                <span>{{ open_orders }} approved order{{ open_orders|pluralize }} ready for delivery monitoring.</span>
+            </div>
+        </aside>
+    </div>
+
+    {% elif feature.kind == 'deliveries' %}
+    <div class="procurement-process-layout">
+        <section class="procurement-panel">
+            <div class="procurement-panel-head">
+                <div>
+                    <h3 class="h6 mb-1">Upcoming Deliveries</h3>
+                    <div class="small text-secondary">Receiving queue by purchase order</div>
+                </div>
+                <span class="procurement-pill">{{ receive_count }} approved</span>
+            </div>
+            <div class="procurement-delivery-map">
+                <div class="procurement-route-line" aria-hidden="true"></div>
+                {% for delivery in delivery_rows %}
+                <div class="procurement-delivery-point">
+                    <span>{{ forloop.counter }}</span>
+                    <div>
+                        <strong>{{ delivery.reference_no }}</strong>
+                        <small>{{ delivery.supplier }} / {{ delivery.due_date }}</small>
+                    </div>
+                    <em>{{ delivery.status }}</em>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <aside class="procurement-panel">
+            <h3 class="h6 mb-3">Receiving Summary</h3>
+            <div class="procurement-summary-metric">
+                <span>Approved</span>
+                <strong>{{ open_orders }}</strong>
+            </div>
+            <div class="procurement-summary-metric">
+                <span>Pending</span>
+                <strong>{{ pending_orders }}</strong>
+            </div>
+            <div class="procurement-summary-metric">
+                <span>Not Sent</span>
+                <strong>{{ not_sent_orders }}</strong>
+            </div>
+        </aside>
+    </div>
+
+    {% elif feature.kind == 'suppliers' %}
+    <section class="procurement-panel mb-4">
+        <div class="procurement-panel-head">
+            <div>
+                <h3 class="h6 mb-1">Current Suppliers</h3>
+                <div class="small text-secondary">Supplier details, contacts, ratings, and order history</div>
+            </div>
+            <a href="{% url 'procurement_purchase_orders' %}">Purchase Orders</a>
+        </div>
+        <div class="procurement-supplier-board">
+            {% for supplier in supplier_cards %}
+            <article class="procurement-supplier-card">
+                <div class="procurement-supplier-top">
+                    <strong>{{ supplier.name }}</strong>
+                    <span>{{ supplier.score }}</span>
+                </div>
+                <p>{{ supplier.note }}</p>
+                <div class="procurement-quote-bars" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <small>{{ supplier.status }}</small>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="procurement-table-wrap">
+        <div class="procurement-panel-head mb-3">
+            <div>
+                <h3 class="h6 mb-1">Order Sourcing</h3>
+                <div class="small text-secondary">Search and filter new suppliers by purchase order need</div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>PO#</th>
+                        <th>Supplier</th>
+                        <th>Status</th>
+                        <th>Due Date</th>
+                        <th>Payment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in purchase_order_rows %}
+                    <tr>
+                        <td>{{ row.reference_no }}</td>
+                        <td>{{ row.supplier }}</td>
+                        <td>{{ row.status|title }}</td>
+                        <td>{{ row.due_date }}</td>
+                        <td>{{ row.payment_status }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-secondary py-4">No supplier-linked orders yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% elif feature.kind == 'inventory' %}
+    <section class="procurement-panel">
+        <div class="procurement-panel-head">
+            <div>
+                <h3 class="h6 mb-1">Inventory</h3>
+                <div class="small text-secondary">Existing inventory, stock left, and order-more actions</div>
+            </div>
+            <span class="procurement-pill">{{ inventory_items|length }} items</span>
+        </div>
+        <div class="procurement-inventory-grid">
+            {% for item in inventory_items %}
+            <article class="procurement-inventory-card">
+                <div>
+                    <strong>{{ item.name }}</strong>
+                    <span>{{ item.status }}</span>
+                </div>
+                <em>{{ item.stock }}</em>
+                <div class="procurement-stock-bar" aria-hidden="true">
+                    <span style="width: {% widthratio item.stock inventory_scale 100 %}%"></span>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% else %}
+    <section class="procurement-table-wrap">
+        <div class="procurement-panel-head mb-3">
+            <div>
+                <h3 class="h6 mb-1">{{ feature.title }}</h3>
+                <div class="small text-secondary">{{ feature.description }}</div>
+            </div>
+            <a href="{% url 'procurement_purchase_orders' %}">Purchase Orders</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>ID#</th>
+                        <th>Status</th>
+                        <th>Supplier</th>
+                        <th>Date</th>
+                        <th>Due Date</th>
+                        <th>Payment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in purchase_order_rows %}
+                    <tr>
+                        <td>{{ row.reference_no }}</td>
+                        <td>{{ row.status|title }}</td>
+                        <td>{{ row.supplier }}</td>
+                        <td>{{ row.date }}</td>
+                        <td>{{ row.due_date }}</td>
+                        <td>{{ row.payment_status }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center text-secondary py-4">No procurement records yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

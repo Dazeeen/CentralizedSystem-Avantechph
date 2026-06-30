@@ -1,0 +1,11 @@
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_job_requests' %}active{% endif %}" href="{% url 'procurement_job_requests' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">
+        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="4.5" width="14" height="15" rx="1.6" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M8.5 8.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M8.5 12H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M8.5 15.5H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+    </span>
+    <span class="nav-label">Job Requests</span>
+</a>

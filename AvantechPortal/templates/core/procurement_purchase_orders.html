@@ -1,0 +1,232 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | {{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="procurement-board mb-4">
+    <div class="procurement-page-head">
+        <div>
+            <div class="text-secondary small mb-1">Procurement</div>
+            <h2 class="h4 mb-1">Manage Purchase</h2>
+            <div class="text-secondary">Purchase Orders, incoming orders, past orders, supplier details, tracking, and reorder actions.</div>
+        </div>
+    </div>
+    <div class="procurement-process-nav">
+        <a href="{% url 'procurement_dashboard' %}">Dashboard</a>
+        <a href="{% url 'procurement_store' %}">Manage Store</a>
+        <a class="active" href="{% url 'procurement_purchase_orders' %}">Manage Purchase</a>
+        <a href="{% url 'procurement_suppliers' %}">Manage Suppliers</a>
+        <a href="{% url 'procurement_products' %}">Manage Inventory</a>
+        <a href="{% url 'procurement_notifications' %}">Suggestions</a>
+    </div>
+</div>
+
+<div class="row g-3 g-md-4 mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="text-secondary small">Submitted {{ reference_label }}</div>
+                <div class="display-6 fw-bold">{{ total_requests }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="text-secondary small">For Approval</div>
+                <div class="display-6 fw-bold text-warning-emphasis">{{ pending_requests }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="text-secondary small">Approved</div>
+                <div class="display-6 fw-bold text-success-emphasis">{{ approved_requests }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="text-secondary small">Rejected</div>
+                <div class="display-6 fw-bold text-danger-emphasis">{{ rejected_requests }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if show_approval_list %}
+<div class="card border-warning shadow-sm mb-4">
+    <div class="card-body border-bottom bg-warning-subtle">
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+            <div>
+                <h2 class="h5 mb-1">For Approval</h2>
+                <div class="small text-secondary">Incoming PO requests waiting for approval</div>
+            </div>
+            <span class="badge text-bg-warning">{{ pending_requests }}</span>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>PO#</th>
+                        <th>Client</th>
+                        <th>Purchase Date</th>
+                        <th>Total Amount</th>
+                        <th>Submitted By</th>
+                        <th>Last Update</th>
+                        {% if show_approval_actions %}
+                        <th>Actions</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in approval_rows %}
+                    <tr class="table-warning">
+                        <td class="fw-semibold">{{ row.reference_no }}</td>
+                        <td>
+                            <div class="fw-semibold">{{ row.client_name }}</div>
+                            {% if row.contact_number %}<div class="small text-secondary">{{ row.contact_number }}</div>{% endif %}
+                        </td>
+                        <td>{{ row.request_date|default:"-" }}</td>
+                        <td>{% if row.total_amount %}PHP {{ row.total_amount }}{% else %}-{% endif %}</td>
+                        <td>{{ row.submitted_by }}</td>
+                        <td>{{ row.updated_at|date:"M d, Y g:i A" }}</td>
+                        {% if show_approval_actions %}
+                        <td style="min-width: 220px;">
+                            <form method="post" class="d-flex flex-column gap-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="approve_procurement_purchase_request">
+                                <input type="hidden" name="technical_record_id" value="{{ row.id }}">
+                                <textarea class="form-control form-control-sm" name="approval_remarks" rows="2" placeholder="Approval remarks"></textarea>
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-sm btn-success" name="approval_decision" value="approve">Approve</button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" name="approval_decision" value="reject">Reject</button>
+                                </div>
+                            </form>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="{% if show_approval_actions %}7{% else %}6{% endif %}" class="text-center text-secondary py-4">No PO requests for approval.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body border-bottom">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label mb-1" for="procurementPoSearch">Search</label>
+                <input class="form-control" id="procurementPoSearch" type="search" name="q" value="{{ query }}" placeholder="{{ search_placeholder }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label mb-1" for="procurementPoStatus">Status</label>
+                <select class="form-select" id="procurementPoStatus" name="status">
+                    <option value="">All Statuses</option>
+                    <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>For Approval</option>
+                    <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Approved</option>
+                    <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Rejected</option>
+                </select>
+            </div>
+            <div class="col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-success">Search</button>
+                <a href="{% url clear_url_name %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
+            <div>
+                <h2 class="h5 mb-1">{{ table_title }}</h2>
+                <div class="small text-secondary">{{ pending_requests }} for approval</div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <a class="btn btn-sm {% if not status_filter %}btn-success{% else %}btn-outline-secondary{% endif %}" href="{{ all_status_url }}">All</a>
+                <a class="btn btn-sm {% if status_filter == 'pending' %}btn-warning{% else %}btn-outline-warning{% endif %}" href="{{ pending_status_url }}">For Approval</a>
+                <a class="btn btn-sm {% if status_filter == 'approved' %}btn-success{% else %}btn-outline-success{% endif %}" href="{{ approved_status_url }}">Approved</a>
+                <a class="btn btn-sm {% if status_filter == 'rejected' %}btn-danger{% else %}btn-outline-danger{% endif %}" href="{{ rejected_status_url }}">Rejected</a>
+                <span class="badge text-bg-light border">{{ requests_page.paginator.count }}</span>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>{{ reference_label }}</th>
+                        <th>Client</th>
+                        {% if show_secondary_number %}
+                        <th>{{ secondary_label }}</th>
+                        {% endif %}
+                        <th>{{ date_label }}</th>
+                        {% if show_total_amount %}
+                        <th>Total Amount</th>
+                        {% endif %}
+                        <th>Status</th>
+                        <th>Submitted By</th>
+                        <th>Last Update</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in requests_page %}
+                    <tr class="{% if row.status == 'pending' %}table-warning{% endif %}">
+                        <td class="fw-semibold">{{ row.reference_no }}</td>
+                        <td>
+                            <div class="fw-semibold">{{ row.client_name }}</div>
+                            {% if row.contact_number %}<div class="small text-secondary">{{ row.contact_number }}</div>{% endif %}
+                        </td>
+                        {% if show_secondary_number %}
+                        <td>{{ row.secondary_no }}</td>
+                        {% endif %}
+                        <td>{{ row.request_date|default:"-" }}</td>
+                        {% if show_total_amount %}
+                        <td>{% if row.total_amount %}PHP {{ row.total_amount }}{% else %}-{% endif %}</td>
+                        {% endif %}
+                        <td>
+                            {% if row.status == 'pending' %}
+                                <span class="badge text-bg-warning">For Approval</span>
+                            {% elif row.status == 'approved' %}
+                                <span class="badge text-bg-success">Approved</span>
+                            {% elif row.status == 'rejected' %}
+                                <span class="badge text-bg-danger">Rejected</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Not Submitted</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.submitted_by }}</td>
+                        <td>{{ row.updated_at|date:"M d, Y g:i A" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-secondary py-4">{{ empty_message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if requests_page.has_other_pages %}
+        <nav class="mt-3" aria-label="Purchase orders pagination">
+            <ul class="pagination pagination-sm mb-0">
+                {% if requests_page.has_previous %}
+                <li class="page-item"><a class="page-link" href="?page={{ requests_page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">Previous</a></li>
+                {% endif %}
+                <li class="page-item disabled"><span class="page-link">Page {{ requests_page.number }} of {{ requests_page.paginator.num_pages }}</span></li>
+                {% if requests_page.has_next %}
+                <li class="page-item"><a class="page-link" href="?page={{ requests_page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}">Next</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

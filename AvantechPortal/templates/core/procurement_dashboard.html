@@ -1,0 +1,172 @@
+{% extends 'base_app.html' %}
+
+{% block title %}Avantech Portal | Procurement Dashboard{% endblock %}
+{% block page_heading %}Procurement{% endblock %}
+
+{% block content %}
+<div class="procurement-board procurement-ops-dashboard">
+    <div class="procurement-process-nav mb-3">
+        <a class="active" href="{% url 'procurement_dashboard' %}">Dashboard</a>
+        <a href="{% url 'procurement_store' %}">Manage Store</a>
+        <a href="{% url 'procurement_purchase_orders' %}">Manage Purchase</a>
+        <a href="{% url 'procurement_suppliers' %}">Manage Suppliers</a>
+        <a href="{% url 'procurement_products' %}">Manage Inventory</a>
+        <a href="{% url 'procurement_notifications' %}">Suggestions</a>
+    </div>
+
+    <div class="procurement-ops-toolbar">
+        <form class="procurement-ops-search" method="get" action="{% url 'procurement_purchase_orders' %}">
+            <label class="visually-hidden" for="procurementDashboardSearch">Search procurement</label>
+            <input id="procurementDashboardSearch" type="search" name="q" placeholder="Search purchase orders, suppliers, items">
+            <button type="submit">Search</button>
+        </form>
+        <div class="procurement-ops-actions">
+            <a href="{% url 'procurement_purchase_orders' %}" aria-label="Purchase Orders">PO</a>
+            <a href="{% url 'procurement_notifications' %}" aria-label="Suggestions">SG</a>
+        </div>
+    </div>
+
+    <div class="procurement-ops-layout">
+        <main class="procurement-ops-main">
+            <section class="procurement-ops-section">
+                <div class="procurement-ops-section-title">
+                    <h2>Alerts &amp; suggestions</h2>
+                    <a href="{% url 'procurement_notifications' %}">View all</a>
+                </div>
+                <div class="procurement-ops-alerts">
+                    {% for alert in alert_cards %}
+                    <a class="procurement-ops-alert tone-{{ alert.tone }}" href="{% url alert.url_name %}">
+                        <span class="procurement-ops-mark" aria-hidden="true"></span>
+                        <span>
+                            <strong>{{ alert.title }}</strong>
+                            <small>{{ alert.body }}</small>
+                        </span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="procurement-ops-section">
+                <div class="procurement-ops-section-title">
+                    <h2>Statistics of the store</h2>
+                    <span>Monthly</span>
+                </div>
+                <div class="procurement-ops-kpis">
+                    {% for kpi in dashboard_kpis %}
+                    <article>
+                        <span class="procurement-ops-mark" aria-hidden="true"></span>
+                        <div>
+                            <strong>{{ kpi.value }}</strong>
+                            <small>{{ kpi.label }}</small>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <div class="procurement-ops-split">
+                <section class="procurement-ops-card">
+                    <div class="procurement-ops-section-title">
+                        <h2>Customer retention</h2>
+                        <span>Monthly</span>
+                    </div>
+                    <div class="procurement-retention">
+                        <div class="procurement-retention-ring" aria-hidden="true"></div>
+                        <div class="procurement-retention-legend">
+                            <span><i></i> {{ open_orders }} approved orders</span>
+                            <span><i></i> {{ pending_orders }} waiting approval</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="procurement-ops-card">
+                    <div class="procurement-ops-section-title">
+                        <h2>Top selling items</h2>
+                        <span>Today</span>
+                    </div>
+                    <div class="procurement-top-items">
+                        {% for item in top_selling_items %}
+                        <div>
+                            <span>
+                                <strong>{{ item.name }}</strong>
+                                <small>{{ item.units }} units</small>
+                            </span>
+                            <a href="{% url item.url_name %}">Order More</a>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+            </div>
+
+            <section class="procurement-ops-chart-card">
+                <div class="procurement-ops-chart-head">
+                    <div>
+                        <small>Total Revenue</small>
+                        <strong>{{ open_orders }} approved orders</strong>
+                    </div>
+                    <div>
+                        <span>Revenue</span>
+                        <span>Monthly</span>
+                    </div>
+                </div>
+                <div class="procurement-ops-chart" aria-hidden="true">
+                    <svg viewBox="0 0 900 300" preserveAspectRatio="none">
+                        <path class="grid" d="M30 40 H870 M30 80 H870 M30 120 H870 M30 160 H870 M30 200 H870 M30 240 H870"/>
+                        <polyline class="line line-current" points="40,110 120,145 200,170 280,155 360,118 440,135 520,72 600,68 680,62 760,56 840,48"/>
+                        <polyline class="line line-previous" points="40,170 120,195 200,220 280,160 360,118 440,82 520,116 600,148 680,118 760,86 840,60"/>
+                    </svg>
+                    <div class="procurement-ops-months">
+                        <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span>
+                        <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span>
+                    </div>
+                </div>
+                <div class="procurement-ops-chart-legend">
+                    <span><i></i> This month</span>
+                    <span><i></i> Last month</span>
+                </div>
+            </section>
+        </main>
+
+        <aside class="procurement-ops-side">
+            <section class="procurement-ops-side-card">
+                <h2>{{ dashboard_month_label }}</h2>
+                <div class="procurement-calendar">
+                    <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+                    {% for day in dashboard_calendar_days %}
+                    <time class="{% if day == dashboard_today_day %}active{% endif %}">{% if day %}{{ day }}{% endif %}</time>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="procurement-ops-side-card">
+                <h2>Employees</h2>
+                <div class="procurement-employees">
+                    <div class="procurement-employee-ring" aria-hidden="true"></div>
+                    <strong>{{ dashboard_employee_active }}/{{ dashboard_employee_total }} at store</strong>
+                </div>
+            </section>
+
+            <section class="procurement-ops-side-card">
+                <h2>Delivery Status</h2>
+                <div class="procurement-delivery-list">
+                    {% for delivery in delivery_rows %}
+                    <a href="{% url 'procurement_po_receipts' %}">
+                        <span>{{ delivery.supplier }}</span>
+                        <strong>{{ delivery.status }}</strong>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="procurement-ops-side-card">
+                <h2>News</h2>
+                <div class="procurement-news-list">
+                    {% for item in dashboard_news %}
+                    <p>{{ item }}</p>
+                    {% endfor %}
+                </div>
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}

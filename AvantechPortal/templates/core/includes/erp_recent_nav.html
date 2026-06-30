@@ -1,0 +1,60 @@
+<div class="recent-nav-panel px-2 py-3">
+    <nav class="nav flex-column gap-1 sidebar-home-nav">
+        <a class="nav-link app-nav-link recent-nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}" title="App Menu">
+            {% include 'core/includes/erp_app_icon.html' with app=erp_home_app %}
+            <span class="nav-label">App Menu</span>
+        </a>
+    </nav>
+
+    {% if active_erp_module and request.resolver_match.url_name != 'dashboard' %}
+        <div class="px-1 mt-3 small text-muted sidebar-section-title">{{ active_erp_module.label }}</div>
+        <nav class="nav flex-column gap-1 mt-2">
+            <a class="nav-link app-nav-link recent-nav-link module-home-link {% if request.resolver_match.url_name == active_erp_module.url_name %}active{% endif %}" href="{{ active_erp_module.url }}" title="{{ active_erp_module.label }}">
+                {% include 'core/includes/erp_app_icon.html' with app=active_erp_module %}
+                <span class="nav-label">{{ active_erp_module.label }}</span>
+                {% if active_erp_module.badge_count %}
+                    <span class="badge bg-danger ms-auto">{{ active_erp_module.badge_count }}</span>
+                {% endif %}
+            </a>
+
+            {% for item in active_erp_module.children %}
+                {% if item.url_name != active_erp_module.url_name %}
+                    <a class="nav-link app-nav-link recent-nav-link module-child-link {% if item.is_active %}active{% endif %}" href="{{ item.url }}" title="{{ item.label }}">
+                        <span class="recent-page-icon" aria-hidden="true">{{ item.label|first|upper }}</span>
+                        <span class="nav-label text-truncate">{{ item.label }}</span>
+                    </a>
+                {% endif %}
+            {% endfor %}
+        </nav>
+    {% else %}
+        <div class="px-1 mt-3 small text-muted sidebar-section-title">Recent</div>
+        <nav
+            class="nav flex-column gap-1 mt-2"
+            data-recent-list
+            data-feed-url="{% url 'recent_access_feed' %}"
+            data-remove-url="{% url 'recent_access_remove' %}"
+            data-current-url-name="{{ request.resolver_match.url_name|default:'' }}"
+            data-next-url="{{ request.get_full_path }}"
+        >
+            {% for page in recent_access_pages %}
+                <div class="recent-nav-row {% if request.resolver_match.url_name == page.url_name %}active{% endif %}" data-recent-url="{{ page.url }}">
+                    <a class="nav-link app-nav-link recent-nav-link" href="{{ page.url }}" title="{{ page.label }}">
+                        <span class="recent-page-icon" aria-hidden="true">{{ page.label|first|upper }}</span>
+                        <span class="nav-label text-truncate">{{ page.label }}</span>
+                    </a>
+                    <form method="post" action="{% url 'recent_access_remove' %}" class="recent-remove-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="url" value="{{ page.url }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" class="recent-remove-btn" aria-label="Remove {{ page.label }} from recent" title="Remove">×</button>
+                    </form>
+                </div>
+            {% empty %}
+                <div class="recent-empty-state px-2 py-3">
+                    <div class="small fw-semibold">No recent pages yet.</div>
+                    <div class="small text-secondary">Open a system from the app menu.</div>
+                </div>
+            {% endfor %}
+        </nav>
+    {% endif %}
+</div>

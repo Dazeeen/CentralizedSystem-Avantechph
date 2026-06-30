@@ -43,7 +43,7 @@ from django.db.utils import OperationalError
 from django.db.models import Count, Max, Sum, F, Value, DecimalField, ExpressionWrapper
 from django.db.models import Q
 from django.db.models.functions import TruncMonth, Coalesce
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -196,7 +196,7 @@ except Exception:
 	xlrd = None
 from .notifications import create_notification
 from .permission_catalog import build_permission_preview_groups, format_permission_summary
-from .context_processors import PAGE_ACCESS_RULES
+from .context_processors import PAGE_ACCESS_RULES, RECENT_PAGE_SESSION_KEY
 
 
 EMAIL_VERIFICATION_CODE_TTL = 10 * 60
@@ -615,187 +615,35 @@ def dashboard(request):
 	if not request.session.get('presence_session_id'):
 		_sync_presence_session(request, request.user.profile.status)
 
-	allowed_ranges = [30, 90, 180]
-	raw_range = (request.GET.get('range') or '180').strip()
-	try:
-		selected_range_days = int(raw_range)
-	except (TypeError, ValueError):
-		selected_range_days = 180
-	if selected_range_days not in allowed_ranges:
-		selected_range_days = 180
+	return render(request, 'core/dashboard.html')
 
-	can_view_clients = request.user.is_superuser or request.user.has_perm('core.view_client')
-	pending_accountability_form_count = AssetAccountability.objects.filter(
-		request_status='approved',
-		borrowed_by=request.user,
-		accountability_form_batch__isnull=True,
-	).count()
 
-	context = {
-		'can_view_clients': can_view_clients,
-		'selected_range_days': selected_range_days,
-		'sales_range_options': allowed_ranges,
-		'intake_leads': 0,
-		'qualified_leads': 0,
-		'converted_leads': 0,
-		'not_qualified_leads': 0,
-		'lost_leads': 0,
-		'top_agent_name': '-',
-		'top_agent_score': 0,
-		'top_agent_conversion_rate': 0,
-		'top_agent_recovery_target': 0,
-		'agent_performance_rows': [],
-		'agent_labels_json': '[]',
-		'agent_intake_json': '[]',
-		'agent_qualified_json': '[]',
-		'agent_not_qualified_json': '[]',
-		'agent_lost_json': '[]',
-		'agent_converted_json': '[]',
-		'agent_weighted_score_json': '[]',
-		'total_quotations': 0,
-		'accepted_quotations': 0,
-		'total_quoted_amount': 0,
-		'accepted_quoted_amount': 0,
-		'quotation_acceptance_rate': 0,
-		'monthly_labels_json': '[]',
-		'monthly_sent_json': '[]',
-		'monthly_accepted_json': '[]',
-		'monthly_accepted_amount_json': '[]',
-	}
+@login_required
+@require_POST
+def recent_access_remove(request):
+	target_url = (request.POST.get('url') or '').strip()
+	recent_pages = request.session.get(RECENT_PAGE_SESSION_KEY, [])
+	if target_url:
+		recent_pages = [page for page in recent_pages if page.get('url') != target_url]
+		request.session[RECENT_PAGE_SESSION_KEY] = recent_pages
+		request.session.modified = True
 
-	if can_view_clients:
-		agent_rows = User.objects.filter(handled_clients__isnull=False).annotate(
-			intake_count=Count('handled_clients', filter=Q(handled_clients__lead_status='intake')),
-			qualified_count=Count('handled_clients', filter=Q(handled_clients__lead_status='qualified')),
-			not_qualified_count=Count('handled_clients', filter=Q(handled_clients__lead_status='not_qualified')),
-			lost_count=Count('handled_clients', filter=Q(handled_clients__lead_status='lost')),
-			converted_count=Count('handled_clients', filter=Q(handled_clients__lead_status='converted')),
-		).order_by('-converted_count', '-qualified_count', 'username')
+	redirect_to = request.POST.get('next') or request.META.get('HTTP_REFERER') or reverse('dashboard')
+	if not url_has_allowed_host_and_scheme(
+		url=redirect_to,
+		allowed_hosts={request.get_host()},
+		require_https=request.is_secure(),
+	):
+		redirect_to = reverse('dashboard')
+	if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+		return JsonResponse({'recent_pages': recent_pages})
+	return redirect(redirect_to)
 
-		agent_labels = []
-		agent_intake = []
-		agent_qualified = []
-		agent_not_qualified = []
-		agent_lost = []
-		agent_converted = []
-		agent_weighted_scores = []
-		agent_performance_rows = []
-		top_agent_name = '-'
-		top_agent_score = None
-		top_agent_conversion_rate = 0
-		top_agent_recovery_target = 0
 
-		for agent in agent_rows:
-			display_name = (agent.get_full_name() or agent.username or '').strip() or f'User {agent.pk}'
-			intake_count = int(agent.intake_count or 0)
-			qualified_count = int(agent.qualified_count or 0)
-			not_qualified_count = int(agent.not_qualified_count or 0)
-			lost_count = int(agent.lost_count or 0)
-			converted_count = int(agent.converted_count or 0)
-			total_leads_count = intake_count + qualified_count + not_qualified_count + lost_count + converted_count
-
-			# Performance weights: converted has higher impact (+2), and lost is double recovery (-4).
-			weighted_score = (converted_count * 2) + qualified_count - not_qualified_count - (lost_count * 4)
-			conversion_rate = round((converted_count / total_leads_count) * 100, 2) if total_leads_count else 0
-			recovery_target = max((lost_count * 2) - converted_count, 0)
-
-			agent_labels.append(display_name)
-			agent_intake.append(intake_count)
-			agent_qualified.append(qualified_count)
-			agent_not_qualified.append(not_qualified_count)
-			agent_lost.append(lost_count)
-			agent_converted.append(converted_count)
-			agent_weighted_scores.append(weighted_score)
-
-			agent_performance_rows.append(
-				{
-					'name': display_name,
-					'total_leads': total_leads_count,
-					'converted': converted_count,
-					'lost': lost_count,
-					'conversion_rate': conversion_rate,
-					'recovery_target': recovery_target,
-					'weighted_score': weighted_score,
-				}
-			)
-
-			if top_agent_score is None or weighted_score > top_agent_score:
-				top_agent_name = display_name
-				top_agent_score = weighted_score
-				top_agent_conversion_rate = conversion_rate
-				top_agent_recovery_target = recovery_target
-
-		context.update(
-			{
-				'intake_leads': Client.objects.filter(lead_status='intake').count(),
-				'qualified_leads': Client.objects.filter(lead_status='qualified').count(),
-				'converted_leads': Client.objects.filter(lead_status='converted').count(),
-				'not_qualified_leads': Client.objects.filter(lead_status='not_qualified').count(),
-				'lost_leads': Client.objects.filter(lead_status='lost').count(),
-				'top_agent_name': top_agent_name,
-				'top_agent_score': int(top_agent_score or 0),
-				'top_agent_conversion_rate': top_agent_conversion_rate,
-				'top_agent_recovery_target': top_agent_recovery_target,
-				'agent_performance_rows': agent_performance_rows,
-				'agent_labels_json': dumps(agent_labels),
-				'agent_intake_json': dumps(agent_intake),
-				'agent_qualified_json': dumps(agent_qualified),
-				'agent_not_qualified_json': dumps(agent_not_qualified),
-				'agent_lost_json': dumps(agent_lost),
-				'agent_converted_json': dumps(agent_converted),
-				'agent_weighted_score_json': dumps(agent_weighted_scores),
-			}
-		)
-
-		range_start = timezone.now() - timedelta(days=selected_range_days)
-		quotations_in_range = ClientQuotation.objects.filter(sent_at__gte=range_start)
-
-		quotation_aggregates = quotations_in_range.aggregate(
-			total_quoted_amount=Sum('quoted_amount'),
-			accepted_quoted_amount=Sum('quoted_amount', filter=Q(negotiation_status='accepted')),
-		)
-		total_quotations = quotations_in_range.count()
-		accepted_quotations = quotations_in_range.filter(negotiation_status='accepted').count()
-		quotation_acceptance_rate = round((accepted_quotations / total_quotations) * 100, 2) if total_quotations else 0
-
-		monthly_rows = (
-			quotations_in_range
-			.annotate(month=TruncMonth('sent_at'))
-			.values('month')
-			.annotate(
-				sent_count=Count('id'),
-				accepted_count=Count('id', filter=Q(negotiation_status='accepted')),
-				accepted_amount=Sum('quoted_amount', filter=Q(negotiation_status='accepted')),
-			)
-			.order_by('month')
-		)
-
-		monthly_labels = []
-		monthly_sent = []
-		monthly_accepted = []
-		monthly_accepted_amount = []
-		for row in monthly_rows:
-			month_value = row.get('month')
-			monthly_labels.append(month_value.strftime('%b %Y') if month_value else '-')
-			monthly_sent.append(int(row.get('sent_count') or 0))
-			monthly_accepted.append(int(row.get('accepted_count') or 0))
-			monthly_accepted_amount.append(float(row.get('accepted_amount') or 0))
-
-		context.update(
-			{
-				'total_quotations': total_quotations,
-				'accepted_quotations': accepted_quotations,
-				'total_quoted_amount': quotation_aggregates.get('total_quoted_amount') or 0,
-				'accepted_quoted_amount': quotation_aggregates.get('accepted_quoted_amount') or 0,
-				'quotation_acceptance_rate': quotation_acceptance_rate,
-				'monthly_labels_json': dumps(monthly_labels),
-				'monthly_sent_json': dumps(monthly_sent),
-				'monthly_accepted_json': dumps(monthly_accepted),
-				'monthly_accepted_amount_json': dumps(monthly_accepted_amount),
-			}
-		)
-
-	return render(request, 'core/dashboard.html', context)
+@login_required
+def recent_access_feed(request):
+	recent_pages = request.session.get(RECENT_PAGE_SESSION_KEY, [])
+	return JsonResponse({'recent_pages': recent_pages})
 
 
 @login_required
@@ -5322,14 +5170,33 @@ def crm_technicals(request):
 		).first()
 
 	def _format_purchase_order_number(year, sequence):
-		return f'PO-{int(year):04d}-{int(sequence):05d}'
+		return f'PO{int(year) % 100:02d}-{int(sequence):05d}'
+
+	def _format_job_order_number(year, sequence):
+		return f'JO{int(year) % 100:02d}-{int(sequence):05d}'
+
+	def _purchase_order_number_placeholder(year=None):
+		year = year or timezone.localdate().year
+		return f'PO{int(year) % 100:02d}-XXXXX'
+
+	def _is_purchase_order_number_placeholder(value):
+		return bool(re.match(r'^PO\d{2}-X{5}$', str(value or '').strip().upper()))
+
+	def _job_order_number_placeholder(year=None):
+		year = year or timezone.localdate().year
+		return f'JO{int(year) % 100:02d}-XXXXX'
+
+	def _is_job_order_number_placeholder(value):
+		return bool(re.match(r'^JO\d{2}-X{5}$', str(value or '').strip().upper()))
 
 	def _next_purchase_order_number(exclude_pk=None):
 		year = timezone.localdate().year
-		prefix = f'PO-{year:04d}-'
+		prefix = f'PO{year % 100:02d}-'
+		legacy_prefix = f'PO-{year:04d}-'
 		used_sequences = []
 		po_qs = CRMTechnicalRecord.objects.filter(
 			Q(po_number__startswith=prefix)
+			| Q(po_number__startswith=legacy_prefix)
 			| Q(purchase_order_approval_status='pending')
 		)
 		if exclude_pk:
@@ -5339,7 +5206,8 @@ def crm_technicals(request):
 			if isinstance(po_data, dict):
 				candidates.append(po_data.get('reference_no'))
 			for candidate in candidates:
-				match = re.match(rf'^{re.escape(prefix)}(\d+)$', str(candidate or '').strip())
+				candidate_value = str(candidate or '').strip()
+				match = re.match(rf'^{re.escape(prefix)}(\d+)$', candidate_value) or re.match(rf'^{re.escape(legacy_prefix)}(\d+)$', candidate_value)
 				if match:
 					try:
 						used_sequences.append(int(match.group(1)))
@@ -5349,10 +5217,12 @@ def crm_technicals(request):
 
 	def _next_job_order_number(exclude_pk=None):
 		year = timezone.localdate().year
-		prefix = f'JO-{year:04d}-'
+		prefix = f'JO{year % 100:02d}-'
+		legacy_prefix = f'JO-{year:04d}-'
 		used_sequences = []
 		jo_qs = CRMTechnicalRecord.objects.filter(
 			Q(job_order_number__startswith=prefix)
+			| Q(job_order_number__startswith=legacy_prefix)
 			| Q(job_order_approval_status='pending')
 		)
 		if exclude_pk:
@@ -5362,13 +5232,14 @@ def crm_technicals(request):
 			if isinstance(jo_data, dict):
 				candidates.append(jo_data.get('reference_no'))
 			for candidate in candidates:
-				match = re.match(rf'^{re.escape(prefix)}(\d+)$', str(candidate or '').strip())
+				candidate_value = str(candidate or '').strip()
+				match = re.match(rf'^{re.escape(prefix)}(\d+)$', candidate_value) or re.match(rf'^{re.escape(legacy_prefix)}(\d+)$', candidate_value)
 				if match:
 					try:
 						used_sequences.append(int(match.group(1)))
 					except (TypeError, ValueError):
 						pass
-		return f'{prefix}{(max(used_sequences) if used_sequences else 0) + 1:05d}'
+		return _format_job_order_number(year, (max(used_sequences) if used_sequences else 0) + 1)
 
 	def _money_from_post(value):
 		raw = str(value or '').replace(',', '').strip()
@@ -5772,19 +5643,23 @@ def crm_technicals(request):
 			tech_record = _technical_record_for_sales(sales_record)
 			is_job_order = form_action == 'create_closed_won_job_order'
 			number_label = 'JO#' if is_job_order else 'PO#'
+			existing_number = (tech_record.job_order_number or sales_record.job_order_number or '').strip() if is_job_order else (tech_record.po_number or '').strip()
+			if existing_number:
+				messages.warning(request, f'{number_label} {existing_number} already exists for this Closed Won order.', extra_tags='toast')
+				return redirect('crm_technicals')
 			remarks = (request.POST.get('remarks') or '').strip()
 			order_number = (request.POST.get('job_order_number' if is_job_order else 'po_number') or '').strip()
-			if is_job_order and not order_number:
-				order_number = _next_job_order_number(exclude_pk=tech_record.pk)
-			if not is_job_order and not order_number:
-				order_number = _next_purchase_order_number(exclude_pk=tech_record.pk)
+			if is_job_order and (not order_number or _is_job_order_number_placeholder(order_number)):
+				order_number = _job_order_number_placeholder()
+			if not is_job_order and (not order_number or _is_purchase_order_number_placeholder(order_number)):
+				order_number = _purchase_order_number_placeholder()
 			if not order_number:
 				messages.warning(request, f'{number_label} is required.', extra_tags='toast')
 				return redirect('crm_technicals')
-			if is_job_order and CRMSalesRecord.objects.filter(job_order_number__iexact=order_number).exclude(pk=sales_record.pk).exists():
+			if is_job_order and not _is_job_order_number_placeholder(order_number) and CRMSalesRecord.objects.filter(job_order_number__iexact=order_number).exclude(pk=sales_record.pk).exists():
 				messages.error(request, f'JO# {order_number} is already assigned to another sales record.', extra_tags='toast')
 				return redirect('crm_technicals')
-			if is_job_order and CRMTechnicalRecord.objects.filter(job_order_data__reference_no__iexact=order_number, job_order_approval_status='pending').exclude(pk=tech_record.pk).exists():
+			if is_job_order and not _is_job_order_number_placeholder(order_number) and CRMTechnicalRecord.objects.filter(job_order_data__reference_no__iexact=order_number, job_order_approval_status='pending').exclude(pk=tech_record.pk).exists():
 				messages.error(request, f'JO# {order_number} is already pending approval.', extra_tags='toast')
 				return redirect('crm_technicals')
 			purchase_order_data = {}
@@ -5793,6 +5668,18 @@ def crm_technicals(request):
 				job_numbers = request.POST.getlist('jo_item_no')
 				job_descriptions = request.POST.getlist('jo_job_description')
 				job_other_info = request.POST.getlist('jo_other_info')
+				personnel_lines = [
+					line.strip()
+					for line in request.POST.getlist('jo_personnel_line')
+					if line.strip()
+				]
+				if not personnel_lines:
+					personnel_lines = [
+						line.strip()
+						for line in (request.POST.get('jo_personnel') or '').splitlines()
+						if line.strip()
+					]
+				personnel_lines = personnel_lines[:6]
 				jobs = []
 				for index in range(max(len(job_numbers), len(job_descriptions), len(job_other_info), 5)):
 					job_item = {
@@ -5809,7 +5696,8 @@ def crm_technicals(request):
 					'email_address': (request.POST.get('jo_email_address') or '').strip(),
 					'full_address': (request.POST.get('jo_full_address') or '').strip(),
 					'project_supervisor': (request.POST.get('jo_project_supervisor') or '').strip(),
-					'personnel': (request.POST.get('jo_personnel') or '').strip(),
+					'personnel': '\n'.join(personnel_lines),
+					'personnel_rows': personnel_lines,
 					'jobs': jobs,
 					'remarks': remarks,
 				}
@@ -5929,7 +5817,11 @@ def crm_technicals(request):
 			if current_status != 'pending':
 				messages.warning(request, f'{number_label} has no pending approval.', extra_tags='toast')
 				return redirect('crm_technicals')
-			if decision == 'approve' and not order_number:
+			if decision == 'approve' and (
+				not order_number
+				or (is_job_order and _is_job_order_number_placeholder(order_number))
+				or (not is_job_order and _is_purchase_order_number_placeholder(order_number))
+			):
 				order_number = _next_job_order_number(exclude_pk=tech_record.pk) if is_job_order else _next_purchase_order_number(exclude_pk=tech_record.pk)
 				order_data['reference_no'] = order_number
 			if decision == 'approve' and is_job_order and CRMSalesRecord.objects.filter(job_order_number__iexact=order_number).exclude(pk=sales_record.pk).exists():
@@ -5944,7 +5836,7 @@ def crm_technicals(request):
 					locked_sales = CRMSalesRecord.objects.select_for_update().get(pk=sales_record.pk)
 					locked_tech = CRMTechnicalRecord.objects.select_for_update().get(pk=tech_record.pk)
 					if is_job_order:
-						locked_tech.job_order_data = {**(locked_tech.job_order_data or {}), 'approval_remarks': approval_remarks}
+						locked_tech.job_order_data = {**(locked_tech.job_order_data or {}), 'reference_no': order_number, 'approval_remarks': approval_remarks}
 						if decision == 'approve':
 							locked_sales.job_order_number = order_number
 							locked_sales.save(update_fields=['job_order_number', 'updated_at'])
@@ -6050,17 +5942,21 @@ def crm_technicals(request):
 			)
 
 	def _parse_po_number(po_value):
-		match = re.match(r'^\s*(\d{4})-(\d{4})\s*$', str(po_value or ''))
-		if not match:
-			return None
-		return (int(match.group(1)), int(match.group(2)))
+		raw_value = str(po_value or '').strip().upper()
+		match = re.match(r'^(?:JO|PO)(\d{2})-(\d{5})$', raw_value)
+		if match:
+			return (2000 + int(match.group(1)), int(match.group(2)))
+		match = re.match(r'^(?:JO|PO)-(\d{4})-(\d{5})$', raw_value) or re.match(r'^(\d{4})-(\d{4,5})$', raw_value)
+		if match:
+			return (int(match.group(1)), int(match.group(2)))
+		return None
 
 	def _parse_po_range(range_value):
 		raw = str(range_value or '').strip()
 		if not raw:
 			return None
-		# Accept noisy input and extract the first two PO-like values (YYYY-XXXX).
-		found = re.findall(r'(\d{4}-\d{4})', raw)
+		# Accept noisy input and extract the first two PO-like values.
+		found = re.findall(r'((?:JO|PO)\d{2}-\d{5}|(?:JO|PO)-\d{4}-\d{5}|\d{4}-\d{4,5})', raw, flags=re.IGNORECASE)
 		if len(found) < 2:
 			return None
 		start_po = _parse_po_number(found[0])
@@ -6207,8 +6103,8 @@ def crm_technicals(request):
 				'job_order_approval_status': (tech_record.job_order_approval_status if tech_record else '') or '',
 				'purchase_order_approval_status': (tech_record.purchase_order_approval_status if tech_record else '') or '',
 				'job_order_data': (tech_record.job_order_data if tech_record else {}) or {},
-				'po_number_preview': (tech_record.po_number if tech_record and tech_record.po_number else _next_purchase_order_number(exclude_pk=tech_record.pk if tech_record else None)),
-				'jo_number_preview': (tech_record.job_order_number if tech_record and tech_record.job_order_number else _next_job_order_number(exclude_pk=tech_record.pk if tech_record else None)),
+				'po_number_preview': (tech_record.po_number if tech_record and tech_record.po_number else _purchase_order_number_placeholder()),
+				'jo_number_preview': (tech_record.job_order_number if tech_record and tech_record.job_order_number else _job_order_number_placeholder()),
 				'purchase_order_data': (tech_record.purchase_order_data if tech_record else {}) or {},
 				'system_info': sales_row.sales_saved_technical_info,
 				'details': sales_row.closed_won_order_details,
@@ -6388,6 +6284,497 @@ def crm_technicals(request):
 			'can_approve_crm_technical_orders': can_approve_crm_technical_orders,
 		},
 	)
+
+
+def _procurement_order_requests_context(request, order_type):
+	is_job_request = order_type == 'job'
+	is_purchase_order_page = (getattr(request.resolver_match, 'url_name', '') == 'procurement_purchase_orders')
+	can_approve_purchase_requests = (
+		request.user.is_superuser
+		or request.user.has_perm('core.approve_crm_technical_orders')
+		or request.user.groups.filter(name__iexact='Operation Head').exists()
+		or request.user.groups.filter(name__iexact='Operations Head').exists()
+	)
+	approval_field = 'job_order_approval_status' if is_job_request else 'purchase_order_approval_status'
+	number_field = 'job_order_number' if is_job_request else 'po_number'
+	data_field = 'job_order_data' if is_job_request else 'purchase_order_data'
+	reference_label = 'JO#' if is_job_request else 'PO#'
+	secondary_label = 'PO#' if is_job_request else 'JO#'
+	date_label = 'Job Date' if is_job_request else 'Purchase Date'
+	page_title = 'Procurement Job Requests' if is_job_request else ('Procurement Purchase Orders' if is_purchase_order_page else 'Procurement Purchase Requests')
+	table_title = 'Job Requests' if is_job_request else ('Purchase Orders' if is_purchase_order_page else 'Purchase Requests')
+	clear_url_name = 'procurement_job_requests' if is_job_request else ('procurement_purchase_orders' if is_purchase_order_page else 'procurement_purchase_requests')
+
+	query = (request.GET.get('q') or '').strip()
+	status_filter = (request.GET.get('status') or '').strip().lower()
+	records_qs = (
+		CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client', 'created_by')
+		.filter(Q(**{f'{number_field}__gt': ''}) | ~Q(**{approval_field: ''}))
+		.order_by('-updated_at', '-created_at')
+	)
+	base_records_qs = records_qs
+	if status_filter in {'pending', 'approved', 'rejected'}:
+		records_qs = records_qs.filter(**{approval_field: status_filter})
+	if query:
+		records_qs = records_qs.filter(
+			Q(po_number__icontains=query)
+			| Q(job_order_number__icontains=query)
+			| Q(sales_record__job_order_number__icontains=query)
+			| Q(sales_record__client__first_name__icontains=query)
+			| Q(sales_record__client__last_name__icontains=query)
+			| Q(sales_record__client__contact_number__icontains=query)
+		)
+
+	def _row_from_record(record):
+		order_data = getattr(record, data_field) if isinstance(getattr(record, data_field), dict) else {}
+		sales_record = record.sales_record
+		client = getattr(sales_record, 'client', None)
+		client_name = '-'
+		if client:
+			client_name = f'{client.last_name}, {client.first_name}'.strip(', ') or '-'
+		submitted_by = record.created_by.get_full_name() or record.created_by.username if record.created_by_id else '-'
+		reference_no = getattr(record, number_field) or order_data.get('reference_no') or '-'
+		secondary_no = record.po_number if is_job_request else (record.job_order_number or getattr(sales_record, 'job_order_number', ''))
+		return {
+			'id': record.id,
+			'reference_no': reference_no,
+			'secondary_no': secondary_no or '-',
+			'status': getattr(record, approval_field) or 'not submitted',
+			'client_name': order_data.get('client_name') or client_name,
+			'contact_number': order_data.get('contact_number') or (getattr(client, 'contact_number', '') if client else ''),
+			'request_date': order_data.get('job_date') if is_job_request else order_data.get('purchase_date'),
+			'total_amount': '' if is_job_request else order_data.get('total_amount', ''),
+			'submitted_by': submitted_by,
+			'updated_at': record.updated_at,
+		}
+
+	rows = [_row_from_record(record) for record in records_qs]
+	approval_rows = [_row_from_record(record) for record in base_records_qs.filter(**{approval_field: 'pending'})] if not is_job_request else []
+
+	requests_page = Paginator(rows, 20).get_page(request.GET.get('page'))
+	def _status_url(status_value):
+		params = request.GET.copy()
+		params.pop('page', None)
+		if status_value:
+			params['status'] = status_value
+		else:
+			params.pop('status', None)
+		query_string = params.urlencode()
+		return f'?{query_string}' if query_string else '?'
+
+	return {
+		'requests_page': requests_page,
+		'query': query,
+		'status_filter': status_filter,
+		'all_status_url': _status_url(''),
+		'pending_status_url': _status_url('pending'),
+		'approved_status_url': _status_url('approved'),
+		'rejected_status_url': _status_url('rejected'),
+		'page_title': page_title,
+		'table_title': table_title,
+		'reference_label': reference_label,
+		'secondary_label': secondary_label,
+		'date_label': date_label,
+		'clear_url_name': clear_url_name,
+		'search_placeholder': 'JO#, PO#, client, contact no.' if is_job_request else 'PO#, client, contact no.',
+		'show_secondary_number': is_job_request,
+		'show_total_amount': not is_job_request,
+		'show_approval_list': not is_job_request,
+		'show_approval_actions': (not is_job_request) and can_approve_purchase_requests,
+		'empty_message': f'No submitted {table_title.lower()} found.',
+		'approval_rows': approval_rows,
+		'total_requests': base_records_qs.count(),
+		'pending_requests': len(approval_rows),
+		'approved_requests': base_records_qs.filter(**{approval_field: 'approved'}).count(),
+		'rejected_requests': base_records_qs.filter(**{approval_field: 'rejected'}).count(),
+	}
+
+
+def _procurement_format_purchase_order_number(year, sequence):
+	return f'PO{int(year) % 100:02d}-{int(sequence):05d}'
+
+
+def _procurement_is_purchase_order_placeholder(value):
+	return bool(re.match(r'^PO\d{2}-X{5}$', str(value or '').strip().upper()))
+
+
+def _procurement_next_purchase_order_number(exclude_pk=None):
+	year = timezone.localdate().year
+	prefix = f'PO{year % 100:02d}-'
+	legacy_prefix = f'PO-{year:04d}-'
+	used_sequences = []
+	po_qs = CRMTechnicalRecord.objects.filter(
+		Q(po_number__startswith=prefix)
+		| Q(po_number__startswith=legacy_prefix)
+		| Q(purchase_order_approval_status='pending')
+	)
+	if exclude_pk:
+		po_qs = po_qs.exclude(pk=exclude_pk)
+	for value, po_data in po_qs.values_list('po_number', 'purchase_order_data'):
+		candidates = [value]
+		if isinstance(po_data, dict):
+			candidates.append(po_data.get('reference_no'))
+		for candidate in candidates:
+			candidate_value = str(candidate or '').strip()
+			match = re.match(rf'^{re.escape(prefix)}(\d+)$', candidate_value) or re.match(rf'^{re.escape(legacy_prefix)}(\d+)$', candidate_value)
+			if match:
+				try:
+					used_sequences.append(int(match.group(1)))
+				except (TypeError, ValueError):
+					pass
+	return _procurement_format_purchase_order_number(year, (max(used_sequences) if used_sequences else 0) + 1)
+
+
+def _procurement_run_with_sqlite_retry(write_callback):
+	for attempt in range(6):
+		try:
+			return write_callback()
+		except OperationalError as exc:
+			if 'database is locked' not in str(exc).lower():
+				raise
+			if attempt == 5:
+				return None
+			time.sleep(0.2 * (attempt + 1))
+	return None
+
+
+@login_required
+def procurement_dashboard(request):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['technicals']):
+		return _permission_denied_response(request)
+
+	context = _procurement_process_context()
+	return render(request, 'core/procurement_dashboard.html', context)
+
+
+def _procurement_order_records_queryset():
+	return (
+		CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client')
+		.filter(Q(po_number__gt='') | ~Q(purchase_order_approval_status=''))
+		.order_by('-updated_at', '-created_at')
+	)
+
+
+def _procurement_record_client_name(record):
+	sales_record = record.sales_record
+	client = getattr(sales_record, 'client', None)
+	if not client:
+		return '-'
+	return f'{client.last_name}, {client.first_name}'.strip(', ') or '-'
+
+
+def _procurement_record_date_label(record):
+	date_value = getattr(record, 'updated_at', None) or getattr(record, 'created_at', None)
+	if not date_value:
+		return '-'
+	return timezone.localtime(date_value).strftime('%d %b %Y')
+
+
+def _procurement_record_order_data(record):
+	return record.purchase_order_data if isinstance(record.purchase_order_data, dict) else {}
+
+
+def _procurement_dashboard_row(record):
+	order_data = _procurement_record_order_data(record)
+	supplier_name = order_data.get('supplier_name') or order_data.get('supplier') or 'For canvassing'
+	client_name = order_data.get('client_name') or _procurement_record_client_name(record)
+	order_total = order_data.get('total_amount') or order_data.get('grand_total') or '-'
+	return {
+		'id': record.id,
+		'reference_no': record.po_number or order_data.get('reference_no') or f'TECH-{record.id}',
+		'status': record.purchase_order_approval_status or 'open',
+		'sending_status': 'Sent' if record.purchase_order_approval_status else 'Not Sent',
+		'payment_status': order_data.get('payment_status') or 'Not Received',
+		'purchaser': client_name,
+		'department': order_data.get('department') or 'Operations',
+		'supplier': supplier_name,
+		'total': order_total,
+		'date': order_data.get('purchase_date') or _procurement_record_date_label(record),
+		'due_date': order_data.get('due_date') or 'For schedule',
+	}
+
+
+def _procurement_process_context():
+	records_qs = (
+		_procurement_order_records_queryset()
+	)
+	open_orders = records_qs.filter(purchase_order_approval_status='approved').count()
+	pending_orders = records_qs.filter(purchase_order_approval_status='pending').count()
+	not_sent_orders = records_qs.filter(Q(purchase_order_approval_status='') | Q(purchase_order_approval_status__isnull=True)).count()
+	performing_orders = records_qs.count()
+	recent_records = list(records_qs[:8])
+	purchase_order_rows = [_procurement_dashboard_row(record) for record in recent_records]
+
+	alert_cards = [
+		{
+			'title': 'Pending PO approval',
+			'meta': f'{pending_orders} order{"s" if pending_orders != 1 else ""}',
+			'body': 'Review purchase orders waiting for approval.',
+			'action': 'Review',
+			'url_name': 'procurement_purchase_orders',
+			'tone': 'warning',
+		},
+		{
+			'title': 'Supplier follow-up',
+			'meta': f'{not_sent_orders} not sent',
+			'body': 'Orders without sending status are ready for supplier coordination.',
+			'action': 'Open',
+			'url_name': 'procurement_notifications',
+			'tone': 'danger',
+		},
+		{
+			'title': 'Receiving queue',
+			'meta': f'{open_orders} approved',
+			'body': 'Approved orders can be monitored for delivery and receiving.',
+			'action': 'Track',
+			'url_name': 'procurement_po_receipts',
+			'tone': 'success',
+		},
+	]
+
+	delivery_rows = []
+	for row in purchase_order_rows[:5]:
+		delivery_rows.append({
+			'reference_no': row['reference_no'],
+			'supplier': row['supplier'],
+			'due_date': row['due_date'],
+			'status': 'Expected' if row['status'] == 'approved' else 'Pending',
+		})
+	if not delivery_rows:
+		delivery_rows = [
+			{'reference_no': 'PO sample', 'supplier': 'Supplier queue', 'due_date': 'For schedule', 'status': 'Pending'},
+		]
+
+	supplier_cards = [
+		{'name': 'Solar materials', 'status': 'Compare quotations', 'score': '3 suppliers', 'note': 'Panels, batteries, and controllers'},
+		{'name': 'Installation consumables', 'status': 'Ready for canvass', 'score': '2 suppliers', 'note': 'Wires, breakers, and fittings'},
+		{'name': 'Delivery services', 'status': 'Need schedule', 'score': '1 supplier', 'note': 'Trip rates and lead time'},
+	]
+
+	inventory_items = [
+		{'name': 'Solar panel', 'stock': max(open_orders, 0), 'status': 'Available'},
+		{'name': 'Battery', 'stock': max(pending_orders, 0), 'status': 'Review'},
+		{'name': 'Controller', 'stock': max(not_sent_orders, 0), 'status': 'For order'},
+		{'name': 'Mounting kit', 'stock': max(performing_orders, 0), 'status': 'Monitored'},
+	]
+	store_cards = [
+		{'title': 'Store info', 'value': 'Procurement', 'meta': 'Primary purchasing workspace'},
+		{'title': 'Employee', 'value': 'Operations', 'meta': 'Purchase request ownership'},
+		{'title': 'Suggestion', 'value': f'{pending_orders} pending', 'meta': 'Review and approve orders'},
+		{'title': 'Statistics', 'value': f'{performing_orders} total', 'meta': 'Revenue, expense, and units sold view'},
+	]
+	store_stats = [
+		{'label': 'Revenue', 'value': f'{open_orders} orders'},
+		{'label': 'Expense', 'value': f'{pending_orders} pending'},
+		{'label': 'Units sold', 'value': f'{performing_orders} tracked'},
+	]
+	local_today = timezone.localdate()
+	month_days = [
+		day
+		for week in calendar.Calendar(firstweekday=6).monthdayscalendar(local_today.year, local_today.month)
+		for day in week
+	]
+	top_selling_items = [
+		{'name': 'Solar panel set', 'units': max(open_orders, 1), 'url_name': 'procurement_purchase_orders'},
+		{'name': 'Battery kit', 'units': max(pending_orders, 1), 'url_name': 'procurement_products'},
+		{'name': 'Mounting hardware', 'units': max(not_sent_orders, 1), 'url_name': 'procurement_suppliers'},
+	]
+	dashboard_kpis = [
+		{'label': 'Total revenue', 'value': f'{open_orders} approved'},
+		{'label': 'Total expenses', 'value': f'{pending_orders} pending'},
+		{'label': 'Total units sold', 'value': f'{performing_orders} tracked'},
+	]
+	dashboard_news = [
+		'Prioritize supplier confirmation for not-sent orders.',
+		'Review pending approvals before end of day.',
+		'Approved purchase orders are ready for receiving follow-up.',
+	]
+
+	return {
+		'open_orders': open_orders,
+		'pending_orders': pending_orders,
+		'not_sent_orders': not_sent_orders,
+		'performing_orders': performing_orders,
+		'purchase_order_rows': purchase_order_rows,
+		'purchase_request_count': records_qs.count(),
+		'receive_count': records_qs.filter(purchase_order_approval_status='approved').count(),
+		'alert_cards': alert_cards,
+		'delivery_rows': delivery_rows,
+		'supplier_cards': supplier_cards,
+		'inventory_items': inventory_items,
+		'inventory_scale': max(performing_orders, 1),
+		'store_cards': store_cards,
+		'store_stats': store_stats,
+		'dashboard_kpis': dashboard_kpis,
+		'top_selling_items': top_selling_items,
+		'dashboard_calendar_days': month_days,
+		'dashboard_month_label': local_today.strftime('%B %Y'),
+		'dashboard_today_day': local_today.day,
+		'dashboard_employee_total': 20,
+		'dashboard_employee_active': min(max(open_orders + pending_orders, 1), 20),
+		'dashboard_news': dashboard_news,
+	}
+
+
+@login_required
+def procurement_purchase_requests(request):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['technicals']):
+		return _permission_denied_response(request)
+
+	can_approve_purchase_requests = (
+		request.user.is_superuser
+		or request.user.has_perm('core.approve_crm_technical_orders')
+		or request.user.groups.filter(name__iexact='Operation Head').exists()
+		or request.user.groups.filter(name__iexact='Operations Head').exists()
+	)
+	if request.method == 'POST':
+		if not can_approve_purchase_requests:
+			return _permission_denied_response(request, 'Only Operation Head or users with approval permission can approve purchase requests.')
+		form_action = (request.POST.get('form_action') or '').strip()
+		decision = (request.POST.get('approval_decision') or '').strip().lower()
+		if form_action != 'approve_procurement_purchase_request' or decision not in {'approve', 'reject'}:
+			messages.warning(request, 'Invalid purchase request approval action.', extra_tags='toast')
+			return redirect('procurement_purchase_requests')
+
+		tech_record = get_object_or_404(
+			CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client'),
+			pk=request.POST.get('technical_record_id'),
+		)
+		if tech_record.purchase_order_approval_status != 'pending':
+			messages.warning(request, 'PO# has no pending approval.', extra_tags='toast')
+			return redirect('procurement_purchase_requests')
+		order_data = tech_record.purchase_order_data if isinstance(tech_record.purchase_order_data, dict) else {}
+		order_number = str(order_data.get('reference_no') or '').strip()
+		if decision == 'approve' and (not order_number or _procurement_is_purchase_order_placeholder(order_number)):
+			order_number = _procurement_next_purchase_order_number(exclude_pk=tech_record.pk)
+		if decision == 'approve' and CRMTechnicalRecord.objects.filter(po_number__iexact=order_number).exclude(pk=tech_record.pk).exists():
+			messages.error(request, f'PO# {order_number} is already assigned to another technical record.', extra_tags='toast')
+			return redirect('procurement_purchase_requests')
+		approval_remarks = (request.POST.get('approval_remarks') or '').strip()
+
+		def _approve_purchase_request_write():
+			with transaction.atomic():
+				locked_tech = CRMTechnicalRecord.objects.select_for_update().select_related('sales_record').get(pk=tech_record.pk)
+				locked_sales = locked_tech.sales_record
+				locked_tech.purchase_order_data = {
+					**(locked_tech.purchase_order_data or {}),
+					'reference_no': order_number,
+					'approval_remarks': approval_remarks,
+				}
+				if decision == 'approve':
+					locked_tech.po_number = order_number
+					locked_tech.purchase_order_approval_status = 'approved'
+				else:
+					locked_tech.purchase_order_approval_status = 'rejected'
+				locked_tech.save(update_fields=['po_number', 'purchase_order_data', 'purchase_order_approval_status', 'updated_at'])
+				CRMTechnicalActionLog.objects.create(
+					technical_record=locked_tech,
+					sales_record=locked_sales,
+					action='installation_updated',
+					previous_remarks=f'Pending PO#: {order_number}',
+					new_remarks=f'PO# {"approved" if decision == "approve" else "rejected"} from Procurement Purchase Requests.\n{approval_remarks}'.strip(),
+					created_by=request.user,
+				)
+			return True
+
+		saved_ok = _procurement_run_with_sqlite_retry(_approve_purchase_request_write)
+		if saved_ok is None:
+			messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+			return redirect('procurement_purchase_requests')
+		record_activity(
+			request,
+			'approve' if decision == 'approve' else 'reject',
+			'clients',
+			f'{"Approved" if decision == "approve" else "Rejected"} PO# {order_number} from Procurement Purchase Requests.',
+			target=tech_record,
+			target_label=f'Technical #{tech_record.id}',
+			metadata={'sales_record_id': tech_record.sales_record_id, 'order_type': 'po', 'order_number': order_number},
+		)
+		messages.success(request, f'PO# {"approved" if decision == "approve" else "rejected"}.', extra_tags='toast')
+		return redirect('procurement_purchase_requests')
+
+	return render(request, 'core/procurement_purchase_orders.html', _procurement_order_requests_context(request, 'purchase'))
+
+
+@login_required
+def procurement_job_requests(request):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['technicals']):
+		return _permission_denied_response(request)
+
+	return render(request, 'core/procurement_purchase_orders.html', _procurement_order_requests_context(request, 'job'))
+
+
+PROCUREMENT_FEATURE_PAGES = {
+	'store': {
+		'title': 'Manage Store',
+		'description': 'Store information, employee activity, suggestions, and operating statistics.',
+		'kind': 'store',
+	},
+	'products': {
+		'title': 'Manage Inventory',
+		'description': 'Existing inventory, upcoming deliveries, stock left, and reorder actions.',
+		'kind': 'inventory',
+	},
+	'purchase-requests': {
+		'title': 'Purchase Requests',
+		'description': 'Track internal material and service requests before supplier canvassing and purchasing.',
+		'kind': 'orders',
+	},
+	'po-receipts': {
+		'title': 'Upcoming Deliveries',
+		'description': 'Order details, supplier address, order status, tracking, and estimated arrival.',
+		'kind': 'deliveries',
+	},
+	'suppliers': {
+		'title': 'Manage Suppliers',
+		'description': 'Current suppliers, new supplier search, details, contacts, and order-more actions.',
+		'kind': 'suppliers',
+	},
+	'supplier-management': {
+		'title': 'Supplier Management',
+		'description': 'Maintain supplier profiles, contacts, terms, and procurement notes.',
+		'kind': 'suppliers',
+	},
+	'notifications': {
+		'title': 'Suggestions',
+		'description': 'Alerts, suggestions, and recommended actions for procurement work.',
+		'kind': 'suggestions',
+	},
+	'canvassing-quotations': {
+		'title': 'Canvassing / Quotations',
+		'description': 'Compare supplier quotations and canvassing details for procurement decisions.',
+		'kind': 'suppliers',
+	},
+	'receiving-inspection': {
+		'title': 'Receiving & Inspection',
+		'description': 'Monitor received items, inspection status, and receiving documentation.',
+		'kind': 'deliveries',
+	},
+	'invoice-payment-coordination': {
+		'title': 'Invoice / Payment Coordination',
+		'description': 'Coordinate supplier invoices, payment status, and accounting handoff.',
+		'kind': 'payments',
+	},
+	'procurement-reports': {
+		'title': 'Procurement Reports',
+		'description': 'Review procurement summaries, status reports, and purchasing activity.',
+		'kind': 'reports',
+	},
+}
+
+
+@login_required
+def procurement_feature_page(request, feature_slug):
+	if not _has_any_permission(request.user, CRM_VIEW_PERMISSIONS['technicals']):
+		return _permission_denied_response(request)
+
+	feature = PROCUREMENT_FEATURE_PAGES.get(feature_slug)
+	if not feature:
+		raise Http404('Procurement page not found.')
+
+	context = _procurement_process_context()
+	context['feature'] = {**feature, 'slug': feature_slug}
+	return render(request, 'core/procurement_feature_page.html', context)
 
 
 @login_required

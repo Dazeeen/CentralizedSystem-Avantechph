@@ -4,6 +4,7 @@ from django.contrib.auth.models import Group, Permission, User
 from django.db.utils import OperationalError, ProgrammingError
 from django.db.models import Q
 from django.urls import reverse
+from django.urls.exceptions import NoReverseMatch
 from django.utils import timezone
 
 from .models import (
@@ -28,6 +29,9 @@ from .ticketing_services import (
 )
 
 CRM_ADMIN_PERMISSION = 'core.manage_crm_admin'
+RECENT_PAGE_SESSION_KEY = 'recent_access_pages'
+RECENT_PAGE_LIMIT = 8
+SELECTED_ERP_MODULE_SESSION_KEY = 'selected_erp_module'
 
 CRM_VIEW_PERMISSIONS = {
     'dashboard': (CRM_ADMIN_PERMISSION, 'core.view_crm_dashboard', 'core.view_client'),
@@ -134,6 +138,20 @@ PAGE_ACCESS_RULES = {
     'liquidation_page': {'label': 'Liquidation', 'perms': ['core.view_liquidation']},
     'finance_reimbursement': {'label': 'Reimbursement', 'perms': ['core.view_fundrequest']},
     'finance_summary_request': {'label': 'Summary Request', 'perms': ['core.view_fundrequest']},
+    'procurement_dashboard': {'label': 'Procurement Dashboard', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_store': {'label': 'Manage Store', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_products': {'label': 'Manage Inventory', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_purchase_requests': {'label': 'Purchase Requests', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_job_requests': {'label': 'Job Requests', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_suppliers': {'label': 'Manage Suppliers', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_supplier_management': {'label': 'Supplier Management', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_canvassing_quotations': {'label': 'Canvassing / Quotations', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_purchase_orders': {'label': 'Purchase Orders', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_po_receipts': {'label': 'Upcoming Deliveries', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_receiving_inspection': {'label': 'Receiving & Inspection', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_invoice_payment_coordination': {'label': 'Invoice / Payment Coordination', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_notifications': {'label': 'Suggestions', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+    'procurement_reports': {'label': 'Procurement Reports', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
     'assets_list': {'label': 'Assets', 'perms': ['core.view_assetitem']},
     'assets_departments_list': {'label': 'Asset Departments', 'perms': ['core.view_assetdepartment']},
     'assets_department_create': {'label': 'Create Asset Department', 'perms': ['core.add_assetdepartment']},
@@ -170,6 +188,247 @@ PAGE_ACCESS_RULES = {
 }
 
 
+ERP_APP_DEFINITIONS = [
+    {
+        'key': 'attendance',
+        'label': 'Attendance',
+        'description': 'Daily in/out and attendance capture.',
+        'url_name': 'attendance_page',
+        'icon': 'calendar',
+        'accent': '#20a4a6',
+        'audience': 'all',
+        'active_url_prefixes': ['attendance_'],
+        'children': [
+            {'label': 'Attendance', 'url_name': 'attendance_page', 'audience': 'all', 'active_url_prefixes': ['attendance_']},
+        ],
+    },
+    {
+        'key': 'chats',
+        'label': 'Chats',
+        'description': 'Private team conversations.',
+        'url_name': 'chats_page',
+        'icon': 'chat',
+        'accent': '#7c5cdb',
+        'audience': 'all',
+        'badge_context': 'private_chat_unread_count',
+        'active_url_prefixes': ['chats_'],
+        'children': [
+            {'label': 'Chats', 'url_name': 'chats_page', 'audience': 'all', 'active_url_prefixes': ['chats_']},
+        ],
+    },
+    {
+        'key': 'hr',
+        'label': 'Human Resource',
+        'description': 'Timekeeping and HR monitoring.',
+        'url_name': 'timekeeping_page',
+        'icon': 'people',
+        'accent': '#ef8f35',
+        'roles': ['Human Resource'],
+        'active_url_prefixes': ['timekeeping_'],
+        'children': [
+            {'label': 'Timekeeping', 'url_name': 'timekeeping_page', 'roles': ['Human Resource'], 'active_url_prefixes': ['timekeeping_']},
+        ],
+    },
+    {
+        'key': 'crm',
+        'label': 'CRM',
+        'description': 'Clients, sales, technicals, and aftersales.',
+        'url_name': 'crm_dashboard',
+        'icon': 'crm',
+        'accent': '#22a06b',
+        'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_dashboard', 'core.view_crm_clients_section', 'core.view_crm_sales_section', 'core.view_crm_technicals_section', 'core.view_client'],
+        'active_url_prefixes': ['crm_'],
+        'active_url_names': ['procurement_job_requests'],
+        'children': [
+            {'label': 'Dashboard', 'url_name': 'crm_dashboard', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_dashboard', 'core.view_client']},
+            {'label': 'Clients', 'url_name': 'crm_clients', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_clients_section', 'core.view_client'], 'active_url_prefixes': ['crm_client']},
+            {'label': 'Sales', 'url_name': 'crm_sales', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_sales_section', 'core.view_client'], 'active_url_prefixes': ['crm_sales']},
+            {'label': 'Technicals', 'url_name': 'crm_technicals', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'], 'active_url_prefixes': ['crm_technical'], 'active_url_names': ['procurement_job_requests']},
+            {'label': 'Warranty', 'url_name': 'crm_aftersales_warranty', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'], 'active_url_prefixes': ['crm_aftersales_warranty']},
+            {'label': 'Concern', 'url_name': 'crm_aftersales_concern', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'], 'active_url_prefixes': ['crm_aftersales_concern']},
+        ],
+        'badge_context': 'technical_action_required_count',
+    },
+    {
+        'key': 'accounting',
+        'label': 'Accounting',
+        'description': 'Requests, liquidation, reimbursement, and summaries.',
+        'url_name': 'finance_dashboard',
+        'icon': 'money',
+        'accent': '#cc8d1a',
+        'perms': ['core.view_fundrequest', 'core.add_accountingrequest', 'core.view_accountingrequest', 'core.approve_accountingrequest'],
+        'active_url_prefixes': ['finance_', 'fund_request', 'liquidation'],
+        'active_url_names': ['accounting_requests'],
+        'children': [
+            {'label': 'Dashboard', 'url_name': 'finance_dashboard', 'perms': ['core.view_fundrequest', 'core.add_accountingrequest', 'core.view_accountingrequest', 'core.approve_accountingrequest']},
+            {'label': 'Payment Request', 'url_name': 'fund_requests_list', 'perms': ['core.view_fundrequest'], 'active_url_prefixes': ['fund_request']},
+            {'label': 'Accounting Requests', 'url_name': 'accounting_requests', 'perms': ['core.add_accountingrequest', 'core.view_accountingrequest', 'core.approve_accountingrequest']},
+            {'label': 'Liquidation', 'url_name': 'liquidation_page', 'perms': ['core.view_liquidation', 'core.view_fundrequest'], 'active_url_prefixes': ['liquidation']},
+            {'label': 'Reimbursement', 'url_name': 'finance_reimbursement', 'perms': ['core.view_fundrequest']},
+            {'label': 'Summary Request', 'url_name': 'finance_summary_request', 'perms': ['core.view_fundrequest']},
+        ],
+    },
+    {
+        'key': 'procurement',
+        'label': 'Procurement',
+        'description': 'Dashboard, store, purchase, suppliers, inventory, and suggestions.',
+        'url_name': 'procurement_dashboard',
+        'icon': 'box',
+        'accent': '#d65745',
+        'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'],
+        'active_url_prefixes': ['procurement_'],
+        'children': [
+            {'label': 'Dashboard', 'url_name': 'procurement_dashboard', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'], 'active_url_names': ['procurement_po_receipts', 'procurement_receiving_inspection']},
+            {'label': 'Manage Store', 'url_name': 'procurement_store', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+            {'label': 'Manage Purchase', 'url_name': 'procurement_purchase_orders', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'], 'active_url_names': ['procurement_purchase_requests', 'procurement_invoice_payment_coordination']},
+            {'label': 'Manage Suppliers', 'url_name': 'procurement_suppliers', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client'], 'active_url_names': ['procurement_supplier_management', 'procurement_canvassing_quotations']},
+            {'label': 'Manage Inventory', 'url_name': 'procurement_products', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+            {'label': 'Suggestions', 'url_name': 'procurement_notifications', 'perms': [CRM_ADMIN_PERMISSION, 'core.view_crm_technicals_section', 'core.view_client']},
+        ],
+    },
+    {
+        'key': 'forms',
+        'label': 'Forms',
+        'description': 'Reusable uploaded forms and internal documents.',
+        'url_name': 'forms_list',
+        'icon': 'form',
+        'accent': '#4d7bd6',
+        'staff_or_perms': ['core.view_assetaccountability', 'core.add_assetaccountability', 'core.change_assetaccountability', 'core.delete_assetaccountability'],
+        'roles': ['Human Resource'],
+        'active_url_prefixes': ['forms_'],
+        'children': [
+            {'label': 'Forms', 'url_name': 'forms_list', 'staff_or_perms': ['core.view_assetaccountability', 'core.add_assetaccountability', 'core.change_assetaccountability', 'core.delete_assetaccountability'], 'roles': ['Human Resource'], 'active_url_prefixes': ['forms_']},
+        ],
+    },
+    {
+        'key': 'calculator',
+        'label': 'Calculator',
+        'description': 'Solar and wattage computation tools.',
+        'url_name': 'calculator_page',
+        'icon': 'calculator',
+        'accent': '#9b59b6',
+        'staff_or_perms': ['core.view_assetaccountability', 'core.add_assetaccountability', 'core.change_assetaccountability', 'core.delete_assetaccountability'],
+        'roles': ['Human Resource'],
+        'active_url_names': ['calculator_page'],
+        'children': [
+            {'label': 'Calculator', 'url_name': 'calculator_page', 'staff_or_perms': ['core.view_assetaccountability', 'core.add_assetaccountability', 'core.change_assetaccountability', 'core.delete_assetaccountability'], 'roles': ['Human Resource']},
+        ],
+    },
+    {
+        'key': 'assets',
+        'label': 'Asset Tracker',
+        'description': 'Assets, accountability, consumables, and company accounts.',
+        'url_name': 'assets_list',
+        'icon': 'asset',
+        'accent': '#39934d',
+        'perms': ['core.view_assetitem', 'core.view_assettrackercategory', 'core.view_assetitemtype', 'core.view_consumableitem', 'core.view_consumableitemtype', 'core.view_consumablescategory', 'core.view_assetaccountability', 'core.view_companyinternetaccount', 'core.change_companyinternetaccount', 'core.add_companyinternetaccount'],
+        'active_url_prefixes': ['assets_', 'consumables_', 'accountability'],
+        'children': [
+            {'label': 'Assets', 'url_name': 'assets_list', 'perms': ['core.view_assetitem'], 'active_url_prefixes': ['assets_item', 'assets_department', 'assets_tag']},
+            {'label': 'Consumables', 'url_name': 'consumables_list', 'perms': ['core.view_consumableitem'], 'active_url_prefixes': ['consumables_']},
+            {'label': 'Accountability', 'url_name': 'accountability_list', 'perms': ['core.view_assetaccountability'], 'active_url_prefixes': ['accountability']},
+            {'label': 'Internet Accounts', 'url_name': 'assets_company_accounts', 'perms': ['core.view_companyinternetaccount', 'core.change_companyinternetaccount', 'core.add_companyinternetaccount']},
+        ],
+    },
+    {
+        'key': 'warehouse',
+        'label': 'Warehouse',
+        'description': 'Inventory dashboard, reporting, support, and settings.',
+        'url_name': 'inventory_dashboard_page',
+        'icon': 'warehouse',
+        'accent': '#2f80a8',
+        'perms': ['core.view_assetitem'],
+        'active_url_prefixes': ['inventory_'],
+        'children': [
+            {'label': 'Dashboard', 'url_name': 'inventory_dashboard_page', 'perms': ['core.view_assetitem']},
+            {'label': 'Inventory', 'url_name': 'inventory_page', 'perms': ['core.view_assetitem']},
+            {'label': 'Orders', 'url_name': 'inventory_orders_page', 'perms': ['core.view_assetitem']},
+            {'label': 'Purchase', 'url_name': 'inventory_purchase_page', 'perms': ['core.view_assetitem']},
+            {'label': 'Reporting', 'url_name': 'inventory_reporting_page', 'perms': ['core.view_assetitem']},
+            {'label': 'Support', 'url_name': 'inventory_support_page', 'perms': ['core.view_assetitem']},
+            {'label': 'Settings', 'url_name': 'inventory_settings_page', 'perms': ['core.view_assetitem']},
+        ],
+    },
+    {
+        'key': 'users',
+        'label': 'Users',
+        'description': 'Users, roles, and login access controls.',
+        'url_name': 'users_list',
+        'icon': 'users',
+        'accent': '#5865c8',
+        'perms': ['auth.view_user'],
+        'active_url_prefixes': ['users_', 'roles_'],
+        'active_url_names': ['support_lockout_center'],
+        'children': [
+            {'label': 'Users', 'url_name': 'users_list', 'perms': ['auth.view_user'], 'active_url_prefixes': ['users_']},
+            {'label': 'Roles', 'url_name': 'roles_list', 'perms': ['auth.view_group'], 'active_url_prefixes': ['roles_']},
+            {'label': 'Login Security', 'url_name': 'support_lockout_center', 'perms': ['axes.view_accessattempt']},
+        ],
+    },
+    {
+        'key': 'files',
+        'label': 'File Manager',
+        'description': 'Managed company files and folders.',
+        'url_name': 'file_manager_list',
+        'icon': 'folder',
+        'accent': '#c49a21',
+        'perms': ['core.view_managedfilenode'],
+        'active_url_prefixes': ['file_manager_'],
+        'children': [
+            {'label': 'File Manager', 'url_name': 'file_manager_list', 'perms': ['core.view_managedfilenode'], 'active_url_prefixes': ['file_manager_']},
+        ],
+    },
+    {
+        'key': 'support',
+        'label': 'Support Tickets',
+        'description': 'Issue reports and support queue.',
+        'url_name': 'support_tickets_list',
+        'icon': 'support',
+        'accent': '#e05f7a',
+        'audience': 'all',
+        'badge_context': 'important_ticket_count',
+        'active_url_prefixes': ['support_ticket'],
+        'children': [
+            {'label': 'Tickets', 'url_name': 'support_tickets_list', 'audience': 'all', 'active_url_prefixes': ['support_ticket']},
+            {'label': 'Create Ticket', 'url_name': 'support_ticket_create', 'audience': 'all'},
+        ],
+    },
+    {
+        'key': 'development',
+        'label': 'Development',
+        'description': 'Feedback hub and patch notes.',
+        'url_name': 'development_hub',
+        'icon': 'code',
+        'accent': '#64748b',
+        'audience': 'all',
+        'active_url_prefixes': ['development_'],
+        'children': [
+            {'label': 'Development Hub', 'url_name': 'development_hub', 'audience': 'all'},
+            {'label': 'Patch Notes', 'url_name': 'development_patch_notes', 'audience': 'all', 'active_url_prefixes': ['development_patch']},
+        ],
+    },
+    {
+        'key': 'system',
+        'label': 'System',
+        'description': 'Backups, activity logs, database tools, and admin chat.',
+        'url_name': 'system_hub',
+        'fallback_url_names': ['super_user_chat', 'activity_logs'],
+        'icon': 'system',
+        'accent': '#51606f',
+        'perms': ['core.view_databasefile', 'core.add_databasefile', 'core.change_databasefile', 'core.delete_databasefile', 'core.view_activitylog'],
+        'special_access': 'system_tools',
+        'badge_context': 'super_user_chat_unread_count',
+        'active_url_prefixes': ['system_'],
+        'active_url_names': ['activity_logs', 'super_user_chat', 'super_user_chat_delete'],
+        'children': [
+            {'label': 'System Hub', 'url_name': 'system_hub', 'perms': ['core.view_databasefile', 'core.add_databasefile', 'core.change_databasefile', 'core.delete_databasefile'], 'active_url_prefixes': ['system_backup', 'system_database']},
+            {'label': 'Activity Logs', 'url_name': 'activity_logs', 'perms': ['core.view_activitylog']},
+            {'label': 'Super User Chat', 'url_name': 'super_user_chat', 'roles': ['Super Users'], 'active_url_prefixes': ['super_user_chat']},
+        ],
+    },
+]
+
+
 def _split_permission_name(permission_name):
     if '.' not in permission_name:
         return '', permission_name
@@ -195,6 +454,189 @@ def _has_any_perm(user, permission_names):
     if user.is_superuser:
         return True
     return any(user.has_perm(permission_name) for permission_name in permission_names)
+
+
+def _is_in_any_role(user, role_names):
+    if not role_names:
+        return False
+    if user.is_superuser:
+        return True
+    normalized_role_names = {role_name.casefold() for role_name in role_names}
+    preview = getattr(user, '_role_preview', None)
+    preview_role_name = ((preview or {}).get('role_name') or '').strip().casefold()
+    if preview is not None:
+        return preview_role_name in normalized_role_names
+    return any(group_name.casefold() in normalized_role_names for group_name in user.groups.values_list('name', flat=True))
+
+
+def _can_access_erp_item(user, item):
+    if not user or not user.is_authenticated:
+        return False
+    if item.get('audience') == 'all':
+        return True
+    if user.is_superuser:
+        return True
+    if item.get('perms') and _has_any_perm(user, item['perms']):
+        return True
+    if item.get('special_access') == 'system_tools' and _is_in_any_role(user, ['Super Users']):
+        return True
+    if item.get('roles') and _is_in_any_role(user, item['roles']):
+        return True
+    staff_or_perms = item.get('staff_or_perms') or []
+    if staff_or_perms and (user.is_staff or _has_any_perm(user, staff_or_perms)):
+        return True
+    return False
+
+
+def _reverse_url_name(url_name):
+    try:
+        return reverse(url_name)
+    except NoReverseMatch:
+        return ''
+
+
+def _system_tools_url_name(user):
+    database_permissions = [
+        'core.view_databasefile',
+        'core.add_databasefile',
+        'core.change_databasefile',
+        'core.delete_databasefile',
+    ]
+    if user.is_superuser or _has_any_perm(user, database_permissions):
+        return 'system_hub'
+    if _is_in_any_role(user, ['Super Users']):
+        return 'super_user_chat'
+    return 'activity_logs'
+
+
+def _matches_url_name(item, url_name):
+    if not url_name:
+        return False
+    if url_name == item.get('url_name'):
+        return True
+    if url_name in (item.get('active_url_names') or []):
+        return True
+    return any(url_name.startswith(prefix) for prefix in (item.get('active_url_prefixes') or []))
+
+
+def _build_erp_apps(user, counts=None, current_url_name=''):
+    counts = counts or {}
+    apps = []
+    for definition in ERP_APP_DEFINITIONS:
+        if not _can_access_erp_item(user, definition):
+            continue
+
+        url_name = definition['url_name']
+        if definition.get('special_access') == 'system_tools':
+            url_name = _system_tools_url_name(user)
+
+        url = _reverse_url_name(url_name)
+        if not url:
+            for fallback_url_name in definition.get('fallback_url_names') or []:
+                url = _reverse_url_name(fallback_url_name)
+                if url:
+                    break
+        if not url:
+            continue
+
+        children = []
+        for child in definition.get('children') or []:
+            if not _can_access_erp_item(user, child):
+                continue
+            child_url = _reverse_url_name(child['url_name'])
+            if child_url:
+                children.append({
+                    'label': child['label'],
+                    'url': child_url,
+                    'url_name': child['url_name'],
+                    'is_active': _matches_url_name(child, current_url_name),
+                })
+
+        badge_count = 0
+        badge_context = definition.get('badge_context')
+        if badge_context:
+            try:
+                badge_count = int(counts.get(badge_context) or 0)
+            except (TypeError, ValueError):
+                badge_count = 0
+
+        apps.append({
+            'key': definition['key'],
+            'label': definition['label'],
+            'description': definition.get('description', ''),
+            'url': url,
+            'select_url': f'{url}?system={definition["key"]}',
+            'url_name': url_name,
+            'icon': definition.get('icon', 'app'),
+            'accent': definition.get('accent', '#198754'),
+            'children': children,
+            'child_count': len(children),
+            'badge_count': badge_count,
+            'is_active': _matches_url_name(definition, current_url_name) or any(child['is_active'] for child in children),
+        })
+    return apps
+
+
+def _active_erp_module(apps, selected_key=''):
+    for app in apps:
+        if app.get('is_active'):
+            return app
+    if selected_key:
+        for app in apps:
+            if app.get('key') == selected_key:
+                return app
+    return None
+
+
+def _selected_erp_module_key(request, apps, url_name):
+    selected_key = (request.GET.get('system') or '').strip()
+    valid_keys = {app.get('key') for app in apps}
+    if selected_key in valid_keys:
+        request.session[SELECTED_ERP_MODULE_SESSION_KEY] = selected_key
+        request.session.modified = True
+        return selected_key
+
+    active_app = next((app for app in apps if app.get('is_active')), None)
+    if active_app:
+        request.session[SELECTED_ERP_MODULE_SESSION_KEY] = active_app['key']
+        request.session.modified = True
+        return active_app['key']
+
+    if url_name == 'dashboard':
+        request.session.pop(SELECTED_ERP_MODULE_SESSION_KEY, None)
+        return ''
+
+    saved_key = request.session.get(SELECTED_ERP_MODULE_SESSION_KEY, '')
+    return saved_key if saved_key in valid_keys else ''
+
+
+def _track_recent_access(request):
+    user = getattr(request, 'user', None)
+    resolver_match = getattr(request, 'resolver_match', None)
+    url_name = getattr(resolver_match, 'url_name', '') or ''
+    recent_pages = request.session.get(RECENT_PAGE_SESSION_KEY, [])
+
+    if (
+        user
+        and user.is_authenticated
+        and request.method == 'GET'
+        and url_name
+        and url_name != 'dashboard'
+        and url_name in PAGE_ACCESS_RULES
+    ):
+        label = PAGE_ACCESS_RULES[url_name].get('label') or url_name.replace('_', ' ').title()
+        page = {
+            'label': label,
+            'url': request.get_full_path(),
+            'url_name': url_name,
+        }
+        recent_pages = [item for item in recent_pages if item.get('url') != page['url']]
+        recent_pages.insert(0, page)
+        recent_pages = recent_pages[:RECENT_PAGE_LIMIT]
+        request.session[RECENT_PAGE_SESSION_KEY] = recent_pages
+        request.session.modified = True
+
+    return recent_pages[:RECENT_PAGE_LIMIT]
 
 
 def _build_permission_access(rule):
@@ -526,8 +968,9 @@ def finance_navigation_state(request):
         or url_name.startswith('accountability')
     )
     is_inventory_nav_active = url_name.startswith('inventory_')
+    is_procurement_nav_active = url_name.startswith('procurement_') and url_name != 'procurement_job_requests'
     is_support_ticket_nav_active = url_name.startswith('support_ticket')
-    is_crm_nav_active = url_name.startswith('crm_')
+    is_crm_nav_active = url_name.startswith('crm_') or url_name == 'procurement_job_requests'
     is_human_resource_role = bool(
         request.user.is_authenticated
         and (
@@ -592,13 +1035,33 @@ def finance_navigation_state(request):
                 actionable_q &= ownership_filter
             technical_action_required_count = CRMTechnicalRecord.objects.filter(actionable_q).distinct().count()
 
+    counts = {
+        'important_ticket_count': important_ticket_count,
+        'technical_action_required_count': technical_action_required_count,
+        'private_chat_unread_count': private_chat_summary(request).get('private_chat_unread_count', 0),
+        'super_user_chat_unread_count': super_user_chat_access(request).get('super_user_chat_unread_count', 0),
+    }
+    erp_app_modules = _build_erp_apps(request.user, counts, current_url_name=url_name)
+    selected_erp_module_key = _selected_erp_module_key(request, erp_app_modules, url_name)
+    active_erp_module = _active_erp_module(erp_app_modules, selected_key=selected_erp_module_key)
+
     return {
         'is_crm_nav_active': is_crm_nav_active,
         'is_human_resource_role': is_human_resource_role,
         'is_finance_nav_active': is_finance_nav_active,
         'is_asset_tracker_nav_active': is_asset_tracker_nav_active,
         'is_inventory_nav_active': is_inventory_nav_active,
+        'is_procurement_nav_active': is_procurement_nav_active,
         'is_support_ticket_nav_active': is_support_ticket_nav_active,
         'important_ticket_count': important_ticket_count,
         'technical_action_required_count': technical_action_required_count,
+        'erp_app_modules': erp_app_modules,
+        'active_erp_module': active_erp_module,
+        'selected_erp_module_key': selected_erp_module_key,
+        'erp_home_app': {
+            'label': 'App Menu',
+            'icon': 'app',
+            'accent': '#198754',
+        },
+        'recent_access_pages': _track_recent_access(request),
     }

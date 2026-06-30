@@ -191,7 +191,7 @@
     </style>
 </head>
 <body class="app-body">
-    <div class="app-shell" id="appShell">
+    <div class="app-shell sidebar-collapsed" id="appShell">
         <aside class="app-sidebar sticky-top" id="sidebar">
             <div class="sidebar-header p-3 border-bottom border-success-subtle d-flex align-items-center justify-content-between">
                 <a class="sidebar-brand text-decoration-none" href="{% url 'dashboard' %}">
@@ -200,10 +200,11 @@
                     </span>
                     <span class="brand-text">Avantech Portal</span>
                 </a>
-                <button class="btn btn-sm btn-outline-success d-none d-lg-inline-flex" id="sidebarToggle" type="button" aria-label="Toggle sidebar">≡</button>
+                <button class="btn btn-sm btn-outline-success d-none d-lg-inline-flex" id="sidebarToggle" type="button" aria-label="Toggle sidebar" aria-pressed="true">≡</button>
             </div>
             <div class="sidebar-body">
                 <div class="sidebar-primary">
+                    {% include 'core/includes/erp_recent_nav.html' %}
                     <div class="px-3 pt-3 small text-muted sidebar-section-title">Users</div>
                     <nav class="nav flex-column px-2 gap-1 pb-3">
                         <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
@@ -332,6 +333,7 @@
                                         {% endif %}
                                     </span>
                                 </a>
+                                {% include 'core/includes/crm_job_requests_nav_link.html' %}
                                 <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales_warranty' %}active{% endif %}" href="{% url 'crm_aftersales_warranty' %}" style="font-size: 0.9rem;">
                                     <span class="nav-logo" aria-hidden="true">
                                         <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3.8L18.5 6.2V11.2C18.5 15.1 16 18.2 12 20.2C8 18.2 5.5 15.1 5.5 11.2V6.2L12 3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 12L11.2 14L15 9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -438,6 +440,30 @@
                                     <span class="nav-label">Summary Request</span>
                                 </a>
                                 {% endif %}
+                            </div>
+                        {% endif %}
+                        {% if request.user.is_superuser or perms.core.manage_crm_admin or perms.core.view_crm_technicals_section or perms.core.view_client %}
+                            <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_procurement_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_procurement_nav_active %}true{% else %}false{% endif %}">
+                                <span class="d-inline-flex align-items-center gap-2">
+                                    <span class="nav-logo" aria-hidden="true">
+                                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M5 6.5H19V19.5H5V6.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                            <path d="M8 4.5H16L17.5 6.5H6.5L8 4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                            <path d="M8.5 10H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <path d="M8.5 13.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <path d="M8.5 17H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        </svg>
+                                    </span>
+                                    <span class="nav-label">Procurement</span>
+                                </span>
+                                <span class="nav-group-caret" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </span>
+                            </button>
+                            <div class="nav-subgroup js-procurement-nav-subgroup">
+                                {% include 'core/includes/procurement_nav_links.html' %}
                             </div>
                         {% endif %}
                         {% if request.user.is_superuser or request.user.is_staff or is_human_resource_role or perms.core.view_assetaccountability or perms.core.add_assetaccountability or perms.core.change_assetaccountability or perms.core.delete_assetaccountability %}
@@ -930,6 +956,7 @@
         </div>
         <div class="offcanvas-body mobile-sidebar-body">
             <div class="mobile-sidebar-primary">
+                {% include 'core/includes/erp_recent_nav.html' %}
                 <nav class="nav flex-column gap-2">
                     <div class="small text-muted mt-1">Users</div>
                     <a class="nav-link app-nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
@@ -1058,6 +1085,7 @@
                                     {% endif %}
                                 </span>
                             </a>
+                            {% include 'core/includes/crm_job_requests_nav_link.html' %}
                             <a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'crm_aftersales_warranty' %}active{% endif %}" href="{% url 'crm_aftersales_warranty' %}" style="font-size: 0.9rem;">
                                 <span class="nav-logo" aria-hidden="true">
                                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3.8L18.5 6.2V11.2C18.5 15.1 16 18.2 12 20.2C8 18.2 5.5 15.1 5.5 11.2V6.2L12 3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 12L11.2 14L15 9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1164,6 +1192,30 @@
                                 <span class="nav-label">Summary Request</span>
                             </a>
                                 {% endif %}
+                        </div>
+                    {% endif %}
+                    {% if request.user.is_superuser or perms.core.manage_crm_admin or perms.core.view_crm_technicals_section or perms.core.view_client %}
+                        <button type="button" class="nav-link app-nav-link nav-group-label nav-group-trigger w-100 border-0 bg-transparent {% if is_procurement_nav_active %}active is-open{% endif %}" aria-expanded="{% if is_procurement_nav_active %}true{% else %}false{% endif %}">
+                            <span class="d-inline-flex align-items-center gap-2">
+                                <span class="nav-logo" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M5 6.5H19V19.5H5V6.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                        <path d="M8 4.5H16L17.5 6.5H6.5L8 4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                        <path d="M8.5 10H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8.5 13.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        <path d="M8.5 17H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </span>
+                                <span class="nav-label">Procurement</span>
+                            </span>
+                            <span class="nav-group-caret" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                        </button>
+                        <div class="nav-subgroup js-procurement-nav-subgroup">
+                            {% include 'core/includes/procurement_nav_links.html' %}
                         </div>
                     {% endif %}
                     {% if request.user.is_superuser or request.user.is_staff or is_human_resource_role or perms.core.view_assetaccountability or perms.core.add_assetaccountability or perms.core.change_assetaccountability or perms.core.delete_assetaccountability %}
@@ -2451,6 +2503,109 @@
                 writeOpenNavGroups();
             });
         });
+
+        (function () {
+            const recentLists = Array.from(document.querySelectorAll('[data-recent-list]'));
+            if (!recentLists.length) {
+                return;
+            }
+
+            const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;',
+            }[char]));
+
+            const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+            const emptyMarkup = `
+                <div class="recent-empty-state px-2 py-3">
+                    <div class="small fw-semibold">No recent pages yet.</div>
+                    <div class="small text-secondary">Open a system from the app menu.</div>
+                </div>
+            `;
+
+            const renderRecentList = (list, pages) => {
+                const currentUrlName = list.dataset.currentUrlName || '';
+                const nextUrl = list.dataset.nextUrl || window.location.pathname + window.location.search;
+                const removeUrl = list.dataset.removeUrl || '';
+                if (!Array.isArray(pages) || !pages.length) {
+                    list.innerHTML = emptyMarkup;
+                    return;
+                }
+
+                list.innerHTML = pages.map((page) => {
+                    const label = escapeHtml(page.label || 'Page');
+                    const url = escapeHtml(page.url || '#');
+                    const urlName = escapeHtml(page.url_name || '');
+                    const firstLetter = escapeHtml((page.label || 'P').trim().charAt(0).toUpperCase() || 'P');
+                    const isActive = currentUrlName && currentUrlName === page.url_name ? ' active' : '';
+                    return `
+                        <div class="recent-nav-row${isActive}" data-recent-url="${url}">
+                            <a class="nav-link app-nav-link recent-nav-link" href="${url}" title="${label}">
+                                <span class="recent-page-icon" aria-hidden="true">${firstLetter}</span>
+                                <span class="nav-label text-truncate">${label}</span>
+                            </a>
+                            <form method="post" action="${removeUrl}" class="recent-remove-form">
+                                <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
+                                <input type="hidden" name="url" value="${url}">
+                                <input type="hidden" name="next" value="${escapeHtml(nextUrl)}">
+                                <button type="submit" class="recent-remove-btn" aria-label="Remove ${label} from recent" title="Remove">×</button>
+                            </form>
+                        </div>
+                    `;
+                }).join('');
+            };
+
+            const refreshRecentLists = async () => {
+                const feedUrl = recentLists[0]?.dataset.feedUrl;
+                if (!feedUrl) {
+                    return;
+                }
+                try {
+                    const response = await fetch(feedUrl, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (!response.ok) {
+                        return;
+                    }
+                    const data = await response.json();
+                    recentLists.forEach((list) => renderRecentList(list, data.recent_pages || []));
+                } catch (error) {}
+            };
+
+            document.addEventListener('submit', async (event) => {
+                const form = event.target.closest('.recent-remove-form');
+                if (!form) {
+                    return;
+                }
+                event.preventDefault();
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        recentLists.forEach((list) => renderRecentList(list, data.recent_pages || []));
+                    }
+                } catch (error) {
+                    form.submit();
+                }
+            });
+
+            window.addEventListener('focus', refreshRecentLists);
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    refreshRecentLists();
+                }
+            });
+            window.setInterval(refreshRecentLists, 5000);
+        })();
 
         (function () {
             const fab = document.getElementById('kwCalculatorFab');

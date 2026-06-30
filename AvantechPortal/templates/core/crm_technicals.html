@@ -58,7 +58,7 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label small mb-1">JO# Range</label>
-                                <input type="text" name="po_number_range" value="{{ filter_po_number_range }}" class="form-control form-control-sm js-tech-filter-input" placeholder="2026-0001 - 2026-0026">
+                                <input type="text" name="po_number_range" value="{{ filter_po_number_range }}" class="form-control form-control-sm js-tech-filter-input" placeholder="JO26-00001 - JO26-00026">
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label small mb-1">Installation Date From</label>
@@ -216,6 +216,7 @@
                 <tbody>
                     {% for row in closed_won_order_rows %}
                         {% with tech=row.closed_won_order_technical_record sales_info=row.sales_saved_technical_info %}
+                        {% with jo_number=tech.job_order_number|default:row.job_order_number po_number=tech.po_number %}
                         <tr class="crm-closed-won-order-row" data-sales-record-id="{{ row.id }}">
                             <td>
                                 <div class="fw-semibold">{{ row.client.last_name }}, {{ row.client.first_name }}</div>
@@ -226,7 +227,7 @@
                             <td>{{ tech.inverter_brand_name|default:sales_info.inverter_model|default:"-" }}</td>
                             <td>{{ tech.battery_brand_name|default:sales_info.battery_model|default:"-" }}</td>
                             <td>
-                                <div>{{ tech.job_order_number|default:row.job_order_number|default:"-" }}</div>
+                                <div>{{ jo_number|default:"-" }}</div>
                                 {% if tech.job_order_approval_status == "pending" %}
                                 <span class="badge text-bg-warning">JO Pending</span>
                                 {% elif tech.job_order_approval_status == "rejected" %}
@@ -236,7 +237,7 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <div>{{ tech.po_number|default:"-" }}</div>
+                                <div>{{ po_number|default:"-" }}</div>
                                 {% if tech.purchase_order_approval_status == "pending" %}
                                 <span class="badge text-bg-warning">PO Pending</span>
                                 {% elif tech.purchase_order_approval_status == "rejected" %}
@@ -250,8 +251,12 @@
                                 <div class="d-flex flex-wrap gap-1">
                                     {% if can_manage_crm_technicals %}
                                     <button type="button" class="btn btn-sm btn-outline-success js-order-details-btn">System Info</button>
+                                    {% if not jo_number %}
                                     <button type="button" class="btn btn-sm btn-outline-dark js-create-jo-btn">Create JO</button>
+                                    {% endif %}
+                                    {% if not po_number %}
                                     <button type="button" class="btn btn-sm btn-outline-primary js-create-po-btn">Create PO</button>
+                                    {% endif %}
                                     {% endif %}
                                     {% if tech.job_order_approval_status or tech.purchase_order_approval_status %}
                                     <button type="button" class="btn btn-sm btn-outline-warning js-order-approvals-btn">Approvals</button>
@@ -262,6 +267,7 @@
                                 {% endif %}
                             </td>
                         </tr>
+                        {% endwith %}
                         {% endwith %}
                     {% empty %}
                         <tr><td colspan="8" class="text-center text-secondary py-3">No Closed Won orders pending JO# or PO#.</td></tr>
@@ -328,7 +334,7 @@
                             </div>
                             <div class="small text-secondary">Reference No.</div>
                             <div class="fw-semibold mb-2" id="closedWonApprovalJoNumber">-</div>
-                            <div class="small text-secondary">Job Descriptions</div>
+                            <div class="small text-secondary">Scope of Work</div>
                             <ul class="small mb-3 ps-3" id="closedWonApprovalJoItems"></ul>
                             <form method="post" class="closed-won-approval-form" data-order-type="jo">
                                 {% csrf_token %}
@@ -625,18 +631,42 @@
                             <div><strong>Reference No.:</strong> <input class="po-reference-input" name="job_order_number" id="closedWonJoNumber" readonly required></div>
                         </div>
                         <div class="po-two-col">
-                            <div class="po-box">
+                            <div class="po-box jo-client-info-box">
                                 <div class="po-box-head">CLIENT INFO</div>
-                                <div class="po-row"><label>Client Name:</label><input name="jo_client_name" id="closedWonJoClientName"></div>
-                                <div class="po-row"><label>Contact No.:</label><input name="jo_contact_number" id="closedWonJoContactNumber"></div>
-                                <div class="po-row"><label>E-mail Address:</label><input name="jo_email_address" id="closedWonJoEmailAddress"></div>
+                                <div class="po-row"><label>Client Name:</label><textarea name="jo_client_name" id="closedWonJoClientName" rows="1"></textarea></div>
+                                <div class="po-row"><label>Contact No.:</label><textarea name="jo_contact_number" id="closedWonJoContactNumber" rows="1"></textarea></div>
+                                <div class="po-row"><label>E-mail Address:</label><textarea name="jo_email_address" id="closedWonJoEmailAddress" rows="1"></textarea></div>
                                 <div class="po-row po-tall"><label>Full Address:</label><textarea name="jo_full_address" id="closedWonJoFullAddress"></textarea></div>
                             </div>
-                            <div class="po-box">
+                            <div class="po-box jo-info-box">
                                 <div class="po-box-head">JOB ORDER INFO</div>
-                                <div class="po-row"><label>Project Supervisor:</label><input name="jo_project_supervisor" id="closedWonJoProjectSupervisor"></div>
-                                <div class="po-row po-tall"><label>Personnel:</label><textarea name="jo_personnel" id="closedWonJoPersonnel"></textarea></div>
-                                <div class="po-row po-tall"><label>Remarks:</label><textarea name="remarks" id="closedWonJoRemarks"></textarea></div>
+                                <div class="po-row"><label>Project Supervisor:</label><textarea name="jo_project_supervisor" id="closedWonJoProjectSupervisor" rows="1"></textarea></div>
+                                <div class="jo-personnel-field">
+                                    <label>Personnel:</label>
+                                    <div class="jo-personnel-content">
+                                        <table class="po-items-table jo-personnel-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>
+                                                        <div class="jo-personnel-head">
+                                                            <span>NO.</span>
+                                                        </div>
+                                                    </th>
+                                                    <th>
+                                                        <div class="jo-personnel-head jo-personnel-name-head">
+                                                            <span class="jo-personnel-name-title">NAME</span>
+                                                            <span class="jo-personnel-actions">
+                                                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 jo-personnel-symbol-btn" id="closedWonJoRemovePersonnelBtn" aria-label="Remove personnel row">-</button>
+                                                                <button type="button" class="btn btn-sm btn-outline-success py-0 jo-personnel-symbol-btn" id="closedWonJoAddPersonnelBtn" aria-label="Add personnel row">+</button>
+                                                            </span>
+                                                        </div>
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="closedWonJoPersonnelBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="d-flex justify-content-end gap-2 mt-2">
@@ -647,12 +677,20 @@
                             <thead>
                                 <tr>
                                     <th>NO.</th>
-                                    <th>JOB DESCRIPTION</th>
+                                    <th>SCOPE OF WORK</th>
                                     <th>OTHER INFO</th>
                                 </tr>
                             </thead>
                             <tbody id="closedWonJoItemsBody">
                                 <tr id="closedWonJoNothingFollowsRow"><td colspan="3" class="po-nothing">*NOTHING FOLLOWS*</td></tr>
+                                <tr class="jo-remarks-row">
+                                    <td colspan="3">
+                                        <div class="jo-remarks-field">
+                                            <label for="closedWonJoRemarks">Remarks:</label>
+                                            <textarea name="remarks" id="closedWonJoRemarks" rows="2"></textarea>
+                                        </div>
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -684,21 +722,21 @@
                             <div><strong>Reference No.:</strong> <input class="po-reference-input" name="po_number" id="closedWonPoNumber" readonly required></div>
                         </div>
                         <div class="po-two-col">
-                            <div class="po-box">
+                            <div class="po-box po-contact-box">
                                 <div class="po-box-head">BILL TO</div>
-                                <div class="po-row"><label>Contact Person:</label><input name="po_bill_contact_person" id="closedWonPoBillContactPerson"></div>
-                                <div class="po-row"><label>Company Name:</label><input name="po_bill_company_name" id="closedWonPoBillCompanyName"></div>
+                                <div class="po-row"><label>Contact Person:</label><textarea name="po_bill_contact_person" id="closedWonPoBillContactPerson" rows="1"></textarea></div>
+                                <div class="po-row"><label>Company Name:</label><textarea name="po_bill_company_name" id="closedWonPoBillCompanyName" rows="1"></textarea></div>
                                 <div class="po-row po-tall"><label>Address:</label><textarea name="po_bill_address" id="closedWonPoBillAddress"></textarea></div>
-                                <div class="po-row"><label>Contact No.:</label><input name="po_bill_contact_no" id="closedWonPoBillContactNo"></div>
-                                <div class="po-row"><label>E-mail Address:</label><input name="po_bill_email_address" id="closedWonPoBillEmailAddress"></div>
+                                <div class="po-row"><label>Contact No.:</label><textarea name="po_bill_contact_no" id="closedWonPoBillContactNo" rows="1"></textarea></div>
+                                <div class="po-row"><label>E-mail Address:</label><textarea name="po_bill_email_address" id="closedWonPoBillEmailAddress" rows="1"></textarea></div>
                             </div>
-                            <div class="po-box">
+                            <div class="po-box po-contact-box">
                                 <div class="po-box-head">DELIVER TO</div>
-                                <div class="po-row"><label>Contact Person:</label><input name="po_deliver_contact_person" id="closedWonPoDeliverContactPerson"></div>
-                                <div class="po-row"><label>Company Name:</label><input name="po_deliver_company_name" id="closedWonPoDeliverCompanyName"></div>
+                                <div class="po-row"><label>Contact Person:</label><textarea name="po_deliver_contact_person" id="closedWonPoDeliverContactPerson" rows="1"></textarea></div>
+                                <div class="po-row"><label>Company Name:</label><textarea name="po_deliver_company_name" id="closedWonPoDeliverCompanyName" rows="1"></textarea></div>
                                 <div class="po-row po-tall"><label>Address:</label><textarea name="po_deliver_address" id="closedWonPoDeliverAddress"></textarea></div>
-                                <div class="po-row"><label>Contact No.:</label><input name="po_deliver_contact_no" id="closedWonPoDeliverContactNo"></div>
-                                <div class="po-row"><label>E-mail Address:</label><input name="po_deliver_email_address" id="closedWonPoDeliverEmailAddress"></div>
+                                <div class="po-row"><label>Contact No.:</label><textarea name="po_deliver_contact_no" id="closedWonPoDeliverContactNo" rows="1"></textarea></div>
+                                <div class="po-row"><label>E-mail Address:</label><textarea name="po_deliver_email_address" id="closedWonPoDeliverEmailAddress" rows="1"></textarea></div>
                             </div>
                         </div>
                         <div class="po-two-col mt-2">
@@ -752,9 +790,9 @@
                                 <div class="po-section-head">SPECIAL INSTRUCTIONS:</div>
                                 <textarea class="po-large-text" name="po_special_instructions" id="closedWonPoSpecialInstructions"></textarea>
                             </div>
-                            <div class="po-box">
+                            <div class="po-box po-authorized-box">
                                 <div class="po-section-head">AUTHORIZED BY:</div>
-                                <input class="po-authorized-input" name="po_authorized_by" id="closedWonPoAuthorizedBy">
+                                <textarea class="po-authorized-input" name="po_authorized_by" id="closedWonPoAuthorizedBy" rows="1"></textarea>
                                 <div class="po-row"><label>Date:</label><input type="date" name="po_authorized_date" id="closedWonPoAuthorizedDate"></div>
                             </div>
                         </div>
@@ -1043,8 +1081,19 @@
     .tech-inline-empty { font-size: 11px; color: #8a9298; padding: 6px; }
     .tech-inline-day-empty { position: absolute; top: 8px; left: 8px; right: 8px; }
     #closedWonOrderDetailsModal .modal-dialog { height: calc(100vh - 3.5rem); }
-    #closedWonOrderDetailsModal .modal-content { max-height: 100%; }
+    #closedWonOrderDetailsModal .modal-content,
+    #closedWonOrderDetailsModal form {
+        max-height: 100%;
+        min-height: 0;
+    }
+    #closedWonOrderDetailsModal form {
+        display: flex;
+        flex-direction: column;
+    }
     #closedWonOrderDetailsModal .modal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: calc(100vh - 12rem);
         overflow-y: auto;
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
@@ -1062,14 +1111,44 @@
     .po-two-col .po-box + .po-box { border-left: 1px solid #111; }
     .po-box-head { background: #c6efce; border-bottom: 1px solid #111; text-align: center; font-weight: 700; padding: 2px; }
     .po-section-head { background: #d9d9d9; border-bottom: 1px solid #111; font-weight: 700; padding: 2px 4px; }
-    .po-row { display: grid; grid-template-columns: 135px 1fr; min-height: 32px; border-bottom: 1px solid #111; }
+    .po-row { display: grid; grid-template-columns: 135px 1fr; min-height: 32px; border-bottom: 1px solid #111; position: relative; }
+    .po-row::before { content: ""; position: absolute; top: 0; bottom: 0; left: 135px; border-left: 1px solid #111; pointer-events: none; }
     .po-row:last-child { border-bottom: 0; }
-    .po-row label { margin: 0; padding: 6px 4px; font-weight: 700; border-right: 1px solid #111; }
+    .po-row label { margin: 0; padding: 6px 4px; font-weight: 700; }
     .po-row input,
     .po-row textarea { min-height: 31px; }
+    #closedWonCreateJoModal textarea,
+    #closedWonCreatePoModal textarea {
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        line-height: 1.35;
+    }
     .po-row.po-tall { min-height: 108px; }
     .po-merged-row { min-height: 64px; display: flex; align-items: start; border-bottom: 0; }
     .po-merged-row select { min-height: 44px; font-weight: 600; padding: 8px 4px; }
+    .jo-client-info-box {
+        display: flex;
+        flex-direction: column;
+    }
+    .jo-client-info-box .po-row.po-tall:last-child {
+        flex: 1 1 auto;
+    }
+    .po-contact-box {
+        display: flex;
+        flex-direction: column;
+    }
+    .po-contact-box .po-row:last-child {
+        flex: 1 1 auto;
+    }
+    .po-authorized-box {
+        display: flex;
+        flex-direction: column;
+    }
+    .po-authorized-box .po-row:last-child {
+        flex: 1 1 auto;
+    }
     .po-payment-options { min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 8px 18px; font-weight: 700; }
     .po-payment-options label { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
     .po-payment-options input { width: 16px; height: 16px; border: 1px solid #111; }
@@ -1094,6 +1173,89 @@
     .po-items-table th:nth-child(5), .po-items-table td:nth-child(5),
     .po-items-table th:nth-child(6), .po-items-table td:nth-child(6) { width: 130px; }
     .po-nothing { text-align: center; font-style: italic; font-weight: 700; padding: 3px !important; }
+    .jo-personnel-field {
+        display: grid;
+        grid-template-columns: 135px 1fr;
+        min-height: 108px;
+        align-items: stretch;
+        flex: 1 1 auto;
+    }
+    .jo-info-box {
+        display: flex;
+        flex-direction: column;
+    }
+    .jo-personnel-field > label {
+        margin: 0;
+        padding: 6px 4px;
+        font-weight: 700;
+    }
+    .jo-personnel-content {
+        min-width: 0;
+        min-height: 108px;
+        border-left: 1px solid #111;
+        border-bottom: 1px solid #111;
+    }
+    .jo-personnel-table { border: 0; }
+    .jo-personnel-table th:nth-child(1),
+    .jo-personnel-table td:nth-child(1) { width: 44px; }
+    .jo-personnel-table th:nth-child(2),
+    .jo-personnel-table td:nth-child(2) { width: auto; }
+    .jo-personnel-table th,
+    .jo-personnel-table td { border-left: 0; border-right: 0; }
+    .jo-personnel-table th:nth-child(1),
+    .jo-personnel-table td:nth-child(1) { border-right: 1px solid #111; }
+    .jo-personnel-table input { text-align: left; }
+    .jo-personnel-table [name="jo_personnel_no"] { text-align: center; }
+    .jo-personnel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+    .jo-personnel-name-head {
+        position: relative;
+        justify-content: center;
+        min-height: 22px;
+    }
+    .jo-personnel-name-title {
+        display: block;
+        text-align: center;
+    }
+    .jo-personnel-actions { display: inline-flex; gap: 4px; }
+    .jo-personnel-name-head .jo-personnel-actions {
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+    .jo-personnel-symbol-btn {
+        width: 24px;
+        min-width: 24px;
+        height: 22px;
+        line-height: 1;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        font-weight: 700;
+    }
+    .jo-remarks-field {
+        display: grid;
+        grid-template-columns: 135px 1fr;
+        min-height: 64px;
+    }
+    .jo-remarks-field label {
+        margin: 0;
+        padding: 6px 4px;
+        font-weight: 700;
+        border-right: 1px solid #111;
+    }
+    .jo-remarks-field textarea {
+        min-height: 64px;
+        text-align: left;
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
     .po-less-discount-row input { color: #e00000; }
     .po-total-row td { background: #c6efce; }
     .po-large-text { min-height: 68px !important; text-align: center; padding-top: 28px !important; }
@@ -1120,6 +1282,7 @@
         .po-sheet-top, .po-two-col { grid-template-columns: 1fr; }
         .po-two-col .po-box + .po-box { border-left: 0; border-top: 1px solid #111; }
         .po-row { grid-template-columns: 120px 1fr; }
+        .po-row::before { left: 120px; }
         .po-payment-options { flex-wrap: wrap; align-items: center; gap: 12px; }
     }
 </style>
@@ -1385,16 +1548,80 @@ document.addEventListener('DOMContentLoaded', function () {
         var details = item.details || {};
         setOrderField('closedWonJoSalesRecordId', item.sales_record_id);
         setOrderField('closedWonJoDate', joData.job_date || todayIso);
-        setOrderField('closedWonJoNumber', joData.reference_no || item.job_order_number || item.jo_number_preview || '');
+        setOrderField('closedWonJoNumber', joData.reference_no || item.jo_number_preview || item.job_order_number || '');
         setOrderField('closedWonJoClientName', joData.client_name || details.client_name || item.client_name || '');
         setOrderField('closedWonJoContactNumber', joData.contact_number || details.contact_number || item.contact_number || '');
         setOrderField('closedWonJoEmailAddress', joData.email_address || details.email_address || item.email || '');
         setOrderField('closedWonJoFullAddress', joData.full_address || details.full_address || item.address || '');
         setOrderField('closedWonJoProjectSupervisor', joData.project_supervisor || details.project_supervisor || '');
-        setOrderField('closedWonJoPersonnel', joData.personnel || details.personnel_name_position || '');
         setOrderField('closedWonJoRemarks', joData.remarks || '');
+        renderJoPersonnelRows(joData.personnel_rows || joData.personnel || details.personnel_name_position || []);
         renderJoItemRows(joData.jobs || []);
         closedWonCreateJoModal.show();
+        setTimeout(resizeClosedWonJoTextareas, 0);
+    }
+    var JO_PERSONNEL_MAX_ROWS = 6;
+    function normalizeJoPersonnelRows(value) {
+        if (Array.isArray(value)) {
+            return value.map(function (entry) {
+                if (entry && typeof entry === 'object') return entry.name_position || entry.personnel || entry.name || '';
+                return entry || '';
+            });
+        }
+        return String(value || '').split(/\r?\n/);
+    }
+    function updateJoPersonnelControls() {
+        var rows = document.querySelectorAll('#closedWonJoPersonnelBody .jo-personnel-row');
+        rows.forEach(function (row, index) {
+            var noInput = row.querySelector('[name="jo_personnel_no"]');
+            if (noInput) noInput.value = String(index + 1);
+        });
+        var addBtn = document.getElementById('closedWonJoAddPersonnelBtn');
+        if (addBtn) addBtn.disabled = rows.length >= JO_PERSONNEL_MAX_ROWS;
+    }
+    function createJoPersonnelRow(value) {
+        var row = document.createElement('tr');
+        row.className = 'jo-personnel-row';
+        row.innerHTML = ''
+            + '<td><input name="jo_personnel_no" readonly></td>'
+            + '<td><textarea name="jo_personnel_line" rows="1"></textarea></td>';
+        var input = row.querySelector('[name="jo_personnel_line"]');
+        if (input) {
+            input.value = value || '';
+            resizePoTextarea(input);
+        }
+        return row;
+    }
+    function renderJoPersonnelRows(value) {
+        var body = document.getElementById('closedWonJoPersonnelBody');
+        if (!body) return;
+        body.querySelectorAll('.jo-personnel-row').forEach(function (row) { row.remove(); });
+        var rows = normalizeJoPersonnelRows(value).map(function (entry) {
+            return String(entry || '').trim();
+        }).filter(Boolean);
+        rows = rows.slice(0, JO_PERSONNEL_MAX_ROWS);
+        if (!rows.length) rows = ['', '', ''];
+        rows.forEach(function (entry) {
+            body.appendChild(createJoPersonnelRow(entry));
+        });
+        updateJoPersonnelControls();
+    }
+    function addJoPersonnelRow() {
+        var body = document.getElementById('closedWonJoPersonnelBody');
+        if (!body) return;
+        if (body.querySelectorAll('.jo-personnel-row').length >= JO_PERSONNEL_MAX_ROWS) return;
+        body.appendChild(createJoPersonnelRow(''));
+        updateJoPersonnelControls();
+    }
+    function removeJoPersonnelRow() {
+        var rows = document.querySelectorAll('#closedWonJoPersonnelBody .jo-personnel-row');
+        if (!rows.length) return;
+        rows[rows.length - 1].remove();
+        if (!document.querySelector('#closedWonJoPersonnelBody .jo-personnel-row')) {
+            addJoPersonnelRow();
+            return;
+        }
+        updateJoPersonnelControls();
     }
     function renumberJoRows() {
         document.querySelectorAll('#closedWonJoItemsBody .jo-item-row').forEach(function (row, index) {
@@ -1469,6 +1696,18 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!textarea) return;
         textarea.style.height = 'auto';
         textarea.style.height = Math.max(26, textarea.scrollHeight) + 'px';
+    }
+    function resizeClosedWonJoTextareas() {
+        if (!closedWonCreateJoModalEl) return;
+        closedWonCreateJoModalEl.querySelectorAll('textarea').forEach(function (textarea) {
+            resizePoTextarea(textarea);
+        });
+    }
+    function resizeClosedWonPoTextareas() {
+        if (!closedWonCreatePoModalEl) return;
+        closedWonCreatePoModalEl.querySelectorAll('textarea').forEach(function (textarea) {
+            resizePoTextarea(textarea);
+        });
     }
     function renumberPoRows() {
         document.querySelectorAll('#closedWonPoItemsBody .po-item-row').forEach(function (row, index) {
@@ -1598,6 +1837,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         renderPoItemRows(poData.items || []);
         closedWonCreatePoModal.show();
+        setTimeout(resizeClosedWonPoTextareas, 0);
     }
     function setApprovalStatusBadge(id, status) {
         var el = document.getElementById(id);
@@ -1658,7 +1898,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (joNumberEl) joNumberEl.textContent = joData.reference_no || item.job_order_number || '-';
         var poNumberEl = document.getElementById('closedWonApprovalPoNumber');
         if (poNumberEl) poNumberEl.textContent = poData.reference_no || item.po_number || '-';
-        renderApprovalList('closedWonApprovalJoItems', joData.jobs || [], 'job_description', 'No job descriptions submitted.');
+        renderApprovalList('closedWonApprovalJoItems', joData.jobs || [], 'job_description', 'No scope of work submitted.');
         renderApprovalList('closedWonApprovalPoItems', poData.items || [], 'description', 'No PO items submitted.');
         updateApprovalFormState('jo', item.job_order_approval_status);
         updateApprovalFormState('po', item.purchase_order_approval_status);
@@ -2424,6 +2664,26 @@ document.addEventListener('DOMContentLoaded', function () {
     if (addJoItemBtn) addJoItemBtn.addEventListener('click', addJoItemRow);
     var removeJoItemBtn = document.getElementById('closedWonJoRemoveItemBtn');
     if (removeJoItemBtn) removeJoItemBtn.addEventListener('click', removeJoItemRow);
+    var addJoPersonnelBtn = document.getElementById('closedWonJoAddPersonnelBtn');
+    if (addJoPersonnelBtn) addJoPersonnelBtn.addEventListener('click', addJoPersonnelRow);
+    var removeJoPersonnelBtn = document.getElementById('closedWonJoRemovePersonnelBtn');
+    if (removeJoPersonnelBtn) removeJoPersonnelBtn.addEventListener('click', removeJoPersonnelRow);
+    if (closedWonCreateJoModalEl) {
+        closedWonCreateJoModalEl.addEventListener('input', function (event) {
+            if (event.target && event.target.matches('textarea')) {
+                resizePoTextarea(event.target);
+            }
+        });
+        closedWonCreateJoModalEl.addEventListener('shown.bs.modal', resizeClosedWonJoTextareas);
+    }
+    if (closedWonCreatePoModalEl) {
+        closedWonCreatePoModalEl.addEventListener('input', function (event) {
+            if (event.target && event.target.matches('textarea')) {
+                resizePoTextarea(event.target);
+            }
+        });
+        closedWonCreatePoModalEl.addEventListener('shown.bs.modal', resizeClosedWonPoTextareas);
+    }
     var poLessDiscountInput = document.getElementById('closedWonPoLessDiscount');
     if (poLessDiscountInput) poLessDiscountInput.addEventListener('input', computePoTotals);
     ['scheduleInstallationDate', 'scheduleInstallationTime', 'scheduleTeamAssigned', 'scheduleRemarks'].forEach(function (id) {

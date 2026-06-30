@@ -1,0 +1,29 @@
+<span class="erp-app-icon erp-app-icon-{{ app.icon|default:'app' }}" style="--app-accent: {{ app.accent|default:'#198754' }};" aria-hidden="true">
+    {% if app.icon == 'calendar' %}
+        <svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="5.5" width="15" height="14" rx="2"/><path d="M8 4V7M16 4V7M5 10H19M8 14H11M13 14H16"/></svg>
+    {% elif app.icon == 'chat' %}
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 6.5C5 5.7 5.7 5 6.5 5H17.5C18.3 5 19 5.7 19 6.5V14C19 14.8 18.3 15.5 17.5 15.5H10L6.5 19V15.5C5.7 15.5 5 14.8 5 14V6.5Z"/><path d="M8.5 9H15.5M8.5 12H13"/></svg>
+    {% elif app.icon == 'people' or app.icon == 'users' %}
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="9" r="3"/><circle cx="16.5" cy="10" r="2.4"/><path d="M4.5 18.5C5.3 15.9 7 14.5 9 14.5C11 14.5 12.7 15.9 13.5 18.5"/><path d="M14 18.5C14.5 16.9 15.6 16 17 16C18.2 16 19.3 16.9 19.8 18.5"/></svg>
+    {% elif app.icon == 'crm' %}
+        <svg viewBox="0 0 24 24" fill="none"><path d="M8 7.5L10 9.5C10.8 10.3 12 10.3 12.8 9.5L14.2 8C15.3 6.9 17 6.9 18.1 8L20 9.9L17.3 12.6C16.5 13.4 15.4 13.4 14.6 12.6L13.8 11.8"/><path d="M4 9.8L5.8 8C6.9 6.9 8.6 6.9 9.7 8L10.5 8.8L8.2 11.1C7.5 11.8 7.5 12.9 8.2 13.6L10.3 15.7C11.1 16.5 12.2 16.5 13 15.7L14 14.7"/></svg>
+    {% elif app.icon == 'money' %}
+        <svg viewBox="0 0 24 24" fill="none"><rect x="3.8" y="6" width="16.4" height="12" rx="2.2"/><circle cx="12" cy="12" r="2.6"/><path d="M7.5 10V14M16.5 10V14"/></svg>
+    {% elif app.icon == 'box' or app.icon == 'warehouse' %}
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 7H19V19H5V7Z"/><path d="M8 4.5H16L19 7H5L8 4.5Z"/><path d="M8.5 11H15.5M8.5 14.5H15.5M8.5 18H13"/></svg>
+    {% elif app.icon == 'form' %}
+        <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8 8H16M8 12H16M8 16H13"/></svg>
+    {% elif app.icon == 'calculator' %}
+        <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8 8H16M8 12H10M12 12H14M16 12H16.1M8 16H10M12 16H14M16 16H16.1"/></svg>
+    {% elif app.icon == 'asset' %}
+        <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M7.5 8.5H16.5M7.5 12H13.5M7.5 15.5H11.5"/></svg>
+    {% elif app.icon == 'folder' %}
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3.5 7.5H10L12 9.5H20.5V18.5H3.5V7.5Z"/><path d="M3.5 11.5H20.5"/></svg>
+    {% elif app.icon == 'support' %}
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 6.5C5 5.7 5.7 5 6.5 5H17.5C18.3 5 19 5.7 19 6.5V14C19 14.8 18.3 15.5 17.5 15.5H10L6.5 19V15.5C5.7 15.5 5 14.8 5 14V6.5Z"/><path d="M12 8.5V12M12 15H12.1"/></svg>
+    {% elif app.icon == 'code' %}
+        <svg viewBox="0 0 24 24" fill="none"><path d="M9 8L5 12L9 16M15 8L19 12L15 16M13 5L11 19"/></svg>
+    {% else %}
+        <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></svg>
+    {% endif %}
+</span>

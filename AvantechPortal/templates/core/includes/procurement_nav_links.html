@@ -1,0 +1,24 @@
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_dashboard' %}active{% endif %}" href="{% url 'procurement_dashboard' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">D</span>
+    <span class="nav-label">Dashboard</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_store' %}active{% endif %}" href="{% url 'procurement_store' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">ST</span>
+    <span class="nav-label">Manage Store</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_purchase_orders' or request.resolver_match.url_name == 'procurement_purchase_requests' or request.resolver_match.url_name == 'procurement_invoice_payment_coordination' %}active{% endif %}" href="{% url 'procurement_purchase_orders' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">PO</span>
+    <span class="nav-label">Manage Purchase</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_suppliers' or request.resolver_match.url_name == 'procurement_supplier_management' or request.resolver_match.url_name == 'procurement_canvassing_quotations' %}active{% endif %}" href="{% url 'procurement_suppliers' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">S</span>
+    <span class="nav-label">Manage Suppliers</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_products' %}active{% endif %}" href="{% url 'procurement_products' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">I</span>
+    <span class="nav-label">Manage Inventory</span>
+</a>
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_notifications' %}active{% endif %}" href="{% url 'procurement_notifications' %}" style="font-size: 0.9rem;">
+    <span class="nav-logo" aria-hidden="true">SG</span>
+    <span class="nav-label">Suggestions</span>
+</a>
