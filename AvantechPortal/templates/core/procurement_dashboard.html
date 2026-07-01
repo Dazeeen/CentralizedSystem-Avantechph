@@ -10,29 +10,27 @@
     </div>
 
     <div class="procurement-order-tabs" aria-label="Procurement dashboard views">
-        <a href="{% url 'procurement_purchase_requests' %}">Purchase Request ({{ purchase_request_count }})</a>
-        <a class="active" href="{% url 'procurement_purchase_orders' %}">Purchase Order</a>
+        <a class="active" href="{% url 'procurement_purchase_orders' %}">Purchase Order ({{ purchase_request_count }})</a>
         <a href="{% url 'procurement_po_receipts' %}">Receive ({{ receive_count }})</a>
-        <a href="{% url 'procurement_invoice_payment_coordination' %}">Pay Request</a>
     </div>
 
     <section class="procurement-order-stats" aria-label="Purchase order summary">
-        <a class="procurement-order-stat active" href="{% url 'procurement_purchase_orders' %}?status=approved">
+        <a class="procurement-order-stat active" href="{% url 'procurement_purchase_orders' %}?status=approved" data-dashboard-filter="open" aria-pressed="true">
             <span>Open</span>
             <small>Orders</small>
             <strong>{{ open_orders }}</strong>
         </a>
-        <a class="procurement-order-stat" href="{% url 'procurement_purchase_orders' %}?status=pending">
+        <a class="procurement-order-stat" href="{% url 'procurement_purchase_orders' %}?status=pending" data-dashboard-filter="pending" aria-pressed="false">
             <span>Pending</span>
             <small>Orders</small>
             <strong>{{ pending_orders }}</strong>
         </a>
-        <a class="procurement-order-stat" href="{% url 'procurement_notifications' %}">
+        <a class="procurement-order-stat" href="{% url 'procurement_notifications' %}" data-dashboard-filter="not-sent" aria-pressed="false">
             <span>Not Send</span>
             <small>Orders</small>
             <strong>{{ not_sent_orders }}</strong>
         </a>
-        <a class="procurement-order-stat" href="{% url 'procurement_purchase_orders' %}">
+        <a class="procurement-order-stat" href="{% url 'procurement_purchase_orders' %}" data-dashboard-filter="all" aria-pressed="false">
             <span>Performing</span>
             <small>Orders</small>
             <strong>{{ performing_orders }}</strong>
@@ -63,7 +61,7 @@
                 </thead>
                 <tbody>
                     {% for row in purchase_order_rows %}
-                    <tr>
+                    <tr data-dashboard-row data-dashboard-status="{{ row.dashboard_filter }}">
                         <td>{{ row.reference_no }}</td>
                         <td>{{ row.status|title }}</td>
                         <td><span class="procurement-status-sent">{{ row.sending_status }}</span></td>
@@ -79,10 +77,15 @@
                         </td>
                     </tr>
                     {% empty %}
-                    <tr>
+                    <tr data-dashboard-empty-row>
                         <td colspan="11" class="text-center text-secondary py-4">No purchase orders yet.</td>
                     </tr>
                     {% endfor %}
+                    {% if purchase_order_rows %}
+                    <tr data-dashboard-empty-row hidden>
+                        <td colspan="11" class="text-center text-secondary py-4">No orders for this status.</td>
+                    </tr>
+                    {% endif %}
                 </tbody>
             </table>
         </div>
@@ -112,4 +115,36 @@
         </div>
     </section>
 </div>
+<script>
+(function () {
+    const cards = Array.from(document.querySelectorAll('.procurement-order-stat[data-dashboard-filter]'));
+    const rows = Array.from(document.querySelectorAll('[data-dashboard-row]'));
+    const emptyRow = document.querySelector('[data-dashboard-empty-row]');
+    if (!cards.length || !rows.length) return;
+
+    function applyFilter(filterValue) {
+        let visibleCount = 0;
+        rows.forEach((row) => {
+            const shouldShow = filterValue === 'all' || row.dataset.dashboardStatus === filterValue;
+            row.hidden = !shouldShow;
+            if (shouldShow) visibleCount += 1;
+        });
+        cards.forEach((card) => {
+            const isActive = card.dataset.dashboardFilter === filterValue;
+            card.classList.toggle('active', isActive);
+            card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+        if (emptyRow) emptyRow.hidden = visibleCount > 0;
+    }
+
+    cards.forEach((card) => {
+        card.addEventListener('click', (event) => {
+            event.preventDefault();
+            applyFilter(card.dataset.dashboardFilter || 'all');
+        });
+    });
+
+    applyFilter(document.querySelector('.procurement-order-stat.active')?.dataset.dashboardFilter || 'all');
+})();
+</script>
 {% endblock %}

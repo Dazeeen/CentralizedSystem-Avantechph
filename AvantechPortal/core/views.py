@@ -100,6 +100,7 @@ from .forms import (
 	LiquidationTemplateForm,
 	PatchNoteCommentForm,
 	PatchNoteForm,
+	ProcurementProductForm,
 	LockoutResetForm,
 	OTPVerificationForm,
 	RoleForm,
@@ -148,6 +149,7 @@ from .models import (
 	CRMTechnicalActionLog,
 	CRMTechnicalTeam,
 	CRMTechnicalNotificationSetting,
+	ProcurementProduct,
 	CRMWarrantyRecord,
 	CRMWarrantyDeletionRequest,
 	CRMClientDeletionRequest,
@@ -6326,6 +6328,28 @@ def _procurement_order_requests_context(request, order_type):
 			| Q(sales_record__client__contact_number__icontains=query)
 		)
 
+	def _currency_display(value):
+		value_text = str(value or '').strip()
+		if not value_text:
+			return '$0.00'
+		return value_text if value_text.startswith('$') else f'${value_text}'
+
+	def _date_input_value(value):
+		if not value:
+			return ''
+		if hasattr(value, 'isoformat'):
+			return value.isoformat()
+		value_text = str(value or '').strip()
+		parsed_date = parse_date(value_text)
+		if parsed_date:
+			return parsed_date.isoformat()
+		for date_format in ('%d %b %Y', '%d %B %Y', '%b %d, %Y', '%B %d, %Y'):
+			try:
+				return datetime.strptime(value_text, date_format).date().isoformat()
+			except ValueError:
+				continue
+		return ''
+
 	def _row_from_record(record):
 		order_data = getattr(record, data_field) if isinstance(getattr(record, data_field), dict) else {}
 		sales_record = record.sales_record
@@ -6358,9 +6382,12 @@ def _procurement_order_requests_context(request, order_type):
 			'status': status_value,
 			'client_name': order_data.get('client_name') or client_name,
 			'contact_number': order_data.get('contact_number') or (getattr(client, 'contact_number', '') if client else ''),
+			'email_address': order_data.get('email_address') or (getattr(client, 'email', '') if client else ''),
+			'address': order_data.get('full_address') or order_data.get('address') or (getattr(client, 'home_address', '') if client else ''),
 			'request_date': display_date,
 			'submitted_date': submitted_date,
 			'total_amount': display_total,
+			'total_display': _currency_display(display_total),
 			'line_items_count': line_items_count,
 			'department': order_data.get('department') or 'Sale',
 			'supplier': order_data.get('supplier_name') or order_data.get('supplier') or order_data.get('vendor') or 'For canvassing',
@@ -6385,6 +6412,16 @@ def _procurement_order_requests_context(request, order_type):
 		if selected_record:
 			selected_row = _row_from_record(selected_record)
 			order_data = getattr(selected_record, data_field) if isinstance(getattr(selected_record, data_field), dict) else {}
+			bill_to = order_data.get('bill_to') if isinstance(order_data.get('bill_to'), dict) else {}
+			deliver_to = order_data.get('deliver_to') if isinstance(order_data.get('deliver_to'), dict) else {}
+			payment_modes = order_data.get('payment_modes') if isinstance(order_data.get('payment_modes'), list) else []
+			po_items = order_data.get('items') if isinstance(order_data.get('items'), list) else []
+			visible_po_items = [
+				item for item in po_items
+				if isinstance(item, dict) and any(str(item.get(key, '')).strip() for key in ('description', 'qty', 'um', 'unit_price', 'amount'))
+			]
+			if not visible_po_items:
+				visible_po_items = [{'no': str(index + 1), 'description': '', 'qty': '', 'um': '', 'unit_price': '', 'amount': ''} for index in range(5)]
 			updated_date = timezone.localtime(selected_record.updated_at).date() if getattr(selected_record, 'updated_at', None) else timezone.localdate()
 			total_value = selected_row.get('total_amount') or order_data.get('total') or order_data.get('grand_total') or '1,579.00'
 			new_total_value = order_data.get('new_total') or order_data.get('revised_total') or '1,900.00'
@@ -6409,6 +6446,48 @@ def _procurement_order_requests_context(request, order_type):
 				'total_display': str(total_value) if str(total_value).strip().startswith('$') else f'$ {total_value}',
 				'new_total_display': str(new_total_value) if str(new_total_value).strip().startswith('$') else f'$ {new_total_value}',
 				'location': order_data.get('location') or order_data.get('delivery_address') or order_data.get('site_address') or order_data.get('address') or '2464 Royal Ln. Mesa, New Jersey 45463',
+				'po_form': {
+					'purchase_date': order_data.get('purchase_date') or updated_date.isoformat(),
+					'reference_no': order_data.get('reference_no') or selected_row.get('reference_no') or selected_record.po_number or _procurement_format_purchase_order_number(timezone.localdate().year, selected_record.id),
+					'bill_to': {
+						'contact_person': bill_to.get('contact_person') or selected_row.get('client_name') or '',
+						'company_name': bill_to.get('company_name') or '',
+						'address': bill_to.get('address') or selected_row.get('address') or '',
+						'contact_no': bill_to.get('contact_no') or selected_row.get('contact_number') or '',
+						'email_address': bill_to.get('email_address') or selected_row.get('email_address') or '',
+					},
+					'deliver_to': {
+						'contact_person': deliver_to.get('contact_person') or '',
+						'company_name': deliver_to.get('company_name') or 'Avantech Integrated Technology Solutions, Inc.',
+						'address': deliver_to.get('address') or 'Unit 305, EnergyOpt Bldg., Madrigal Business Park 2, Ayala Alabang, Muntinlupa City, Metro Manila',
+						'contact_no': deliver_to.get('contact_no') or '',
+						'email_address': deliver_to.get('email_address') or '',
+					},
+					'payment_modes': payment_modes,
+					'delivery_mode': order_data.get('delivery_mode') or order_data.get('delivery_fee') or 'delivery_fee',
+					'items': visible_po_items,
+					'subtotal': order_data.get('subtotal') or '0.00',
+					'less_discount': order_data.get('less_discount') or '',
+					'total_amount': order_data.get('total_amount') or '0.00',
+					'special_instructions': order_data.get('special_instructions') or '',
+					'authorized_by': order_data.get('authorized_by') or '',
+					'authorized_date': order_data.get('authorized_date') or '',
+					'remarks': order_data.get('remarks') or '',
+				},
+				'procurement_meta': {
+					'id_no': order_data.get('reference_no') or selected_row.get('reference_no') or selected_record.po_number or '-',
+					'status': status_label,
+					'sending_status': selected_row.get('sending_status') or '',
+					'payment_status': selected_row.get('payment_status') or '',
+					'department': selected_row.get('department') or '',
+					'supplier': selected_row.get('supplier') or '',
+					'total': _currency_display(order_data.get('total_amount') or selected_row.get('total_amount') or ''),
+					'date': order_data.get('purchase_date') or selected_row.get('submitted_date') or '',
+					'due_date': selected_row.get('due_date') or '',
+					'due_date_input': _date_input_value(selected_row.get('due_date')),
+					'receipt_status': selected_row.get('receipt_status') or '',
+					'notes': order_data.get('procurement_notes') or '',
+				},
 			}
 
 	requests_page = Paginator(rows, 20).get_page(request.GET.get('page'))
@@ -6462,6 +6541,82 @@ def _procurement_format_purchase_order_number(year, sequence):
 
 def _procurement_is_purchase_order_placeholder(value):
 	return bool(re.match(r'^PO\d{2}-X{5}$', str(value or '').strip().upper()))
+
+
+def _procurement_money_from_post(value):
+	raw = str(value or '').strip().replace(',', '')
+	if not raw:
+		return Decimal('0.00')
+	try:
+		return Decimal(raw)
+	except (InvalidOperation, ValueError):
+		return Decimal('0.00')
+
+
+def _procurement_money_string(value):
+	return f'{value.quantize(Decimal("0.01")):,.2f}'
+
+
+def _procurement_purchase_order_data_from_post(post_data, order_number):
+	item_numbers = post_data.getlist('po_item_no')
+	item_descriptions = post_data.getlist('po_item_description')
+	item_quantities = post_data.getlist('po_item_qty')
+	item_units = post_data.getlist('po_item_um')
+	item_unit_prices = post_data.getlist('po_item_unit_price')
+	item_amounts = post_data.getlist('po_item_amount')
+	items = []
+	for index in range(max(len(item_numbers), len(item_descriptions), len(item_quantities), len(item_units), len(item_unit_prices), len(item_amounts), 5)):
+		qty_value = _procurement_money_from_post(item_quantities[index] if index < len(item_quantities) else '')
+		unit_price_value = _procurement_money_from_post(item_unit_prices[index] if index < len(item_unit_prices) else '')
+		amount_value = qty_value * unit_price_value
+		items.append({
+			'no': (item_numbers[index] if index < len(item_numbers) else str(index + 1)).strip(),
+			'description': (item_descriptions[index] if index < len(item_descriptions) else '').strip(),
+			'qty': (item_quantities[index] if index < len(item_quantities) else '').strip(),
+			'um': (item_units[index] if index < len(item_units) else '').strip(),
+			'unit_price': (item_unit_prices[index] if index < len(item_unit_prices) else '').strip(),
+			'amount': _procurement_money_string(amount_value) if amount_value else '',
+		})
+	subtotal_value = sum((_procurement_money_from_post(item.get('amount')) for item in items), Decimal('0.00'))
+	less_discount_value = _procurement_money_from_post(post_data.get('po_less_discount'))
+	total_amount_value = max(subtotal_value - less_discount_value, Decimal('0.00'))
+	remarks = (post_data.get('remarks') or '').strip()
+	return {
+		'purchase_date': (post_data.get('po_purchase_date') or '').strip(),
+		'reference_no': order_number,
+		'sending_status': (post_data.get('procurement_sending_status') or '').strip(),
+		'payment_status': (post_data.get('procurement_payment_status') or '').strip(),
+		'department': (post_data.get('procurement_department') or '').strip(),
+		'supplier': (post_data.get('procurement_supplier') or '').strip(),
+		'supplier_name': (post_data.get('procurement_supplier') or '').strip(),
+		'due_date': (post_data.get('procurement_due_date') or '').strip(),
+		'receipt_status': (post_data.get('procurement_receipt_status') or '').strip(),
+		'procurement_notes': (post_data.get('procurement_notes') or '').strip(),
+		'bill_to': {
+			'contact_person': (post_data.get('po_bill_contact_person') or '').strip(),
+			'company_name': (post_data.get('po_bill_company_name') or '').strip(),
+			'address': (post_data.get('po_bill_address') or '').strip(),
+			'contact_no': (post_data.get('po_bill_contact_no') or '').strip(),
+			'email_address': (post_data.get('po_bill_email_address') or '').strip(),
+		},
+		'deliver_to': {
+			'contact_person': (post_data.get('po_deliver_contact_person') or '').strip(),
+			'company_name': (post_data.get('po_deliver_company_name') or '').strip(),
+			'address': (post_data.get('po_deliver_address') or '').strip(),
+			'contact_no': (post_data.get('po_deliver_contact_no') or '').strip(),
+			'email_address': (post_data.get('po_deliver_email_address') or '').strip(),
+		},
+		'payment_modes': post_data.getlist('po_payment_modes'),
+		'delivery_mode': (post_data.get('po_delivery_mode') or '').strip(),
+		'items': items,
+		'subtotal': _procurement_money_string(subtotal_value),
+		'less_discount': (post_data.get('po_less_discount') or '').strip(),
+		'total_amount': _procurement_money_string(total_amount_value),
+		'special_instructions': (post_data.get('po_special_instructions') or '').strip(),
+		'authorized_by': (post_data.get('po_authorized_by') or '').strip(),
+		'authorized_date': (post_data.get('po_authorized_date') or '').strip(),
+		'remarks': remarks,
+	}
 
 
 def _procurement_next_purchase_order_number(exclude_pk=None):
@@ -6545,11 +6700,21 @@ def _procurement_dashboard_row(record):
 	supplier_name = order_data.get('supplier_name') or order_data.get('supplier') or 'For canvassing'
 	client_name = order_data.get('client_name') or _procurement_record_client_name(record)
 	order_total = order_data.get('total_amount') or order_data.get('grand_total') or '-'
+	approval_status = record.purchase_order_approval_status or ''
+	if approval_status == 'approved':
+		dashboard_filter = 'open'
+	elif approval_status == 'pending':
+		dashboard_filter = 'pending'
+	elif not approval_status:
+		dashboard_filter = 'not-sent'
+	else:
+		dashboard_filter = approval_status
 	return {
 		'id': record.id,
 		'reference_no': record.po_number or order_data.get('reference_no') or f'TECH-{record.id}',
-		'status': record.purchase_order_approval_status or 'open',
-		'sending_status': 'Sent' if record.purchase_order_approval_status else 'Not Sent',
+		'status': approval_status or 'open',
+		'dashboard_filter': dashboard_filter,
+		'sending_status': 'Sent' if approval_status else 'Not Sent',
 		'payment_status': order_data.get('payment_status') or 'Not Received',
 		'purchaser': client_name,
 		'department': order_data.get('department') or 'Operations',
@@ -6746,6 +6911,68 @@ def _procurement_report_context():
 	}
 
 
+def _procurement_product_row(product):
+	categories = product.get_category_list()
+	updated_at = timezone.localtime(product.updated_at) if product.updated_at else None
+	return {
+		'id': product.id,
+		'id_no': product.product_code,
+		'photo_url': product.photo.url if product.photo else '',
+		'photo_kind': 'uploaded' if product.photo else 'catalog',
+		'item_name': product.item_name,
+		'price': product.get_price_display_value(),
+		'price_raw': f'{product.price:.2f}',
+		'status': product.get_status_display(),
+		'status_value': product.status,
+		'categories': categories,
+		'category_text': '\n'.join(categories),
+		'stock': product.stock,
+		'updated': updated_at.strftime('%d %b %Y') if updated_at else '-',
+	}
+
+
+def _procurement_products_context(request):
+	query = (request.GET.get('q') or '').strip()
+	status_filter = (request.GET.get('status') or '').strip().lower()
+	products_qs = ProcurementProduct.objects.all()
+	if query:
+		products_qs = products_qs.filter(
+			Q(product_code__icontains=query)
+			| Q(item_name__icontains=query)
+			| Q(categories__icontains=query)
+		)
+	if status_filter in {'included', 'excluded'}:
+		products_qs = products_qs.filter(status=status_filter)
+	elif status_filter == 'low-stock':
+		products_qs = products_qs.filter(stock__lte=5)
+
+	products_page = Paginator(products_qs, 20).get_page(request.GET.get('page'))
+	params = request.GET.copy()
+	params.pop('page', None)
+
+	def _product_url(**overrides):
+		next_params = params.copy()
+		for key, value in overrides.items():
+			if value in (None, ''):
+				next_params.pop(key, None)
+			else:
+				next_params[key] = value
+		query_string = next_params.urlencode()
+		return f'?{query_string}' if query_string else '?'
+
+	return {
+		'product_form': ProcurementProductForm(),
+		'product_rows': [_procurement_product_row(product) for product in products_page],
+		'products_page': products_page,
+		'product_query': query,
+		'product_status_filter': status_filter,
+		'product_all_url': _product_url(status=''),
+		'product_included_url': _product_url(status='included'),
+		'product_excluded_url': _product_url(status='excluded'),
+		'product_low_stock_url': _product_url(status='low-stock'),
+	}
+
+
 def _procurement_process_context():
 	records_qs = (
 		_procurement_order_records_queryset()
@@ -6879,6 +7106,7 @@ def _procurement_process_context():
 		'report_requisition_categories': report_context['requisition_categories'],
 		'inventory_items': inventory_items,
 		'inventory_scale': max(performing_orders, 1),
+		'product_rows': [],
 		'store_cards': store_cards,
 		'store_stats': store_stats,
 		'dashboard_kpis': dashboard_kpis,
@@ -6908,8 +7136,61 @@ def procurement_purchase_requests(request):
 	redirect_target = next_url if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}) else reverse(redirect_url_name)
 	if request.method == 'POST':
 		if not can_approve_purchase_requests:
-			return _permission_denied_response(request, 'Only Operation Head or users with approval permission can approve purchase requests.')
+			return _permission_denied_response(request, 'Only Operation Head or users with approval permission can update purchase orders.')
 		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'update_procurement_purchase_order':
+			tech_record = get_object_or_404(
+				CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client'),
+				pk=request.POST.get('technical_record_id'),
+			)
+			existing_order_data = tech_record.purchase_order_data if isinstance(tech_record.purchase_order_data, dict) else {}
+			order_number = (request.POST.get('po_number') or existing_order_data.get('reference_no') or tech_record.po_number or '').strip()
+			if not order_number:
+				messages.warning(request, 'PO# is required.', extra_tags='toast')
+				return redirect(redirect_target)
+			if not _procurement_is_purchase_order_placeholder(order_number) and CRMTechnicalRecord.objects.filter(po_number__iexact=order_number).exclude(pk=tech_record.pk).exists():
+				messages.error(request, f'PO# {order_number} is already assigned to another technical record.', extra_tags='toast')
+				return redirect(redirect_target)
+			purchase_order_data = {
+				**existing_order_data,
+				**_procurement_purchase_order_data_from_post(request.POST, order_number),
+			}
+
+			def _update_purchase_order_write():
+				with transaction.atomic():
+					locked_tech = CRMTechnicalRecord.objects.select_for_update().select_related('sales_record').get(pk=tech_record.pk)
+					locked_tech.purchase_order_data = purchase_order_data
+					update_fields = ['purchase_order_data', 'updated_at']
+					if locked_tech.purchase_order_approval_status == 'approved' and not _procurement_is_purchase_order_placeholder(order_number):
+						locked_tech.po_number = order_number
+						update_fields.append('po_number')
+					locked_tech.save(update_fields=update_fields)
+					CRMTechnicalActionLog.objects.create(
+						technical_record=locked_tech,
+						sales_record=locked_tech.sales_record,
+						action='installation_updated',
+						previous_remarks=f'PO# {existing_order_data.get("reference_no") or tech_record.po_number or "-"}',
+						new_remarks=f'PO# {order_number} updated from Procurement Purchase Orders.',
+						created_by=request.user,
+					)
+				return True
+
+			saved_ok = _procurement_run_with_sqlite_retry(_update_purchase_order_write)
+			if saved_ok is None:
+				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
+				return redirect(redirect_target)
+			record_activity(
+				request,
+				'update',
+				'clients',
+				f'Updated PO# {order_number} from Procurement Purchase Orders.',
+				target=tech_record,
+				target_label=f'Technical #{tech_record.id}',
+				metadata={'sales_record_id': tech_record.sales_record_id, 'order_type': 'po', 'order_number': order_number},
+			)
+			messages.success(request, 'Purchase order details saved.', extra_tags='toast')
+			return redirect(redirect_target)
+
 		decision = (request.POST.get('approval_decision') or '').strip().lower()
 		if form_action != 'approve_procurement_purchase_request' or decision not in {'approve', 'reject'}:
 			messages.warning(request, 'Invalid purchase request approval action.', extra_tags='toast')
@@ -6984,14 +7265,9 @@ def procurement_job_requests(request):
 
 
 PROCUREMENT_FEATURE_PAGES = {
-	'store': {
-		'title': 'Manage Store',
-		'description': 'Store information, employee activity, suggestions, and operating statistics.',
-		'kind': 'store',
-	},
 	'products': {
-		'title': 'Manage Inventory',
-		'description': 'Existing inventory, upcoming deliveries, stock left, and reorder actions.',
+		'title': 'Products',
+		'description': 'Product catalog, prices, categories, stock, and update history.',
 		'kind': 'inventory',
 	},
 	'purchase-requests': {
@@ -7029,16 +7305,6 @@ PROCUREMENT_FEATURE_PAGES = {
 		'description': 'Monitor received items, inspection status, and receiving documentation.',
 		'kind': 'deliveries',
 	},
-	'invoice-payment-coordination': {
-		'title': 'Invoices',
-		'description': 'Track supplier invoices, payment status, due dates, and accounting handoff.',
-		'kind': 'invoices',
-	},
-	'budgets': {
-		'title': 'Budgets',
-		'description': 'Track procurement budgets by location, holder, due date, and available percentage.',
-		'kind': 'budgets',
-	},
 	'procurement-reports': {
 		'title': 'Reports',
 		'description': 'Review procurement summaries, status reports, and purchasing activity.',
@@ -7056,8 +7322,58 @@ def procurement_feature_page(request, feature_slug):
 	if not feature:
 		raise Http404('Procurement page not found.')
 
+	if feature_slug == 'products' and request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		redirect_target = reverse('procurement_products')
+		if form_action == 'delete_procurement_product':
+			product = get_object_or_404(ProcurementProduct, pk=request.POST.get('product_id'))
+			product_label = product.product_code
+			product.delete()
+			record_activity(
+				request,
+				'delete',
+				'clients',
+				f'Deleted procurement product {product_label}.',
+				target_label=product_label,
+				metadata={'product_id': request.POST.get('product_id')},
+			)
+			messages.success(request, f'Product {product_label} deleted.', extra_tags='toast')
+			return redirect(redirect_target)
+
+		product = None
+		if form_action == 'update_procurement_product':
+			product = get_object_or_404(ProcurementProduct, pk=request.POST.get('product_id'))
+		elif form_action != 'create_procurement_product':
+			messages.error(request, 'Invalid product action.', extra_tags='toast')
+			return redirect(redirect_target)
+
+		form = ProcurementProductForm(request.POST, request.FILES, instance=product)
+		if form.is_valid():
+			product_obj = form.save(commit=False)
+			if not product_obj.pk:
+				product_obj.created_by = request.user
+			product_obj.save()
+			action = 'update' if form_action == 'update_procurement_product' else 'create'
+			record_activity(
+				request,
+				action,
+				'clients',
+				f'{"Updated" if action == "update" else "Created"} procurement product {product_obj.product_code}.',
+				target=product_obj,
+				target_label=product_obj.product_code,
+				metadata={'product_id': product_obj.id},
+			)
+			messages.success(request, f'Product {product_obj.product_code} saved.', extra_tags='toast')
+			return redirect(redirect_target)
+
+		error_text = ' '.join(error for field_errors in form.errors.values() for error in field_errors)
+		messages.error(request, error_text or 'Unable to save product.', extra_tags='toast')
+		return redirect(redirect_target)
+
 	context = _procurement_process_context()
 	context['feature'] = {**feature, 'slug': feature_slug}
+	if feature_slug == 'products':
+		context.update(_procurement_products_context(request))
 	return render(request, 'core/procurement_feature_page.html', context)
 
 

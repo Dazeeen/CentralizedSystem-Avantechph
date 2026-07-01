@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
@@ -56,6 +57,7 @@ from .models import (
     PatchNote,
     PatchNoteAttachment,
     PatchNoteComment,
+    ProcurementProduct,
     UserProfile,
 )
 
@@ -1399,6 +1401,48 @@ class AssetDepartmentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['name'].widget.attrs.setdefault('class', 'form-control')
+
+
+class ProcurementProductForm(forms.ModelForm):
+    category_text = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+
+    class Meta:
+        model = ProcurementProduct
+        fields = ['photo', 'item_name', 'price', 'status', 'stock']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['category_text'].initial = '\n'.join(self.instance.get_category_list())
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.FileInput):
+                field.widget.attrs.setdefault('class', 'form-control')
+            elif isinstance(field.widget, forms.Select):
+                field.widget.attrs.setdefault('class', 'form-select')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+
+    def clean_category_text(self):
+        raw_value = self.cleaned_data.get('category_text') or ''
+        categories = []
+        for chunk in re.split(r'[\n,]+', raw_value):
+            category = chunk.strip().lstrip('#')
+            if category and category not in categories:
+                categories.append(category)
+        return categories
+
+    def clean_item_name(self):
+        item_name = (self.cleaned_data.get('item_name') or '').strip()
+        if not item_name:
+            raise ValidationError('Item name is required.')
+        return item_name
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.categories = self.cleaned_data.get('category_text') or []
+        if commit:
+            instance.save()
+        return instance
 
 
 class AssetItemTypeForm(forms.ModelForm):

@@ -632,13 +632,19 @@ body {
 .recent-nav-link {
     width: 100%;
     min-width: 0;
+    overflow: hidden;
 }
 
 .recent-nav-row {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     gap: 4px;
     border-radius: 10px;
+    overflow: hidden;
 }
 
 .recent-nav-row.active {
@@ -651,8 +657,10 @@ body {
 }
 
 .recent-nav-row .recent-nav-link {
-    flex: 1;
+    width: auto;
+    flex: 1 1 auto;
     min-width: 0;
+    max-width: 100%;
 }
 
 .recent-nav-row .recent-nav-link.active {
@@ -662,7 +670,7 @@ body {
 
 .recent-remove-form {
     flex-shrink: 0;
-    margin: 0;
+    margin: 0 0 0 auto;
 }
 
 .recent-remove-btn {
@@ -699,6 +707,13 @@ body {
     font-size: 0.76rem;
     font-weight: 800;
     flex-shrink: 0;
+}
+
+.recent-nav-link .nav-label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .recent-nav-panel .erp-app-icon {
@@ -1453,6 +1468,10 @@ body {
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
+.procurement-po-form-card {
+    overflow-x: auto;
+}
+
 .procurement-po-detail-status-row {
     display: grid;
     grid-template-columns: 70px minmax(0, 190px);
@@ -1572,6 +1591,323 @@ body {
     font-size: 0.9rem;
     font-weight: 800;
     padding: 0.55rem 1.2rem;
+}
+
+.procurement-po-save-btn {
+    background: #12b55a;
+    color: #ffffff;
+}
+
+.procurement-po-edit-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
+    gap: 1.2rem;
+    align-items: start;
+}
+
+.procurement-po-meta-panel {
+    position: sticky;
+    top: 88px;
+    display: grid;
+    gap: 0.75rem;
+    border: 1px solid #dfe5ec;
+    border-radius: 8px;
+    background: #fbfcfe;
+    padding: 0.95rem;
+}
+
+.procurement-po-meta-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid #e5e9ef;
+    padding-bottom: 0.65rem;
+}
+
+.procurement-po-meta-head strong {
+    color: #20242a;
+    font-size: 0.95rem;
+    font-weight: 900;
+}
+
+.procurement-po-meta-head span {
+    color: #737982;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.procurement-po-meta-panel label {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0;
+}
+
+.procurement-po-meta-panel label > span {
+    color: #20242a;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.procurement-po-meta-panel input,
+.procurement-po-meta-panel select,
+.procurement-po-meta-panel textarea {
+    width: 100%;
+    min-height: 34px;
+    border: 1px solid #d8dee6;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #20242a;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.55rem;
+}
+
+.procurement-po-meta-panel input[readonly] {
+    background: #f2f5f8;
+    color: #5f6874;
+}
+
+.procurement-po-meta-panel textarea {
+    resize: vertical;
+}
+
+.po-sheet {
+    color: #111;
+    font-size: 14px;
+}
+
+.po-sheet input,
+.po-sheet textarea,
+.po-sheet select {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 3px 4px;
+    outline: 0;
+}
+
+.po-sheet textarea {
+    min-height: 54px;
+    resize: none;
+    overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.35;
+}
+
+.po-sheet-top {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.po-sheet-top > div:last-child {
+    text-align: right;
+}
+
+.po-inline-input {
+    display: inline-block;
+    width: auto !important;
+    min-width: 170px;
+}
+
+.po-reference-input {
+    display: inline-block;
+    width: 220px !important;
+    color: #e00000;
+    font-weight: 700;
+    font-size: 18px;
+    text-align: right;
+}
+
+.po-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid #111;
+}
+
+.po-two-col .po-box + .po-box {
+    border-left: 1px solid #111;
+}
+
+.po-contact-box,
+.po-authorized-box {
+    display: flex;
+    flex-direction: column;
+}
+
+.po-contact-box .po-row:last-child,
+.po-authorized-box .po-row:last-child {
+    flex: 1 1 auto;
+}
+
+.po-box-head {
+    background: #c6efce;
+    border-bottom: 1px solid #111;
+    text-align: center;
+    font-weight: 700;
+    padding: 2px;
+}
+
+.po-section-head {
+    background: #d9d9d9;
+    border-bottom: 1px solid #111;
+    font-weight: 700;
+    padding: 2px 4px;
+}
+
+.po-row {
+    display: grid;
+    grid-template-columns: 135px 1fr;
+    min-height: 32px;
+    border-bottom: 1px solid #111;
+    position: relative;
+}
+
+.po-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 135px;
+    border-left: 1px solid #111;
+    pointer-events: none;
+}
+
+.po-row:last-child {
+    border-bottom: 0;
+}
+
+.po-row label {
+    margin: 0;
+    padding: 6px 4px;
+    font-weight: 700;
+}
+
+.po-row input,
+.po-row textarea {
+    min-height: 31px;
+}
+
+.po-row.po-tall {
+    min-height: 108px;
+}
+
+.po-merged-row {
+    min-height: 64px;
+    display: flex;
+    align-items: start;
+    border-bottom: 0;
+}
+
+.po-merged-row select {
+    min-height: 44px;
+    font-weight: 600;
+    padding: 8px 4px;
+}
+
+.po-payment-options {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    padding: 8px 18px;
+    font-weight: 700;
+}
+
+.po-payment-options label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.po-payment-options input {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #111;
+}
+
+.po-items-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #111;
+}
+
+.po-items-table th {
+    background: #c6efce;
+    text-align: center;
+    font-weight: 700;
+    padding: 2px 4px;
+}
+
+.po-items-table th,
+.po-items-table td {
+    border: 1px solid #111;
+    padding: 0;
+}
+
+.po-items-table input {
+    text-align: center;
+    min-height: 26px;
+}
+
+.po-items-table textarea {
+    min-height: 26px;
+    line-height: 1.25;
+    text-align: left;
+}
+
+.po-items-table th:nth-child(1),
+.po-items-table td:nth-child(1) {
+    width: 72px;
+}
+
+.po-items-table th:nth-child(3),
+.po-items-table td:nth-child(3) {
+    width: 80px;
+}
+
+.po-items-table th:nth-child(4),
+.po-items-table td:nth-child(4) {
+    width: 90px;
+}
+
+.po-items-table th:nth-child(5),
+.po-items-table td:nth-child(5),
+.po-items-table th:nth-child(6),
+.po-items-table td:nth-child(6) {
+    width: 130px;
+}
+
+.po-nothing {
+    text-align: center;
+    font-style: italic;
+    font-weight: 700;
+    padding: 3px !important;
+}
+
+.po-less-discount-row input {
+    color: #e00000;
+}
+
+.po-total-row td {
+    background: #c6efce;
+}
+
+.po-large-text {
+    min-height: 68px !important;
+    text-align: center;
+    padding-top: 28px !important;
+}
+
+.po-authorized-input {
+    min-height: 52px;
+    border-bottom: 1px solid #111 !important;
 }
 
 .procurement-po-detail-actions {
@@ -1707,9 +2043,42 @@ body {
     padding: 0.5rem 0.6rem;
 }
 
+.procurement-po-filter-menu a.active {
+    background: #f0f2f5;
+    color: #1f2370;
+}
+
 .procurement-po-filter-menu a:hover,
 .procurement-po-filter-menu a:focus-visible {
     background: #f3f5f7;
+}
+
+.procurement-po-filter-form {
+    display: grid;
+    gap: 0.45rem;
+    border-bottom: 1px solid #eef1f4;
+    margin-bottom: 0.3rem;
+    padding: 0 0 0.55rem;
+}
+
+.procurement-po-filter-form input[type="search"] {
+    width: 100%;
+    min-height: 34px;
+    border: 1px solid #dfe3e8;
+    border-radius: 6px;
+    color: #20242a;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.6rem;
+}
+
+.procurement-po-filter-form button {
+    min-height: 32px;
+    border: 0;
+    border-radius: 6px;
+    background: #13ad55;
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 800;
 }
 
 .procurement-po-import {
@@ -1747,6 +2116,10 @@ body {
     min-width: 1030px;
 }
 
+.procurement-orders-table {
+    min-width: 1110px;
+}
+
 .procurement-po-table thead th {
     color: #20242a;
     font-size: 0.8rem;
@@ -1765,6 +2138,15 @@ body {
 
 .procurement-po-table tbody tr:last-child td {
     border-bottom: 0;
+}
+
+.procurement-po-table-row {
+    cursor: pointer;
+}
+
+.procurement-po-table-row:hover td,
+.procurement-po-table-row:focus-visible td {
+    background: #f8fafc;
 }
 
 .procurement-po-status {
@@ -1809,6 +2191,10 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
+}
+
+.procurement-po-row-actions form {
+    display: inline-flex;
 }
 
 .procurement-po-row-actions a,
@@ -1866,11 +2252,203 @@ body {
     min-width: 1020px;
 }
 
+.procurement-products-table {
+    min-width: 1110px;
+}
+
 .procurement-receipt-item,
 .procurement-receipt-location {
     max-width: 250px;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.procurement-products-table tbody td {
+    vertical-align: top;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+}
+
+.procurement-product-name {
+    max-width: 230px;
+    white-space: normal !important;
+    line-height: 1.25;
+}
+
+.procurement-product-tags {
+    display: grid;
+    gap: 0.12rem;
+}
+
+.procurement-product-tags a {
+    color: #1683ff;
+    font-size: 0.78rem;
+    line-height: 1.15;
+    text-decoration: none;
+}
+
+.procurement-product-tags a:hover,
+.procurement-product-tags a:focus-visible {
+    text-decoration: underline;
+}
+
+.procurement-product-photo {
+    position: relative;
+    width: 104px;
+    height: 64px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.procurement-product-screen {
+    position: relative;
+    z-index: 1;
+    display: block;
+    border: 3px solid #1d232b;
+    background: linear-gradient(135deg, #22c7f5, #ffe26f);
+    box-shadow: 0 4px 8px rgba(15, 23, 42, 0.18);
+}
+
+.procurement-product-photo::before,
+.procurement-product-photo::after {
+    content: "";
+    position: absolute;
+    display: block;
+}
+
+.procurement-product-photo.is-uploaded {
+    overflow: hidden;
+    border: 1px solid #e3e8ef;
+    border-radius: 6px;
+    background: #f6f8fb;
+}
+
+.procurement-product-photo.is-uploaded::before,
+.procurement-product-photo.is-uploaded::after {
+    display: none;
+}
+
+.procurement-product-photo.is-uploaded img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+}
+
+.procurement-product-photo.is-catalog .procurement-product-screen {
+    width: 72px;
+    height: 45px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #eef2f7, #dfe7ef 45%, #c6d6e6);
+}
+
+.procurement-product-photo.is-catalog::after {
+    right: 12px;
+    bottom: 7px;
+    width: 42px;
+    height: 5px;
+    border-radius: 999px;
+    background: #aab5c2;
+}
+
+.procurement-product-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+}
+
+.procurement-product-form-grid label {
+    display: grid;
+    gap: 0.35rem;
+    color: #20242a;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.procurement-product-form-wide {
+    grid-column: 1 / -1;
+}
+
+.procurement-product-photo.is-laptop-red .procurement-product-screen,
+.procurement-product-photo.is-laptop-blue .procurement-product-screen,
+.procurement-product-photo.is-laptop-dark .procurement-product-screen,
+.procurement-product-photo.is-laptop-silver .procurement-product-screen {
+    width: 78px;
+    height: 45px;
+    border-radius: 2px;
+}
+
+.procurement-product-photo.is-laptop-red::after,
+.procurement-product-photo.is-laptop-blue::after,
+.procurement-product-photo.is-laptop-dark::after,
+.procurement-product-photo.is-laptop-silver::after {
+    left: 11px;
+    bottom: 5px;
+    width: 82px;
+    height: 5px;
+    border-radius: 0 0 10px 10px;
+    background: linear-gradient(180deg, #d9dde3, #8d96a3);
+}
+
+.procurement-product-photo.is-laptop-red .procurement-product-screen {
+    background: radial-gradient(circle at 72% 42%, #ff8e46 0 20%, transparent 21%), linear-gradient(135deg, #d23883, #ff8054 48%, #5cf1ff 49% 72%, #ffd660);
+}
+
+.procurement-product-photo.is-laptop-blue .procurement-product-screen {
+    background: radial-gradient(circle at 22% 34%, rgba(255, 255, 255, 0.65), transparent 24%), linear-gradient(135deg, #113e5c, #74def7 52%, #d6f5ff);
+}
+
+.procurement-product-photo.is-laptop-dark .procurement-product-screen {
+    background: linear-gradient(135deg, #05080d, #161f2c);
+}
+
+.procurement-product-photo.is-laptop-silver .procurement-product-screen {
+    background: linear-gradient(145deg, #151b27 0 36%, #ff6c28 37% 58%, #f3f6f9 59%);
+}
+
+.procurement-product-photo.is-tablet .procurement-product-screen {
+    width: 36px;
+    height: 56px;
+    border-radius: 5px;
+    background: linear-gradient(135deg, #ff9d52 0 36%, #ff4fa1 37% 60%, #6fceff 61%);
+}
+
+.procurement-product-photo.is-console .procurement-product-screen {
+    width: 18px;
+    height: 58px;
+    border-radius: 2px 8px 8px 2px;
+    background: linear-gradient(90deg, #111827, #eef2f6 52%, #111827);
+    transform: translateX(13px);
+}
+
+.procurement-product-photo.is-console::after {
+    left: 7px;
+    bottom: 11px;
+    width: 36px;
+    height: 18px;
+    border: 3px solid #dfe6f1;
+    border-top-color: transparent;
+    border-radius: 12px;
+    transform: rotate(-7deg);
+}
+
+.procurement-product-photo.is-router .procurement-product-screen {
+    width: 72px;
+    height: 28px;
+    border-radius: 5px;
+    background: linear-gradient(135deg, #070b12, #252c37);
+    transform: translateY(13px);
+}
+
+.procurement-product-photo.is-router::before {
+    left: 23px;
+    top: 4px;
+    width: 4px;
+    height: 44px;
+    border-radius: 999px;
+    background: #111827;
+    box-shadow: 25px -1px 0 #111827, 50px 0 0 #111827;
 }
 
 .procurement-receipt-location {
@@ -3198,6 +3776,37 @@ body {
         justify-content: flex-end;
     }
 
+    .procurement-po-edit-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .procurement-po-meta-panel {
+        position: static;
+    }
+
+    .po-sheet-top,
+    .po-two-col {
+        grid-template-columns: 1fr;
+    }
+
+    .po-two-col .po-box + .po-box {
+        border-left: 0;
+        border-top: 1px solid #111;
+    }
+
+    .po-row {
+        grid-template-columns: 120px 1fr;
+    }
+
+    .po-row::before {
+        left: 120px;
+    }
+
+    .po-payment-options {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
     .procurement-po-amount {
         grid-column: 3;
         justify-items: start;
@@ -3262,6 +3871,10 @@ body {
 }
 
 @media (max-width: 575.98px) {
+    .procurement-product-form-grid {
+        grid-template-columns: 1fr;
+    }
+
     .procurement-order-head h1 {
         font-size: 1.25rem;
     }
@@ -3578,13 +4191,49 @@ body {
 }
 
 .app-shell.sidebar-collapsed .app-sidebar .recent-nav-row {
+    width: 44px;
+    height: 44px;
     justify-content: center;
     background: transparent;
     border: 0;
+    overflow: visible;
 }
 
 .app-shell.sidebar-collapsed .app-sidebar .recent-remove-form {
-    display: none;
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    z-index: 2;
+    display: block;
+    margin: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.14s ease, visibility 0.14s ease;
+}
+
+.app-shell.sidebar-collapsed .app-sidebar .recent-nav-row:hover .recent-remove-form,
+.app-shell.sidebar-collapsed .app-sidebar .recent-nav-row:focus-within .recent-remove-form {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.app-shell.sidebar-collapsed .app-sidebar .recent-remove-btn {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #f3c5cb;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #842029;
+    font-size: 0.8rem;
+    line-height: 1;
+    box-shadow: 0 2px 6px rgba(132, 32, 41, 0.16);
+}
+
+.app-shell.sidebar-collapsed .app-sidebar .recent-remove-btn:hover,
+.app-shell.sidebar-collapsed .app-sidebar .recent-remove-btn:focus-visible {
+    background: #f8d7da;
 }
 
 .app-shell.sidebar-collapsed .app-sidebar .erp-app-icon {

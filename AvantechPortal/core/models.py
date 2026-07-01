@@ -2,6 +2,7 @@ import uuid
 import re
 import base64
 import hashlib
+from decimal import Decimal
 from datetime import time as dt_time
 from pathlib import Path
 
@@ -121,6 +122,15 @@ def calculator_import_upload_to(instance, filename):
 	timestamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
 	name_slug = slugify(Path(original_name).stem) or 'calculator-import'
 	return f'calculator/imports/{user_id}/{name_slug}_{timestamp}{extension}'
+
+
+def procurement_product_photo_upload_to(instance, filename):
+	original_name = filename or 'procurement-product.jpg'
+	extension = Path(original_name).suffix.lower() or '.jpg'
+	code = getattr(instance, 'product_code', '') or 'new-product'
+	name_slug = slugify(getattr(instance, 'item_name', '') or code) or 'product'
+	date_stamp = timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')
+	return f'procurement/products/{code}_{name_slug}_{date_stamp}{extension}'
 
 
 def _credentials_fernet():
@@ -2287,6 +2297,66 @@ class LiquidationAttachment(models.Model):
 
 	def __str__(self):
 		return f'LiquidationAttachment<{self.liquidation_id}:{self.image.name}>'
+
+
+class ProcurementProduct(models.Model):
+	STATUS_INCLUDED = 'included'
+	STATUS_EXCLUDED = 'excluded'
+	STATUS_CHOICES = [
+		(STATUS_INCLUDED, 'Included'),
+		(STATUS_EXCLUDED, 'Excluded'),
+	]
+
+	product_code = models.CharField(max_length=20, unique=True, blank=True, db_index=True)
+	photo = models.ImageField(upload_to=procurement_product_photo_upload_to, blank=True, null=True)
+	item_name = models.CharField(max_length=180)
+	price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_INCLUDED, db_index=True)
+	categories = models.JSONField(default=list, blank=True)
+	stock = models.PositiveIntegerField(default=0)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='procurement_products_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['item_name', 'product_code']
+
+	def __str__(self):
+		return f'{self.product_code or "Product"} - {self.item_name}'
+
+	def _next_product_code(self):
+		pattern = re.compile(r'^PRD(\d+)$')
+		max_value = 0
+		for code in ProcurementProduct.objects.filter(product_code__startswith='PRD').values_list('product_code', flat=True):
+			match = pattern.match(code or '')
+			if not match:
+				continue
+			max_value = max(max_value, int(match.group(1)))
+		return f'PRD{max_value + 1:06d}'
+
+	def save(self, *args, **kwargs):
+		if not self.product_code:
+			self.product_code = self._next_product_code()
+		self.item_name = (self.item_name or '').strip()
+		cleaned_categories = []
+		for category in self.categories or []:
+			category_text = str(category or '').strip().lstrip('#')
+			if category_text and category_text not in cleaned_categories:
+				cleaned_categories.append(category_text)
+		self.categories = cleaned_categories
+		super().save(*args, **kwargs)
+
+	def get_category_list(self):
+		return [str(category).strip().lstrip('#') for category in (self.categories or []) if str(category).strip()]
+
+	def get_price_display_value(self):
+		return f'${self.price:,.2f}'
 
 
 class AssetDepartment(models.Model):

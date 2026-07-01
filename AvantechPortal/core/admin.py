@@ -44,6 +44,7 @@ from .models import (
 	PatchNoteAttachment,
 	PatchNoteComment,
 	PatchNoteReaction,
+	ProcurementProduct,
 	UserProfile,
 )
 
@@ -413,6 +414,14 @@ class LiquidationAttachmentAdmin(admin.ModelAdmin):
 	list_display = ('liquidation', 'uploaded_by', 'created_at')
 	list_filter = ('created_at',)
 	search_fields = ('liquidation__control_number', 'liquidation__name', 'image')
+
+
+@admin.register(ProcurementProduct)
+class ProcurementProductAdmin(admin.ModelAdmin):
+	list_display = ('product_code', 'item_name', 'price', 'status', 'stock', 'updated_at')
+	list_filter = ('status', 'updated_at')
+	search_fields = ('product_code', 'item_name')
+	readonly_fields = ('product_code', 'created_at', 'updated_at')
 
 
 @admin.register(AssetDepartment)

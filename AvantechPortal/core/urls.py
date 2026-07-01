@@ -1,5 +1,6 @@
 from django.contrib.auth.views import PasswordResetCompleteView, PasswordResetDoneView
 from django.urls import path
+from django.views.generic import RedirectView
 
 from .system_views import (
     super_user_chat,
@@ -356,9 +357,9 @@ urlpatterns = [
     path('finance/reimbursement/', finance_reimbursement, name='finance_reimbursement'),
     path('finance/summary-request/', finance_summary_request, name='finance_summary_request'),
     path('procurement/', procurement_dashboard, name='procurement_dashboard'),
-    path('procurement/store/', procurement_feature_page, {'feature_slug': 'store'}, name='procurement_store'),
+    path('procurement/store/', RedirectView.as_view(pattern_name='procurement_dashboard', permanent=False)),
     path('procurement/products/', procurement_feature_page, {'feature_slug': 'products'}, name='procurement_products'),
-    path('procurement/purchase-requests/', procurement_purchase_requests, name='procurement_purchase_requests'),
+    path('procurement/purchase-requests/', RedirectView.as_view(pattern_name='procurement_purchase_orders', permanent=False, query_string=True), name='procurement_purchase_requests'),
     path('procurement/job-requests/', procurement_job_requests, name='procurement_job_requests'),
     path('procurement/suppliers/', procurement_feature_page, {'feature_slug': 'suppliers'}, name='procurement_suppliers'),
     path('procurement/supplier-management/', procurement_feature_page, {'feature_slug': 'supplier-management'}, name='procurement_supplier_management'),
@@ -366,8 +367,6 @@ urlpatterns = [
     path('procurement/purchase-orders/', procurement_purchase_requests, name='procurement_purchase_orders'),
     path('procurement/po-receipts/', procurement_feature_page, {'feature_slug': 'po-receipts'}, name='procurement_po_receipts'),
     path('procurement/receiving-inspection/', procurement_feature_page, {'feature_slug': 'receiving-inspection'}, name='procurement_receiving_inspection'),
-    path('procurement/invoice-payment-coordination/', procurement_feature_page, {'feature_slug': 'invoice-payment-coordination'}, name='procurement_invoice_payment_coordination'),
-    path('procurement/budgets/', procurement_feature_page, {'feature_slug': 'budgets'}, name='procurement_budgets'),
     path('procurement/notifications/', procurement_feature_page, {'feature_slug': 'notifications'}, name='procurement_notifications'),
     path('procurement/reports/', procurement_feature_page, {'feature_slug': 'procurement-reports'}, name='procurement_reports'),
     path('fund-requests/records/', fund_request_records, name='fund_request_records'),

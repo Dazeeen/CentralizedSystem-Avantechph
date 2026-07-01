@@ -15,66 +15,181 @@
         </a>
     </div>
 
-    <section class="procurement-po-detail-card" aria-label="Purchase order details">
+    <section class="procurement-po-detail-card procurement-po-form-card" aria-label="Purchase order details">
         <div class="procurement-po-detail-status-row">
             <span>Status</span>
             <strong class="procurement-po-detail-status is-{{ selected_order.status_class }}">{{ selected_order.status_label }}</strong>
         </div>
 
-        <div class="procurement-po-detail-grid">
-            <label class="procurement-po-detail-field procurement-po-detail-wide">
-                <span>Purchaser</span>
-                <input type="text" value="{{ selected_order.purchaser }}" readonly>
-            </label>
-            <label class="procurement-po-detail-field">
-                <span>Create Date</span>
-                <input type="text" value="{{ selected_order.create_date }}" readonly>
-            </label>
-            <label class="procurement-po-detail-field">
-                <span>Delivery Date</span>
-                <input type="text" value="{{ selected_order.delivery_date }}" readonly>
-            </label>
+        <form method="post" class="procurement-po-linked-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="update_procurement_purchase_order">
+            <input type="hidden" name="technical_record_id" value="{{ selected_order.id }}">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
 
-            <label class="procurement-po-detail-field procurement-po-detail-wide procurement-po-supplier-field">
-                <span>Supplier</span>
-                <input type="text" value="{{ selected_order.supplier }}" readonly>
-                <em>Message Received</em>
-            </label>
-            <label class="procurement-po-detail-field procurement-po-detail-span-2">
-                <span>Ship Via</span>
-                <input type="text" value="{{ selected_order.ship_via }}" readonly>
-            </label>
+            <div class="procurement-po-edit-layout">
+                <div class="po-sheet procurement-po-sheet">
+                    <div class="po-sheet-top">
+                        <div><strong>Purchase Date:</strong> <input type="date" class="po-inline-input" id="procurementPoPurchaseDate" name="po_purchase_date" value="{{ selected_order.po_form.purchase_date }}"></div>
+                        <div><strong>Reference No.:</strong> <input class="po-reference-input" name="po_number" value="{{ selected_order.po_form.reference_no }}" readonly required></div>
+                    </div>
+                    <div class="po-two-col">
+                        <div class="po-box po-contact-box">
+                            <div class="po-box-head">BILL TO</div>
+                            <div class="po-row"><label>Contact Person:</label><textarea name="po_bill_contact_person" rows="1">{{ selected_order.po_form.bill_to.contact_person }}</textarea></div>
+                            <div class="po-row"><label>Company Name:</label><textarea name="po_bill_company_name" rows="1">{{ selected_order.po_form.bill_to.company_name }}</textarea></div>
+                            <div class="po-row po-tall"><label>Address:</label><textarea name="po_bill_address">{{ selected_order.po_form.bill_to.address }}</textarea></div>
+                            <div class="po-row"><label>Contact No.:</label><textarea name="po_bill_contact_no" rows="1">{{ selected_order.po_form.bill_to.contact_no }}</textarea></div>
+                            <div class="po-row"><label>E-mail Address:</label><textarea name="po_bill_email_address" rows="1">{{ selected_order.po_form.bill_to.email_address }}</textarea></div>
+                        </div>
+                        <div class="po-box po-contact-box">
+                            <div class="po-box-head">DELIVER TO</div>
+                            <div class="po-row"><label>Contact Person:</label><textarea name="po_deliver_contact_person" rows="1">{{ selected_order.po_form.deliver_to.contact_person }}</textarea></div>
+                            <div class="po-row"><label>Company Name:</label><textarea name="po_deliver_company_name" rows="1">{{ selected_order.po_form.deliver_to.company_name }}</textarea></div>
+                            <div class="po-row po-tall"><label>Address:</label><textarea name="po_deliver_address">{{ selected_order.po_form.deliver_to.address }}</textarea></div>
+                            <div class="po-row"><label>Contact No.:</label><textarea name="po_deliver_contact_no" rows="1">{{ selected_order.po_form.deliver_to.contact_no }}</textarea></div>
+                            <div class="po-row"><label>E-mail Address:</label><textarea name="po_deliver_email_address" rows="1">{{ selected_order.po_form.deliver_to.email_address }}</textarea></div>
+                        </div>
+                    </div>
+                    <div class="po-two-col mt-2">
+                        <div class="po-box">
+                            <div class="po-section-head">MODE OF PAYMENT</div>
+                            <div class="po-payment-options">
+                                <label><input type="checkbox" name="po_payment_modes" value="cash" {% if 'cash' in selected_order.po_form.payment_modes %}checked{% endif %}> CASH</label>
+                                <label><input type="checkbox" name="po_payment_modes" value="check" {% if 'check' in selected_order.po_form.payment_modes %}checked{% endif %}> CHECK</label>
+                                <label><input type="checkbox" name="po_payment_modes" value="bank_transfer" {% if 'bank_transfer' in selected_order.po_form.payment_modes %}checked{% endif %}> BANK TRANSFER</label>
+                            </div>
+                        </div>
+                        <div class="po-box">
+                            <div class="po-section-head">MODE OF DELIVERY</div>
+                            <div class="po-merged-row">
+                                <select name="po_delivery_mode">
+                                    <option value="delivery_fee" {% if selected_order.po_form.delivery_mode == 'delivery_fee' %}selected{% endif %}>DELIVERY FEE</option>
+                                    <option value="pickup" {% if selected_order.po_form.delivery_mode == 'pickup' %}selected{% endif %}>PICKUP</option>
+                                    <option value="courier" {% if selected_order.po_form.delivery_mode == 'courier' %}selected{% endif %}>COURIER</option>
+                                    <option value="company_delivery" {% if selected_order.po_form.delivery_mode == 'company_delivery' %}selected{% endif %}>COMPANY DELIVERY</option>
+                                    <option value="others" {% if selected_order.po_form.delivery_mode == 'others' %}selected{% endif %}>OTHERS</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2 mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="procurementPoRemoveItemBtn">Remove Row</button>
+                        <button type="button" class="btn btn-sm btn-outline-success" id="procurementPoAddItemBtn">Add Row</button>
+                    </div>
+                    <table class="po-items-table mt-2">
+                        <thead>
+                            <tr>
+                                <th>NO.</th>
+                                <th>ITEM DESCRIPTION</th>
+                                <th>QTY</th>
+                                <th>UM</th>
+                                <th>UNIT PRICE</th>
+                                <th>AMOUNT</th>
+                            </tr>
+                        </thead>
+                        <tbody id="procurementPoItemsBody">
+                            {% for item in selected_order.po_form.items %}
+                            <tr class="po-item-row">
+                                <td><input name="po_item_no" value="{{ forloop.counter }}" readonly></td>
+                                <td><textarea name="po_item_description" rows="1">{{ item.description }}</textarea></td>
+                                <td><input name="po_item_qty" inputmode="decimal" value="{{ item.qty }}"></td>
+                                <td><input name="po_item_um" value="{{ item.um }}"></td>
+                                <td><input name="po_item_unit_price" inputmode="decimal" value="{{ item.unit_price }}"></td>
+                                <td><input name="po_item_amount" value="{{ item.amount }}" readonly></td>
+                            </tr>
+                            {% endfor %}
+                            <tr id="procurementPoNothingFollowsRow"><td colspan="6" class="po-nothing">*NOTHING FOLLOWS*</td></tr>
+                        </tbody>
+                        <tfoot>
+                            <tr><td colspan="5" class="text-end fw-semibold">SUB-TOTAL (Php):</td><td><input name="po_subtotal" id="procurementPoSubtotal" value="{{ selected_order.po_form.subtotal }}" readonly></td></tr>
+                            <tr class="po-less-discount-row"><td colspan="5" class="text-end">LESS DISCOUNT:</td><td><input name="po_less_discount" id="procurementPoLessDiscount" value="{{ selected_order.po_form.less_discount }}"></td></tr>
+                            <tr class="po-total-row"><td colspan="5" class="text-end fw-bold">TOTAL AMOUNT (Php):</td><td><input name="po_total_amount" id="procurementPoTotalAmount" value="{{ selected_order.po_form.total_amount }}" readonly></td></tr>
+                        </tfoot>
+                    </table>
+                    <div class="po-two-col mt-2">
+                        <div class="po-box">
+                            <div class="po-section-head">SPECIAL INSTRUCTIONS:</div>
+                            <textarea class="po-large-text" name="po_special_instructions">{{ selected_order.po_form.special_instructions }}</textarea>
+                        </div>
+                        <div class="po-box po-authorized-box">
+                            <div class="po-section-head">AUTHORIZED BY:</div>
+                            <textarea class="po-authorized-input" name="po_authorized_by" rows="1">{{ selected_order.po_form.authorized_by }}</textarea>
+                            <div class="po-row"><label>Date:</label><input type="date" name="po_authorized_date" value="{{ selected_order.po_form.authorized_date }}"></div>
+                        </div>
+                    </div>
+                    <input type="hidden" name="remarks" value="{{ selected_order.po_form.remarks }}">
+                </div>
 
-            <label class="procurement-po-detail-field">
-                <span>Invoice / PO,%</span>
-                <input type="text" value="{{ selected_order.invoice_percent }}" readonly>
-            </label>
-            <label class="procurement-po-detail-field">
-                <span>Invoice / PO USD</span>
-                <input type="text" value="{{ selected_order.invoice_usd }}" readonly>
-            </label>
-            <label class="procurement-po-detail-field">
-                <span>Total</span>
-                <input type="text" value="{{ selected_order.total_display }}" readonly>
-            </label>
-            <label class="procurement-po-detail-field">
-                <span>New Total</span>
-                <input type="text" value="{{ selected_order.new_total_display }}" readonly>
-            </label>
-
-            <label class="procurement-po-detail-field procurement-po-detail-wide">
-                <span>Location/Address</span>
-                <input type="text" value="{{ selected_order.location }}" readonly>
-            </label>
-        </div>
-
-        <div class="procurement-po-detail-card-actions">
-            <button class="procurement-po-muted-btn" type="button">+ Add documents</button>
-            <div>
-                <button class="procurement-po-muted-btn" type="button">Edit Purchase Order</button>
-                <button class="procurement-po-muted-btn" type="button">Revision History</button>
+                <aside class="procurement-po-meta-panel" aria-label="Procurement status fields">
+                    <div class="procurement-po-meta-head">
+                        <strong>Procurement Update</strong>
+                        <span>Table fields</span>
+                    </div>
+                    <label>
+                        <span>ID#</span>
+                        <input type="text" value="{{ selected_order.procurement_meta.id_no }}" readonly>
+                    </label>
+                    <label>
+                        <span>Status</span>
+                        <input type="text" value="{{ selected_order.procurement_meta.status }}" readonly>
+                    </label>
+                    <label>
+                        <span>Sending Status</span>
+                        <select name="procurement_sending_status">
+                            <option value="Sent" {% if selected_order.procurement_meta.sending_status == 'Sent' %}selected{% endif %}>Sent</option>
+                            <option value="Not Sent" {% if selected_order.procurement_meta.sending_status == 'Not Sent' %}selected{% endif %}>Not Sent</option>
+                            <option value="Pending" {% if selected_order.procurement_meta.sending_status == 'Pending' %}selected{% endif %}>Pending</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Payment</span>
+                        <select name="procurement_payment_status">
+                            <option value="Paid" {% if selected_order.procurement_meta.payment_status == 'Paid' %}selected{% endif %}>Paid</option>
+                            <option value="Not paid" {% if selected_order.procurement_meta.payment_status == 'Not paid' %}selected{% endif %}>Not paid</option>
+                            <option value="Partial" {% if selected_order.procurement_meta.payment_status == 'Partial' %}selected{% endif %}>Partial</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Department</span>
+                        <input type="text" name="procurement_department" value="{{ selected_order.procurement_meta.department }}">
+                    </label>
+                    <label>
+                        <span>Supplier</span>
+                        <input type="text" name="procurement_supplier" value="{{ selected_order.procurement_meta.supplier }}">
+                    </label>
+                    <label>
+                        <span>Total</span>
+                        <input type="text" id="procurementMetaTotalDisplay" value="{{ selected_order.procurement_meta.total }}" readonly>
+                    </label>
+                    <label>
+                        <span>Date</span>
+                        <input type="text" id="procurementMetaDateDisplay" value="{{ selected_order.procurement_meta.date }}" readonly>
+                    </label>
+                    <label>
+                        <span>Due Date</span>
+                        <input type="date" name="procurement_due_date" value="{{ selected_order.procurement_meta.due_date_input }}">
+                    </label>
+                    <label>
+                        <span>Receiving</span>
+                        <select name="procurement_receipt_status">
+                            <option value="" {% if not selected_order.procurement_meta.receipt_status %}selected{% endif %}>Not received</option>
+                            <option value="Received" {% if selected_order.procurement_meta.receipt_status == 'Received' %}selected{% endif %}>Received</option>
+                            <option value="Completed" {% if selected_order.procurement_meta.receipt_status == 'Completed' %}selected{% endif %}>Completed</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Notes</span>
+                        <textarea name="procurement_notes" rows="3">{{ selected_order.procurement_meta.notes }}</textarea>
+                    </label>
+                </aside>
             </div>
-        </div>
+
+            <div class="procurement-po-detail-card-actions">
+                <span class="text-secondary small">Linked to Technicals Create PO data.</span>
+                <button class="procurement-po-muted-btn procurement-po-save-btn" type="submit">Save Purchase Order</button>
+            </div>
+        </form>
     </section>
 
     <div class="procurement-po-detail-actions">
@@ -96,77 +211,227 @@
         </form>
     </div>
 </div>
+<script>
+(function () {
+    const body = document.getElementById('procurementPoItemsBody');
+    const nothingRow = document.getElementById('procurementPoNothingFollowsRow');
+    const subtotalInput = document.getElementById('procurementPoSubtotal');
+    const discountInput = document.getElementById('procurementPoLessDiscount');
+    const totalInput = document.getElementById('procurementPoTotalAmount');
+    const purchaseDateInput = document.getElementById('procurementPoPurchaseDate');
+    const metaTotalDisplay = document.getElementById('procurementMetaTotalDisplay');
+    const metaDateDisplay = document.getElementById('procurementMetaDateDisplay');
+
+    function parseMoney(value) {
+        const numeric = String(value || '').replace(/,/g, '').trim();
+        const parsed = Number.parseFloat(numeric);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function formatMoney(value) {
+        return Math.max(Number(value) || 0, 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+
+    function resizeTextarea(textarea) {
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.max(26, textarea.scrollHeight) + 'px';
+    }
+
+    function renumberRows() {
+        if (!body) return;
+        body.querySelectorAll('.po-item-row').forEach((row, index) => {
+            const input = row.querySelector('[name="po_item_no"]');
+            if (input) input.value = String(index + 1);
+        });
+    }
+
+    function computeTotals() {
+        if (!body) return;
+        let subtotal = 0;
+        body.querySelectorAll('.po-item-row').forEach((row) => {
+            const qty = parseMoney(row.querySelector('[name="po_item_qty"]')?.value);
+            const unitPrice = parseMoney(row.querySelector('[name="po_item_unit_price"]')?.value);
+            const amount = qty * unitPrice;
+            const amountInput = row.querySelector('[name="po_item_amount"]');
+            if (amountInput) amountInput.value = amount ? formatMoney(amount) : '';
+            subtotal += amount;
+        });
+        const total = Math.max(subtotal - parseMoney(discountInput?.value), 0);
+        if (subtotalInput) subtotalInput.value = formatMoney(subtotal);
+        if (totalInput) totalInput.value = formatMoney(total);
+        if (metaTotalDisplay) metaTotalDisplay.value = '$' + formatMoney(total);
+    }
+
+    function bindRow(row) {
+        row.querySelectorAll('[name="po_item_qty"], [name="po_item_unit_price"]').forEach((input) => {
+            input.addEventListener('input', computeTotals);
+        });
+        row.querySelectorAll('textarea').forEach((textarea) => {
+            textarea.addEventListener('input', () => resizeTextarea(textarea));
+            resizeTextarea(textarea);
+        });
+    }
+
+    function createRow() {
+        const row = document.createElement('tr');
+        row.className = 'po-item-row';
+        row.innerHTML = ''
+            + '<td><input name="po_item_no" readonly></td>'
+            + '<td><textarea name="po_item_description" rows="1"></textarea></td>'
+            + '<td><input name="po_item_qty" inputmode="decimal"></td>'
+            + '<td><input name="po_item_um"></td>'
+            + '<td><input name="po_item_unit_price" inputmode="decimal"></td>'
+            + '<td><input name="po_item_amount" readonly></td>';
+        bindRow(row);
+        return row;
+    }
+
+    document.getElementById('procurementPoAddItemBtn')?.addEventListener('click', () => {
+        if (!body || !nothingRow) return;
+        body.insertBefore(createRow(), nothingRow);
+        renumberRows();
+        computeTotals();
+    });
+
+    document.getElementById('procurementPoRemoveItemBtn')?.addEventListener('click', () => {
+        if (!body) return;
+        const rows = body.querySelectorAll('.po-item-row');
+        if (!rows.length) return;
+        rows[rows.length - 1].remove();
+        if (!body.querySelector('.po-item-row') && nothingRow) {
+            body.insertBefore(createRow(), nothingRow);
+        }
+        renumberRows();
+        computeTotals();
+    });
+
+    discountInput?.addEventListener('input', computeTotals);
+    purchaseDateInput?.addEventListener('input', () => {
+        if (metaDateDisplay) metaDateDisplay.value = purchaseDateInput.value;
+    });
+    document.querySelectorAll('.procurement-po-linked-form .po-item-row').forEach(bindRow);
+    document.querySelectorAll('.procurement-po-linked-form textarea').forEach(resizeTextarea);
+    renumberRows();
+    computeTotals();
+})();
+</script>
 {% else %}
 <div class="procurement-board procurement-po-page procurement-po-list-page">
-    <div class="procurement-po-list-head">
+    <div class="procurement-po-header">
         <h1>Purchase Orders</h1>
-        <a class="procurement-po-add" href="{% url 'crm_technicals' %}">
-            <span aria-hidden="true">+</span>
-            <span>Add new order</span>
-        </a>
     </div>
 
-    <nav class="procurement-po-status-tabs" aria-label="Purchase order status filters">
-        <a class="{% if not status_filter %}active{% endif %}" href="{{ all_status_url }}">All ({{ total_requests }})</a>
-        <a class="{% if status_filter == 'pending' %}active{% endif %}" href="{{ pending_status_url }}">Pending ({{ pending_requests }})</a>
-        <a class="{% if status_filter == 'approved' %}active{% endif %}" href="{{ approved_status_url }}">Approved ({{ approved_requests }})</a>
-        <a class="{% if status_filter == 'rejected' %}active{% endif %}" href="{{ rejected_status_url }}">Denied ({{ rejected_requests }})</a>
-        <a href="{{ all_status_url }}">Purchased ({{ purchased_requests }})</a>
-        <a href="{% url 'procurement_po_receipts' %}">Received ({{ received_requests }})</a>
-    </nav>
-
-    <div class="procurement-po-list-card">
-        <form class="procurement-po-list-controls" method="get">
-            <label class="visually-hidden" for="procurementOrderSearch">Search Orders</label>
-            <input id="procurementOrderSearch" type="search" name="q" value="{{ query }}" placeholder="Search Orders ...">
-            {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-            <button class="procurement-po-control-btn" type="submit">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v4H6zM8 11h8M9 15h6M10 19h4"/></svg>
-                <span>Filter Tools</span>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
-            </button>
-            <button class="procurement-po-control-btn" type="button">
+    <div class="procurement-po-toolbar">
+        <div class="procurement-po-view-controls" aria-label="Purchase order view controls">
+            <a class="procurement-po-tool active" href="{{ all_status_url }}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
-                <span>Order Number</span>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                <span>List</span>
+            </a>
+            <button class="procurement-po-tool" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z"/></svg>
+                <span>Grid</span>
             </button>
-        </form>
+            <details class="procurement-po-filter">
+                <summary class="procurement-po-tool">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v4H6zM8 11h8M9 15h6M10 19h4"/></svg>
+                    <span>Filter</span>
+                </summary>
+                <div class="procurement-po-filter-menu">
+                    <form class="procurement-po-filter-form" method="get">
+                        <label class="visually-hidden" for="procurementOrderSearch">Search Orders</label>
+                        <input id="procurementOrderSearch" type="search" name="q" value="{{ query }}" placeholder="Search orders">
+                        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+                        <button type="submit">Search</button>
+                    </form>
+                    <a class="{% if not status_filter %}active{% endif %}" href="{{ all_status_url }}">All ({{ total_requests }})</a>
+                    <a class="{% if status_filter == 'pending' %}active{% endif %}" href="{{ pending_status_url }}">Pending ({{ pending_requests }})</a>
+                    <a class="{% if status_filter == 'approved' %}active{% endif %}" href="{{ approved_status_url }}">Approved ({{ approved_requests }})</a>
+                    <a class="{% if status_filter == 'rejected' %}active{% endif %}" href="{{ rejected_status_url }}">Denied ({{ rejected_requests }})</a>
+                    <a href="{% url 'procurement_po_receipts' %}">Received ({{ received_requests }})</a>
+                </div>
+            </details>
+        </div>
 
-        <div class="procurement-po-list" aria-label="Purchase order list">
-            {% for row in requests_page %}
-            <article class="procurement-po-list-row is-clickable" data-href="{{ row.detail_url }}" role="link" tabindex="0" aria-label="Open purchase order {{ row.reference_no }}">
-                <div class="procurement-po-select">
-                    <input type="checkbox" aria-label="Select order {{ row.reference_no }}">
-                </div>
-                <div class="procurement-po-summary">
-                    <span class="procurement-po-number-pill">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h10v14H7zM9 4h6v2H9z"/></svg>
-                        {{ row.order_badge }}
-                    </span>
-                    <div class="procurement-po-line-items">
-                        <span>Line Items: {{ row.line_items_count }}</span>
-                        <a href="{{ row.detail_url }}">+ more details</a>
-                    </div>
-                </div>
-                <div class="procurement-po-meta">
-                    <span>Due Date</span>
-                    <strong>{{ row.due_date }}</strong>
-                    <span>Submitted</span>
-                    <strong>{{ row.submitted_date }}</strong>
-                    <span>Department</span>
-                    <strong>{{ row.department }}</strong>
-                </div>
-                <div class="procurement-po-amount">
-                    <strong>{% if row.total_amount %}$ {{ row.total_amount }}{% else %}$ 0.00{% endif %}</strong>
-                    <span>Final approved by<br><b>{{ row.approved_by }}</b></span>
-                </div>
-                <button class="procurement-po-more" type="button" aria-label="More actions for {{ row.reference_no }}">...</button>
-            </article>
-            {% empty %}
-            <div class="text-center text-secondary py-4">{{ empty_message }}</div>
-            {% endfor %}
+        <div class="procurement-po-actions">
+            <button class="procurement-po-import" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 17v2h14v-2"/></svg>
+                <span>Import and update orders</span>
+            </button>
+            <a class="procurement-po-add" href="{% url 'crm_technicals' %}">
+                <span aria-hidden="true">+</span>
+                <span>Add new order</span>
+            </a>
         </div>
     </div>
+
+    <section class="procurement-po-table-card" aria-label="Purchase orders">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0 procurement-po-table procurement-orders-table">
+                <thead>
+                    <tr>
+                        <th>ID#</th>
+                        <th>Status</th>
+                        <th>Sending Status</th>
+                        <th>Payment</th>
+                        <th>Department</th>
+                        <th>Supplier</th>
+                        <th>Total</th>
+                        <th>Date</th>
+                        <th>Due Date</th>
+                        <th class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in requests_page %}
+                    <tr class="procurement-po-table-row" data-href="{{ row.detail_url }}" role="link" tabindex="0" aria-label="Open purchase order {{ row.reference_no }}">
+                        <td>{{ row.reference_no }}</td>
+                        <td>
+                            {% if row.status == 'approved' %}
+                                <span class="procurement-po-status is-approved">Approved</span>
+                            {% elif row.status == 'pending' %}
+                                <span class="procurement-po-status is-pending">Pending</span>
+                            {% elif row.status == 'rejected' %}
+                                <span class="procurement-po-status is-denied">Denied</span>
+                            {% elif row.status == 'not submitted' %}
+                                <span class="procurement-po-status is-not-sent">Not Sent</span>
+                            {% else %}
+                                <span class="procurement-po-status is-open">Open</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.sending_status }}</td>
+                        <td>{{ row.payment_status }}</td>
+                        <td>{{ row.department }}</td>
+                        <td>{{ row.supplier }}</td>
+                        <td>{{ row.total_display }}</td>
+                        <td>{{ row.submitted_date }}</td>
+                        <td>{{ row.due_date }}</td>
+                        <td class="text-end">
+                            <div class="procurement-po-row-actions">
+                                <a href="{{ row.detail_url }}" aria-label="View purchase order {{ row.reference_no }}" title="View">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v-5M12 8h.01"/><circle cx="12" cy="12" r="9"/></svg>
+                                </a>
+                                <a href="{{ row.detail_url }}" aria-label="Edit purchase order {{ row.reference_no }}" title="Edit">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 7.5l3 3"/></svg>
+                                </a>
+                                <button type="button" aria-label="Delete purchase order {{ row.reference_no }}" title="Delete">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M8 7l1-3h6l1 3M7 7l1 13h8l1-13"/></svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center text-secondary py-4">{{ empty_message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 
     {% if requests_page.has_other_pages %}
     <nav class="procurement-po-pagination" aria-label="Purchase orders pagination">
@@ -195,7 +460,7 @@
     {% endif %}
 </div>
 <script>
-document.querySelectorAll('.procurement-po-list-row[data-href]').forEach((row) => {
+document.querySelectorAll('.procurement-po-table-row[data-href]').forEach((row) => {
     row.addEventListener('click', (event) => {
         if (event.target.closest('a, button, input, label')) return;
         window.location.href = row.dataset.href;
@@ -220,10 +485,9 @@ document.querySelectorAll('.procurement-po-list-row[data-href]').forEach((row) =
     </div>
     <div class="procurement-process-nav">
         <a href="{% url 'procurement_dashboard' %}">Dashboard</a>
-        <a href="{% url 'procurement_store' %}">Manage Store</a>
         <a class="active" href="{% url 'procurement_purchase_orders' %}">Purchase Orders</a>
         <a href="{% url 'procurement_suppliers' %}">Manage Suppliers</a>
-        <a href="{% url 'procurement_products' %}">Manage Inventory</a>
+        <a href="{% url 'procurement_products' %}">Products</a>
         <a href="{% url 'procurement_notifications' %}">Suggestions</a>
     </div>
 </div>
