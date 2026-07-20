@@ -362,7 +362,6 @@ urlpatterns = [
     path('procurement/purchase-requests/', RedirectView.as_view(pattern_name='procurement_purchase_orders', permanent=False, query_string=True), name='procurement_purchase_requests'),
     path('procurement/job-requests/', procurement_job_requests, name='procurement_job_requests'),
     path('procurement/suppliers/', procurement_feature_page, {'feature_slug': 'suppliers'}, name='procurement_suppliers'),
-    path('procurement/supplier-management/', procurement_feature_page, {'feature_slug': 'supplier-management'}, name='procurement_supplier_management'),
     path('procurement/canvassing-quotations/', procurement_feature_page, {'feature_slug': 'canvassing-quotations'}, name='procurement_canvassing_quotations'),
     path('procurement/purchase-orders/', procurement_purchase_requests, name='procurement_purchase_orders'),
     path('procurement/po-receipts/', procurement_feature_page, {'feature_slug': 'po-receipts'}, name='procurement_po_receipts'),

@@ -58,6 +58,7 @@ from .models import (
     PatchNoteAttachment,
     PatchNoteComment,
     ProcurementProduct,
+    ProcurementSupplier,
     UserProfile,
 )
 
@@ -1443,6 +1444,39 @@ class ProcurementProductForm(forms.ModelForm):
         if commit:
             instance.save()
         return instance
+
+
+class ProcurementSupplierForm(forms.ModelForm):
+    class Meta:
+        model = ProcurementSupplier
+        fields = [
+            'name',
+            'currency',
+            'category',
+            'contact_name',
+            'contact_email',
+            'contact_number',
+            'payment_terms',
+            'deferred_payment_terms',
+            'notes',
+        ]
+        widgets = {
+            'notes': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            if isinstance(field.widget, forms.Select):
+                field.widget.attrs.setdefault('class', 'form-select')
+            else:
+                field.widget.attrs.setdefault('class', 'form-control')
+
+    def clean_name(self):
+        name = (self.cleaned_data.get('name') or '').strip()
+        if not name:
+            raise ValidationError('Supplier name is required.')
+        return name
 
 
 class AssetItemTypeForm(forms.ModelForm):

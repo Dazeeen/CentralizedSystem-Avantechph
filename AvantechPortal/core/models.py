@@ -2359,6 +2359,51 @@ class ProcurementProduct(models.Model):
 		return f'${self.price:,.2f}'
 
 
+class ProcurementSupplier(models.Model):
+	CATEGORY_NATIONAL = 'National'
+	CATEGORY_LOCAL = 'Local'
+	CATEGORY_CHOICES = [
+		(CATEGORY_NATIONAL, 'National'),
+		(CATEGORY_LOCAL, 'Local'),
+	]
+	CURRENCY_CHOICES = [
+		('PHP', 'PHP'),
+		('USD', 'USD'),
+		('EUR', 'EUR'),
+	]
+
+	name = models.CharField(max_length=180, unique=True)
+	currency = models.CharField(max_length=10, choices=CURRENCY_CHOICES, default='PHP')
+	category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_LOCAL)
+	contact_name = models.CharField(max_length=150, blank=True)
+	contact_email = models.EmailField(blank=True)
+	contact_number = models.CharField(max_length=50, blank=True)
+	payment_terms = models.CharField(max_length=120, blank=True)
+	deferred_payment_terms = models.PositiveIntegerField(default=0)
+	notes = models.TextField(blank=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='procurement_suppliers_created',
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['name']
+
+	def __str__(self):
+		return self.name
+
+	def save(self, *args, **kwargs):
+		self.name = (self.name or '').strip()
+		self.contact_name = (self.contact_name or '').strip()
+		self.payment_terms = (self.payment_terms or '').strip()
+		super().save(*args, **kwargs)
+
+
 class AssetDepartment(models.Model):
 	name = models.CharField(max_length=100, unique=True)
 	is_default = models.BooleanField(default=False)

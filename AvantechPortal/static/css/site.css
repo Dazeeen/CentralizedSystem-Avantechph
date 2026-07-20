@@ -1235,6 +1235,72 @@ body {
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
+.procurement-po-add-modal .modal-header {
+    align-items: flex-start;
+    border-bottom-color: #e8edf3;
+}
+
+.procurement-po-add-modal .modal-title {
+    margin: 0;
+    color: #20242a;
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.procurement-po-add-modal .modal-header span {
+    display: block;
+    color: #6b7280;
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+}
+
+.procurement-po-add-modal .modal-body {
+    padding-top: 1rem;
+}
+
+.procurement-po-add-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+
+.procurement-po-add-form label {
+    display: grid;
+    gap: 0.32rem;
+    margin: 0;
+}
+
+.procurement-po-add-form label > span {
+    color: #20242a;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.procurement-po-add-form input,
+.procurement-po-add-form select,
+.procurement-po-add-form textarea {
+    width: 100%;
+    min-height: 36px;
+    border: 1px solid #d8dee6;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #20242a;
+    font-size: 0.82rem;
+    padding: 0.5rem 0.65rem;
+}
+
+.procurement-po-add-form textarea {
+    resize: vertical;
+}
+
+.procurement-po-add-wide {
+    grid-column: span 2;
+}
+
+.procurement-po-add-modal .modal-footer {
+    border-top-color: #e8edf3;
+}
+
 .procurement-po-list-controls {
     display: grid;
     grid-template-columns: minmax(260px, 1fr) auto auto;
@@ -1598,6 +1664,18 @@ body {
     color: #ffffff;
 }
 
+.procurement-po-edit-btn {
+    background: #ffffff;
+    color: #1f2370;
+    border: 1px solid #d8dee6;
+}
+
+.procurement-po-save-btn:disabled,
+.procurement-po-edit-layout button:disabled {
+    cursor: not-allowed;
+    opacity: 0.56;
+}
+
 .procurement-po-edit-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
@@ -1669,6 +1747,46 @@ body {
 
 .procurement-po-meta-panel textarea {
     resize: vertical;
+}
+
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet input,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet textarea,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet select,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel input,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel textarea,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel select {
+    cursor: default;
+    outline: 0;
+    box-shadow: none;
+}
+
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet input:read-only,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet textarea:read-only,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet select:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet input:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .po-sheet textarea:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel input:read-only,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel textarea:read-only,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel select:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel input:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel textarea:disabled {
+    color: inherit;
+    opacity: 1;
+    -webkit-text-fill-color: currentColor;
+}
+
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel select:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel input:read-only,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel input:disabled,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel textarea:read-only,
+.procurement-po-linked-form[data-po-edit-mode="readonly"] .procurement-po-meta-panel textarea:disabled {
+    background: #f8fafc;
+}
+
+.procurement-po-linked-form[data-po-edit-mode="editing"] .po-sheet input:not([readonly]),
+.procurement-po-linked-form[data-po-edit-mode="editing"] .po-sheet textarea:not([readonly]),
+.procurement-po-linked-form[data-po-edit-mode="editing"] .po-sheet select:not(:disabled) {
+    background: #fffdf2;
 }
 
 .po-sheet {
@@ -2457,6 +2575,47 @@ body {
 
 .procurement-suppliers-table {
     min-width: 1040px;
+}
+
+.procurement-supplier-modal .modal-header {
+    align-items: flex-start;
+    border-bottom-color: #e8edf3;
+}
+
+.procurement-supplier-modal .modal-title {
+    margin: 0;
+    color: #20242a;
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.procurement-supplier-modal .modal-header span {
+    display: block;
+    color: #6b7280;
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+}
+
+.procurement-supplier-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+
+.procurement-supplier-form label {
+    display: grid;
+    gap: 0.32rem;
+    margin: 0;
+}
+
+.procurement-supplier-form label > span {
+    color: #20242a;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.procurement-supplier-form-wide {
+    grid-column: span 3;
 }
 
 .procurement-supplier-name {
@@ -3753,6 +3912,18 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .procurement-po-add-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .procurement-supplier-form-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .procurement-supplier-form-wide {
+        grid-column: span 2;
+    }
+
     .procurement-po-list-row {
         grid-template-columns: 28px 100px minmax(0, 1fr);
     }
@@ -3955,6 +4126,14 @@ body {
 
     .procurement-po-list-card {
         padding: 0.8rem 0.9rem 0.2rem;
+    }
+
+    .procurement-po-add-grid,
+    .procurement-po-add-wide,
+    .procurement-supplier-form-grid,
+    .procurement-supplier-form-wide {
+        grid-template-columns: 1fr;
+        grid-column: auto;
     }
 
     .procurement-po-list-row {

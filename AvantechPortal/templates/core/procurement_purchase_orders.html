@@ -8,11 +8,11 @@
 {% if selected_order %}
 <div class="procurement-board procurement-po-page procurement-po-detail-page">
     <div class="procurement-po-detail-head">
-        <h1>Purchase Orders</h1>
         <a href="{{ detail_back_url }}" aria-label="Back to purchase orders">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
             <span>Back</span>
         </a>
+        <h1>Purchase Orders</h1>
     </div>
 
     <section class="procurement-po-detail-card procurement-po-form-card" aria-label="Purchase order details">
@@ -21,7 +21,7 @@
             <strong class="procurement-po-detail-status is-{{ selected_order.status_class }}">{{ selected_order.status_label }}</strong>
         </div>
 
-        <form method="post" class="procurement-po-linked-form">
+        <form method="post" class="procurement-po-linked-form" id="procurementPoLinkedForm" data-po-edit-mode="readonly" aria-readonly="true">
             {% csrf_token %}
             <input type="hidden" name="form_action" value="update_procurement_purchase_order">
             <input type="hidden" name="technical_record_id" value="{{ selected_order.id }}">
@@ -74,8 +74,8 @@
                         </div>
                     </div>
                     <div class="d-flex justify-content-end gap-2 mt-2">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="procurementPoRemoveItemBtn">Remove Row</button>
-                        <button type="button" class="btn btn-sm btn-outline-success" id="procurementPoAddItemBtn">Add Row</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="procurementPoRemoveItemBtn" hidden>Remove Row</button>
+                        <button type="button" class="btn btn-sm btn-outline-success" id="procurementPoAddItemBtn" hidden>Add Row</button>
                     </div>
                     <table class="po-items-table mt-2">
                         <thead>
@@ -186,8 +186,11 @@
             </div>
 
             <div class="procurement-po-detail-card-actions">
-                <span class="text-secondary small">Linked to Technicals Create PO data.</span>
-                <button class="procurement-po-muted-btn procurement-po-save-btn" type="submit">Save Purchase Order</button>
+                <span class="text-secondary small" id="procurementPoEditStatus">Read-only view. Click Edit to update this purchase order.</span>
+                <div>
+                    <button class="procurement-po-muted-btn procurement-po-edit-btn" id="procurementPoEditBtn" type="button">Edit Purchase Order</button>
+                    <button class="procurement-po-muted-btn procurement-po-save-btn" id="procurementPoSaveBtn" type="submit" disabled hidden>Save Purchase Order</button>
+                </div>
             </div>
         </form>
     </section>
@@ -213,6 +216,7 @@
 </div>
 <script>
 (function () {
+    const form = document.getElementById('procurementPoLinkedForm');
     const body = document.getElementById('procurementPoItemsBody');
     const nothingRow = document.getElementById('procurementPoNothingFollowsRow');
     const subtotalInput = document.getElementById('procurementPoSubtotal');
@@ -221,6 +225,55 @@
     const purchaseDateInput = document.getElementById('procurementPoPurchaseDate');
     const metaTotalDisplay = document.getElementById('procurementMetaTotalDisplay');
     const metaDateDisplay = document.getElementById('procurementMetaDateDisplay');
+    const editButton = document.getElementById('procurementPoEditBtn');
+    const saveButton = document.getElementById('procurementPoSaveBtn');
+    const editStatus = document.getElementById('procurementPoEditStatus');
+    const addItemButton = document.getElementById('procurementPoAddItemBtn');
+    const removeItemButton = document.getElementById('procurementPoRemoveItemBtn');
+    const persistReadonlyNames = new Set(['po_number', 'po_item_no', 'po_item_amount', 'po_subtotal', 'po_total_amount']);
+    const persistReadonlyIds = new Set(['procurementMetaTotalDisplay', 'procurementMetaDateDisplay']);
+    const editableSelector = 'input:not([type="hidden"]), textarea, select';
+
+    function shouldStayReadonly(control) {
+        return persistReadonlyNames.has(control.name) || persistReadonlyIds.has(control.id);
+    }
+
+    function setFormEditMode(isEditing, message) {
+        if (!form) return;
+        form.dataset.poEditMode = isEditing ? 'editing' : 'readonly';
+        form.setAttribute('aria-readonly', isEditing ? 'false' : 'true');
+        form.querySelectorAll(editableSelector).forEach((control) => {
+            const tagName = control.tagName.toLowerCase();
+            const isReadOnlyCapable = tagName === 'textarea' || (tagName === 'input' && control.type !== 'checkbox' && control.type !== 'radio');
+
+            control.disabled = !isEditing || shouldStayReadonly(control);
+            if (isReadOnlyCapable) {
+                control.readOnly = shouldStayReadonly(control);
+            }
+        });
+        [addItemButton, removeItemButton].forEach((button) => {
+            if (!button) return;
+            button.disabled = !isEditing;
+            button.hidden = !isEditing;
+        });
+        if (editButton) editButton.hidden = isEditing;
+        if (saveButton) {
+            saveButton.disabled = !isEditing;
+            saveButton.hidden = !isEditing;
+        }
+        if (editStatus) {
+            editStatus.textContent = message || (isEditing
+                ? 'Editing mode is active. Save to apply your changes.'
+                : 'Read-only view. Click Edit to update this purchase order.');
+        }
+    }
+
+    function enableFormForSubmit() {
+        if (!form) return;
+        form.querySelectorAll(editableSelector).forEach((control) => {
+            control.disabled = false;
+        });
+    }
 
     function parseMoney(value) {
         const numeric = String(value || '').replace(/,/g, '').trim();
@@ -290,14 +343,17 @@
         return row;
     }
 
-    document.getElementById('procurementPoAddItemBtn')?.addEventListener('click', () => {
+    addItemButton?.addEventListener('click', () => {
+        if (form?.dataset.poEditMode !== 'editing') return;
         if (!body || !nothingRow) return;
         body.insertBefore(createRow(), nothingRow);
         renumberRows();
         computeTotals();
+        setFormEditMode(true);
     });
 
-    document.getElementById('procurementPoRemoveItemBtn')?.addEventListener('click', () => {
+    removeItemButton?.addEventListener('click', () => {
+        if (form?.dataset.poEditMode !== 'editing') return;
         if (!body) return;
         const rows = body.querySelectorAll('.po-item-row');
         if (!rows.length) return;
@@ -307,8 +363,41 @@
         }
         renumberRows();
         computeTotals();
+        setFormEditMode(true);
     });
 
+    editButton?.addEventListener('click', () => setFormEditMode(true));
+    form?.addEventListener('submit', async (event) => {
+        if (form.dataset.poEditMode !== 'editing') {
+            event.preventDefault();
+            return;
+        }
+        event.preventDefault();
+        enableFormForSubmit();
+        if (saveButton) saveButton.disabled = true;
+        if (editStatus) editStatus.textContent = 'Saving purchase order...';
+
+        try {
+            const response = await fetch(form.action || window.location.href, {
+                method: 'POST',
+                body: new FormData(form),
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                },
+                credentials: 'same-origin'
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload.ok) {
+                throw new Error(payload.message || 'Unable to save purchase order.');
+            }
+            setFormEditMode(false, payload.message || 'Purchase order details saved.');
+            if (window.showToast) window.showToast(payload.message || 'Purchase order details saved.', 'success');
+        } catch (error) {
+            setFormEditMode(true, error.message || 'Unable to save purchase order.');
+            if (window.showToast) window.showToast(error.message || 'Unable to save purchase order.', 'danger');
+        }
+    });
     discountInput?.addEventListener('input', computeTotals);
     purchaseDateInput?.addEventListener('input', () => {
         if (metaDateDisplay) metaDateDisplay.value = purchaseDateInput.value;
@@ -317,6 +406,7 @@
     document.querySelectorAll('.procurement-po-linked-form textarea').forEach(resizeTextarea);
     renumberRows();
     computeTotals();
+    setFormEditMode(false);
 })();
 </script>
 {% else %}
@@ -361,10 +451,92 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 17v2h14v-2"/></svg>
                 <span>Import and update orders</span>
             </button>
-            <a class="procurement-po-add" href="{% url 'crm_technicals' %}">
+            <button class="procurement-po-add" type="button" data-bs-toggle="modal" data-bs-target="#procurementAddOrderModal">
                 <span aria-hidden="true">+</span>
                 <span>Add new order</span>
-            </a>
+            </button>
+        </div>
+    </div>
+
+    <div class="modal fade" id="procurementAddOrderModal" tabindex="-1" aria-labelledby="procurementAddOrderModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content procurement-po-add-modal">
+                <form method="post" class="procurement-po-add-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="create_procurement_purchase_order">
+                    <div class="modal-header">
+                        <div>
+                            <h2 class="modal-title" id="procurementAddOrderModalLabel">Add New Order</h2>
+                            <span>Create the purchase order shell, then complete the PO sheet after it opens.</span>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="procurement-po-add-grid">
+                            <label>
+                                <span>PO Number</span>
+                                <input type="text" name="po_number" value="{{ new_order_number }}" required>
+                            </label>
+                            <label>
+                                <span>Purchase Date</span>
+                                <input type="date" name="po_purchase_date" value="{{ today_date }}" required>
+                            </label>
+                            <label>
+                                <span>First Name</span>
+                                <input type="text" name="client_first_name" autocomplete="given-name" required>
+                            </label>
+                            <label>
+                                <span>Last Name</span>
+                                <input type="text" name="client_last_name" autocomplete="family-name" required>
+                            </label>
+                            <label>
+                                <span>Contact No.</span>
+                                <input type="text" name="client_contact_number" autocomplete="tel" required>
+                            </label>
+                            <label>
+                                <span>Email</span>
+                                <input type="email" name="client_email_address" autocomplete="email">
+                            </label>
+                            <label class="procurement-po-add-wide">
+                                <span>Address</span>
+                                <textarea name="client_address" rows="2" autocomplete="street-address"></textarea>
+                            </label>
+                            <label>
+                                <span>Supplier</span>
+                                <input type="text" name="procurement_supplier">
+                            </label>
+                            <label>
+                                <span>Department</span>
+                                <input type="text" name="procurement_department" value="Procurement">
+                            </label>
+                            <label>
+                                <span>Sending Status</span>
+                                <select name="procurement_sending_status">
+                                    <option value="Not Sent">Not Sent</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Sent">Sent</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Payment</span>
+                                <select name="procurement_payment_status">
+                                    <option value="Not paid">Not paid</option>
+                                    <option value="Partial">Partial</option>
+                                    <option value="Paid">Paid</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Due Date</span>
+                                <input type="date" name="procurement_due_date">
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                        <button class="btn btn-success" type="submit">Create Order</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 

@@ -10,7 +10,7 @@
     <span class="nav-logo" aria-hidden="true">RC</span>
     <span class="nav-label">PO Receipts</span>
 </a>
-<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_suppliers' or request.resolver_match.url_name == 'procurement_supplier_management' or request.resolver_match.url_name == 'procurement_canvassing_quotations' %}active{% endif %}" href="{% url 'procurement_suppliers' %}" style="font-size: 0.9rem;">
+<a class="nav-link app-nav-link ms-4 {% if request.resolver_match.url_name == 'procurement_suppliers' or request.resolver_match.url_name == 'procurement_canvassing_quotations' %}active{% endif %}" href="{% url 'procurement_suppliers' %}" style="font-size: 0.9rem;">
     <span class="nav-logo" aria-hidden="true">S</span>
     <span class="nav-label">Suppliers</span>
 </a>

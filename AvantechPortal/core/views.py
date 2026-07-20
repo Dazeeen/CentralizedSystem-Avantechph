@@ -101,6 +101,7 @@ from .forms import (
 	PatchNoteCommentForm,
 	PatchNoteForm,
 	ProcurementProductForm,
+	ProcurementSupplierForm,
 	LockoutResetForm,
 	OTPVerificationForm,
 	RoleForm,
@@ -150,6 +151,7 @@ from .models import (
 	CRMTechnicalTeam,
 	CRMTechnicalNotificationSetting,
 	ProcurementProduct,
+	ProcurementSupplier,
 	CRMWarrantyRecord,
 	CRMWarrantyDeletionRequest,
 	CRMClientDeletionRequest,
@@ -6494,6 +6496,7 @@ def _procurement_order_requests_context(request, order_type):
 	def _status_url(status_value):
 		params = request.GET.copy()
 		params.pop('page', None)
+		params.pop('add', None)
 		if status_value:
 			params['status'] = status_value
 		else:
@@ -6518,6 +6521,8 @@ def _procurement_order_requests_context(request, order_type):
 		'search_placeholder': 'JO#, PO#, client, contact no.' if is_job_request else 'PO#, client, contact no.',
 		'is_purchase_order_page': is_purchase_order_page,
 		'selected_order': selected_order,
+		'new_order_number': _procurement_next_purchase_order_number() if is_purchase_order_page and not selected_order else '',
+		'today_date': timezone.localdate().isoformat(),
 		'detail_back_url': detail_back_url,
 		'is_job_request': is_job_request,
 		'show_secondary_number': is_job_request,
@@ -6788,25 +6793,41 @@ def _procurement_supplier_rows(records):
 		'Darlene Robertson',
 		'Albert Flores',
 	]
+	saved_suppliers = list(ProcurementSupplier.objects.all())
+	rows = [
+		{
+			'row_no': f'{235 - index:04d}',
+			'name': supplier.name,
+			'currency': supplier.currency,
+			'category': supplier.category,
+			'contact_name': supplier.contact_name or '-',
+			'payment_terms': supplier.payment_terms or '-',
+			'deferred_payment_terms': supplier.deferred_payment_terms,
+			'notes': supplier.notes,
+			'id': supplier.id,
+		}
+		for index, supplier in enumerate(saved_suppliers)
+	]
 	supplier_names = []
 	for record in records:
 		order_data = _procurement_record_order_data(record)
 		name = order_data.get('supplier_name') or order_data.get('supplier') or order_data.get('vendor')
-		if name and name not in supplier_names:
+		if name and name not in supplier_names and not any(row['name'] == name for row in rows):
 			supplier_names.append(name)
-	supplier_names = (supplier_names + fallback_suppliers)[:14]
-	return [
-		{
-			'row_no': f'{235 - index:04d}',
+	supplier_names = (supplier_names + [name for name in fallback_suppliers if not any(row['name'] == name for row in rows)])[:max(14 - len(rows), 0)]
+	for offset, name in enumerate(supplier_names, start=len(rows)):
+		rows.append({
+			'row_no': f'{235 - offset:04d}',
 			'name': name,
-			'currency': 'EUR' if index in {2, 3, 8} else 'USD',
-			'category': 'Local' if index in {2, 5, 6, 8} else 'National',
-			'contact_name': contact_names[index % len(contact_names)],
-			'payment_terms': 'Prepayment' if index not in {2, 3, 5, 9, 10, 11} else '-',
-			'deferred_payment_terms': [3, 10, 0, 0, 5, 0, 7, 11, 12, 0, 0, 0, 8, 10][index],
-		}
-		for index, name in enumerate(supplier_names)
-	]
+			'currency': 'EUR' if offset in {2, 3, 8} else 'USD',
+			'category': 'Local' if offset in {2, 5, 6, 8} else 'National',
+			'contact_name': contact_names[offset % len(contact_names)],
+			'payment_terms': 'Prepayment' if offset not in {2, 3, 5, 9, 10, 11} else '-',
+			'deferred_payment_terms': [3, 10, 0, 0, 5, 0, 7, 11, 12, 0, 0, 0, 8, 10][offset % 14],
+			'notes': '',
+			'id': '',
+		})
+	return rows
 
 
 def _procurement_invoice_rows(records):
@@ -7134,10 +7155,134 @@ def procurement_purchase_requests(request):
 	redirect_url_name = 'procurement_purchase_orders' if getattr(request.resolver_match, 'url_name', '') == 'procurement_purchase_orders' else 'procurement_purchase_requests'
 	next_url = (request.POST.get('next') or '').strip()
 	redirect_target = next_url if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}) else reverse(redirect_url_name)
+	is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
 	if request.method == 'POST':
 		if not can_approve_purchase_requests:
+			if is_ajax:
+				return JsonResponse({'ok': False, 'message': 'Only Operation Head or users with approval permission can update purchase orders.'}, status=403)
 			return _permission_denied_response(request, 'Only Operation Head or users with approval permission can update purchase orders.')
 		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action == 'create_procurement_purchase_order':
+			first_name = (request.POST.get('client_first_name') or '').strip()
+			last_name = (request.POST.get('client_last_name') or '').strip()
+			contact_number = (request.POST.get('client_contact_number') or '').strip()
+			email_address = (request.POST.get('client_email_address') or '').strip()
+			address = (request.POST.get('client_address') or '').strip()
+			supplier = (request.POST.get('procurement_supplier') or '').strip()
+			department = (request.POST.get('procurement_department') or '').strip() or 'Procurement'
+			purchase_date = (request.POST.get('po_purchase_date') or '').strip() or timezone.localdate().isoformat()
+			due_date = (request.POST.get('procurement_due_date') or '').strip()
+			order_number = (request.POST.get('po_number') or '').strip() or _procurement_next_purchase_order_number()
+			if not first_name or not last_name or not contact_number:
+				message = 'Client first name, last name, and contact number are required.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.warning(request, message, extra_tags='toast')
+				return redirect(redirect_target)
+			if not _procurement_is_purchase_order_placeholder(order_number) and CRMTechnicalRecord.objects.filter(po_number__iexact=order_number).exists():
+				message = f'PO# {order_number} is already assigned to another technical record.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=400)
+				messages.error(request, message, extra_tags='toast')
+				return redirect(redirect_target)
+
+			def _create_purchase_order_write():
+				with transaction.atomic():
+					client = CRMClient.objects.create(
+						customer_id='',
+						first_name=first_name,
+						last_name=last_name,
+						contact_number=contact_number,
+						email=email_address,
+						home_address=address,
+						created_by=request.user,
+					)
+					sales_record = CRMSalesRecord.objects.create(
+						client=client,
+						date_created=timezone.localdate(),
+						sales_status='close won',
+						created_by=request.user,
+					)
+					purchase_order_data = {
+						'reference_no': order_number,
+						'purchase_date': purchase_date,
+						'sending_status': (request.POST.get('procurement_sending_status') or 'Not Sent').strip(),
+						'payment_status': (request.POST.get('procurement_payment_status') or 'Not paid').strip(),
+						'department': department,
+						'supplier': supplier,
+						'supplier_name': supplier,
+						'due_date': due_date,
+						'bill_to': {
+							'contact_person': f'{first_name} {last_name}'.strip(),
+							'company_name': '',
+							'address': address,
+							'contact_no': contact_number,
+							'email_address': email_address,
+						},
+						'deliver_to': {
+							'contact_person': '',
+							'company_name': 'Avantech Integrated Technology Solutions, Inc.',
+							'address': 'Unit 305, EnergyOpt Bldg., Madrigal Business Park 2, Ayala Alabang, Muntinlupa City, Metro Manila',
+							'contact_no': '',
+							'email_address': '',
+						},
+						'payment_modes': [],
+						'delivery_mode': 'delivery_fee',
+						'items': [{'no': str(index + 1), 'description': '', 'qty': '', 'um': '', 'unit_price': '', 'amount': ''} for index in range(5)],
+						'subtotal': '0.00',
+						'less_discount': '',
+						'total_amount': '0.00',
+						'special_instructions': '',
+						'authorized_by': '',
+						'authorized_date': '',
+						'remarks': '',
+					}
+					tech_record = CRMTechnicalRecord.objects.create(
+						sales_record=sales_record,
+						client_name=f'{first_name} {last_name}'.strip(),
+						contact_number=contact_number,
+						email_address=email_address,
+						full_address=address,
+						po_number=order_number,
+						purchase_order_data=purchase_order_data,
+						purchase_order_approval_status='approved',
+						created_by=request.user,
+					)
+					CRMTechnicalActionLog.objects.create(
+						technical_record=tech_record,
+						sales_record=sales_record,
+						action='installation_updated',
+						previous_remarks='New procurement purchase order',
+						new_remarks=f'Created PO# {order_number} from Procurement Purchase Orders.',
+						created_by=request.user,
+					)
+				return tech_record
+
+			created_tech = _procurement_run_with_sqlite_retry(_create_purchase_order_write)
+			if created_tech is None:
+				message = 'The database is busy right now. Please try again in a moment.'
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': message}, status=503)
+				messages.error(request, message, extra_tags='toast')
+				return redirect(redirect_target)
+			record_activity(
+				request,
+				'create',
+				'clients',
+				f'Created PO# {order_number} from Procurement Purchase Orders.',
+				target=created_tech,
+				target_label=f'Technical #{created_tech.id}',
+				metadata={'sales_record_id': created_tech.sales_record_id, 'order_type': 'po', 'order_number': order_number},
+			)
+			params = request.GET.copy()
+			params.pop('page', None)
+			params['order'] = created_tech.id
+			detail_url = f'{reverse("procurement_purchase_orders")}?{params.urlencode()}'
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': 'Purchase order created.', 'redirect_url': detail_url, 'order_number': order_number})
+			messages.success(request, 'Purchase order created.', extra_tags='toast')
+			return redirect(detail_url)
+
 		if form_action == 'update_procurement_purchase_order':
 			tech_record = get_object_or_404(
 				CRMTechnicalRecord.objects.select_related('sales_record', 'sales_record__client'),
@@ -7146,9 +7291,13 @@ def procurement_purchase_requests(request):
 			existing_order_data = tech_record.purchase_order_data if isinstance(tech_record.purchase_order_data, dict) else {}
 			order_number = (request.POST.get('po_number') or existing_order_data.get('reference_no') or tech_record.po_number or '').strip()
 			if not order_number:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': 'PO# is required.'}, status=400)
 				messages.warning(request, 'PO# is required.', extra_tags='toast')
 				return redirect(redirect_target)
 			if not _procurement_is_purchase_order_placeholder(order_number) and CRMTechnicalRecord.objects.filter(po_number__iexact=order_number).exclude(pk=tech_record.pk).exists():
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': f'PO# {order_number} is already assigned to another technical record.'}, status=400)
 				messages.error(request, f'PO# {order_number} is already assigned to another technical record.', extra_tags='toast')
 				return redirect(redirect_target)
 			purchase_order_data = {
@@ -7177,6 +7326,8 @@ def procurement_purchase_requests(request):
 
 			saved_ok = _procurement_run_with_sqlite_retry(_update_purchase_order_write)
 			if saved_ok is None:
+				if is_ajax:
+					return JsonResponse({'ok': False, 'message': 'The database is busy right now. Please try again in a moment.'}, status=503)
 				messages.error(request, 'The database is busy right now. Please try again in a moment.', extra_tags='toast')
 				return redirect(redirect_target)
 			record_activity(
@@ -7188,6 +7339,8 @@ def procurement_purchase_requests(request):
 				target_label=f'Technical #{tech_record.id}',
 				metadata={'sales_record_id': tech_record.sales_record_id, 'order_type': 'po', 'order_number': order_number},
 			)
+			if is_ajax:
+				return JsonResponse({'ok': True, 'message': 'Purchase order details saved.', 'order_number': order_number})
 			messages.success(request, 'Purchase order details saved.', extra_tags='toast')
 			return redirect(redirect_target)
 
@@ -7285,11 +7438,6 @@ PROCUREMENT_FEATURE_PAGES = {
 		'description': 'Current suppliers, new supplier search, details, contacts, and order-more actions.',
 		'kind': 'suppliers',
 	},
-	'supplier-management': {
-		'title': 'Supplier Management',
-		'description': 'Maintain supplier profiles, contacts, terms, and procurement notes.',
-		'kind': 'suppliers',
-	},
 	'notifications': {
 		'title': 'Suggestions',
 		'description': 'Alerts, suggestions, and recommended actions for procurement work.',
@@ -7321,6 +7469,31 @@ def procurement_feature_page(request, feature_slug):
 	feature = PROCUREMENT_FEATURE_PAGES.get(feature_slug)
 	if not feature:
 		raise Http404('Procurement page not found.')
+
+	if feature_slug == 'suppliers' and request.method == 'POST':
+		form_action = (request.POST.get('form_action') or '').strip()
+		if form_action != 'create_procurement_supplier':
+			messages.error(request, 'Invalid supplier action.', extra_tags='toast')
+			return redirect('procurement_suppliers')
+		form = ProcurementSupplierForm(request.POST)
+		if form.is_valid():
+			supplier = form.save(commit=False)
+			supplier.created_by = request.user
+			supplier.save()
+			record_activity(
+				request,
+				'create',
+				'clients',
+				f'Created procurement supplier {supplier.name}.',
+				target=supplier,
+				target_label=supplier.name,
+				metadata={'supplier_id': supplier.id},
+			)
+			messages.success(request, f'Supplier {supplier.name} saved.', extra_tags='toast')
+			return redirect('procurement_suppliers')
+		error_text = ' '.join(error for field_errors in form.errors.values() for error in field_errors)
+		messages.error(request, error_text or 'Unable to save supplier.', extra_tags='toast')
+		return redirect('procurement_suppliers')
 
 	if feature_slug == 'products' and request.method == 'POST':
 		form_action = (request.POST.get('form_action') or '').strip()
@@ -7374,6 +7547,8 @@ def procurement_feature_page(request, feature_slug):
 	context['feature'] = {**feature, 'slug': feature_slug}
 	if feature_slug == 'products':
 		context.update(_procurement_products_context(request))
+	if feature_slug == 'suppliers':
+		context['supplier_form'] = ProcurementSupplierForm()
 	return render(request, 'core/procurement_feature_page.html', context)
 
 
