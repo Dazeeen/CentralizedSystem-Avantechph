@@ -28,6 +28,9 @@ from .models import (
     AccountingRequest,
     ConsumableItem,
     ConsumableItemType,
+    CRMClient,
+    CRMSalesRecord,
+    CRMTechnicalRecord,
     FundRequest,
     FundRequestLineItem,
     FundRequestTemplate,
@@ -41,6 +44,139 @@ from .models import (
     SystemBackupSchedule,
     SupportTicket,
 )
+
+
+class CRMDashboardMapTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username='crm-map-admin',
+            password='password',
+            email='crm-map-admin@example.com',
+        )
+        self.client.force_login(self.user)
+
+    def _create_client(self, customer_id='CX-MAP-0001', **overrides):
+        values = {
+            'customer_id': customer_id,
+            'first_name': 'Map',
+            'last_name': 'Client',
+            'contact_number': '09170000000',
+            'email': 'map-client@example.com',
+            'home_address': 'Sample Address',
+            'city': 'Makati',
+            'geo_latitude': 14.5547,
+            'geo_longitude': 121.0244,
+            'created_by': self.user,
+        }
+        values.update(overrides)
+        return CRMClient.objects.create(**values)
+
+    def test_map_endpoint_returns_exact_pin_and_every_linked_solar_system(self):
+        crm_client = self._create_client()
+        first_sale = CRMSalesRecord.objects.create(
+            client=crm_client,
+            service_type='solar',
+            sales_status='closed won',
+            job_order_number='JO26-00001',
+            created_by=self.user,
+        )
+        CRMTechnicalRecord.objects.create(
+            sales_record=first_sale,
+            total_power_pv_system_kwp='5.5 kWp',
+            total_panels='10',
+            pv_module_brand_name='Panel A',
+            inverter_brand_name='Inverter A',
+            installation_status='completed',
+            created_by=self.user,
+        )
+        second_sale = CRMSalesRecord.objects.create(
+            client=crm_client,
+            service_type='solar',
+            sales_status='closed won',
+            job_order_number='JO26-00002',
+            created_by=self.user,
+        )
+        CRMTechnicalRecord.objects.create(
+            sales_record=second_sale,
+            total_power_pv_system_kwp='8 kWp',
+            total_panels='14',
+            pv_system_type_installed='Hybrid',
+            installation_status='ongoing',
+            created_by=self.user,
+        )
+
+        response = self.client.get(reverse('crm_dashboard_map_pins'))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['unmapped_client_count'], 0)
+        self.assertEqual(len(payload['pins']), 1)
+        pin = payload['pins'][0]
+        self.assertEqual(pin['lat'], 14.5547)
+        self.assertEqual(pin['lng'], 121.0244)
+        self.assertEqual(pin['location_accuracy'], 'Exact client address')
+        self.assertEqual(pin['count'], 1)
+        self.assertEqual(len(pin['clients']), 1)
+        systems = pin['clients'][0]['systems']
+        self.assertEqual(len(systems), 2)
+        self.assertEqual({system['capacity'] for system in systems}, {'5.5 kWp', '8 kWp'})
+        self.assertEqual({system['job_order_number'] for system in systems}, {'JO26-00001', 'JO26-00002'})
+
+    def test_map_payload_uses_province_center_instead_of_country_center(self):
+        self._create_client(
+            city='Cavite',
+            geo_latitude=None,
+            geo_longitude=None,
+        )
+
+        payload = views._build_crm_dashboard_map_payload(CRMClient.objects.all())
+
+        self.assertEqual(payload['unmapped_client_count'], 0)
+        self.assertEqual(len(payload['pins']), 1)
+        pin = payload['pins'][0]
+        self.assertEqual(pin['location_accuracy'], 'Approximate province center')
+        self.assertNotEqual((pin['lat'], pin['lng']), (12.8797, 121.7740))
+
+    def test_map_payload_does_not_create_a_false_pin_for_unknown_location(self):
+        self._create_client(
+            home_address='Unknown',
+            city='Not A Philippine Location',
+            geo_latitude=None,
+            geo_longitude=None,
+        )
+
+        payload = views._build_crm_dashboard_map_payload(CRMClient.objects.all())
+
+        self.assertEqual(payload['pins'], [])
+        self.assertEqual(payload['unmapped_client_count'], 1)
+
+    def test_clients_with_the_same_coordinates_receive_separate_pins(self):
+        self._create_client()
+        self._create_client(
+            customer_id='CX-MAP-0002',
+            first_name='Second',
+            last_name='Client',
+        )
+
+        payload = views._build_crm_dashboard_map_payload(CRMClient.objects.all())
+
+        self.assertEqual(len(payload['pins']), 2)
+        self.assertTrue(all(pin['count'] == 1 for pin in payload['pins']))
+        self.assertTrue(all(len(pin['clients']) == 1 for pin in payload['pins']))
+        self.assertTrue(all('names' not in pin for pin in payload['pins']))
+        self.assertEqual(
+            {pin['client_name'] for pin in payload['pins']},
+            {'Client, Map', 'Client, Second'},
+        )
+
+    def test_dashboard_contains_bootstrap_client_system_modal(self):
+        self._create_client()
+
+        response = self.client.get(reverse('crm_dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="crmMapClientModal"')
+        self.assertContains(response, 'all recorded solar systems')
 
 
 def _build_docx_template_bytes(text):

@@ -79,7 +79,7 @@
                 </thead>
                 <tbody>
                     {% for row in clients_page %}
-                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'F j, Y' }}{% elif row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-registered-at-iso="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'Y-m-d' }}{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}" data-qr-payload="{{ row.crm_qr_payload }}" data-qr-image="{{ row.crm_qr_data_uri }}"
+                        <tr class="crm-client-row" data-client-id="{{ row.id }}" data-edit-url="{% url 'crm_client_update' row.id %}" data-customer-id="{{ row.customer_id }}" data-first-name="{{ row.first_name }}" data-last-name="{{ row.last_name }}" data-contact-number="{{ row.contact_number }}" data-email="{{ row.email|default:'-' }}" data-home-address="{{ row.home_address|default:'-' }}" data-city="{{ row.city|default:'-' }}" data-geo-latitude="{{ row.geo_latitude|default_if_none:'' }}" data-geo-longitude="{{ row.geo_longitude|default_if_none:'' }}" data-notes="{{ row.notes|default:'-' }}" data-customer-type="{{ row.get_customer_type_display }}" data-customer-type-value="{{ row.customer_type }}" data-date-of-birth="{% if row.date_of_birth %}{{ row.date_of_birth|date:'F j, Y' }}{% else %}-{% endif %}" data-date-of-birth-iso="{% if row.date_of_birth %}{{ row.date_of_birth|date:'Y-m-d' }}{% endif %}" data-registered-at="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'F j, Y' }}{% elif row.created_at %}{{ row.created_at|date:'F j, Y g:i A' }}{% else %}-{% endif %}" data-registered-at-iso="{% if row.registered_in_system_on %}{{ row.registered_in_system_on|date:'Y-m-d' }}{% endif %}" data-media-template-id="crm-client-media-{{ row.id }}" data-qr-payload="{{ row.crm_qr_payload }}" data-qr-image="{{ row.crm_qr_data_uri }}"
                             {% with sales=row.sales_records.first %}
                                 data-sales-date-created="{% if sales and sales.date_created %}{{ sales.date_created|date:'F j, Y' }}{% else %}-{% endif %}"
                                 data-sales-lead-source="{% if sales and sales.lead_source %}{{ sales.lead_source }}{% else %}-{% endif %}"
@@ -520,7 +520,9 @@
                             </div>
                         </div>
 	                        <form id="crmInlineProfileForm" class="row g-3">
-                            {% csrf_token %}
+	                            {% csrf_token %}
+                                <input type="hidden" id="infoGeoLatitude" name="geo_latitude">
+                                <input type="hidden" id="infoGeoLongitude" name="geo_longitude">
                             <div class="col-md-6">
                                 <label class="form-label">Customer ID</label>
                                 <input class="form-control bg-light" id="infoCustomerId" readonly>
@@ -710,6 +712,8 @@
                         <div class="col-md-8">
                             <label class="form-label" for="editHomeAddress">Home Address</label>
                             <input class="form-control" id="editHomeAddress" name="home_address" type="text" autocomplete="off">
+                            <input type="hidden" id="editGeoLatitude" name="geo_latitude">
+                            <input type="hidden" id="editGeoLongitude" name="geo_longitude">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="editCity">City</label>
@@ -774,6 +778,8 @@
                         <div class="col-md-8">
                             <label class="form-label" for="{{ form.home_address.id_for_label }}">Home Address</label>
                             {{ form.home_address }}
+                            {{ form.geo_latitude }}
+                            {{ form.geo_longitude }}
                         </div>
                         <div class="col-12 d-none" id="addClientDuplicateHintWrap">
                             <div class="small text-danger" id="addClientDuplicateHint"></div>
@@ -1628,6 +1634,8 @@
         row.dataset.registeredAt = row.dataset.registeredAtIso || '-';
         row.dataset.homeAddress = document.getElementById('infoHomeAddress').value || '-';
         row.dataset.city = document.getElementById('infoCity').value || '-';
+        row.dataset.geoLatitude = document.getElementById('infoGeoLatitude').value || '';
+        row.dataset.geoLongitude = document.getElementById('infoGeoLongitude').value || '';
         row.dataset.notes = document.getElementById('infoNotes').value || '-';
         var typeSelect = document.getElementById('infoCustomerType');
         row.dataset.customerTypeValue = typeSelect ? typeSelect.value : 'residential';
@@ -1743,6 +1751,8 @@
         document.getElementById('infoRegisteredAt').value = row.dataset.registeredAtIso || '';
         document.getElementById('infoHomeAddress').value = row.dataset.homeAddress === '-' ? '' : (row.dataset.homeAddress || '');
         document.getElementById('infoCity').value = row.dataset.city === '-' ? '' : (row.dataset.city || '');
+        document.getElementById('infoGeoLatitude').value = row.dataset.geoLatitude || '';
+        document.getElementById('infoGeoLongitude').value = row.dataset.geoLongitude || '';
         document.getElementById('infoNotes').value = row.dataset.notes === '-' ? '' : (row.dataset.notes || '');
         document.getElementById('infoSalesDateCreated').value = row.dataset.salesDateCreated || '-';
         document.getElementById('infoSalesLeadSource').value = row.dataset.salesLeadSource || '-';
@@ -2765,6 +2775,8 @@
         { value: 'date_of_birth', label: 'Date of Birth' },
         { value: 'home_address', label: 'Home Address' },
         { value: 'city', label: 'City' },
+        { value: 'geo_latitude', label: 'Latitude' },
+        { value: 'geo_longitude', label: 'Longitude' },
         { value: 'notes', label: 'Notes' },
         { value: 'customer_type', label: 'Customer Type' },
         { value: 'lead_source', label: 'Lead Source' },
@@ -3119,6 +3131,11 @@
             'home address': 'home_address',
             'address': 'home_address',
             'city': 'city',
+            'latitude': 'geo_latitude',
+            'lat': 'geo_latitude',
+            'longitude': 'geo_longitude',
+            'lng': 'geo_longitude',
+            'lon': 'geo_longitude',
             'notes': 'notes',
             'remarks': 'notes',
             'customer type': 'customer_type',

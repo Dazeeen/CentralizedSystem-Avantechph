@@ -691,6 +691,8 @@ class CRMClientForm(forms.ModelForm):
             'registered_in_system_on',
             'home_address',
             'city',
+            'geo_latitude',
+            'geo_longitude',
             'notes',
             'customer_type',
             'media_files',
@@ -706,6 +708,8 @@ class CRMClientForm(forms.ModelForm):
                     'data-country-code': 'ph',
                 }
             ),
+            'geo_latitude': forms.HiddenInput(),
+            'geo_longitude': forms.HiddenInput(),
             'notes': forms.Textarea(attrs={'rows': 3}),
         }
 

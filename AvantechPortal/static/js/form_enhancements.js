@@ -192,6 +192,37 @@
         return root.querySelector('input[name="city"], textarea[name="city"], #infoCity, #editCity, #id_city');
     }
 
+    function findCompanionCoordinateFields(addressField) {
+        var root = addressField.closest('form, .modal, .crm-profile-pane') || document;
+        return {
+            latitude: root.querySelector('input[name="geo_latitude"], #id_geo_latitude'),
+            longitude: root.querySelector('input[name="geo_longitude"], #id_geo_longitude'),
+        };
+    }
+
+    function setSelectedSuggestionCoordinates(addressField, suggestion) {
+        var fields = findCompanionCoordinateFields(addressField);
+        if (!fields.latitude || !fields.longitude) return;
+        var geometry = suggestion && suggestion.geometry && typeof suggestion.geometry === 'object'
+            ? suggestion.geometry
+            : {};
+        var coordinates = Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
+        var properties = suggestion && suggestion.properties && typeof suggestion.properties === 'object'
+            ? suggestion.properties
+            : {};
+        var latitude = coordinates.length >= 2 ? Number(coordinates[1]) : Number(properties.lat);
+        var longitude = coordinates.length >= 2 ? Number(coordinates[0]) : Number(properties.lon || properties.lng);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+        fields.latitude.value = String(latitude);
+        fields.longitude.value = String(longitude);
+    }
+
+    function clearSelectedSuggestionCoordinates(addressField) {
+        var fields = findCompanionCoordinateFields(addressField);
+        if (fields.latitude) fields.latitude.value = '';
+        if (fields.longitude) fields.longitude.value = '';
+    }
+
     function ensureDatalistForAddressField(field) {
         var listId = field.getAttribute('list');
         if (listId) {
@@ -255,6 +286,7 @@
             if (!selected) {
                 return;
             }
+            setSelectedSuggestionCoordinates(field, selected);
             var tryApplyCity = function (candidate) {
                 var cityValue = String(candidate || '').trim();
                 if (!cityValue) return false;
@@ -365,6 +397,9 @@
         });
 
         field.addEventListener('input', function () {
+            if (!suggestionMetaByAddress[field.value || '']) {
+                clearSelectedSuggestionCoordinates(field);
+            }
             if (debounceTimer) {
                 window.clearTimeout(debounceTimer);
             }

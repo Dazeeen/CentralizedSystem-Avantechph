@@ -138,10 +138,33 @@
                         <button type="button" class="btn btn-outline-primary js-ph-map-style" data-map-style="realistic">Realistic</button>
                     </div>
                 </div>
-                <p class="small text-secondary mb-2">Hover a pin to view municipality and client names.</p>
+                <p class="small text-secondary mb-2">
+                    Hover a pin for a quick preview, then click it to view the client and all recorded solar systems.
+                    <span id="crmMapUnmappedNotice"{% if not crm_map_unmapped_client_count %} class="d-none"{% endif %}>
+                        {{ crm_map_unmapped_client_count }} client{{ crm_map_unmapped_client_count|pluralize }} without a usable location {{ crm_map_unmapped_client_count|pluralize:"is,are" }} not pinned.
+                    </span>
+                </p>
                 <div class="ph-map-wrap" id="phMapWrap">
                     <div id="phVectorMap" class="ph-vector-map"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="crmMapClientModal" tabindex="-1" aria-labelledby="crmMapClientModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="crmMapClientModalLabel">Client Solar Systems</h5>
+                    <div class="small text-secondary" id="crmMapClientModalLocation"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="crmMapClientModalBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -166,6 +189,30 @@
 .leaflet-container { background: transparent !important; }
 .leaflet-popup-content-wrapper { border-radius: 10px; }
 .leaflet-control-zoom a { color: #0f1f4f; }
+.crm-client-map-marker { background: transparent; border: 0; transition: opacity 0.15s ease-in-out; }
+.crm-client-map-pin {
+    display: block;
+    width: 15px;
+    height: 15px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #ffcc00;
+    box-shadow: 0 2px 7px rgba(8, 32, 90, 0.48);
+    transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+.crm-client-map-marker:hover .crm-client-map-pin,
+.crm-client-map-marker:focus .crm-client-map-pin {
+    transform: scale(1.18);
+    box-shadow: 0 3px 10px rgba(8, 32, 90, 0.62);
+}
+.crm-map-client-card + .crm-map-client-card { margin-top: 1rem; }
+.crm-map-system-card { border-left: 4px solid #198754 !important; }
+.crm-map-system-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1rem; }
+.crm-map-system-field { min-width: 0; }
+.crm-map-system-value { overflow-wrap: anywhere; }
+@media (max-width: 767.98px) {
+    .crm-map-system-grid { grid-template-columns: 1fr; }
+}
 </style>
 <script>
 (function () {
@@ -427,7 +474,163 @@
     var pinMarkersLayer = L.layerGroup();
     var mapStyleButtons = Array.from(document.querySelectorAll('.js-ph-map-style'));
     var mapWrap = document.getElementById('phMapWrap');
+    var mapClientModalEl = document.getElementById('crmMapClientModal');
+    var mapClientModalBody = document.getElementById('crmMapClientModalBody');
+    var mapClientModalTitle = document.getElementById('crmMapClientModalLabel');
+    var mapClientModalLocation = document.getElementById('crmMapClientModalLocation');
+    var mapUnmappedNotice = document.getElementById('crmMapUnmappedNotice');
     var currentMapStyle = 'vector';
+
+    function displayValue(value) {
+        var textValue = String(value == null ? '' : value).trim();
+        return textValue || '-';
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function appendMapDetail(container, label, value) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'crm-map-system-field';
+        var labelEl = document.createElement('div');
+        labelEl.className = 'small text-secondary';
+        labelEl.textContent = label;
+        var valueEl = document.createElement('div');
+        valueEl.className = 'crm-map-system-value fw-medium';
+        valueEl.textContent = displayValue(value);
+        wrapper.appendChild(labelEl);
+        wrapper.appendChild(valueEl);
+        container.appendChild(wrapper);
+    }
+
+    function buildSystemCard(system, index) {
+        var card = document.createElement('div');
+        card.className = 'card crm-map-system-card shadow-sm';
+        var body = document.createElement('div');
+        body.className = 'card-body';
+        var heading = document.createElement('div');
+        heading.className = 'd-flex flex-wrap align-items-center justify-content-between gap-2 mb-3';
+        var title = document.createElement('h6');
+        title.className = 'mb-0';
+        title.textContent = 'Solar System ' + (index + 1);
+        var status = document.createElement('span');
+        status.className = 'badge text-bg-success';
+        status.textContent = displayValue(system.installation_status || 'Recorded');
+        heading.appendChild(title);
+        heading.appendChild(status);
+        var grid = document.createElement('div');
+        grid.className = 'crm-map-system-grid';
+        [
+            ['Capacity / Package', system.capacity],
+            ['System Type', system.system_type],
+            ['Solar Panels', system.panel_count],
+            ['Panel Brand / Output', system.panel_spec],
+            ['Inverter', system.inverter],
+            ['Battery', system.battery],
+            ['Net Metering', system.net_metering],
+            ['Installation Date', system.installation_date],
+            ['Job Order No.', system.job_order_number]
+        ].forEach(function (item) {
+            appendMapDetail(grid, item[0], item[1]);
+        });
+        body.appendChild(heading);
+        body.appendChild(grid);
+        card.appendChild(body);
+        return card;
+    }
+
+    function buildClientCard(client) {
+        var card = document.createElement('section');
+        card.className = 'card crm-map-client-card border-0 bg-light';
+        var body = document.createElement('div');
+        body.className = 'card-body';
+        var heading = document.createElement('div');
+        heading.className = 'd-flex flex-wrap align-items-start justify-content-between gap-2 mb-3';
+        var headingText = document.createElement('div');
+        var name = document.createElement('h5');
+        name.className = 'mb-1';
+        name.textContent = displayValue(client.name);
+        var customerId = document.createElement('div');
+        customerId.className = 'small text-secondary';
+        customerId.textContent = 'Customer ID: ' + displayValue(client.customer_id);
+        headingText.appendChild(name);
+        headingText.appendChild(customerId);
+        var badge = document.createElement('span');
+        badge.className = 'badge text-bg-primary';
+        badge.textContent = displayValue(client.customer_type);
+        heading.appendChild(headingText);
+        heading.appendChild(badge);
+
+        var details = document.createElement('div');
+        details.className = 'crm-map-system-grid mb-4';
+        appendMapDetail(details, 'Home Address', client.home_address);
+        appendMapDetail(details, 'City / Municipality', client.city);
+        appendMapDetail(details, 'Contact Number', client.contact_number);
+        appendMapDetail(details, 'Email', client.email);
+
+        var systemHeading = document.createElement('div');
+        systemHeading.className = 'fw-semibold mb-2';
+        var systems = Array.isArray(client.systems) ? client.systems : [];
+        systemHeading.textContent = 'Solar Panels / Systems (' + systems.length + ')';
+        var systemsWrap = document.createElement('div');
+        systemsWrap.className = 'd-grid gap-3';
+        if (systems.length) {
+            systems.forEach(function (system, index) {
+                systemsWrap.appendChild(buildSystemCard(system || {}, index));
+            });
+        } else {
+            var empty = document.createElement('div');
+            empty.className = 'alert alert-secondary mb-0';
+            empty.textContent = 'No solar system details are recorded for this client yet.';
+            systemsWrap.appendChild(empty);
+        }
+
+        body.appendChild(heading);
+        body.appendChild(details);
+        body.appendChild(systemHeading);
+        body.appendChild(systemsWrap);
+        card.appendChild(body);
+        return card;
+    }
+
+    function openMapClientModal(pin) {
+        if (!mapClientModalEl || !mapClientModalBody || !window.bootstrap || !window.bootstrap.Modal) return;
+        var clients = Array.isArray(pin.clients) ? pin.clients : [];
+        if (mapClientModalTitle) {
+            mapClientModalTitle.textContent = clients.length === 1 ? 'Client Solar Systems' : 'Clients and Solar Systems';
+        }
+        if (mapClientModalLocation) {
+            mapClientModalLocation.textContent = displayValue(pin.city) + ' · ' + displayValue(pin.location_accuracy);
+        }
+        mapClientModalBody.replaceChildren();
+        if (!clients.length) {
+            var empty = document.createElement('div');
+            empty.className = 'alert alert-secondary mb-0';
+            empty.textContent = 'No client details are available for this pin.';
+            mapClientModalBody.appendChild(empty);
+        } else {
+            clients.forEach(function (client) {
+                mapClientModalBody.appendChild(buildClientCard(client || {}));
+            });
+        }
+        window.bootstrap.Modal.getOrCreateInstance(mapClientModalEl).show();
+    }
+
+    function syncUnmappedNotice(count) {
+        if (!mapUnmappedNotice) return;
+        var total = Number(count || 0);
+        mapUnmappedNotice.classList.toggle('d-none', total < 1);
+        if (total > 0) {
+            mapUnmappedNotice.textContent = total + ' client' + (total === 1 ? '' : 's')
+                + ' without a usable location ' + (total === 1 ? 'is' : 'are') + ' not pinned.';
+        }
+    }
     function rebuildProvinceCounts(currentPins) {
         provinceCounts = {};
         (currentPins || []).forEach(function (pin) {
@@ -461,18 +664,56 @@
 
     function renderPins(currentPins) {
         pinMarkersLayer.clearLayers();
-        (currentPins || []).forEach(function (pin) {
-            if (typeof pin.lat !== 'number' || typeof pin.lng !== 'number') return;
-            var names = (pin.names || []).slice(0, 12);
-            var extra = (pin.names || []).length > names.length ? ('<br>+' + ((pin.names || []).length - names.length) + ' more') : '';
-            var popupHtml = '<b>' + (pin.city || 'Client Address') + ' (' + (pin.count || 1) + ')</b><br>' + names.join('<br>') + extra;
-            L.circleMarker([pin.lat, pin.lng], {
-                radius: 7,
-                color: '#ffffff',
-                weight: 1.6,
-                fillColor: '#ffcc00',
-                fillOpacity: 0.95
-            }).bindPopup(popupHtml).addTo(pinMarkersLayer);
+        var validPins = (currentPins || []).filter(function (pin) {
+            return typeof pin.lat === 'number' && typeof pin.lng === 'number';
+        });
+        var pinsByCoordinate = {};
+        validPins.forEach(function (pin) {
+            var key = pin.lat.toFixed(6) + ',' + pin.lng.toFixed(6);
+            if (!pinsByCoordinate[key]) pinsByCoordinate[key] = [];
+            pinsByCoordinate[key].push(pin);
+        });
+
+        function markerOffset(index, total) {
+            if (total <= 1 || index === 0) return { x: 0, y: 0 };
+            var spreadIndex = index - 1;
+            var ring = Math.floor(spreadIndex / 8);
+            var slot = spreadIndex % 8;
+            var remaining = total - 1 - (ring * 8);
+            var slotsInRing = Math.min(8, Math.max(1, remaining));
+            var angle = ((Math.PI * 2) / slotsInRing) * slot - (Math.PI / 2);
+            var radius = 17 + (ring * 14);
+            return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+        }
+
+        Object.keys(pinsByCoordinate).forEach(function (coordinateKey) {
+            var coordinatePins = pinsByCoordinate[coordinateKey];
+            coordinatePins.forEach(function (pin, index) {
+                var offset = markerOffset(index, coordinatePins.length);
+                var iconSize = 15;
+                var tooltipHtml = '<b>' + escapeHtml(pin.client_name || 'Client') + '</b><br>'
+                    + escapeHtml(pin.city || 'Client Address')
+                    + '<br><span class="text-muted">Click for complete system details</span>';
+                var marker = L.marker([pin.lat, pin.lng], {
+                    icon: L.divIcon({
+                        className: 'crm-client-map-marker',
+                        html: '<span class="crm-client-map-pin" aria-hidden="true"></span>',
+                        iconSize: [iconSize, iconSize],
+                        iconAnchor: [(iconSize / 2) - offset.x, (iconSize / 2) - offset.y],
+                        tooltipAnchor: [offset.x, offset.y - 8]
+                    }),
+                    opacity: 0.78,
+                    riseOnHover: true,
+                    keyboard: true,
+                    title: pin.client_name || 'CRM client'
+                }).bindTooltip(tooltipHtml, { sticky: true });
+                marker.on('mouseover', function () { marker.setOpacity(1); });
+                marker.on('mouseout', function () { marker.setOpacity(0.78); });
+                marker.on('focus', function () { marker.setOpacity(1); });
+                marker.on('blur', function () { marker.setOpacity(0.78); });
+                marker.on('click', function () { openMapClientModal(pin); });
+                marker.addTo(pinMarkersLayer);
+            });
         });
     }
     function refreshMapVisuals(currentPins) {
@@ -545,6 +786,7 @@
                     .then(function (payload) {
                         var latestPins = (payload && Array.isArray(payload.pins)) ? payload.pins : [];
                         refreshMapVisuals(latestPins);
+                        syncUnmappedNotice(payload ? payload.unmapped_client_count : 0);
                     })
                     .catch(function () {
                         // Silent fail: keep last rendered data when refresh temporarily fails.

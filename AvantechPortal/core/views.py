@@ -404,6 +404,8 @@ def _geocode_ph_address(full_address):
 		lat = float(center[1])
 	except (TypeError, ValueError):
 		return None
+	if not _is_valid_ph_coordinate(lat, lng):
+		return None
 	properties = first.get('properties') if isinstance(first.get('properties'), dict) else {}
 	city = (
 		(properties.get('city') or '')
@@ -416,13 +418,35 @@ def _geocode_ph_address(full_address):
 	return {'lat': lat, 'lng': lng, 'city': city}
 
 
+def _is_valid_ph_coordinate(latitude, longitude):
+	try:
+		lat = float(latitude)
+		lng = float(longitude)
+	except (TypeError, ValueError):
+		return False
+	return math.isfinite(lat) and math.isfinite(lng) and 4.0 <= lat <= 22.5 and 116.0 <= lng <= 127.5
+
+
 def _sync_client_geolocation(client_record):
 	home_address = (client_record.home_address or '').strip()
+	city = (client_record.city or '').strip()
+	if _is_valid_ph_coordinate(client_record.geo_latitude, client_record.geo_longitude):
+		client_record.geo_latitude = float(client_record.geo_latitude)
+		client_record.geo_longitude = float(client_record.geo_longitude)
+		return
 	if not home_address:
 		client_record.geo_latitude = None
 		client_record.geo_longitude = None
 		return
-	geo = _geocode_ph_address(home_address)
+	queries = []
+	if city and city.casefold() not in home_address.casefold():
+		queries.append(f'{home_address}, {city}, Philippines')
+	queries.append(f'{home_address}, Philippines')
+	geo = None
+	for query in queries:
+		geo = _geocode_ph_address(query)
+		if geo:
+			break
 	if not geo:
 		client_record.geo_latitude = None
 		client_record.geo_longitude = None
@@ -431,6 +455,323 @@ def _sync_client_geolocation(client_record):
 	client_record.geo_longitude = geo.get('lng')
 	if not (client_record.city or '').strip() and geo.get('city'):
 		client_record.city = geo.get('city')
+
+
+_CRM_CITY_TO_PROVINCE = {
+	'manila': 'metropolitan-manila',
+	'quezon-city': 'metropolitan-manila',
+	'makati': 'metropolitan-manila',
+	'taguig': 'metropolitan-manila',
+	'pasig': 'metropolitan-manila',
+	'pasay': 'metropolitan-manila',
+	'caloocan': 'metropolitan-manila',
+	'muntinlupa': 'metropolitan-manila',
+	'las-pinas': 'metropolitan-manila',
+	'paranaque': 'metropolitan-manila',
+	'mandaluyong': 'metropolitan-manila',
+	'marikina': 'metropolitan-manila',
+	'malabon': 'metropolitan-manila',
+	'navotas': 'metropolitan-manila',
+	'valenzuela': 'metropolitan-manila',
+	'san-juan': 'metropolitan-manila',
+	'pateros': 'metropolitan-manila',
+	'bacoor': 'cavite',
+	'imus': 'cavite',
+	'dasmarinas': 'cavite',
+	'cavite-city': 'cavite',
+	'antipolo': 'rizal',
+	'san-pedro': 'laguna',
+	'santa-rosa': 'laguna',
+	'cebu-city': 'cebu',
+	'mandaue': 'cebu',
+	'lapu-lapu': 'cebu',
+	'iloilo-city': 'iloilo',
+	'bacolod': 'negros-occidental',
+	'cagayan-de-oro': 'misamis-oriental',
+	'davao-city': 'davao-del-sur',
+	'general-santos': 'south-cotabato',
+	'zamboanga-city': 'zamboanga-del-sur',
+	'butuan': 'agusan-del-norte',
+	'naga': 'camarines-sur',
+	'baguio': 'benguet',
+}
+
+_CRM_CITY_PIN_COORDINATES = {
+	'manila': (14.5995, 120.9842),
+	'quezon-city': (14.6760, 121.0437),
+	'makati': (14.5547, 121.0244),
+	'taguig': (14.5176, 121.0509),
+	'pasig': (14.5764, 121.0851),
+	'pasay': (14.5378, 121.0014),
+	'caloocan': (14.7566, 121.0453),
+	'muntinlupa': (14.4081, 121.0415),
+	'las-pinas': (14.4445, 120.9939),
+	'paranaque': (14.4793, 121.0198),
+	'mandaluyong': (14.5794, 121.0359),
+	'marikina': (14.6507, 121.1029),
+	'malabon': (14.6681, 120.9658),
+	'navotas': (14.6732, 120.9350),
+	'valenzuela': (14.7011, 120.9830),
+	'san-juan': (14.6019, 121.0355),
+	'pateros': (14.5446, 121.0672),
+	'antipolo': (14.6255, 121.1245),
+	'bacoor': (14.4624, 120.9645),
+	'imus': (14.4297, 120.9367),
+	'dasmarinas': (14.3294, 120.9367),
+	'cavite-city': (14.4791, 120.8970),
+	'san-pedro': (14.3595, 121.0472),
+	'santa-rosa': (14.3122, 121.1110),
+	'cebu-city': (10.3157, 123.8854),
+	'mandaue': (10.3231, 123.9220),
+	'lapu-lapu': (10.3103, 123.9494),
+	'iloilo-city': (10.7202, 122.5621),
+	'bacolod': (10.6765, 122.9511),
+	'cagayan-de-oro': (8.4542, 124.6319),
+	'davao-city': (7.1907, 125.4553),
+	'general-santos': (6.1164, 125.1716),
+	'zamboanga-city': (6.9214, 122.0790),
+	'butuan': (8.9475, 125.5406),
+	'naga': (13.6218, 123.1948),
+	'baguio': (16.4023, 120.5960),
+}
+
+
+def _normalize_crm_location_key(value):
+	key = str(value or '').strip().casefold()
+	key = key.replace('ñ', 'n')
+	key = re.sub(r'^city\s+of\s+', '', key)
+	key = re.sub(r'[^a-z0-9]+', '-', key).strip('-')
+	aliases = {
+		'metro-manila': 'metropolitan-manila',
+		'ncr': 'metropolitan-manila',
+		'national-capital-region': 'metropolitan-manila',
+		'las-pinas-city': 'las-pinas',
+		'paranaque-city': 'paranaque',
+		'mandadulyong-city': 'mandaluyong',
+		'mandaluyong-city': 'mandaluyong',
+		'muntinlupa-city': 'muntinlupa',
+		'pasig-city': 'pasig',
+		'makati-city': 'makati',
+		'taguig-city': 'taguig',
+		'pasay-city': 'pasay',
+		'caloocan-city': 'caloocan',
+	}
+	key = aliases.get(key, key)
+	if key.endswith('-city') and key not in _CRM_CITY_PIN_COORDINATES:
+		without_city_suffix = key[:-5]
+		if without_city_suffix in _CRM_CITY_PIN_COORDINATES:
+			return without_city_suffix
+	return key
+
+
+def _walk_geojson_coordinate_pairs(value):
+	if not isinstance(value, list):
+		return
+	if len(value) >= 2 and all(isinstance(item, (int, float)) for item in value[:2]):
+		yield float(value[0]), float(value[1])
+		return
+	for item in value:
+		yield from _walk_geojson_coordinate_pairs(item)
+
+
+@lru_cache(maxsize=1)
+def _crm_province_centers():
+	geojson_path = Path(settings.BASE_DIR) / 'static' / 'data' / 'ph-provinces.min.geojson'
+	try:
+		with geojson_path.open('r', encoding='utf-8') as source:
+			payload = json.load(source)
+	except (OSError, ValueError, TypeError):
+		return {}
+	centers = {}
+	for feature in payload.get('features', []):
+		properties = feature.get('properties') if isinstance(feature, dict) else {}
+		province_name = (properties or {}).get('PROVINCE') or (properties or {}).get('NAME_1') or ''
+		province_key = _normalize_crm_location_key(province_name)
+		geometry = feature.get('geometry') if isinstance(feature, dict) else {}
+		pairs = list(_walk_geojson_coordinate_pairs((geometry or {}).get('coordinates')))
+		if not province_key or not pairs:
+			continue
+		longitudes = [pair[0] for pair in pairs]
+		latitudes = [pair[1] for pair in pairs]
+		centers[province_key] = (
+			(min(latitudes) + max(latitudes)) / 2,
+			(min(longitudes) + max(longitudes)) / 2,
+		)
+	return centers
+
+
+def _parse_crm_coordinate_text(value):
+	text_value = str(value or '').strip()
+	if not text_value:
+		return None
+	preferred_matches = [
+		re.search(r'@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)', text_value),
+		re.search(r'(?:query|q|destination)=\s*(-?\d+(?:\.\d+)?)\s*%?2?c?\s*,?\s*(-?\d+(?:\.\d+)?)', text_value, re.IGNORECASE),
+		re.search(r'^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$', text_value),
+	]
+	for match in preferred_matches:
+		if not match:
+			continue
+		first, second = float(match.group(1)), float(match.group(2))
+		if _is_valid_ph_coordinate(first, second):
+			return first, second
+		if _is_valid_ph_coordinate(second, first):
+			return second, first
+	return None
+
+
+def _crm_client_systems(client):
+	systems = []
+	for sales_record in client.sales_records.all():
+		try:
+			technical_record = sales_record.technical_record
+		except CRMTechnicalRecord.DoesNotExist:
+			technical_record = None
+		proposal_data = sales_record.quotation_proposal_snapshot or {}
+		if not isinstance(proposal_data, dict):
+			proposal_data = {}
+		saved_info = _sales_saved_technical_info(sales_record, technical_record)
+		capacity = (
+			(getattr(technical_record, 'total_power_pv_system_kwp', '') or '').strip()
+			or (saved_info.get('system_size_kwh') or '').strip()
+		)
+		system_type = (
+			(getattr(technical_record, 'pv_system_type_installed', '') or '').strip()
+			or str(proposal_data.get('selected_system_type') or proposal_data.get('system_type') or '').strip().title()
+		)
+		panel_count = (
+			(getattr(technical_record, 'total_panels', '') or '').strip()
+			or (saved_info.get('panel_units') or '').strip()
+		)
+		panel_spec_parts = [
+			(getattr(technical_record, 'pv_module_brand_name', '') or '').strip(),
+			(getattr(technical_record, 'pv_module_output_power_wp', '') or '').strip(),
+		]
+		panel_spec = ' / '.join(part for part in panel_spec_parts if part)
+		inverter_parts = [
+			(getattr(technical_record, 'inverter_brand_name', '') or '').strip(),
+			(getattr(technical_record, 'inverter_size_kw', '') or '').strip(),
+			(saved_info.get('inverter_model') or '').strip(),
+		]
+		inverter = ' / '.join(dict.fromkeys(part for part in inverter_parts if part))
+		battery_parts = [
+			(getattr(technical_record, 'battery_brand_name', '') or '').strip(),
+			(getattr(technical_record, 'battery_capacity_ah', '') or '').strip(),
+			(saved_info.get('battery_model') or '').strip(),
+		]
+		battery = ' / '.join(dict.fromkeys(part for part in battery_parts if part))
+		has_system_data = any(
+			[
+				(sales_record.service_type or '').strip().casefold() == 'solar',
+				capacity,
+				system_type,
+				panel_count,
+				panel_spec,
+				inverter,
+				battery,
+			]
+		)
+		if not has_system_data:
+			continue
+		installation_date = getattr(technical_record, 'installation_date', None)
+		installation_status = (getattr(technical_record, 'installation_status', '') or '').strip()
+		net_metering = (
+			(getattr(technical_record, 'with_net_metering', '') or '').strip()
+			or (saved_info.get('net_metering') or '').strip()
+		)
+		systems.append(
+			{
+				'id': sales_record.pk,
+				'capacity': capacity,
+				'system_type': system_type,
+				'panel_count': panel_count,
+				'panel_spec': panel_spec,
+				'inverter': inverter,
+				'battery': battery,
+				'net_metering': net_metering,
+				'installation_date': installation_date.strftime('%b %d, %Y') if installation_date else '',
+				'installation_status': installation_status.title(),
+				'job_order_number': (
+					(getattr(technical_record, 'job_order_number', '') or '').strip()
+					or (sales_record.job_order_number or '').strip()
+				),
+			}
+		)
+	return systems
+
+
+def _crm_client_pin_location(client):
+	if _is_valid_ph_coordinate(client.geo_latitude, client.geo_longitude):
+		return float(client.geo_latitude), float(client.geo_longitude), 'Exact client address'
+	for sales_record in client.sales_records.all():
+		try:
+			technical_record = sales_record.technical_record
+		except CRMTechnicalRecord.DoesNotExist:
+			continue
+		parsed = _parse_crm_coordinate_text(technical_record.coordinates)
+		if parsed:
+			return parsed[0], parsed[1], 'Technical record coordinates'
+	city_key = _normalize_crm_location_key(client.city)
+	if city_key in _CRM_CITY_PIN_COORDINATES:
+		latitude, longitude = _CRM_CITY_PIN_COORDINATES[city_key]
+		return latitude, longitude, 'Approximate city center'
+	province_key = _CRM_CITY_TO_PROVINCE.get(city_key, city_key)
+	province_center = _crm_province_centers().get(province_key)
+	if province_center:
+		return province_center[0], province_center[1], 'Approximate province center'
+	return None
+
+
+def _crm_dashboard_clients_queryset(user):
+	queryset = CRMClient.objects.all()
+	if _has_any_permission(user, CRM_MANAGE_PERMISSIONS['clients']):
+		return queryset
+	user_full_name = (user.get_full_name() or '').strip()
+	user_username = (user.username or '').strip()
+	ownership_filter = Q(created_by=user)
+	if user_full_name:
+		ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
+	if user_username:
+		ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
+	return queryset.filter(ownership_filter).distinct()
+
+
+def _build_crm_dashboard_map_payload(clients_queryset):
+	pins = []
+	unmapped_client_count = 0
+	clients = clients_queryset.prefetch_related('sales_records__technical_record').order_by('id')
+	for client in clients:
+		location = _crm_client_pin_location(client)
+		if not location:
+			unmapped_client_count += 1
+			continue
+		latitude, longitude, accuracy = location
+		client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
+		pins.append(
+			{
+				'city': (client.city or '').strip() or 'Client Address',
+				'lat': latitude,
+				'lng': longitude,
+				'province': _CRM_CITY_TO_PROVINCE.get(_normalize_crm_location_key(client.city), _normalize_crm_location_key(client.city)),
+				'count': 1,
+				'client_name': client_name,
+				'location_accuracy': accuracy,
+				'clients': [
+					{
+						'id': client.pk,
+						'customer_id': client.customer_id,
+						'name': client_name,
+						'contact_number': (client.contact_number or '').strip(),
+						'email': (client.email or '').strip(),
+						'home_address': (client.home_address or '').strip(),
+						'city': (client.city or '').strip(),
+						'customer_type': client.get_customer_type_display(),
+						'systems': _crm_client_systems(client),
+					},
+				],
+			},
+		)
+	return {'pins': pins, 'unmapped_client_count': unmapped_client_count}
 
 
 def _find_crm_client_duplicates(first_name='', last_name='', home_address='', exclude_id=None):
@@ -2292,110 +2633,13 @@ def crm_dashboard(request):
 	if restricted_response:
 		return restricted_response
 
-	def _get_clients_queryset_for_dashboard(user):
-		queryset = CRMClient.objects.all()
-		can_view_all_clients = _has_any_permission(user, CRM_MANAGE_PERMISSIONS['clients'])
-		if can_view_all_clients:
-			return queryset
-		user_full_name = (user.get_full_name() or '').strip()
-		user_username = (user.username or '').strip()
-		ownership_filter = Q(created_by=user)
-		if user_full_name:
-			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
-		if user_username:
-			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
-		return queryset.filter(ownership_filter).distinct()
-
-	def _build_map_pins(clients_queryset):
-		city_to_province = {
-			'manila': 'metro-manila',
-			'quezon city': 'metro-manila',
-			'makati': 'metro-manila',
-			'taguig': 'metro-manila',
-			'pasig': 'metro-manila',
-			'pasay': 'metro-manila',
-			'caloocan': 'metro-manila',
-			'bacoor': 'cavite',
-			'imus': 'cavite',
-			'dasmarinas': 'cavite',
-			'cavite city': 'cavite',
-			'antipolo': 'rizal',
-			'san pedro': 'laguna',
-			'santa rosa': 'laguna',
-			'cebu city': 'cebu',
-			'mandaue': 'cebu',
-			'lapu-lapu': 'cebu',
-			'iloilo city': 'iloilo',
-			'bacolod': 'negros-occidental',
-			'cagayan de oro': 'misamis-oriental',
-			'davao city': 'davao-del-sur',
-			'general santos': 'south-cotabato',
-			'zamboanga city': 'zamboanga-del-sur',
-			'butuan': 'agusan-del-norte',
-			'naga': 'camarines-sur',
-			'baguio': 'benguet',
-		}
-
-		ph_city_pin_coords = {
-			'manila': {'lat': 14.5995, 'lng': 120.9842},
-			'quezon city': {'lat': 14.6760, 'lng': 121.0437},
-			'makati': {'lat': 14.5547, 'lng': 121.0244},
-			'taguig': {'lat': 14.5176, 'lng': 121.0509},
-			'pasig': {'lat': 14.5764, 'lng': 121.0851},
-			'pasay': {'lat': 14.5378, 'lng': 121.0014},
-			'caloocan': {'lat': 14.7566, 'lng': 121.0453},
-			'antipolo': {'lat': 14.6255, 'lng': 121.1245},
-			'bacoor': {'lat': 14.4624, 'lng': 120.9645},
-			'imus': {'lat': 14.4297, 'lng': 120.9367},
-			'dasmarinas': {'lat': 14.3294, 'lng': 120.9367},
-			'cavite city': {'lat': 14.4791, 'lng': 120.8970},
-			'san pedro': {'lat': 14.3595, 'lng': 121.0472},
-			'santa rosa': {'lat': 14.3122, 'lng': 121.1110},
-			'cebu city': {'lat': 10.3157, 'lng': 123.8854},
-			'mandaue': {'lat': 10.3231, 'lng': 123.9220},
-			'lapu-lapu': {'lat': 10.3103, 'lng': 123.9494},
-			'iloilo city': {'lat': 10.7202, 'lng': 122.5621},
-			'bacolod': {'lat': 10.6765, 'lng': 122.9511},
-			'cagayan de oro': {'lat': 8.4542, 'lng': 124.6319},
-			'davao city': {'lat': 7.1907, 'lng': 125.4553},
-			'general santos': {'lat': 6.1164, 'lng': 125.1716},
-			'zamboanga city': {'lat': 6.9214, 'lng': 122.0790},
-			'butuan': {'lat': 8.9475, 'lng': 125.5406},
-			'naga': {'lat': 13.6218, 'lng': 123.1948},
-			'baguio': {'lat': 16.4023, 'lng': 120.5960},
-		}
-
-		map_pins = []
-		for client in clients_queryset:
-			city_raw = (client.city or '').strip()
-			city_key = city_raw.casefold()
-			coord = None
-			if client.geo_latitude is not None and client.geo_longitude is not None:
-				coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
-			elif city_key in ph_city_pin_coords:
-				coord = ph_city_pin_coords[city_key]
-			else:
-				coord = {'lat': 12.8797, 'lng': 121.7740}
-			client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
-			map_pins.append(
-				{
-					'city': city_raw or 'Philippines',
-					'lat': coord['lat'],
-					'lng': coord['lng'],
-					'province': city_to_province.get(city_key, ''),
-					'count': 1,
-					'names': [client_name],
-				}
-			)
-		return map_pins
-
 	def _format_currency(value):
 		try:
 			return f'P {Decimal(value or 0):,.2f}'
 		except Exception:
 			return 'P 0.00'
 
-	clients_qs = _get_clients_queryset_for_dashboard(request.user)
+	clients_qs = _crm_dashboard_clients_queryset(request.user)
 	sales_qs = CRMSalesRecord.objects.filter(client__in=clients_qs).distinct()
 	technical_qs = CRMTechnicalRecord.objects.filter(
 		sales_record__client__in=clients_qs,
@@ -2454,7 +2698,7 @@ def crm_dashboard(request):
 			sum(1 for dt in created_datetimes if dt.year == today.year and dt.month == month_num)
 		)
 
-	map_pins = _build_map_pins(clients_qs)
+	map_payload = _build_crm_dashboard_map_payload(clients_qs)
 
 	total_leads = clients_qs.count()
 	active_sales_pipeline = sales_qs.exclude(
@@ -2610,7 +2854,8 @@ def crm_dashboard(request):
 				'year': {'labels': closed_lost_year_labels, 'values': closed_lost_year_values},
 			}
 		),
-		'crm_map_pins_json': dumps(map_pins),
+		'crm_map_pins_json': dumps(map_payload['pins']),
+		'crm_map_unmapped_client_count': map_payload['unmapped_client_count'],
 	}
 	return render(request, 'core/crm_dashboard.html', context)
 
@@ -2624,97 +2869,8 @@ def crm_dashboard_map_pins(request):
 	if restricted_response:
 		return restricted_response
 
-	queryset = CRMClient.objects.all()
-	can_view_all_clients = _has_any_permission(request.user, CRM_MANAGE_PERMISSIONS['clients'])
-	if not can_view_all_clients:
-		user_full_name = (request.user.get_full_name() or '').strip()
-		user_username = (request.user.username or '').strip()
-		ownership_filter = Q(created_by=request.user)
-		if user_full_name:
-			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_full_name)
-		if user_username:
-			ownership_filter |= Q(sales_records__assigned_sales__icontains=user_username)
-		queryset = queryset.filter(ownership_filter).distinct()
-
-	city_to_province = {
-		'manila': 'metro-manila',
-		'quezon city': 'metro-manila',
-		'makati': 'metro-manila',
-		'taguig': 'metro-manila',
-		'pasig': 'metro-manila',
-		'pasay': 'metro-manila',
-		'caloocan': 'metro-manila',
-		'bacoor': 'cavite',
-		'imus': 'cavite',
-		'dasmarinas': 'cavite',
-		'cavite city': 'cavite',
-		'antipolo': 'rizal',
-		'san pedro': 'laguna',
-		'santa rosa': 'laguna',
-		'cebu city': 'cebu',
-		'mandaue': 'cebu',
-		'lapu-lapu': 'cebu',
-		'iloilo city': 'iloilo',
-		'bacolod': 'negros-occidental',
-		'cagayan de oro': 'misamis-oriental',
-		'davao city': 'davao-del-sur',
-		'general santos': 'south-cotabato',
-		'zamboanga city': 'zamboanga-del-sur',
-		'butuan': 'agusan-del-norte',
-		'naga': 'camarines-sur',
-		'baguio': 'benguet',
-	}
-	ph_city_pin_coords = {
-		'manila': {'lat': 14.5995, 'lng': 120.9842},
-		'quezon city': {'lat': 14.6760, 'lng': 121.0437},
-		'makati': {'lat': 14.5547, 'lng': 121.0244},
-		'taguig': {'lat': 14.5176, 'lng': 121.0509},
-		'pasig': {'lat': 14.5764, 'lng': 121.0851},
-		'pasay': {'lat': 14.5378, 'lng': 121.0014},
-		'caloocan': {'lat': 14.7566, 'lng': 121.0453},
-		'antipolo': {'lat': 14.6255, 'lng': 121.1245},
-		'bacoor': {'lat': 14.4624, 'lng': 120.9645},
-		'imus': {'lat': 14.4297, 'lng': 120.9367},
-		'dasmarinas': {'lat': 14.3294, 'lng': 120.9367},
-		'cavite city': {'lat': 14.4791, 'lng': 120.8970},
-		'san pedro': {'lat': 14.3595, 'lng': 121.0472},
-		'santa rosa': {'lat': 14.3122, 'lng': 121.1110},
-		'cebu city': {'lat': 10.3157, 'lng': 123.8854},
-		'mandaue': {'lat': 10.3231, 'lng': 123.9220},
-		'lapu-lapu': {'lat': 10.3103, 'lng': 123.9494},
-		'iloilo city': {'lat': 10.7202, 'lng': 122.5621},
-		'bacolod': {'lat': 10.6765, 'lng': 122.9511},
-		'cagayan de oro': {'lat': 8.4542, 'lng': 124.6319},
-		'davao city': {'lat': 7.1907, 'lng': 125.4553},
-		'general santos': {'lat': 6.1164, 'lng': 125.1716},
-		'zamboanga city': {'lat': 6.9214, 'lng': 122.0790},
-		'butuan': {'lat': 8.9475, 'lng': 125.5406},
-		'naga': {'lat': 13.6218, 'lng': 123.1948},
-		'baguio': {'lat': 16.4023, 'lng': 120.5960},
-	}
-
-	map_pins = []
-	for client in queryset:
-		city_raw = (client.city or '').strip()
-		city_key = city_raw.casefold()
-		if client.geo_latitude is not None and client.geo_longitude is not None:
-			coord = {'lat': float(client.geo_latitude), 'lng': float(client.geo_longitude)}
-		elif city_key in ph_city_pin_coords:
-			coord = ph_city_pin_coords[city_key]
-		else:
-			coord = {'lat': 12.8797, 'lng': 121.7740}
-		client_name = f'{client.last_name}, {client.first_name}'.strip(', ').strip() or client.customer_id
-		map_pins.append(
-			{
-				'city': city_raw or 'Philippines',
-				'lat': coord['lat'],
-				'lng': coord['lng'],
-				'province': city_to_province.get(city_key, ''),
-				'count': 1,
-				'names': [client_name],
-			}
-		)
-	return JsonResponse({'pins': map_pins})
+	map_payload = _build_crm_dashboard_map_payload(_crm_dashboard_clients_queryset(request.user))
+	return JsonResponse(map_payload)
 
 
 _CRM_IMPORT_EXECUTOR = ThreadPoolExecutor(max_workers=2)
@@ -2825,6 +2981,17 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 		date_of_birth_raw = str(normalized.get('date_of_birth', '') or normalized.get('dob', '')).strip()
 		home_address = str(normalized.get('home_address', '')).strip()
 		city = str(normalized.get('city', '')).strip()
+		latitude_raw = _pick(normalized, 'geo_latitude', 'latitude', 'lat')
+		longitude_raw = _pick(normalized, 'geo_longitude', 'longitude', 'lng', 'lon')
+		try:
+			geo_latitude = float(latitude_raw)
+			geo_longitude = float(longitude_raw)
+		except (TypeError, ValueError):
+			geo_latitude = None
+			geo_longitude = None
+		if not _is_valid_ph_coordinate(geo_latitude, geo_longitude):
+			geo_latitude = None
+			geo_longitude = None
 		notes = str(
 			normalized.get('notes', '')
 			or normalized.get('note', '')
@@ -2863,6 +3030,8 @@ def _process_crm_import_payload(rows, columns, user, column_mappings=None):
 			date_of_birth=date_of_birth,
 			home_address=home_address,
 			city=city,
+			geo_latitude=geo_latitude,
+			geo_longitude=geo_longitude,
 			notes=notes,
 			customer_type=customer_type,
 			created_by=user,
